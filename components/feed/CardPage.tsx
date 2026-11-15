@@ -9,6 +9,7 @@ import {
 } from "./cards";
 import type { CardContent, Tone } from "./incident";
 import { StatusBadge } from "./StatusBadge";
+import { plainText } from "./plainWords";
 
 const TONE_COLORS: Record<Tone, string> = {
   default: "#333333",
@@ -77,7 +78,7 @@ export function CardPage({
                 </Text>
               </View>
               <Text style={styles.summary} testID={`step-summary-${step.key}`}>
-                {step.currentAttempt?.summary ?? ""}
+                {plainText(step.currentAttempt?.summary ?? "", Date.now())}
               </Text>
             </View>
           ))

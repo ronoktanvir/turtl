@@ -85,7 +85,7 @@ export const handler: StepHandler = {
         facts["journey.errorCode"] === "RECOMMENDATIONS_TIMEOUT" &&
         facts["flags.recommendationsEnabled"] === true);
     const history = remembered
-      ? `This recovery worked before: ${remembered.memory.timesVerified} verified recovery outcome(s), last verified ${new Date(remembered.verification.completedAt).toISOString()}. Its conditions were rechecked against this case's fresh observations. A new verification is still required, and the owner is asked first unless their permission covers this exact action.`
+      ? `This recovery worked before and was checked ${remembered.memory.timesVerified} time${remembered.memory.timesVerified === 1 ? "" : "s"}. Its conditions were rechecked against this case's fresh observations, and the service is checked again after the change.`
       : "";
     const failed = facts["errors.failedBookings"];
     const total = facts["errors.totalBookings"];

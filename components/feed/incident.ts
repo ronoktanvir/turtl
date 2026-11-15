@@ -1,6 +1,7 @@
 import type { FunctionReturnType } from "convex/server";
 import type { api } from "../../convex/_generated/api";
 import { timeAgo, type CardId } from "./cards";
+import { checkInWords, differencesInWords, flagName, isMirror, plainText, type Check } from "./plainWords";
 
 // What the six cards say for a case that has a journey (a real incident). Content only: CardPage draws it.
 
@@ -297,14 +298,27 @@ export function incidentContent(data: CaseCards, now: number): Partial<Record<Ca
 
   const learned = data.learnedMemory;
   const learnStep = step("learn");
-  result["what-we-learned"] = learned
-    ? [
-        { heading: "Saved for next time", rows: [{ text: learned.cause, testID: "learned-cause" }] },
-        { heading: "When it applies", rows: learned.conditions.map((text) => ({ text })) },
-        ...(learned.notWhen.length ? [{ heading: "When it does not", rows: learned.notWhen.map((text) => ({ text })) }] : []),
-      ]
-    : [
-        {
+  const offer = data.permissionOffer;
+  const rulesOf = (memory: { conditionChecks: Check[]; notWhenChecks: Check[] }): CardContent => {
+    const extra = memory.notWhenChecks.filter((check) => !isMirror(check, memory.conditionChecks));
+    return [
+      {
+        heading: "When turtl uses it",
+        rows: [
+          ...memory.conditionChecks.map((check, i) => ({ text: `${checkInWords(check)}.`, testID: `learned-condition-${i}` })),
+          { text: "It is not used if any of these is different, or if one of them can't be read.", tone: "muted" as Tone },
+        ],
+      },
+      ...(extra.length
+        ? [{ heading: "Also never when", rows: extra.map((check) => ({ text: `${checkInWords(check)}.` })) }]
+        : []),
+    ];
+  };
+  const rulesMemory = learned ?? (offer && data.case.status === "restored" ? data.matchedMemory : null);
+  result["what-we-learned"] = [
+    learned
+      ? { heading: "Saved for next time", rows: [{ text: learned.cause, testID: "learned-cause" }] }
+      : {
           heading: "Saved for next time",
           rows: [
             {
@@ -318,56 +332,42 @@ export function incidentContent(data: CaseCards, now: number): Partial<Record<Ca
             },
           ],
         },
-      ];
+    ...(rulesMemory ? rulesOf(rulesMemory) : []),
+  ];
 
-  const offer = data.permissionOffer;
   if (offer && data.case.status === "restored") {
-    const values = offer.parameters.map((p) => `${p.name} = ${JSON.stringify(p.value)}`).join(", ");
-    const title = data.proposal?.options.find((o) => o.actionType === offer.actionType)?.title ?? offer.actionType;
-    const what = `${title} (${values}${offer.target ? ` on ${offer.target.resourceRef}, ${offer.target.environment}` : ""})`;
-    const ends = `It ends when the booking app's revision changes from ${offer.active?.grantedAtRevision ?? offer.appRevision ?? "the one checked"}, or when you revoke it.`;
+    const flag = offer.parameters.find((p) => p.name === "flag")?.value;
+    const value = offer.parameters.find((p) => p.name === "value")?.value;
+    const actionWords =
+      typeof flag === "string" && typeof value === "boolean"
+        ? `turn ${flagName(flag)} ${value ? "on" : "off"} in the booking app`
+        : (data.proposal?.options.find((o) => o.actionType === offer.actionType)?.title ?? offer.actionType);
+    const ends = "It ends when the booking app moves to a new version, when a run doesn't restore service, or when you revoke it.";
     const sections: CardContent = [];
     if (offer.active) {
       sections.push({
         heading: "Your permission",
         rows: [
-          { text: `turtl may run this recovery on its own: ${what}.`, testID: "permission-active" },
-          { text: `Granted ${when(offer.active.grantedAt, now)}. Used ${offer.active.used} of ${offer.active.maxAttempts} times.` },
+          { text: `turtl may ${actionWords} on its own, only when everything under "When turtl uses it" holds.`, testID: "permission-active" },
+          { text: `Granted ${when(offer.active.grantedAt, now)}. Used ${offer.active.used} of ${offer.active.maxAttempts} runs.` },
           { text: ends, tone: "muted" },
         ],
       });
     } else if (offer.timesVerified >= offer.minVerified && !offer.invalidated) {
-      sections.push(
-        {
-          heading: "Let turtl handle this on its own next time?",
-          rows: [
-            {
-              text: `This recovery has worked and been verified ${offer.timesVerified} times. You can let turtl run it without asking, only under these rules.`,
-              testID: "permission-offer",
-            },
-            { label: "The one action", text: what },
-          ],
-        },
-        ...(data.learnedMemory?._id === offer.memoryId
-          ? [
-              {
-                heading: "Only when",
-                rows: [{ text: 'Every check under "When it applies" holds on fresh observations, and none under "When it does not" does. An unknown fact counts as not holding.' }],
-              },
-            ]
-          : [
-              { heading: "Only when all of these hold", rows: offer.conditions.map((text) => ({ text })) },
-              ...(offer.notWhen.length ? [{ heading: "Never when any of these hold", rows: offer.notWhen.map((text) => ({ text })) }] : []),
-            ]),
-        {
-          heading: "Limits",
-          rows: [
-            { text: `At most ${offer.maxAttempts} times. Failed and unclear runs count too.` },
-            { text: ends },
-            { text: "Every run is still checked afterwards. If a run does not restore service, the permission ends and turtl asks you next time." },
-          ],
-        },
-      );
+      sections.push({
+        heading: "Let turtl handle this on its own next time?",
+        rows: [
+          {
+            text: `This recovery has worked and been checked ${offer.timesVerified} times. You can let turtl run it without asking you first.`,
+            testID: "permission-offer",
+          },
+          { label: "The one action", text: `${actionWords[0].toUpperCase()}${actionWords.slice(1)}.` },
+          { label: "Only when", text: 'Everything under "When turtl uses it" holds, checked fresh each time.' },
+          { label: "Limit", text: `At most ${offer.maxAttempts} runs. Failed and unclear runs count too.` },
+          { text: ends },
+          { text: "Every run is still checked afterwards, and turtl tells you when it has handled one.", tone: "muted" },
+        ],
+      });
     }
     if (offer.ended) {
       sections.push({
@@ -378,5 +378,31 @@ export function incidentContent(data: CaseCards, now: number): Partial<Record<Ca
     result["what-we-learned"] = [...(result["what-we-learned"] ?? []), ...sections];
   }
 
+  if (!data.case.matchedMemoryId) {
+    const differences = evidence
+      .filter((e) => e.kind === "memory_match" && e.title.includes("does not apply"))
+      .map((e) => differencesInWords(e.body ?? ""))
+      .filter((list) => list.length > 0)
+      .sort((a, b) => a.length - b.length)[0] ?? [];
+    if (differences.length) {
+      result["what-we-found"] = [
+        ...(result["what-we-found"] ?? []),
+        {
+          heading: "A saved recovery was not reused",
+          rows: [
+            { text: "turtl has a saved recovery for a failure like this, but this time is different:" },
+            ...differences.map((text, i) => ({ text: `${text}.`, testID: `found-difference-${i}` })),
+            { text: "So the saved recovery was not reused, and the investigation ran in full.", tone: "muted" },
+          ],
+        },
+      ];
+    }
+  }
+
+  for (const sections of Object.values(result)) {
+    for (const section of sections ?? []) {
+      for (const row of section.rows) row.text = plainText(row.text, now);
+    }
+  }
   return result;
 }
