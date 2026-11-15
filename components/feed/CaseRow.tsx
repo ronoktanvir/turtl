@@ -14,6 +14,7 @@ export function CaseRow({
     _id: string;
     _creationTime: number;
     title: string;
+    impact: string;
     kind: CaseKind;
     raisedBy: RaisedBy;
     status: CaseStatus;
@@ -26,6 +27,9 @@ export function CaseRow({
       <Pressable style={styles.row} testID="case-row" accessibilityRole="button">
         <Text style={styles.title} testID="case-row-title">
           {item.title}
+        </Text>
+        <Text style={styles.impact} numberOfLines={1} testID="case-row-impact">
+          {item.impact}
         </Text>
         <CaseKindChip kind={item.kind} raisedBy={item.raisedBy} testIDPrefix="case-row" />
         <View style={styles.meta}>
@@ -54,6 +58,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFFFFF",
   },
   title: { fontSize: 17, fontWeight: "600", color: "#111111" },
+  impact: { fontSize: 14, color: "#333333" },
   meta: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   ago: { fontSize: 14, color: "#555555" },
 });

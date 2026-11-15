@@ -3,6 +3,7 @@ import { useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { api } from "../../convex/_generated/api";
+import { CLOSED_CASE_STATUSES } from "../../convex/constants";
 import { useDevActions } from "./useDevActions";
 
 const clientEnabled = __DEV__ || process.env.EXPO_PUBLIC_DEV_TOOLS === "1";
@@ -20,7 +21,9 @@ function DevToolsOverlay() {
 
   if (!status?.enabled) return null;
 
-  const unfinished = status.cases.find((c) => c.case.status === "open");
+  const unfinished = status.cases.find(
+    (c) => !(CLOSED_CASE_STATUSES as readonly string[]).includes(c.case.status),
+  );
   const totalSteps = status.cases.reduce((n, c) => n + c.steps.length, 0);
   const doneSteps = status.cases.reduce(
     (n, c) =>
