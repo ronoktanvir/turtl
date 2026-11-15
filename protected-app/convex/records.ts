@@ -1,0 +1,53 @@
+import { internalMutation, internalQuery } from "./_generated/server";
+import { v } from "convex/values";
+import { bookingError } from "./schema";
+import { revision } from "./catalog";
+
+export const saveBooking = internalMutation({
+  args: { serviceId: v.string(), date: v.string(), time: v.string(), fixtureRunId: v.optional(v.string()) },
+  handler: async (ctx, args) => {
+    const bookingId = await ctx.db.insert("bookings", { ...args, createdAt: Date.now() });
+    if (!args.fixtureRunId) {
+      await ctx.db.insert("bookingAttempts", {
+        serviceId: args.serviceId, date: args.date, time: args.time,
+        timestamp: Date.now(), status: "passed", revision: revision(),
+      });
+    }
+    return bookingId;
+  },
+});
+
+export const saveFailure = internalMutation({
+  args: { serviceId: v.string(), date: v.string(), time: v.string(), error: bookingError },
+  handler: (ctx, args) => ctx.db.insert("bookingAttempts", {
+    ...args, timestamp: Date.now(), status: "failed", revision: revision(),
+  }),
+});
+
+export const readBooking = internalQuery({
+  args: { bookingId: v.id("bookings") },
+  handler: (ctx, args) => ctx.db.get(args.bookingId),
+});
+
+export const cleanup = internalMutation({
+  args: { fixtureRunId: v.string() },
+  handler: async (ctx, args) => {
+    const rows = await ctx.db.query("bookings").withIndex("by_fixture", (q) => q.eq("fixtureRunId", args.fixtureRunId)).collect();
+    for (const row of rows) await ctx.db.delete(row._id);
+    return rows.length;
+  },
+});
+
+export const impact = internalQuery({
+  args: { since: v.number(), until: v.number() },
+  handler: async (ctx, args) => {
+    const attempts = await ctx.db.query("bookingAttempts").withIndex("by_timestamp", (q) => q.gte("timestamp", args.since).lte("timestamp", args.until)).order("desc").take(1001);
+    const sample = attempts.slice(0, 1000);
+    const failures = sample.filter((a) => a.status === "failed");
+    return {
+      window: { since: args.since, until: args.until, sampleLimit: 1000, truncated: attempts.length > 1000 },
+      counts: { totalBookings: sample.length, failedBookings: failures.length, successfulBookings: sample.length - failures.length, errorRate: sample.length ? failures.length / sample.length : 0 },
+      errors: failures.slice(0, 20).map((a) => ({ id: a._id, timestamp: a.timestamp, revision: a.revision, serviceId: a.serviceId, date: a.date, time: a.time, ...a.error! })),
+    };
+  },
+});
