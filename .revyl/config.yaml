@@ -1,0 +1,37 @@
+project:
+    id: 3702dae9-ab4b-4538-ae3a-1b9193d74609
+session:
+    idle_timeout_seconds: 1800
+build:
+    framework: expo
+    env:
+        EXPO_PUBLIC_CONVEX_URL: https://patient-kudu-956.convex.cloud
+        EXPO_PUBLIC_DEV_TOOLS: "1"
+    profiles:
+        pull-request:
+            ios:
+                app_id: 15e9c542-a0bd-4560-830b-4894d9544026
+                setup_commands:
+                    - npm ci --fetch-retries=5 --fetch-retry-mintimeout=20000 --fetch-retry-maxtimeout=120000
+                    - npx expo prebuild --platform ios
+                build_commands:
+                    - cd ios && xcodebuild -workspace turtl.xcworkspace -scheme turtl -configuration Release -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath build ARCHS=arm64 CODE_SIGNING_ALLOWED=NO
+                output_path: ios/build/Build/Products/Release-iphonesimulator/turtl.app
+pr_review:
+    enabled: true
+    build:
+        kind: revyl
+        profile: pull-request
+    proof_of_changes:
+        enabled: true
+        harness:
+            kind: revyl
+        always_verify:
+            - The app launches to its first screen.
+        system_prompt: |
+            The app starts with no data. To get some, tap the "Dev" pill at the bottom right of every screen (testID dev-tools-toggle) to open the dev tools panel. In it:
+            - New sample cases (testID dev-new-sample) creates one case of each kind: Outage, Bug report, Feature request.
+            - Advance (testID dev-advance) moves one open case forward by one step.
+            - Auto-run (testID dev-auto-run) takes every step of every sample case from pending to done in about 25 seconds.
+            - Reset samples (testID dev-reset) removes the sample cases.
+            Create sample cases before you judge the case feed or a case screen, and tap the pill again to close the panel when it covers what you are checking. When you finish, open the panel and tap Reset samples.
