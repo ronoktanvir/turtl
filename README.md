@@ -1,6 +1,6 @@
 # turtl
 
-turtl is a mobile on-call app for people who own a live app and have no operations team. It tracks each incident as a series of steps, from detecting a problem to learning from it. `turtl` is the working name.
+turtl is a mobile on-call app for people who own a live app and have no operations team. It tracks each case (an outage, a bug report, or a feature request) as a series of steps, from detecting a problem to learning from it. `turtl` is the working name.
 
 ## Stack
 
@@ -20,6 +20,6 @@ The app reads the backend URL from `EXPO_PUBLIC_CONVEX_URL`. `npx convex dev` wr
 
 ## Data shapes
 
-The `incidents` and `steps` tables are defined in `convex/schema.ts`. The stage list, statuses, validators, and types are defined once in `convex/constants.ts`, which both the Convex functions and the app import. Do not redefine them elsewhere.
+The `cases` and `steps` tables are defined in `convex/schema.ts`. The stage list, statuses, validators, and types are defined once in `convex/constants.ts`, which both the Convex functions and the app import. Do not redefine them elsewhere.
 
 `convex/_generated/` is committed; regenerate it with `npx convex dev` when you change the schema or functions.
