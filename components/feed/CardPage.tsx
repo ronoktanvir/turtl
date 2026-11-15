@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 import {
   CARD_STATUS_COLORS,
@@ -6,14 +7,27 @@ import {
   STEP_STATUS_LABELS,
   type buildCards,
 } from "./cards";
+import type { CardContent, Tone } from "./incident";
 import { StatusBadge } from "./StatusBadge";
+
+const TONE_COLORS: Record<Tone, string> = {
+  default: "#333333",
+  muted: "#555555",
+  good: CARD_STATUS_COLORS.done,
+  bad: CARD_STATUS_COLORS.failed,
+  warn: "#B25E00",
+};
 
 export function CardPage({
   card,
   width,
+  content,
+  footer,
 }: {
   card: ReturnType<typeof buildCards>[number];
   width: number;
+  content?: CardContent;
+  footer?: ReactNode;
 }) {
   return (
     <View style={{ width, padding: 16 }}>
@@ -26,7 +40,26 @@ export function CardPage({
           color={CARD_STATUS_COLORS[card.status]}
           testID={`card-status-${card.id}`}
         />
-        <Text style={styles.copy}>{card.copy}</Text>
+        {content ? (
+          content.map((section) => (
+            <View key={section.heading} style={styles.section}>
+              <Text style={styles.heading}>{section.heading}</Text>
+              {section.rows.map((row, index) => (
+                <Text
+                  key={index}
+                  style={[styles.copy, { color: TONE_COLORS[row.tone ?? "default"] }]}
+                  testID={row.testID}
+                >
+                  {row.label ? <Text style={styles.label}>{row.label}: </Text> : null}
+                  {row.text}
+                </Text>
+              ))}
+            </View>
+          ))
+        ) : (
+          <Text style={styles.copy}>{card.copy}</Text>
+        )}
+        {footer}
         {card.steps.length === 0 ? (
           <Text style={styles.empty}>No steps yet.</Text>
         ) : (
@@ -65,6 +98,9 @@ const styles = StyleSheet.create({
   content: { padding: 20, gap: 12 },
   name: { fontSize: 24, fontWeight: "700", color: "#111111" },
   copy: { fontSize: 16, lineHeight: 22, color: "#333333" },
+  section: { gap: 4 },
+  heading: { fontSize: 13, fontWeight: "700", color: "#555555", textTransform: "uppercase" },
+  label: { fontWeight: "600" },
   empty: { fontSize: 14, color: "#555555" },
   step: { gap: 6, paddingTop: 12, borderTopWidth: StyleSheet.hairlineWidth, borderColor: "#C7C7CC" },
   stage: { fontSize: 16, fontWeight: "600", color: "#111111" },

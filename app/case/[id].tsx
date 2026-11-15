@@ -1,6 +1,6 @@
 import { useQuery } from "convex/react";
 import { Link, useLocalSearchParams } from "expo-router";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   FlatList,
   Pressable,
@@ -16,15 +16,24 @@ import { api } from "../../convex/_generated/api";
 import { buildCards, CASE_STATUS_COLORS, CASE_STATUS_LABELS } from "../../components/feed/cards";
 import { CardPage } from "../../components/feed/CardPage";
 import { CaseKindChip } from "../../components/feed/CaseKindChip";
+import { DecisionPanel } from "../../components/feed/DecisionPanel";
+import { incidentContent } from "../../components/feed/incident";
 import { StatusBadge } from "../../components/feed/StatusBadge";
 
 export default function CaseScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const item = useQuery(api.cases.get, { id });
+  const data = useQuery(api.cases.cards, { id });
+  const item = data === undefined ? undefined : (data?.case ?? null);
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const [page, setPage] = useState(0);
-  const list = useRef<FlatList>(null);
+  const [now, setNow] = useState(() => Date.now());
+  const list = useRef<FlatList<ReturnType<typeof buildCards>[number]>>(null);
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(timer);
+  }, []);
 
   const onScrollEnd = (e: NativeSyntheticEvent<NativeScrollEvent>) =>
     setPage(Math.round(e.nativeEvent.contentOffset.x / width));
@@ -34,7 +43,20 @@ export default function CaseScreen() {
     setPage(index);
   };
 
-  const cards = item ? buildCards(item.steps) : [];
+  const cards = data ? buildCards(data.steps) : [];
+  const content = data ? incidentContent(data, now) : null;
+  const proposal = data?.proposal;
+  const option = proposal?.options.find((o) => o.recommended) ?? proposal?.options[0];
+  const decision =
+    data?.case.status === "waiting_for_owner" && proposal?.decisionStatus === "pending" && option ? (
+      <DecisionPanel
+        key={`${proposal._id}:${proposal.version}`}
+        proposalId={proposal._id}
+        version={proposal.version}
+        optionKey={option.key}
+        optionTitle={option.title}
+      />
+    ) : null;
 
   return (
     <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
@@ -71,7 +93,15 @@ export default function CaseScreen() {
             ref={list}
             data={cards}
             keyExtractor={(card) => card.id}
-            renderItem={({ item }) => <CardPage card={item} width={width} />}
+            renderItem={({ item: card }) => (
+              <CardPage
+                card={card}
+                width={width}
+                content={content?.[card.id]}
+                footer={card.id === "recommended-action" ? decision : null}
+              />
+            )}
+            extraData={[content, decision]}
             horizontal
             pagingEnabled
             showsHorizontalScrollIndicator={false}

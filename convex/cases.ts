@@ -33,8 +33,9 @@ export const get = query({
   },
 });
 
-// The six cards for one case: the case, its steps with their current attempts, evidence, the latest
-// proposal, the action, verifications and agent runs. Null when the id is not a case.
+// The six cards for one case: the case, its steps with their current attempts, every attempt of the
+// execute step, evidence, the latest proposal, the action, verifications, agent runs, the memory this
+// case matched (with when it was last verified) and the memory learned from it. Null when the id is not a case.
 export const cards = query({
   args: { id: v.string() },
   handler: async (ctx, args) => {
@@ -42,10 +43,28 @@ export const cards = query({
     if (!id) return null;
     const row = await ctx.db.get(id);
     if (!row) return null;
+    const steps = await loadSteps(ctx, id);
+    const executeStep = steps.find((s) => s.purpose === "authorize_and_execute");
+    const matchedMemory = row.matchedMemoryId ? await ctx.db.get(row.matchedMemoryId) : null;
+    const matchedVerification = matchedMemory ? await ctx.db.get(matchedMemory.verificationId) : null;
     return {
       case: row,
       journey: row.journeyId ? await ctx.db.get(row.journeyId) : null,
-      steps: await loadSteps(ctx, id),
+      steps,
+      executeAttempts: executeStep
+        ? await ctx.db
+            .query("stepAttempts")
+            .withIndex("by_step", (q) => q.eq("stepId", executeStep._id))
+            .collect()
+        : [],
+      matchedMemory: matchedMemory && {
+        ...matchedMemory,
+        lastVerifiedAt: matchedVerification?.completedAt ?? null,
+      },
+      learnedMemory: await ctx.db
+        .query("recoveryMemories")
+        .withIndex("by_source_case", (q) => q.eq("sourceCaseId", id))
+        .first(),
       evidence: await ctx.db
         .query("evidence")
         .withIndex("by_case", (q) => q.eq("caseId", id))

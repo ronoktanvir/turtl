@@ -25,6 +25,11 @@ export function CaseRow({
   return (
     <Link href={{ pathname: "/case/[id]", params: { id: item._id } }} asChild>
       <Pressable style={styles.row} testID="case-row" accessibilityRole="button">
+        {item.status === "waiting_for_owner" && (
+          <Text style={[styles.needsYou, { color: CASE_STATUS_COLORS.waiting_for_owner }]} testID="case-row-needs-you">
+            Needs your decision
+          </Text>
+        )}
         <Text style={styles.title} testID="case-row-title">
           {item.title}
         </Text>
@@ -58,6 +63,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFFFFF",
   },
   title: { fontSize: 17, fontWeight: "600", color: "#111111" },
+  needsYou: { fontSize: 13, fontWeight: "700", textTransform: "uppercase" },
   impact: { fontSize: 14, color: "#333333" },
   meta: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   ago: { fontSize: 14, color: "#555555" },
