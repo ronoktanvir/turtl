@@ -22,6 +22,8 @@ import type * as memory_flow from "../memory/flow.js";
 import type * as memory_records from "../memory/records.js";
 import type * as memory_service from "../memory/service.js";
 import type * as monitor from "../monitor.js";
+import type * as permissionFixtures from "../permissionFixtures.js";
+import type * as permissions from "../permissions.js";
 import type * as protectedApp_client from "../protectedApp/client.js";
 import type * as protectedApp_records from "../protectedApp/records.js";
 import type * as protectedApp_registry from "../protectedApp/registry.js";
@@ -61,6 +63,8 @@ declare const fullApi: ApiFromModules<{
   "memory/records": typeof memory_records;
   "memory/service": typeof memory_service;
   monitor: typeof monitor;
+  permissionFixtures: typeof permissionFixtures;
+  permissions: typeof permissions;
   "protectedApp/client": typeof protectedApp_client;
   "protectedApp/records": typeof protectedApp_records;
   "protectedApp/registry": typeof protectedApp_registry;

@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import { mutation, type MutationCtx } from "./_generated/server";
 import type { Actor, ParameterConstraint, Parameters } from "./constants";
 import { revisionOf } from "./protectedApp/client";
@@ -30,7 +30,7 @@ async function undecidedProposal(ctx: MutationCtx, proposalId: Id<"proposals">, 
   return proposal;
 }
 
-function checkParameters(parameters: Parameters, constraints: ParameterConstraint[]) {
+export function checkParameters(parameters: Parameters, constraints: ParameterConstraint[]) {
   const names = parameters.map((p) => p.name);
   if (new Set(names).size !== names.length) throw new Error("A parameter is given twice.");
   for (const parameter of parameters) {
@@ -53,54 +53,71 @@ function checkParameters(parameters: Parameters, constraints: ParameterConstrain
   }
 }
 
-// Freezes the proposal, records the action with the payload copied from the catalog now, then resumes the runner.
+// Freezes the proposal and records the action with the payload copied from the catalog now. The owner's
+// approval and a run under the owner's permission both go through here.
+export async function freezeAndRecordAction(
+  ctx: MutationCtx,
+  proposal: Doc<"proposals">,
+  optionKey: string,
+  by: { actor: Actor; requestedBy: "owner" | "auto"; permissionId?: Id<"permissions"> },
+) {
+  const proposalId = proposal._id;
+  const option = proposal.options.find((o) => o.key === optionKey);
+  if (!option) throw new Error(`The proposal has no option "${optionKey}".`);
+  const entry = await ctx.db.get(option.actionCatalogId);
+  const row = await ctx.db.get(proposal.caseId);
+  if (!entry || !row || entry.appId !== row.appId || entry.type !== option.actionType) {
+    throw new Error("The option's action is not in this app's catalog.");
+  }
+  const app = await ctx.db.get(row.appId);
+  if (!app?.productionUrl) throw new Error("The case's app has no control URL registered.");
+  checkParameters(option.parameters, entry.parameterConstraints);
+
+  const now = Date.now();
+  await ctx.db.patch(proposalId, {
+    decisionStatus: "approved",
+    chosenKey: optionKey,
+    chosenBy: by.actor,
+    decidedAt: now,
+  });
+  const facts = (await loadSteps(ctx, proposal.caseId)).find((s) => s.purpose === "gather_context")
+    ?.currentAttempt?.output?.facts as Record<string, unknown> | undefined;
+  const appRevision = typeof facts?.["app.revision"] === "string" ? facts["app.revision"] : null;
+  const actionId = await ctx.db.insert("actions", {
+    caseId: proposal.caseId,
+    proposalId,
+    approvedProposalVersion: proposal.version,
+    optionKey,
+    type: entry.type,
+    requestedBy: by.requestedBy,
+    actor: by.actor,
+    ...(by.permissionId && { permissionId: by.permissionId }),
+    environment: option.target.environment,
+    revision: revisionOf(appRevision, app.productionUrl),
+    executionPayload: {
+      actionCatalogId: entry._id,
+      type: entry.type,
+      target: option.target,
+      parameters: option.parameters,
+      config: entry.config,
+      acceptanceCriteria: option.acceptanceCriteria,
+      checkRefs: option.checkRefs,
+    },
+    status: "pending",
+    idempotencyKey: `${proposalId}:v${proposal.version}:${optionKey}`,
+    requestedAt: now,
+  });
+  return actionId;
+}
+
+// The owner's approval: freezes the proposal, records the action, then resumes the runner.
 export const approve = mutation({
   args: { proposalId: v.id("proposals"), version: v.number(), optionKey: v.string() },
   handler: async (ctx, { proposalId, version, optionKey }) => {
     const proposal = await undecidedProposal(ctx, proposalId, version);
-    const option = proposal.options.find((o) => o.key === optionKey);
-    if (!option) throw new Error(`The proposal has no option "${optionKey}".`);
-    const entry = await ctx.db.get(option.actionCatalogId);
-    const row = await ctx.db.get(proposal.caseId);
-    if (!entry || !row || entry.appId !== row.appId || entry.type !== option.actionType) {
-      throw new Error("The option's action is not in this app's catalog.");
-    }
-    const app = await ctx.db.get(row.appId);
-    if (!app?.productionUrl) throw new Error("The case's app has no control URL registered.");
-    checkParameters(option.parameters, entry.parameterConstraints);
-
-    const now = Date.now();
-    await ctx.db.patch(proposalId, {
-      decisionStatus: "approved",
-      chosenKey: optionKey,
-      chosenBy: SOLO_OWNER,
-      decidedAt: now,
-    });
-    const facts = (await loadSteps(ctx, proposal.caseId)).find((s) => s.purpose === "gather_context")
-      ?.currentAttempt?.output?.facts as Record<string, unknown> | undefined;
-    const appRevision = typeof facts?.["app.revision"] === "string" ? facts["app.revision"] : null;
-    const actionId = await ctx.db.insert("actions", {
-      caseId: proposal.caseId,
-      proposalId,
-      approvedProposalVersion: proposal.version,
-      optionKey,
-      type: entry.type,
-      requestedBy: "owner",
+    const actionId = await freezeAndRecordAction(ctx, proposal, optionKey, {
       actor: SOLO_OWNER,
-      environment: option.target.environment,
-      revision: revisionOf(appRevision, app.productionUrl),
-      executionPayload: {
-        actionCatalogId: entry._id,
-        type: entry.type,
-        target: option.target,
-        parameters: option.parameters,
-        config: entry.config,
-        acceptanceCriteria: option.acceptanceCriteria,
-        checkRefs: option.checkRefs,
-      },
-      status: "pending",
-      idempotencyKey: `${proposalId}:v${proposal.version}:${optionKey}`,
-      requestedAt: now,
+      requestedBy: "owner",
     });
     await approveCase(ctx, proposal.caseId);
     return { actionId };

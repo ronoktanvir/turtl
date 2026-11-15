@@ -19,6 +19,7 @@ export function CaseRow({
     raisedBy: RaisedBy;
     status: CaseStatus;
     steps: FeedStep[];
+    handledUnderPermission?: boolean;
   };
   now: number;
 }) {
@@ -28,6 +29,11 @@ export function CaseRow({
         {item.status === "waiting_for_owner" && (
           <Text style={[styles.needsYou, { color: CASE_STATUS_COLORS.waiting_for_owner }]} testID="case-row-needs-you">
             Needs your decision
+          </Text>
+        )}
+        {item.handledUnderPermission && (
+          <Text style={[styles.needsYou, { color: CASE_STATUS_COLORS.restored }]} testID="case-row-auto">
+            Handled under your permission
           </Text>
         )}
         <Text style={styles.title} testID="case-row-title">

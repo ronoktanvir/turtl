@@ -171,7 +171,25 @@ export function incidentContent(data: CaseCards, now: number): Partial<Record<Ca
         ],
       });
     }
-    if (proposal.decisionStatus !== "pending") {
+    if (data.permissionNotRun && proposal.decisionStatus === "pending") {
+      sections.push({
+        heading: "Why turtl did not run it on its own",
+        rows: [{ text: data.permissionNotRun, tone: "warn", testID: "action-not-run" }],
+      });
+    }
+    const run = data.runPermission;
+    if (run && proposal.chosenBy?.kind === "auto") {
+      sections.push({
+        heading: "Ran under your permission",
+        rows: [
+          {
+            text: `turtl ran this on its own under the permission you granted ${when(run.grantedAt, now)}. This was use ${run.use} of ${run.maxAttempts}. You were not asked this time.`,
+            tone: "good",
+            testID: "action-permission",
+          },
+        ],
+      });
+    } else if (proposal.decisionStatus !== "pending") {
       sections.push({
         heading: "Your decision",
         rows: [
@@ -195,7 +213,9 @@ export function incidentContent(data: CaseCards, now: number): Partial<Record<Ca
 
   if (action) {
     const status = ACTION_STATUS[action.status] ?? { text: action.status, tone: "default" as Tone };
-    const times: ContentRow[] = [{ label: "Approved", text: when(action.requestedAt, now) }];
+    const times: ContentRow[] = [
+      { label: action.requestedBy === "auto" ? "Started under your permission" : "Approved", text: when(action.requestedAt, now) },
+    ];
     if (action.startedAt) times.push({ label: "Started", text: when(action.startedAt, now) });
     if (action.completedAt) times.push({ label: "Finished", text: when(action.completedAt, now) });
     const attempts = (data.executeAttempts ?? [])
@@ -299,6 +319,55 @@ export function incidentContent(data: CaseCards, now: number): Partial<Record<Ca
           ],
         },
       ];
+
+  const offer = data.permissionOffer;
+  if (offer && data.case.status === "restored") {
+    const values = offer.parameters.map((p) => `${p.name} = ${JSON.stringify(p.value)}`).join(", ");
+    const title = data.proposal?.options.find((o) => o.actionType === offer.actionType)?.title ?? offer.actionType;
+    const what = `${title} (${values}${offer.target ? ` on ${offer.target.resourceRef}, ${offer.target.environment}` : ""})`;
+    const ends = `It ends when the booking app's revision changes from ${offer.active?.grantedAtRevision ?? offer.appRevision ?? "the one checked"}, or when you revoke it.`;
+    const sections: CardContent = [];
+    if (offer.active) {
+      sections.push({
+        heading: "Your permission",
+        rows: [
+          { text: `turtl may run this recovery on its own: ${what}.`, testID: "permission-active" },
+          { text: `Granted ${when(offer.active.grantedAt, now)}. Used ${offer.active.used} of ${offer.active.maxAttempts} times.` },
+          { text: ends, tone: "muted" },
+        ],
+      });
+    } else if (offer.timesVerified >= offer.minVerified && !offer.invalidated) {
+      sections.push(
+        {
+          heading: "Let turtl handle this on its own next time?",
+          rows: [
+            {
+              text: `This recovery has worked and been verified ${offer.timesVerified} times. You can let turtl run it without asking, only under these rules.`,
+              testID: "permission-offer",
+            },
+            { label: "The one action", text: what },
+          ],
+        },
+        { heading: "Only when all of these hold", rows: offer.conditions.map((text) => ({ text })) },
+        ...(offer.notWhen.length ? [{ heading: "Never when any of these hold", rows: offer.notWhen.map((text) => ({ text })) }] : []),
+        {
+          heading: "Limits",
+          rows: [
+            { text: `At most ${offer.maxAttempts} times. Failed and unclear runs count too.` },
+            { text: ends },
+            { text: "Every run is still checked afterwards. If a run does not restore service, the permission ends and turtl asks you next time." },
+          ],
+        },
+      );
+    }
+    if (offer.ended) {
+      sections.push({
+        heading: "Earlier permission",
+        rows: [{ text: `Ended: ${offer.ended.endedReason ?? "it was revoked."}`, tone: "muted", testID: "permission-ended" }],
+      });
+    }
+    result["what-we-learned"] = [...(result["what-we-learned"] ?? []), ...sections];
+  }
 
   return result;
 }
