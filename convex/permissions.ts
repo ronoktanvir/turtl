@@ -12,6 +12,8 @@ export const DEFAULT_MAX_ATTEMPTS = 3;
 export const MIN_VERIFIED_RECOVERIES = 2;
 export const NOT_RUN_PREFIX = "turtl did not run it on its own under your permission: ";
 
+const short = (revision: string | undefined) => (revision ?? "unknown").slice(0, 7);
+
 export const isActive = (permission: Doc<"permissions">, now: number) =>
   permission.revokedAt === undefined &&
   (permission.expiresAt === undefined || permission.expiresAt > now);
@@ -139,11 +141,11 @@ export async function runUnderPermission(
       const source = permission.memoryId ? await ctx.db.get(permission.memoryId) : null;
       if (source?.signature !== row.signature) continue;
       if (typeof revision === "string" && revision && revision !== permission.grantedAtRevision) {
-        const endedReason = `The booking app's revision changed from ${permission.grantedAtRevision} to ${revision} after you granted it.`;
+        const endedReason = `The booking app moved to a new version (${short(permission.grantedAtRevision)} → ${short(revision)}) after you granted it.`;
         await ctx.db.patch(permission._id, { expiresAt: now, endedReason });
         reasons.push(`Your permission ended: ${endedReason}`);
       } else {
-        reasons.push("No remembered recovery matches this failure, so your permission does not cover it.");
+        reasons.push("No saved recovery fits this failure, so your permission does not cover it.");
       }
     }
     return reasons.length ? { ran: false, reasons: [...new Set(reasons)] } : null;
@@ -159,7 +161,7 @@ export async function runUnderPermission(
   } else if (typeof revision !== "string" || !revision) {
     reasons.push("The booking app's revision was not observed, so it could not be matched to your permission.");
   } else if (revision !== permission.grantedAtRevision) {
-    const endedReason = `The booking app's revision changed from ${permission.grantedAtRevision} to ${revision} after you granted it.`;
+    const endedReason = `The booking app moved to a new version (${short(permission.grantedAtRevision)} → ${short(revision)}) after you granted it.`;
     await ctx.db.patch(permission._id, { expiresAt: now, endedReason });
     reasons.push(`Your permission ended: ${endedReason}`);
   }
