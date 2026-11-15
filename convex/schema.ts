@@ -16,6 +16,7 @@ export default defineSchema({
     status: vCaseStatus,
     updatedAt: v.number(),
     closedAt: v.optional(v.number()),
+    isSample: v.optional(v.boolean()),
   }),
   steps: defineTable({
     caseId: v.id("cases"),
