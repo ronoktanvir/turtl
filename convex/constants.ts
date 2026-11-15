@@ -417,6 +417,8 @@ export const vRecoveryMemory = v.object({
   conditions: v.array(v.string()),
   conditionChecks: v.array(vCondition),
   cause: v.string(),
+  conditionSource: v.optional(v.union(v.literal("diagnosis"), v.literal("fallback"))),
+  criterionResults: v.optional(v.array(vCriterionResult)),
   actionType: v.string(),
   verificationId: v.id("verifications"),
   notWhen: v.array(v.string()),

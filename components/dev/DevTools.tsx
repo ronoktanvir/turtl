@@ -27,17 +27,23 @@ function DevToolsOverlay() {
   const totalSteps = status.cases.reduce((n, c) => n + c.steps.length, 0);
   const doneSteps = status.cases.reduce(
     (n, c) =>
-      n + c.steps.filter((s) => s.status === "done" || s.status === "skipped").length,
+      n +
+      c.steps.filter((s) => s.status === "done" || s.status === "skipped")
+        .length,
     0,
   );
-  const resolvedCases = status.cases.filter((c) => c.case.status === "resolved").length;
+  const resolvedCases = status.cases.filter(
+    (c) => c.case.status === "resolved",
+  ).length;
   const progress = status.cases.length
     ? `${doneSteps} of ${totalSteps} steps done · ${resolvedCases} of ${status.cases.length} cases resolved`
     : "No sample cases";
 
   const live = status.live ?? [];
   const latestLive = live[0]?.case;
-  const waitingLive = live.find((c) => c.case.status === "waiting_for_owner")?.case;
+  const waitingLive = live.find(
+    (c) => c.case.status === "waiting_for_owner",
+  )?.case;
   const liveLabel = latestLive
     ? `Live run: ${CASE_STATUSES.find((s) => s.id === latestLive.status)?.label ?? latestLive.status}`
     : "No live runs";
@@ -135,15 +141,29 @@ function DevToolsOverlay() {
               onPress={() => run("bookingClearStage")}
             />
             <DevButton
+              testID="dev-booking-stage-store"
+              label="Stage store failure (staged)"
+              onPress={() => run("bookingStageStore")}
+            />
+            <DevButton
+              testID="dev-booking-clear-store"
+              label="Clear staged store failure"
+              onPress={() => run("bookingClearStore")}
+            />
+            <DevButton
               testID="dev-booking-approve"
               label="Approve proposal"
-              disabled={!pending || booking?.case?.status !== "waiting_for_owner"}
+              disabled={
+                !pending || booking?.case?.status !== "waiting_for_owner"
+              }
               onPress={() => pending && decide("approve", pending)}
             />
             <DevButton
               testID="dev-booking-decline"
               label="Decline proposal"
-              disabled={!pending || booking?.case?.status !== "waiting_for_owner"}
+              disabled={
+                !pending || booking?.case?.status !== "waiting_for_owner"
+              }
               onPress={() => pending && decide("decline", pending)}
             />
           </View>

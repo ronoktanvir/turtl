@@ -23,7 +23,10 @@ export const handler: StepHandler = {
       return {
         status: "done",
         summary: "Placeholder: no logs, deploys or history were gathered.",
-        handoff: { note: "No context to pass on: gathering is a placeholder.", refs: [] },
+        handoff: {
+          note: "No context to pass on: gathering is a placeholder.",
+          refs: [],
+        },
       };
     }
     const loaded = await loadJourneyContext(ctx, input);
@@ -59,15 +62,19 @@ export const handler: StepHandler = {
       missing.push(`the booking check (${outcome.reason})`);
     }
 
-    const flagValue = (flags.kind === "response" && flags.status === 200
-      ? (flags.body as { recommendationsEnabled?: unknown } | null)?.recommendationsEnabled
-      : undefined);
+    const flagValue =
+      flags.kind === "response" && flags.status === 200
+        ? (flags.body as { recommendationsEnabled?: unknown } | null)
+            ?.recommendationsEnabled
+        : undefined;
     if (typeof flagValue === "boolean") {
       facts["flags.recommendationsEnabled"] = flagValue;
       rows.push(
         evidenceRow(input, revision, {
           kind: "flags",
-          title: flagValue ? "Recommendations are turned on." : "Recommendations are turned off.",
+          title: flagValue
+            ? "Recommendations are turned on."
+            : "Recommendations are turned off.",
           body: `recommendationsEnabled is ${flagValue}.`,
           sourceRef: "GET /flags",
         }),
@@ -76,11 +83,15 @@ export const handler: StepHandler = {
       missing.push(`the recommendations flag (${describeFailure(flags)})`);
     }
 
-    const healthOk =
+    const healthValue =
       health.kind === "response" &&
       health.status === 200 &&
-      (health.body as { ok?: unknown } | null)?.ok === true;
-    facts["health.ok"] = healthOk;
+      typeof (health.body as { ok?: unknown } | null)?.ok === "boolean"
+        ? (health.body as { ok: boolean }).ok
+        : undefined;
+    const healthOk = healthValue === true;
+    if (healthValue !== undefined) facts["health.ok"] = healthValue;
+    else missing.push(`health (${describeFailure(health)})`);
     rows.push(
       evidenceRow(input, revision, {
         kind: "health",
@@ -124,21 +135,91 @@ export const handler: StepHandler = {
       missing.push("the app's revision");
     }
 
-    const ids: Id<"evidence">[] = await ctx.runMutation(internal.protectedApp.records.addEvidence, { rows });
+    const ids: Id<"evidence">[] = await ctx.runMutation(
+      internal.protectedApp.records.addEvidence,
+      { rows },
+    );
     if (!outcome.ok && !errors.ok && flagValue === undefined) {
-      return { status: "failed", error: `Could not read the booking app: ${missing.join("; ")}.` };
+      return {
+        status: "failed",
+        error: `Could not read the booking app: ${missing.join("; ")}.`,
+      };
     }
-    const read = ["the booking check", "failed bookings", "the recommendations flag", "health", "revision"].length - missing.length;
+    const read =
+      [
+        "the booking check",
+        "failed bookings",
+        "the recommendations flag",
+        "health",
+        "revision",
+      ].length - missing.length;
+    const recalled = await ctx.runAction(internal.memory.service.recall, {
+      appId: input.case.appId,
+      signature: input.case.signature ?? `journey_failed:${journey._id}`,
+      facts,
+      symptoms: `${input.case.title}. ${input.case.impact}`,
+    });
+    const memoryEvidence: Id<"evidence">[] = recalled.candidates.length
+      ? await ctx.runMutation(internal.protectedApp.records.addEvidence, {
+          rows: recalled.candidates.map((memory) =>
+            evidenceRow(input, revision, {
+              kind: "memory_match",
+              title: memory.applies
+                ? `Recovery memory ${memory._id} applies: its conditions were rechecked now.`
+                : `Recovery memory ${memory._id} does not apply.`,
+              body: memory.applies
+                ? `Previously verified ${memory.timesVerified} time(s). ${memory.conditions.join("; ")}. Owner approval and verification are still required.`
+                : memory.failedChecks.join("\n"),
+              sourceRef: `recoveryMemories/${memory._id}`,
+            }),
+          ),
+        })
+      : [];
+    const applicable = recalled.candidates
+      .filter((memory) => memory.applies)
+      .sort(
+        (a, b) =>
+          b.timesVerified - a.timesVerified ||
+          b._creationTime - a._creationTime,
+      )[0];
+    const matched = !!applicable;
+    const recallNote = matched
+      ? ` Recovery memory ${applicable!._id} applies; investigation was skipped after current checks passed.`
+      : recalled.candidates.length
+        ? " No remembered recovery applies, so investigation will run in full."
+        : " No recovery memory was found.";
     return {
       status: "done",
       summary: missing.length
-        ? `Read ${read} of 5 sources from the booking app. Could not read ${missing.join("; ")}.`
-        : "Read the booking check, failed bookings, the recommendations flag, health and revision from the booking app.",
+        ? `Read ${read} of 5 sources from the booking app. Could not read ${missing.join("; ")}.${recallNote}`
+        : `Read the booking check, failed bookings, the recommendations flag, health and revision from the booking app.${recallNote}`,
       handoff: {
         note: "Facts from the booking app are in this attempt's output.",
-        refs: ids.map((id, i) => ({ kind: "evidence", id, label: rows[i].kind })),
+        refs: [
+          ...ids.map((id, i) => ({
+            kind: "evidence",
+            id,
+            label: rows[i].kind,
+          })),
+          ...memoryEvidence.map((id) => ({
+            kind: "evidence",
+            id,
+            label: "memory applicability",
+          })),
+        ],
       },
-      output: { facts },
+      output: {
+        facts,
+        recall: {
+          candidates: recalled.candidates.map((memory) => ({
+            memoryId: memory._id,
+            applies: memory.applies,
+            failedChecks: memory.failedChecks,
+          })),
+          matchedMemoryId: matched ? applicable!._id : null,
+          summary: recalled.summary,
+        },
+      },
     };
   },
 };

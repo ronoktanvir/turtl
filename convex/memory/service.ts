@@ -46,6 +46,8 @@ export async function learnCase(
           `Use only when: ${memory.conditions.join("; ")}.`,
           `Do not use when: ${memory.notWhen.join("; ")}.`,
           `Verified by Convex verification ${memory.verificationId} at app revision ${memory.appRevision}.`,
+          `Verification criteria: ${memory.criterionResults?.map((result) => `${result.criterionId}: ${result.status}`).join("; ") ?? "See the source verification"}.`,
+          `Condition source: ${memory.conditionSource ?? "fallback"}.`,
           "This is a candidate recovery, never approval or permission to execute.",
         ].join("\n"),
         {
@@ -78,7 +80,14 @@ export async function learnCase(
     timesApplied: written.timesApplied,
     timesVerified: written.timesVerified,
     supermemoryWritten,
-    summary: `${written.created ? "Saved" : written.changed ? "Updated" : "Kept"} recovery memory for the verified recommendations recovery: ${written.timesApplied} distinct completed application${written.timesApplied === 1 ? "" : "s"}, ${written.timesVerified} verified. ${memory?.invalidatedAt !== undefined ? "This memory remains invalidated and will not apply on recall. " : ""}${indexing}`,
+    summary: `${written.created ? "Saved" : written.changed ? "Updated" : "Kept"} recovery memory: ${written.timesApplied} distinct completed application${written.timesApplied === 1 ? "" : "s"}, ${written.timesVerified} verified by the journey check. ${memory?.conditionSource === "fallback" ? "Conditions use the labelled fallback fact pattern because the diagnosis named no usable supporting facts. " : "Conditions retain the observations supporting the diagnosis. "}${
+      memory?.criterionResults?.some((result) => result.status === "uncovered")
+        ? `Not covered: ${memory.criterionResults
+            .filter((result) => result.status === "uncovered")
+            .map((result) => result.criterionId)
+            .join(", ")}. `
+        : ""
+    }${memory?.invalidatedAt !== undefined ? "This memory remains invalidated and will not apply on recall. " : ""}${indexing}`,
   };
 }
 

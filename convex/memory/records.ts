@@ -5,8 +5,15 @@ import {
   type QueryCtx,
 } from "../_generated/server";
 import type { Doc } from "../_generated/dataModel";
-import type { ExecutionPayload, RecoveryMemory } from "../constants";
-import { describeCheck, recoveryChecks } from "./checks";
+import type { Condition, ExecutionPayload, RecoveryMemory } from "../constants";
+import { vParameterValue } from "../constants";
+import { CRITERIA } from "../protectedApp/client";
+import {
+  applicability,
+  describeCheck,
+  diagnosisChecks,
+  recoveryChecks,
+} from "./checks";
 
 function payloadKey(payload: ExecutionPayload) {
   return JSON.stringify({
@@ -23,6 +30,17 @@ function payloadKey(payload: ExecutionPayload) {
   });
 }
 
+function checksKey(checks: Condition[]) {
+  return JSON.stringify(
+    [...checks].sort(
+      (a, b) =>
+        a.field.localeCompare(b.field) ||
+        a.operator.localeCompare(b.operator) ||
+        JSON.stringify(a.value).localeCompare(JSON.stringify(b.value)),
+    ),
+  );
+}
+
 function sameRevision(
   a: Doc<"actions">["revision"],
   b: Doc<"verifications">["revision"],
@@ -32,6 +50,32 @@ function sameRevision(
     a.buildId === b.buildId &&
     a.deploymentId === b.deploymentId
   );
+}
+
+function criterionSnapshot(
+  action: Doc<"actions">,
+  verification: Doc<"verifications">,
+) {
+  return action.executionPayload.acceptanceCriteria.map((criterion) => {
+    const result = verification.criterionResults.find(
+      (result) => result.criterionId === criterion.id,
+    );
+    if (
+      !result ||
+      verification.coverage.uncoveredCriterionIds.includes(criterion.id) ||
+      !verification.coverage.coveredCriterionIds.includes(criterion.id)
+    )
+      return {
+        criterionId: criterion.id,
+        status: "uncovered" as const,
+        summary:
+          result?.status === "uncovered"
+            ? result.summary
+            : "Not covered by the source verification.",
+        evidenceIds: result?.evidenceIds ?? [],
+      };
+    return result;
+  });
 }
 
 async function outcomes(ctx: QueryCtx, row: Doc<"cases">) {
@@ -52,7 +96,43 @@ async function outcomes(ctx: QueryCtx, row: Doc<"cases">) {
     !context.output?.facts
   )
     return [];
-  const checks = recoveryChecks(context.output.facts);
+  const facts = context.output.facts;
+  const investigation = await ctx.db
+    .query("steps")
+    .withIndex("by_case_and_key", (q) =>
+      q.eq("caseId", row._id).eq("key", "investigate"),
+    )
+    .unique();
+  const investigated = investigation?.currentAttemptId
+    ? await ctx.db.get(investigation.currentAttemptId)
+    : null;
+  const diagnosis =
+    investigated?.status === "done"
+      ? (investigated.output?.diagnosis as
+          | { cause?: string; supportingFactKeys?: unknown }
+          | undefined)
+      : undefined;
+  let checks = diagnosisChecks(facts, diagnosis?.supportingFactKeys);
+  let conditionSource: "diagnosis" | "fallback" = checks
+    ? "diagnosis"
+    : "fallback";
+  let cause =
+    checks && typeof diagnosis?.cause === "string" && diagnosis.cause.trim()
+      ? diagnosis.cause
+      : "Fallback fact pattern: recommendations timed out while enabled and the service health check passed. No diagnosis supplied usable supporting fact keys.";
+  if (row.matchedMemoryId) {
+    const memory = await ctx.db.get(row.matchedMemoryId);
+    if (
+      !memory ||
+      memory.appId !== row.appId ||
+      memory.signature !== row.signature ||
+      !applicability(memory, facts).applies
+    )
+      return [];
+    checks = memory.conditionChecks;
+    conditionSource = memory.conditionSource ?? "fallback";
+    cause = memory.cause;
+  } else checks ??= recoveryChecks(facts);
   if (!checks) return [];
   const actions = await ctx.db
     .query("actions")
@@ -62,6 +142,8 @@ async function outcomes(ctx: QueryCtx, row: Doc<"cases">) {
     action: Doc<"actions">;
     verification: Doc<"verifications"> | null;
     checks: NonNullable<typeof checks>;
+    cause: string;
+    conditionSource: "diagnosis" | "fallback";
   }[] = [];
   for (const action of actions) {
     if (
@@ -113,6 +195,8 @@ async function outcomes(ctx: QueryCtx, row: Doc<"cases">) {
       action,
       verification: null as Doc<"verifications"> | null,
       checks,
+      cause,
+      conditionSource,
     };
     result.push(outcome);
     if (!["verifying", "restored", "resolved"].includes(row.status)) continue;
@@ -140,14 +224,18 @@ async function outcomes(ctx: QueryCtx, row: Doc<"cases">) {
           r.version === verification.checkVersion,
       ) ||
       payload.acceptanceCriteria.length === 0 ||
-      verification.coverage.uncoveredCriterionIds.length > 0 ||
-      verification.criterionResults.some((r) => r.status !== "passed") ||
-      !payload.acceptanceCriteria.every(
-        (criterion) =>
-          verification.coverage.coveredCriterionIds.includes(criterion.id) &&
-          verification.criterionResults.some(
-            (r) => r.criterionId === criterion.id && r.status === "passed",
-          ),
+      verification.criterionResults.some((r) => r.status === "failed") ||
+      !payload.acceptanceCriteria.some(
+        (criterion) => criterion.id === CRITERIA.journey.id,
+      ) ||
+      !verification.coverage.coveredCriterionIds.includes(
+        CRITERIA.journey.id,
+      ) ||
+      verification.coverage.uncoveredCriterionIds.includes(
+        CRITERIA.journey.id,
+      ) ||
+      !verification.criterionResults.some(
+        (r) => r.criterionId === CRITERIA.journey.id && r.status === "passed",
       )
     )
       continue;
@@ -206,8 +294,7 @@ export const write = internalMutation({
         : null;
       if (
         memory.actionType === source.action.type &&
-        JSON.stringify(memory.conditionChecks) ===
-          JSON.stringify(source.checks) &&
+        checksKey(memory.conditionChecks) === checksKey(source.checks) &&
         action &&
         payloadKey(action.executionPayload) ===
           payloadKey(source.action.executionPayload)
@@ -227,7 +314,7 @@ export const write = internalMutation({
     for (const candidate of cases) {
       for (const outcome of await outcomes(ctx, candidate)) {
         if (
-          JSON.stringify(outcome.checks) === JSON.stringify(source.checks) &&
+          checksKey(outcome.checks) === checksKey(source.checks) &&
           payloadKey(outcome.action.executionPayload) ===
             payloadKey(source.action.executionPayload)
         ) {
@@ -245,6 +332,9 @@ export const write = internalMutation({
         timesVerified: verified.size,
         sourceCaseId: caseId,
         verificationId: source.verification._id,
+        criterionResults: criterionSnapshot(source.action, source.verification),
+        conditionSource: source.conditionSource,
+        cause: source.cause,
       });
       return {
         saved: true as const,
@@ -264,8 +354,9 @@ export const write = internalMutation({
       sourceCaseId: caseId,
       signature: row.signature!,
       symptoms: `${row.title}. ${row.impact}`,
-      cause:
-        "The recommendations step timed out while recommendations were enabled and the service health check passed.",
+      cause: source.cause,
+      conditionSource: source.conditionSource,
+      criterionResults: criterionSnapshot(source.action, source.verification),
       actionType: source.action.type,
       verificationId: source.verification._id,
       appRevision: String(
@@ -302,6 +393,54 @@ export const storeSupermemoryId = internalMutation({
   },
 });
 
+export async function sourceEvidenceValid(
+  ctx: QueryCtx,
+  memory: Doc<"recoveryMemories">,
+) {
+  const sourceCase = await ctx.db.get(memory.sourceCaseId);
+  const sourceVerification = await ctx.db.get(memory.verificationId);
+  return (
+    sourceCase?.appId === memory.appId &&
+    sourceVerification?.caseId === sourceCase._id &&
+    sourceVerification.verdict === "passed" &&
+    (await outcomes(ctx, sourceCase)).some(
+      (outcome) =>
+        outcome.action._id === sourceVerification.actionId &&
+        outcome.verification !== null,
+    )
+  );
+}
+
+export const remembered = internalQuery({
+  args: { caseId: v.id("cases"), facts: v.record(v.string(), vParameterValue) },
+  handler: async (ctx, { caseId, facts }) => {
+    const row = await ctx.db.get(caseId);
+    const memory = row?.matchedMemoryId
+      ? await ctx.db.get(row.matchedMemoryId)
+      : null;
+    if (
+      !row ||
+      !memory ||
+      memory.appId !== row.appId ||
+      memory.signature !== row.signature ||
+      !applicability(memory, facts).applies ||
+      !(await sourceEvidenceValid(ctx, memory))
+    )
+      return null;
+    const verification = await ctx.db.get(memory.verificationId);
+    const action = verification?.actionId
+      ? await ctx.db.get(verification.actionId)
+      : null;
+    const proposal = action ? await ctx.db.get(action.proposalId) : null;
+    const option = proposal?.options.find(
+      (option) => option.key === action?.optionKey,
+    );
+    return action && verification && option
+      ? { memory, verification, action, option }
+      : null;
+  },
+});
+
 export const candidates = internalQuery({
   args: {
     appId: v.id("apps"),
@@ -327,17 +466,7 @@ export const candidates = internalQuery({
     }
     return await Promise.all(
       [...found.values()].map(async (memory) => {
-        const sourceCase = await ctx.db.get(memory.sourceCaseId);
-        const sourceVerification = await ctx.db.get(memory.verificationId);
-        const evidenceValid =
-          sourceCase?.appId === appId &&
-          sourceVerification?.caseId === sourceCase._id &&
-          sourceVerification.verdict === "passed" &&
-          (await outcomes(ctx, sourceCase)).some(
-            (outcome) =>
-              outcome.action._id === sourceVerification.actionId &&
-              outcome.verification !== null,
-          );
+        const evidenceValid = await sourceEvidenceValid(ctx, memory);
         return { ...memory, evidenceValid };
       }),
     );

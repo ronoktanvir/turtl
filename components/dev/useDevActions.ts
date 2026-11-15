@@ -15,7 +15,9 @@ type Action =
   | "bookingRegister"
   | "bookingCheck"
   | "bookingStage"
-  | "bookingClearStage";
+  | "bookingClearStage"
+  | "bookingStageStore"
+  | "bookingClearStore";
 
 type Proposal = { _id: Id<"proposals">; version: number; optionKey: string };
 
@@ -31,6 +33,7 @@ export function useDevActions() {
   const bookingRegister = useMutation(api.dev.registerBooking);
   const bookingCheck = useAction(api.dev.checkNow);
   const stageOutage = useAction(api.dev.stageOutage);
+  const stageStoreFailure = useAction(api.dev.stageStoreFailure);
   const approve = useMutation(api.decisions.approve);
   const decline = useMutation(api.decisions.decline);
   const [error, setError] = useState<string | null>(null);
@@ -51,19 +54,29 @@ export function useDevActions() {
       else if (action === "autoRun") await autoRun({});
       else if (action === "liveStart") await liveStart({});
       else if (action === "liveClear") await liveClear({});
-      else if (action === "liveApprove" && caseId) await liveApprove({ caseId });
-      else if (action === "liveDecline" && caseId) await liveDecline({ caseId });
+      else if (action === "liveApprove" && caseId)
+        await liveApprove({ caseId });
+      else if (action === "liveDecline" && caseId)
+        await liveDecline({ caseId });
       else if (action === "advance" && caseId) await advance({ caseId });
       else if (action === "bookingRegister") await bookingRegister({});
       else if (action === "bookingCheck") await bookingCheck({});
       else if (action === "bookingStage") await stageOutage({ on: true });
       else if (action === "bookingClearStage") await stageOutage({ on: false });
+      else if (action === "bookingStageStore")
+        await stageStoreFailure({ on: true });
+      else if (action === "bookingClearStore")
+        await stageStoreFailure({ on: false });
     });
 
   const decide = (decision: "approve" | "decline", proposal: Proposal) =>
     attempt(async () => {
       if (decision === "approve") {
-        await approve({ proposalId: proposal._id, version: proposal.version, optionKey: proposal.optionKey });
+        await approve({
+          proposalId: proposal._id,
+          version: proposal.version,
+          optionKey: proposal.optionKey,
+        });
       } else {
         await decline({ proposalId: proposal._id, version: proposal.version });
       }

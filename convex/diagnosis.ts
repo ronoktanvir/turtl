@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { internalMutation } from "./_generated/server";
 import type { Facts } from "./runner/handlers/journey";
+import { supportedFactKeys } from "./memory/checks";
 
 declare const process: { env: Record<string, string | undefined> };
 
@@ -11,7 +12,7 @@ declare const process: { env: Record<string, string | undefined> };
 export const DEFAULT_MODEL = "gpt-5.4-mini";
 export const MODEL_ENV = "DIAGNOSIS_MODEL";
 export const HARNESS_VERSION = "turtl-diagnosis-v1";
-export const PROMPT_VERSION = "diagnosis-prompt-v1";
+export const PROMPT_VERSION = "diagnosis-prompt-v2";
 const MODEL_TIMEOUT_MS = 30_000;
 
 export const modelId = () => process.env[MODEL_ENV] || DEFAULT_MODEL;
@@ -19,16 +20,27 @@ export const modelId = () => process.env[MODEL_ENV] || DEFAULT_MODEL;
 const SYSTEM_PROMPT = [
   "You diagnose an outage in a small booking app for its owner, who is not an engineer.",
   "Use only the facts and evidence you are given. Do not invent causes they do not support.",
-  'Reply with a JSON object: {"cause": string, "confidence": number, "supportingEvidenceIds": string[]}.',
+  'Reply with a JSON object: {"cause": string, "confidence": number, "supportingEvidenceIds": string[], "supportingFactKeys": string[]}.',
   "cause: at most two plain sentences saying why customers cannot book.",
   "confidence: from 0 to 1, how strongly the evidence supports that cause.",
   "supportingEvidenceIds: ids from the evidence list that support it.",
+  "supportingFactKeys: exact keys from the supplied facts whose observed values support this cause. Name the failed journey step and error code when relevant; do not name facts you did not use. Never infer or include staging switches.",
   "If the evidence does not establish a cause, say so and give a low confidence.",
 ].join("\n");
 
-export type EvidenceSummary = { id: string; kind: string; title: string; body?: string };
+export type EvidenceSummary = {
+  id: string;
+  kind: string;
+  title: string;
+  body?: string;
+};
 
-export type Reading = { cause: string; confidence: number; supportingEvidenceIds: string[] };
+export type Reading = {
+  cause: string;
+  confidence: number;
+  supportingEvidenceIds: string[];
+  supportingFactKeys: string[];
+};
 
 export async function askModel(
   facts: Facts,
@@ -36,14 +48,21 @@ export async function askModel(
 ): Promise<{ ok: true; reading: Reading } | { ok: false; reason: string }> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
-    return { ok: false, reason: "OPENAI_API_KEY is not set on this deployment, so no request was sent" };
+    return {
+      ok: false,
+      reason:
+        "OPENAI_API_KEY is not set on this deployment, so no request was sent",
+    };
   }
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), MODEL_TIMEOUT_MS);
   try {
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
       body: JSON.stringify({
         model: modelId(),
         response_format: { type: "json_object" },
@@ -54,9 +73,17 @@ export async function askModel(
       }),
       signal: controller.signal,
     });
-    if (!response.ok) return { ok: false, reason: `the model call returned HTTP ${response.status}` };
-    const body = (await response.json()) as { choices?: { message?: { content?: string } }[] };
-    const parsed = JSON.parse(body.choices?.[0]?.message?.content ?? "null") as Partial<Reading> | null;
+    if (!response.ok)
+      return {
+        ok: false,
+        reason: `the model call returned HTTP ${response.status}`,
+      };
+    const body = (await response.json()) as {
+      choices?: { message?: { content?: string } }[];
+    };
+    const parsed = JSON.parse(
+      body.choices?.[0]?.message?.content ?? "null",
+    ) as Partial<Reading> | null;
     if (!parsed || typeof parsed.cause !== "string" || !parsed.cause.trim()) {
       return { ok: false, reason: "the model's answer had no cause" };
     }
@@ -66,8 +93,13 @@ export async function askModel(
       ok: true,
       reading: {
         cause: parsed.cause.trim(),
-        confidence: Number.isFinite(confidence) ? Math.min(1, Math.max(0, confidence)) : 0,
-        supportingEvidenceIds: (parsed.supportingEvidenceIds ?? []).filter((id) => known.has(id)),
+        confidence: Number.isFinite(confidence)
+          ? Math.min(1, Math.max(0, confidence))
+          : 0,
+        supportingEvidenceIds: (parsed.supportingEvidenceIds ?? []).filter(
+          (id) => known.has(id),
+        ),
+        supportingFactKeys: supportedFactKeys(facts, parsed.supportingFactKeys),
       },
     };
   } catch (error) {
@@ -83,25 +115,39 @@ export async function askModel(
 }
 
 // The deterministic fallback: fixed rules over the facts. Its confidence is capped low on purpose.
-export function ruleReading(facts: Facts, evidence: EvidenceSummary[]): Reading {
-  const byKind = (kinds: string[]) => evidence.filter((e) => kinds.includes(e.kind)).map((e) => e.id);
+export function ruleReading(
+  facts: Facts,
+  evidence: EvidenceSummary[],
+): Reading {
+  const byKind = (kinds: string[]) =>
+    evidence.filter((e) => kinds.includes(e.kind)).map((e) => e.id);
   if (facts["journey.verdict"] === "passed") {
     return {
-      cause: "The booking check passes now, so these facts show no current failure to explain.",
+      cause:
+        "The booking check passes now, so these facts show no current failure to explain.",
       confidence: 0.2,
       supportingEvidenceIds: byKind(["journey_check"]),
+      supportingFactKeys: ["journey.verdict"],
     };
   }
   if (
     facts["journey.failedStep"] === "recommendations" &&
     facts["journey.errorCode"] === "RECOMMENDATIONS_TIMEOUT" &&
-    facts["flags.recommendationsEnabled"] === true
+    facts["flags.recommendationsEnabled"] === true &&
+    facts["health.ok"] === true
   ) {
     return {
       cause:
         "Booking waits for service recommendations while they are turned on, and the recommendations provider is timing out, so bookings never get saved.",
       confidence: 0.5,
       supportingEvidenceIds: byKind(["journey_check", "flags", "errors"]),
+      supportingFactKeys: [
+        "journey.verdict",
+        "journey.failedStep",
+        "journey.errorCode",
+        "flags.recommendationsEnabled",
+        "health.ok",
+      ],
     };
   }
   const step = facts["journey.failedStep"] ?? "unknown";
@@ -110,6 +156,11 @@ export function ruleReading(facts: Facts, evidence: EvidenceSummary[]): Reading 
     cause: `The booking check fails at the "${step}" step with ${code}. No rule matches this, so the cause is unknown.`,
     confidence: 0.1,
     supportingEvidenceIds: byKind(["journey_check"]),
+    supportingFactKeys: supportedFactKeys(facts, [
+      "journey.verdict",
+      "journey.failedStep",
+      "journey.errorCode",
+    ]),
   };
 }
 
@@ -143,7 +194,8 @@ export const startRun = internalMutation({
         repositoryArea: "not inspected",
       },
       contextRefs: [],
-      routingReason: "Fixed: the only diagnosis configuration. No routing between configurations yet.",
+      routingReason:
+        "Fixed: the only diagnosis configuration. No routing between configurations yet.",
       status: "running",
       corrections: [],
     });
@@ -159,7 +211,8 @@ export const finishRun = internalMutation({
   },
   handler: async (ctx, { agentRunId, ...fields }) => {
     const run = await ctx.db.get(agentRunId);
-    if (!run || run.status !== "running") throw new Error("This agent run is not running.");
+    if (!run || run.status !== "running")
+      throw new Error("This agent run is not running.");
     await ctx.db.patch(agentRunId, fields);
   },
 });

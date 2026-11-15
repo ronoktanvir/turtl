@@ -18,6 +18,7 @@ import type * as diagnosis from "../diagnosis.js";
 import type * as keiki from "../keiki.js";
 import type * as memory_checks from "../memory/checks.js";
 import type * as memory_dev from "../memory/dev.js";
+import type * as memory_flow from "../memory/flow.js";
 import type * as memory_records from "../memory/records.js";
 import type * as memory_service from "../memory/service.js";
 import type * as monitor from "../monitor.js";
@@ -56,6 +57,7 @@ declare const fullApi: ApiFromModules<{
   keiki: typeof keiki;
   "memory/checks": typeof memory_checks;
   "memory/dev": typeof memory_dev;
+  "memory/flow": typeof memory_flow;
   "memory/records": typeof memory_records;
   "memory/service": typeof memory_service;
   monitor: typeof monitor;
