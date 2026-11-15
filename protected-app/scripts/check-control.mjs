@@ -1,14 +1,16 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 
 const base = process.env.CONTROL_BASE_URL;
 const secret = process.env.PROTECTED_APP_CONTROL_SECRET;
 assert(base && secret, "Set CONTROL_BASE_URL and PROTECTED_APP_CONTROL_SECRET for an isolated test deployment");
 
 async function call(path, method = "GET", body, authenticated = true) {
+  const token = authenticated === "hash" ? createHash("sha256").update(secret).digest("hex") : authenticated === "wrong" ? "deliberately-invalid-token" : secret;
   const response = await fetch(new URL(path, base), {
     method,
     headers: {
-      ...(authenticated ? { Authorization: `Bearer ${secret}` } : {}),
+      ...(authenticated ? { Authorization: `Bearer ${token}` } : {}),
       ...(body === undefined ? {} : { "Content-Type": "application/json" }),
     },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
@@ -24,6 +26,8 @@ const originalFlag = (await call("/flags")).json.recommendationsEnabled;
 const originalFailure = (await call("/staged-failure")).json.providerTimeout;
 
 try {
+  assert.equal((await call("/flags", "GET", undefined, "wrong")).status, 401);
+  assert.equal((await call("/flags", "GET", undefined, "hash")).status, 401, "The stored hash must not authenticate as a bearer token");
   for (const [path, body] of [["/flags", { recommendationsEnabled: false }], ["/staged-failure", { providerTimeout: true }], ["/journey-check", undefined]]) {
     assert.equal((await call(path, "POST", body, false)).status, 401);
   }

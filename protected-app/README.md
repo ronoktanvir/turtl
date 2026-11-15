@@ -25,10 +25,12 @@ This initializes an isolated, account-free project under this folder's ignored `
 CONVEX_AGENT_MODE=anonymous npx convex dev
 ```
 
-In a second terminal, set a freshly generated local control secret and the revision in the **protected** backend. Do not commit either credential or `.env.local`:
+In a second terminal, generate a local control secret for the caller and set only its lowercase hex SHA-256 hash in the **protected** backend. Do not commit either credential, the hash, or `.env.local`:
 
 ```sh
-npx convex env set PROTECTED_APP_CONTROL_SECRET "$(openssl rand -hex 32)"
+export PROTECTED_APP_CONTROL_SECRET="$(openssl rand -hex 32)"
+export PROTECTED_APP_CONTROL_SECRET_SHA256="$(printf %s "$PROTECTED_APP_CONTROL_SECRET" | openssl dgst -sha256 -r | cut -d' ' -f1)"
+npx convex env set PROTECTED_APP_CONTROL_SECRET_SHA256 "$PROTECTED_APP_CONTROL_SECRET_SHA256"
 npx convex env set PROTECTED_APP_REVISION "$(git rev-parse HEAD)"
 ```
 
@@ -43,13 +45,13 @@ For a phone, use a backend address reachable from that phone, not its loopback a
 
 ## Deploy later
 
-Provision a **second Convex project**, separate from turtl. Supply its `CONVEX_DEPLOY_KEY` through the environment; set `PROTECTED_APP_CONTROL_SECRET` and `PROTECTED_APP_REVISION` (the deployed commit SHA) in that project's Convex environment. The single backend deployment command is:
+Provision a **second Convex project**, separate from turtl. Supply its `CONVEX_DEPLOY_KEY` through the environment; set `PROTECTED_APP_CONTROL_SECRET_SHA256` (the lowercase hex SHA-256 of the caller's secret) and `PROTECTED_APP_REVISION` (the deployed commit SHA) in that project's Convex environment. The machine configuring turtl generates and retains the original secret; only the hash travels to the machine deploying this app. The single backend deployment command is:
 
 ```sh
 npm run deploy
 ```
 
-Set `EXPO_PUBLIC_CONVEX_URL` to that deployment's API URL before starting or building Expo. The control secret is server-only; it must never use an `EXPO_PUBLIC_` prefix. turtl's backend needs the protected app's site URL and the same control secret. This PR does not connect them or host the Expo app.
+Set `EXPO_PUBLIC_CONVEX_URL` to that deployment's API URL before starting or building Expo. The original control secret belongs only on the calling server, never in this booking backend's environment, and neither secret nor hash may use an `EXPO_PUBLIC_` prefix. Remove the legacy `PROTECTED_APP_CONTROL_SECRET` environment variable from any previously configured booking deployment. turtl's backend needs the protected app's site URL and the original control secret. This PR does not connect them or host the Expo app.
 
 No Revyl config is included. Native proof would need a separate protected-app Revyl project/build rooted here, its own Expo public backend URL in build environment, a backend reachable from the cloud simulator, and a journey that selects a treatment/time and checks confirmation. It must not reuse the root on-call app's proof or claim that a server check proves native UI behavior.
 
@@ -57,9 +59,9 @@ No Revyl config is included. Native proof would need a separate protected-app Re
 
 All paths below are relative to the protected Convex **site URL**. Responses have `Content-Type: application/json` and `Cache-Control: no-store`. Timestamps are Unix milliseconds. No CORS is offered: this interface is for server-to-server calls, not browser admin controls.
 
-`GET /health` and `GET /revision` are public. **Every other endpoint, including reads, requires `Authorization: Bearer <PROTECTED_APP_CONTROL_SECRET>`.** Every state-changing HTTP endpoint is authenticated. Public customer Convex actions intentionally allow unauthenticated demo bookings; they cannot change settings. Settings writes are internal Convex mutations, reachable externally only through authenticated HTTP actions.
+`GET /health` and `GET /revision` are public. **Every other endpoint, including reads, requires `Authorization: Bearer <secret>`.** The backend hashes the presented token with SHA-256 and compares its 32 digest bytes against `PROTECTED_APP_CONTROL_SECRET_SHA256` in a fixed-length loop with no value-dependent early exit. The stored hash itself is not a bearer credential. Every state-changing HTTP endpoint is authenticated. Public customer Convex actions intentionally allow unauthenticated demo bookings; they cannot change settings. Settings writes are internal Convex mutations, reachable externally only through authenticated HTTP actions.
 
-Protected endpoints return `401` for a missing/wrong bearer token, or `503` when the backend secret is not configured:
+Protected endpoints return `401` for a missing/wrong bearer token, or `503` when the backend hash is missing or is not exactly 64 lowercase hex characters:
 
 ```ts
 { error: { code: "UNAUTHORIZED", message: "A valid control bearer token is required." } }
@@ -188,7 +190,7 @@ In the staged outage, `failedStep` is `recommendations`, `error.code` is `RECOMM
 
 ## Reproduce the three states
 
-Export `CONTROL_BASE_URL` and a shell-only `PROTECTED_APP_CONTROL_SECRET` matching the backend. Never paste the token into evidence. Requests use:
+Export `CONTROL_BASE_URL` and a shell-only caller `PROTECTED_APP_CONTROL_SECRET` whose SHA-256 matches the backend's `PROTECTED_APP_CONTROL_SECRET_SHA256`. The test runner sends the original secret, never the stored hash. Never paste either into evidence. Requests use:
 
 ```sh
 curl "$CONTROL_BASE_URL/health"
@@ -211,4 +213,4 @@ curl -H "Authorization: Bearer $PROTECTED_APP_CONTROL_SECRET" "$CONTROL_BASE_URL
 
 Reload the booking page after toggling the staged provider switch to refresh suggestions. Flag changes update the open page live through a Convex query. After an error, select a service and time and submit again once recovery is applied. A previously confirmed booking is never rewritten when the flag changes.
 
-`npm run test:control` exercises authentication, body validation, all three journey states, fixture cleanup, and unchanged customer-impact counts. It prints redacted request/response transcripts. It temporarily changes both settings and restores them in `finally`; run it only against an isolated test deployment with no concurrent customer traffic.
+`npm run test:control` uses caller-side `PROTECTED_APP_CONTROL_SECRET` and exercises authentication (including rejection of the stored hash as a bearer token), body validation, all three journey states, fixture cleanup, and unchanged customer-impact counts. It prints redacted request/response transcripts. It temporarily changes both settings and restores them in `finally`; run it only against an isolated test deployment with no concurrent customer traffic.
