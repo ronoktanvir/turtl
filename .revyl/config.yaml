@@ -28,3 +28,10 @@ pr_review:
             kind: revyl
         always_verify:
             - The app launches to its first screen.
+        system_prompt: |
+            The app starts with no data. To get some, tap the "Dev" pill at the bottom right of every screen (testID dev-tools-toggle) to open the dev tools panel. In it:
+            - New sample cases (testID dev-new-sample) creates one case of each kind: Outage, Bug report, Feature request.
+            - Advance (testID dev-advance) moves one open case forward by one step.
+            - Auto-run (testID dev-auto-run) takes every step of every sample case from pending to done in about 25 seconds.
+            - Reset samples (testID dev-reset) removes the sample cases.
+            Create sample cases before you judge the case feed or a case screen, and tap the pill again to close the panel when it covers what you are checking. When you finish, open the panel and tap Reset samples.
