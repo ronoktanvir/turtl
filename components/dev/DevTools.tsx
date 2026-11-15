@@ -1,6 +1,13 @@
 import { useQuery } from "convex/react";
 import { useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import {
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+  useWindowDimensions,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { api } from "../../convex/_generated/api";
 import { CASE_STATUSES, CLOSED_CASE_STATUSES } from "../../convex/constants";
@@ -16,8 +23,9 @@ export function DevTools() {
 function DevToolsOverlay() {
   const status = useQuery(api.dev.status);
   const insets = useSafeAreaInsets();
+  const { height } = useWindowDimensions();
   const [open, setOpen] = useState(false);
-  const { run, decide, error } = useDevActions();
+  const { run, decide, error, notice } = useDevActions();
 
   if (!status?.enabled) return null;
 
@@ -62,7 +70,18 @@ function DevToolsOverlay() {
       style={[styles.layer, { paddingBottom: insets.bottom + 8 }]}
     >
       {open && (
-        <View style={styles.panel}>
+        <ScrollView
+          style={[
+            styles.panel,
+            {
+              maxHeight: Math.max(
+                240,
+                height - insets.top - insets.bottom - 64,
+              ),
+            },
+          ]}
+          contentContainerStyle={styles.panelContent}
+        >
           <Text style={styles.progress}>{progress}</Text>
           {error && <Text style={styles.error}>{error}</Text>}
           <DevButton
@@ -151,6 +170,22 @@ function DevToolsOverlay() {
               onPress={() => run("bookingClearStore")}
             />
             <DevButton
+              testID="dev-reset-booking"
+              label="Reset booking (deletes incident history)"
+              disabled={!booking}
+              onPress={() => run("bookingReset")}
+            />
+            <DevButton
+              testID="dev-recommendations-on"
+              label="Owner: turn recommendations on"
+              onPress={() => run("bookingRecommendationsOn")}
+            />
+            {notice && (
+              <Text style={styles.progress} testID="dev-booking-reset-result">
+                {notice}
+              </Text>
+            )}
+            <DevButton
               testID="dev-booking-approve"
               label="Approve proposal"
               disabled={
@@ -167,7 +202,7 @@ function DevToolsOverlay() {
               onPress={() => pending && decide("decline", pending)}
             />
           </View>
-        </View>
+        </ScrollView>
       )}
       <Pressable
         testID="dev-tools-toggle"
@@ -221,6 +256,8 @@ const styles = StyleSheet.create({
     width: 240,
     backgroundColor: "#111827",
     borderRadius: 12,
+  },
+  panelContent: {
     padding: 10,
     gap: 6,
   },

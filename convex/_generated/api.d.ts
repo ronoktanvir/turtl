@@ -29,6 +29,7 @@ import type * as memory_checks from "../memory/checks.js";
 import type * as memory_dev from "../memory/dev.js";
 import type * as memory_flow from "../memory/flow.js";
 import type * as memory_records from "../memory/records.js";
+import type * as memory_reset from "../memory/reset.js";
 import type * as memory_service from "../memory/service.js";
 import type * as monitor from "../monitor.js";
 import type * as permissions from "../permissions.js";
@@ -78,6 +79,7 @@ declare const fullApi: ApiFromModules<{
   "memory/dev": typeof memory_dev;
   "memory/flow": typeof memory_flow;
   "memory/records": typeof memory_records;
+  "memory/reset": typeof memory_reset;
   "memory/service": typeof memory_service;
   monitor: typeof monitor;
   permissions: typeof permissions;

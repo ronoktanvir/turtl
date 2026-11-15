@@ -53,9 +53,10 @@ function describeImpact(
 
 // A passing check of the journey, from the monitor or from verify, re-arms its signature.
 export const recordPass = internalMutation({
-  args: { journeyId: v.id("journeys") },
-  handler: async (ctx, { journeyId }) => {
-    if (await ctx.db.get(journeyId)) await ctx.db.patch(journeyId, { lastPassedAt: Date.now() });
+  args: { journeyId: v.id("journeys"), observedAt: v.number() },
+  handler: async (ctx, { journeyId, observedAt }) => {
+    const journey = await ctx.db.get(journeyId);
+    if (journey && observedAt > (journey.lastPassedAt ?? 0)) await ctx.db.patch(journeyId, { lastPassedAt: observedAt });
   },
 });
 
@@ -65,12 +66,14 @@ export const openCase = internalMutation({
   args: {
     journeyId: v.id("journeys"),
     failedStep: v.string(),
+    observedAt: v.number(),
     counts: v.union(vCounts, v.null()),
     countsReason: v.union(v.string(), v.null()),
   },
-  handler: async (ctx, { journeyId, failedStep, counts, countsReason }) => {
+  handler: async (ctx, { journeyId, failedStep, observedAt, counts, countsReason }) => {
     const journey = await ctx.db.get(journeyId);
     if (!journey) throw new Error("Journey not found.");
+    if (journey.lastPassedAt !== undefined && observedAt < journey.lastPassedAt) return { opened: false as const, reason: "this observation is older than the journey's latest passing check" };
     const signature = signatureFor(journeyId);
     const previous = await ctx.db
       .query("cases")
@@ -129,6 +132,7 @@ export async function checkJourneys(ctx: ActionCtx): Promise<MonitorResult> {
   const checked = [];
   for (const { journey, app } of rows) {
     if (journey.check.kind !== "http" || !app?.productionUrl) continue;
+    const observedAt = Date.now();
     const outcome = await runJourneyCheck(journey.check.config);
     if (!outcome.ok) {
       checked.push({ journeyId: journey._id, outcome: "check_error" as const, detail: outcome.reason });
@@ -136,7 +140,7 @@ export async function checkJourneys(ctx: ActionCtx): Promise<MonitorResult> {
     }
     const { result } = outcome;
     if (result.verdict === "passed") {
-      await ctx.runMutation(internal.monitor.recordPass, { journeyId: journey._id });
+      await ctx.runMutation(internal.monitor.recordPass, { journeyId: journey._id, observedAt });
       checked.push({ journeyId: journey._id, outcome: "passed" as const, detail: "The booking check passed." });
       continue;
     }
@@ -144,6 +148,7 @@ export async function checkJourneys(ctx: ActionCtx): Promise<MonitorResult> {
     const opened = await ctx.runMutation(internal.monitor.openCase, {
       journeyId: journey._id,
       failedStep: result.failedStep ?? "unknown",
+      observedAt,
       counts: errors.ok
         ? {
             totalBookings: errors.body.counts.totalBookings,

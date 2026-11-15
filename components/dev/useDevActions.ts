@@ -17,7 +17,9 @@ type Action =
   | "bookingStage"
   | "bookingClearStage"
   | "bookingStageStore"
-  | "bookingClearStore";
+  | "bookingClearStore"
+  | "bookingRecommendationsOn"
+  | "bookingReset";
 
 type Proposal = { _id: Id<"proposals">; version: number; optionKey: string };
 
@@ -34,12 +36,16 @@ export function useDevActions() {
   const bookingCheck = useAction(api.dev.checkNow);
   const stageOutage = useAction(api.dev.stageOutage);
   const stageStoreFailure = useAction(api.dev.stageStoreFailure);
+  const resetBooking = useAction(api.dev.resetBooking);
+  const recommendationsOn = useAction(api.dev.recommendationsOn);
   const approve = useMutation(api.decisions.approve);
   const decline = useMutation(api.decisions.decline);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const attempt = async (work: () => Promise<unknown>) => {
     setError(null);
+    setNotice(null);
     try {
       await work();
     } catch (e) {
@@ -67,6 +73,10 @@ export function useDevActions() {
         await stageStoreFailure({ on: true });
       else if (action === "bookingClearStore")
         await stageStoreFailure({ on: false });
+      else if (action === "bookingReset")
+        setNotice((await resetBooking({})).summary);
+      else if (action === "bookingRecommendationsOn")
+        setNotice((await recommendationsOn({})).summary);
     });
 
   const decide = (decision: "approve" | "decline", proposal: Proposal) =>
@@ -82,5 +92,5 @@ export function useDevActions() {
       }
     });
 
-  return { run, decide, error };
+  return { run, decide, error, notice };
 }
