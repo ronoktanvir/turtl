@@ -26,6 +26,7 @@ import {
 import { vHandlerResult } from "./contract";
 import type { HandlerResult, LoadedInput } from "./contract";
 import { HANDLERS } from "./handlers";
+import { matchRecovery } from "../memory/flow";
 
 const STEP_GAP_MS = 1000;
 const RETRY_DELAY_MS = 1000;
@@ -226,6 +227,31 @@ async function applyResult(
   if (!live) {
     await recordLateResult(ctx, attemptId, notes);
     return { applied: false, reason: "late: not the step's current, unfinished attempt" };
+  }
+
+  if (
+    step.purpose === "gather_context" &&
+    result.status === "done" &&
+    result.output?.recall?.matchedMemoryId
+  ) {
+    const memoryId =
+      typeof result.output.recall.matchedMemoryId === "string"
+        ? ctx.db.normalizeId(
+            "recoveryMemories",
+            result.output.recall.matchedMemoryId,
+          )
+        : null;
+    const matched =
+      memoryId &&
+      result.output.facts &&
+      (await matchRecovery(ctx, attemptId, memoryId, result.output.facts));
+    if (!matched) {
+      const error =
+        "The recovery memory changed before these observations were accepted. Gather fresh context again; investigation has not been skipped.";
+      result = { status: "failed", error, summary: error };
+      notes.summary = error;
+      notes.output = undefined;
+    }
   }
 
   if (result.status === "waiting") {

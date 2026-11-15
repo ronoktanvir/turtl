@@ -13,6 +13,56 @@ const FACT_TYPES: Record<string, string> = {
   "app.revision": "string",
 };
 
+export function supportedFactKeys(
+  facts: Record<string, unknown>,
+  keys: unknown,
+): string[] {
+  if (!Array.isArray(keys)) return [];
+  return [
+    ...new Set(
+      keys.filter(
+        (field): field is string =>
+          typeof field === "string" &&
+          Object.hasOwn(FACT_TYPES, field) &&
+          Object.hasOwn(facts, field) &&
+          typeof facts[field] === FACT_TYPES[field] &&
+          (typeof facts[field] !== "number" || Number.isFinite(facts[field])),
+      ),
+    ),
+  ].sort();
+}
+
+export function diagnosisChecks(
+  facts: Record<string, unknown>,
+  keys: unknown,
+): Condition[] | null {
+  const named = supportedFactKeys(facts, keys);
+  if (!named.length) return null;
+  const fields = supportedFactKeys(facts, [
+    ...named,
+    "journey.verdict",
+    "journey.failedStep",
+    "journey.errorCode",
+    "app.revision",
+    "flags.recommendationsEnabled",
+    "health.ok",
+  ]);
+  if (
+    facts["journey.verdict"] !== "failed" ||
+    facts["flags.recommendationsEnabled"] !== true ||
+    facts["health.ok"] !== true ||
+    !fields.includes("app.revision") ||
+    !fields.includes("journey.failedStep") ||
+    !fields.includes("journey.errorCode")
+  )
+    return null;
+  return fields.map((field) => ({
+    field,
+    operator: "eq",
+    value: facts[field] as ParameterValue,
+  }));
+}
+
 export function describeCheck(check: Condition): string {
   const operators = {
     eq: "equals",

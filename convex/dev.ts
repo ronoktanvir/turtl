@@ -351,6 +351,22 @@ export const stageOutage = action({
   },
 });
 
+export const stageStoreFailure = action({
+  args: { on: v.boolean() },
+  handler: async (_ctx, { on }) => {
+    requireEnabled();
+    const base = controlBase();
+    if (!base) throw new Error("PROTECTED_APP_URL is not set on this deployment.");
+    const response = await call(`${base}/staged-failure`, {
+      method: "POST",
+      body: { bookingStoreFailure: on },
+      credentialRef: CREDENTIAL_REF,
+    });
+    if (response.kind !== "response" || response.status !== 200) throw new Error(`Could not change the staged store failure: ${describeFailure(response)}.`);
+    return { staged: true, bookingStoreFailure: on };
+  },
+});
+
 const bookingStatus = async (ctx: QueryCtx) => {
   const app = await ctx.db
     .query("apps")

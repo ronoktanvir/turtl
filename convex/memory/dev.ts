@@ -9,8 +9,9 @@ import {
   setCaseStatus,
   startAttempt,
 } from "../workflow";
-import { applicability, evaluateCheck } from "./checks";
+import { applicability, diagnosisChecks, evaluateCheck } from "./checks";
 import { handler as learnHandler } from "../runner/handlers/learn";
+import { CRITERIA } from "../protectedApp/client";
 
 declare const process: { env: Record<string, string | undefined> };
 
@@ -113,9 +114,7 @@ export const seed = internalMutation({
       if (step.purpose === "plan") planStepId = step._id;
       if (step.purpose === "verify") verifyAttemptId = attemptId;
     }
-    const criteria = [
-      { id: "booking", description: "The booking journey passes." },
-    ];
+    const criteria = [CRITERIA.journey];
     const target = {
       environment: "production",
       resourceRef: "recommendationsEnabled",
@@ -191,7 +190,7 @@ export const seed = internalMutation({
       criteriaVersion: "1",
       criterionResults: [
         {
-          criterionId: "booking",
+          criterionId: CRITERIA.journey.id,
           status: "passed" as const,
           summary: "Staged passing criterion",
           evidenceIds: [],
@@ -200,7 +199,10 @@ export const seed = internalMutation({
       evidenceIds: [],
       startedAt: now,
       completedAt: now,
-      coverage: { coveredCriterionIds: ["booking"], uncoveredCriterionIds: [] },
+      coverage: {
+        coveredCriterionIds: [CRITERIA.journey.id],
+        uncoveredCriterionIds: [],
+      },
       summary: "Staged verification fixture, not live evidence.",
     };
     await ctx.db.insert("verifications", {
@@ -221,11 +223,11 @@ export const seed = internalMutation({
           ? {
               coverage: {
                 coveredCriterionIds: [],
-                uncoveredCriterionIds: ["booking"],
+                uncoveredCriterionIds: [CRITERIA.journey.id],
               },
               criterionResults: [
                 {
-                  criterionId: "booking",
+                  criterionId: CRITERIA.journey.id,
                   status: "uncovered",
                   summary: "Staged uncovered criterion",
                   evidenceIds: [],
@@ -276,6 +278,35 @@ export const failSource = internalMutation({
       completedAt: verification.completedAt + 1,
       summary: "Staged later failure of the source action.",
     });
+  },
+});
+
+export const lateRecallFixture = internalMutation({
+  args: { memoryId: v.id("recoveryMemories") },
+  handler: async (ctx, { memoryId }) => {
+    requireDev();
+    const memory = (await ctx.db.get(memoryId))!;
+    const caseId = await createCaseFromTemplate(ctx, {
+      appId: memory.appId,
+      signature: memory.signature,
+      title: "Staged late recall callback",
+      impact: "Fixture only",
+      kind: "outage",
+      raisedBy: "owner",
+    });
+    const steps = await loadSteps(ctx, caseId);
+    const detect = steps.find((step) => step.purpose === "detect_or_receive")!;
+    await finishAttempt(ctx, await startAttempt(ctx, detect._id), {
+      status: "done",
+    });
+    const gather = steps.find((step) => step.purpose === "gather_context")!;
+    const attemptId = await startAttempt(ctx, gather._id);
+    await finishAttempt(ctx, attemptId, {
+      status: "failed",
+      error: "Staged stale callback",
+    });
+    await startAttempt(ctx, gather._id);
+    return { caseId, attemptId };
   },
 });
 
@@ -453,6 +484,57 @@ export const prove = action({
       )
     )
       throw new Error("Invalid or not-when facts did not fail closed.");
+    const selected = diagnosisChecks(
+      { ...facts, "errors.topCode": "PROVIDER_UNAVAILABLE" },
+      ["errors.topCode", "configuration.providerTimeout"],
+    );
+    if (
+      !selected?.some((check) => check.field === "errors.topCode") ||
+      selected.some(
+        (check) => check.field === "configuration.providerTimeout",
+      ) ||
+      !selected.some(
+        (check) => check.field === "flags.recommendationsEnabled",
+      ) ||
+      !selected.some((check) => check.field === "health.ok")
+    )
+      throw new Error(
+        "Diagnosis-selected checks or recovery guards were not retained.",
+      );
+    if (
+      diagnosisChecks({ ...facts, "health.ok": false }, [
+        "journey.failedStep",
+      ]) !== null ||
+      diagnosisChecks({ ...facts, "flags.recommendationsEnabled": false }, [
+        "journey.failedStep",
+      ]) !== null
+    )
+      throw new Error(
+        "A recovery was learned without its flag and health preconditions.",
+      );
+    const late = await ctx.runMutation(internal.memory.dev.lateRecallFixture, {
+      memoryId: learned.memoryId,
+    });
+    const lateResult = await ctx.runMutation(internal.runner.run.recordResult, {
+      attemptId: late.attemptId,
+      result: {
+        status: "done",
+        summary: "Staged late matching recall",
+        output: { facts, recall: { matchedMemoryId: learned.memoryId } },
+      },
+    });
+    const lateContext = await ctx.runQuery(
+      internal.protectedApp.records.caseContext,
+      { caseId: late.caseId },
+    );
+    if (
+      lateResult.applied ||
+      lateContext.case.matchedMemoryId ||
+      lateContext.steps.some((step) => step.status === "skipped")
+    )
+      throw new Error(
+        "A late context callback committed a memory match or skipped investigation.",
+      );
     await ctx.runMutation(internal.memory.dev.invalidate, {
       memoryId: learned.memoryId,
     });
@@ -504,6 +586,8 @@ export const prove = action({
       foreignAppIgnored: true,
       disqualifiedSource: disqualified.candidates[0].failedChecks,
       invalidFactsFailClosed: true,
+      diagnosisSelectedFacts: true,
+      lateRecallRejected: true,
       handler: handlerResult.summary,
     };
   },
