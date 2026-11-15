@@ -122,16 +122,36 @@ export async function runUnderPermission(
   caseId: Id<"cases">,
 ): Promise<null | { ran: true; use: number; of: number } | { ran: false; reasons: string[] }> {
   const row = await ctx.db.get(caseId);
-  if (!row?.matchedMemoryId) return null;
-  const memory = await ctx.db.get(row.matchedMemoryId);
-  if (!memory) return null;
+  if (!row) return null;
+  const now = Date.now();
+  const facts = factsOf(await loadSteps(ctx, caseId));
+  const revision = facts["app.revision"];
+  const memory = row.matchedMemoryId ? await ctx.db.get(row.matchedMemoryId) : null;
+  if (!memory) {
+    // No remembered recovery matched, so no permission covers this case. Say so when one exists for this
+    // kind of failure, and end it if the app's revision has moved on.
+    const reasons: string[] = [];
+    const all = await ctx.db
+      .query("permissions")
+      .withIndex("by_app", (q) => q.eq("appId", row.appId))
+      .collect();
+    for (const permission of all.filter((p) => isActive(p, now))) {
+      const source = permission.memoryId ? await ctx.db.get(permission.memoryId) : null;
+      if (source?.signature !== row.signature) continue;
+      if (typeof revision === "string" && revision && revision !== permission.grantedAtRevision) {
+        const endedReason = `The booking app's revision changed from ${permission.grantedAtRevision} to ${revision} after you granted it.`;
+        await ctx.db.patch(permission._id, { expiresAt: now, endedReason });
+        reasons.push(`Your permission ended: ${endedReason}`);
+      } else {
+        reasons.push("No remembered recovery matches this failure, so your permission does not cover it.");
+      }
+    }
+    return reasons.length ? { ran: false, reasons: [...new Set(reasons)] } : null;
+  }
   const [permission] = await permissionsFor(ctx, memory);
   if (!permission) return null;
 
-  const now = Date.now();
   const reasons: string[] = [];
-  const facts = factsOf(await loadSteps(ctx, caseId));
-  const revision = facts["app.revision"];
   if (permission.revokedAt !== undefined) {
     reasons.push(`Your permission was revoked: ${permission.endedReason ?? "no reason recorded."}`);
   } else if (permission.expiresAt !== undefined && permission.expiresAt <= now) {

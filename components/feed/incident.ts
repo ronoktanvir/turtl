@@ -348,8 +348,17 @@ export function incidentContent(data: CaseCards, now: number): Partial<Record<Ca
             { label: "The one action", text: what },
           ],
         },
-        { heading: "Only when all of these hold", rows: offer.conditions.map((text) => ({ text })) },
-        ...(offer.notWhen.length ? [{ heading: "Never when any of these hold", rows: offer.notWhen.map((text) => ({ text })) }] : []),
+        ...(data.learnedMemory?._id === offer.memoryId
+          ? [
+              {
+                heading: "Only when",
+                rows: [{ text: 'Every check under "When it applies" holds on fresh observations, and none under "When it does not" does. An unknown fact counts as not holding.' }],
+              },
+            ]
+          : [
+              { heading: "Only when all of these hold", rows: offer.conditions.map((text) => ({ text })) },
+              ...(offer.notWhen.length ? [{ heading: "Never when any of these hold", rows: offer.notWhen.map((text) => ({ text })) }] : []),
+            ]),
         {
           heading: "Limits",
           rows: [
