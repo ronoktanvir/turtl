@@ -194,7 +194,7 @@ export async function runUnderPermission(
     }
   }
   const uses = await usesOf(ctx, permission._id);
-  if (uses.length >= permission.maxAttempts) {
+  if (uses.length >= permission.maxAttempts && isActive(permission, now)) {
     reasons.push(`Your permission has been used ${uses.length} of ${permission.maxAttempts} times.`);
   }
   if (reasons.length > 0 || !proposal || !option) return { ran: false, reasons };
@@ -228,7 +228,7 @@ export async function settlePermissionRun(
   if (outcome.status === "restored") {
     const uses = await usesOf(ctx, permission._id);
     await ctx.scheduler.runAfter(0, internal.keiki.notifyOwner, {
-      text: `turtl handled "${row.title}" on its own under your permission (use ${uses.indexOf(action.idempotencyKey) + 1} of ${permission.maxAttempts}). What it did: ${action.result ?? action.type}. The check afterwards: ${outcome.check}`,
+      text: `turtl handled "${row.title}" on its own under your permission (use ${uses.indexOf(action.idempotencyKey) + 1} of ${permission.maxAttempts}). What it did: ${(action.result ?? action.type).replace(/\.$/, "")}. The check afterwards: ${outcome.check}`,
     });
     return;
   }

@@ -33,7 +33,7 @@ export function CaseRow({
         )}
         {item.handledUnderPermission && (
           <Text style={[styles.needsYou, { color: CASE_STATUS_COLORS.restored }]} testID="case-row-auto">
-            Handled under your permission
+            {item.status === "restored" ? "Handled under your permission" : "Ran under your permission"}
           </Text>
         )}
         <Text style={styles.title} testID="case-row-title">
