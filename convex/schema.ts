@@ -49,7 +49,7 @@ export default defineSchema({
     distinctRequesterCount: v.optional(v.number()),
     resolvedAt: v.optional(v.number()),
     isSample: v.optional(v.boolean()),
-  }),
+  }).index("by_app_and_signature", ["appId", "signature"]),
   // Mutations must maintain one workflow per case, unique step keys, acyclic validated additions, and completed history; memory skips require fresh applicability and executed changes require verification.
   steps: defineTable({
     caseId: v.id("cases"),

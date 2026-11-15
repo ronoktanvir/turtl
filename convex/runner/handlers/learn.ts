@@ -1,10 +1,20 @@
 import type { StepHandler } from "../contract";
+import { learnCase } from "../../memory/service";
 
 export const handler: StepHandler = {
-  timeoutMs: 15_000,
-  run: async () => ({
-    status: "done",
-    summary: "Placeholder: nothing was saved to memory.",
-    handoff: { note: "Nothing was remembered: learning is a placeholder.", refs: [] },
-  }),
+  timeoutMs: 60_000,
+  run: async (ctx, input) => {
+    const result = await learnCase(ctx, input.case._id);
+    return {
+      status: "done",
+      summary: result.summary,
+      handoff: {
+        note: result.summary,
+        refs: result.memoryId
+          ? [{ kind: "recoveryMemory", id: result.memoryId }]
+          : [],
+      },
+      output: result,
+    };
+  },
 };
