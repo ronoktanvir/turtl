@@ -44,3 +44,22 @@ Development-only controls create a sample app and sample cases (one outage, one 
 - Client: the app renders the "Dev" pill only when `__DEV__` is true (a development build) or `EXPO_PUBLIC_DEV_TOOLS` is `1` (set it in `.env.local` or in the build environment for a release build), and only when the server reports the tools as enabled.
 
 The pill opens a panel with New sample cases, Advance (starts the next step, or finishes the running one, on the first unfinished sample case), Auto-run (all unfinished sample cases to done, about one step every 1.2 seconds) and Reset samples (deletes the sample cases, their steps and attempts, and the sample app).
+
+## Memory
+
+`convex/assistant.ts` exports a public Convex action, `api.assistant.chat`, for a chat screen to call later (there is no screen yet). It takes `{ userId, message, caseId? }` and, in this order: searches Supermemory for memories relevant to `message` in the namespace `userId`; calls OpenAI (plain `fetch`, Responses API) with a short on-call system prompt, those memories, the case and its steps when `caseId` is given (loaded with `cases.get`), and the message; then adds the user turn and the assistant turn to Supermemory in the same namespace, with metadata recording the role and the case id. It returns `{ reply, memories }`, where `memories` is the list of memory texts it used. A namespace is 1 to 100 characters of letters, digits, `_`, `:` or `-`; `userId` must fit that. `userId` comes from the caller until sign-in exists, so anyone who can call the action can read any namespace.
+
+Set these on the Convex deployment (values are never committed):
+
+```sh
+npx convex env set ASSISTANT_ENABLED true      # the action refuses to run unless this is "true"
+npx convex env set SUPERMEMORY_API_KEY "$SUPERMEMORY_API_KEY"
+npx convex env set OPENAI_API_KEY "$OPENAI_API_KEY"
+npx convex env set OPENAI_MODEL gpt-6-luna     # optional; this is the default
+```
+
+The action throws an error naming the variable when `ASSISTANT_ENABLED`, `SUPERMEMORY_API_KEY`, or `OPENAI_API_KEY` is missing, rejects a `message` longer than 2,000 characters, and caps the model's reply at 1,500 output tokens, because the deployment URL is public and each call spends credits.
+
+The Supermemory client lives in `convex/supermemory.ts`, which exports plain functions (`searchMemories(namespace, query)` and `addMemory(namespace, content, metadata)`) and no Convex functions, so other Convex code can reuse it. They read `SUPERMEMORY_API_KEY` when called.
+
+The Expo app never imports `supermemory`. Nothing under `app/` or `components/` may reference it; the app calls the action through Convex and the API keys stay on the server. The Supermemory skill for coding agents is in `.agents/skills/supermemory/`.
