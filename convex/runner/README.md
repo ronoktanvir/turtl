@@ -6,7 +6,8 @@ The runner moves a case through its steps on the Convex scheduler, with no clien
 
 - `run.ts`: the runner. All of its functions are internal.
 - `contract.ts`: the handler contract (`StepHandler`, `HandlerInput`, `HandlerResult`, `vHandlerResult`).
-- `handlers/<purpose>.ts`: one handler per step purpose. Each is a placeholder today.
+- `handlers/<purpose>.ts`: one handler per step purpose. For a case with a journey (the booking app), every handler except `examine_broader_causes` and `learn` does real work; a case with no journey, such as a dev live run, gets each handler's placeholder.
+- `handlers/journey.ts`: helpers those handlers share.
 - `handlers/index.ts`: the one place handlers are registered, keyed by purpose.
 
 To replace a handler, edit its own file. Nothing else needs to change.
@@ -16,14 +17,14 @@ To replace a handler, edit its own file. Nothing else needs to change.
 1. `startCase` (or `startCaseRun` from inside another mutation) inserts the case with the eight-step template and schedules `advance`.
 2. `advance` finds every step that is `pending`, or `failed` with attempts left, whose dependencies are `done` or `skipped`. For each it starts a new attempt, sets the case status for that stage, and schedules `execute` plus a `checkTimeout` at the handler's `timeoutMs`.
 3. `execute` (an action) loads the input, calls the handler, and passes its result to `recordResult`. A handler that throws counts as a failure.
-4. `recordResult` applies the result to the attempt and the step, then schedules `advance` again. When every step is `done` or `skipped`, the case is `resolved`.
+4. `recordResult` applies the result to the attempt and the step, then schedules `advance` again. When every step is `done` or `skipped`, the case is `resolved`, unless a handler already set it to `restored`, which it keeps.
 
 An `approval` step (`authorize_and_execute`) is not handed to its handler on arrival. The runner parks it in `waiting` and the case in `waiting_for_owner`, and nothing after it runs until `approve` or `decline`:
 
 - `approve` resumes the same attempt, sets the case to `executing`, and calls the handler with `approval.approvedAt` set.
 - `decline` finishes the attempt with "Declined by the owner. Nothing was executed.", sets the case to `declined`, and skips every pending step, `verify` included.
 
-A failed attempt is retried as a new attempt after a second, up to `MAX_ATTEMPTS` (3, in `convex/workflow.ts`). When the last one fails, the case is `unresolved`. A retry of the approval step asks the owner again.
+A failed attempt is retried as a new attempt after a second, up to `MAX_ATTEMPTS` (3, in `convex/workflow.ts`). When the last one fails, the case is `unresolved`. A retry of the approval step asks the owner again, unless the owner already approved an action for the case: then it runs again without asking, and the handler reconciles before sending anything.
 
 Case status by stage: `detect_or_receive` sets `open`; `gather_context` to `plan` set `investigating`; `authorize_and_execute` sets `waiting_for_owner`, then `executing` once approved; `verify` sets `verifying`; `learn` keeps the status it finds. A handler may also set `waiting_for_deploy` (with a `waiting` result) or `restored` (with a `done` result).
 

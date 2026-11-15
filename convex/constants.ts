@@ -245,6 +245,7 @@ export const vJourney = v.object({
   description: v.string(),
   check: vCheck,
   checkVersion: v.string(),
+  lastPassedAt: v.optional(v.number()),
 });
 
 export const vActionCatalogEntry = v.object({
@@ -491,6 +492,7 @@ export const vAgentRun = v.object({
   routingReason: v.string(),
   routingPolicyVersion: v.optional(v.string()),
   status: vAgentRunStatus,
+  error: v.optional(v.string()),
   evaluation: v.optional(vAgentEvaluation),
   corrections: v.array(
     v.object({

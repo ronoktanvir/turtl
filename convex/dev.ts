@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import {
+  action,
   internalMutation,
   mutation,
   query,
@@ -18,6 +19,10 @@ import {
   startAttempt,
 } from "./workflow";
 import { approveCase, declineCase, startCaseRun } from "./runner/run";
+import { checkJourneys, type MonitorResult } from "./monitor";
+import { CREDENTIAL_REF, call, controlBase, describeFailure } from "./protectedApp/client";
+import { latestProposal } from "./protectedApp/records";
+import { BOOKING_APP_NAME, registerBookingApp } from "./protectedApp/registry";
 
 declare const process: { env: Record<string, string | undefined> };
 
@@ -310,10 +315,64 @@ export const clearLiveRuns = mutation({
   },
 });
 
+export const registerBooking = mutation({
+  args: {},
+  handler: async (ctx) => {
+    requireEnabled();
+    return await registerBookingApp(ctx);
+  },
+});
+
+// Runs the monitor once, now, instead of waiting for the next scheduled check.
+export const checkNow = action({
+  args: {},
+  handler: async (ctx): Promise<MonitorResult> => {
+    requireEnabled();
+    return await checkJourneys(ctx);
+  },
+});
+
+// Test instrumentation: turns the booking app's staged provider timeout on or off. Nothing else in turtl calls it.
+export const stageOutage = action({
+  args: { on: v.boolean() },
+  handler: async (_ctx, { on }) => {
+    requireEnabled();
+    const base = controlBase();
+    if (!base) throw new Error("PROTECTED_APP_URL is not set on this deployment.");
+    const response = await call(`${base}/staged-failure`, {
+      method: "POST",
+      body: { providerTimeout: on },
+      credentialRef: CREDENTIAL_REF,
+    });
+    if (response.kind !== "response" || response.status !== 200) {
+      throw new Error(`Could not change the staged outage: ${describeFailure(response)}.`);
+    }
+    return { staged: true, providerTimeout: on };
+  },
+});
+
+const bookingStatus = async (ctx: QueryCtx) => {
+  const app = await ctx.db
+    .query("apps")
+    .filter((q) => q.eq(q.field("name"), BOOKING_APP_NAME))
+    .first();
+  if (!app) return null;
+  const latest = (await ctx.db.query("cases").order("desc").collect()).find((c) => c.appId === app._id);
+  const proposal = latest ? await latestProposal(ctx, latest._id) : null;
+  const option = proposal?.options.find((o) => o.recommended) ?? proposal?.options[0];
+  return {
+    case: latest ? { _id: latest._id, status: latest.status, title: latest.title } : null,
+    proposal:
+      proposal && option && proposal.decisionStatus === "pending"
+        ? { _id: proposal._id, version: proposal.version, optionKey: option.key }
+        : null,
+  };
+};
+
 export const status = query({
   args: {},
   handler: async (ctx) => {
-    if (!isEnabled()) return { enabled: false as const, cases: [], live: [] };
+    if (!isEnabled()) return { enabled: false as const, cases: [], live: [], booking: null };
     const samples = await ctx.db
       .query("cases")
       .filter((q) => q.eq(q.field("isSample"), true))
@@ -330,6 +389,6 @@ export const status = query({
         steps: await loadSteps(ctx, row._id),
       })),
     );
-    return { enabled: true as const, cases, live };
+    return { enabled: true as const, cases, live, booking: await bookingStatus(ctx) };
   },
 });
