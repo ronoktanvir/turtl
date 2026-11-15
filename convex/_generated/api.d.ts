@@ -12,6 +12,7 @@ import type * as assistant from "../assistant.js";
 import type * as cases from "../cases.js";
 import type * as constants from "../constants.js";
 import type * as dev from "../dev.js";
+import type * as keiki from "../keiki.js";
 import type * as supermemory from "../supermemory.js";
 import type * as workflow from "../workflow.js";
 
@@ -26,6 +27,7 @@ declare const fullApi: ApiFromModules<{
   cases: typeof cases;
   constants: typeof constants;
   dev: typeof dev;
+  keiki: typeof keiki;
   supermemory: typeof supermemory;
   workflow: typeof workflow;
 }>;
