@@ -12,6 +12,7 @@ import type * as assistant from "../assistant.js";
 import type * as cases from "../cases.js";
 import type * as constants from "../constants.js";
 import type * as dev from "../dev.js";
+import type * as keiki from "../keiki.js";
 import type * as runner_contract from "../runner/contract.js";
 import type * as runner_handlers_authorize_and_execute from "../runner/handlers/authorize_and_execute.js";
 import type * as runner_handlers_detect_or_receive from "../runner/handlers/detect_or_receive.js";
@@ -37,6 +38,7 @@ declare const fullApi: ApiFromModules<{
   cases: typeof cases;
   constants: typeof constants;
   dev: typeof dev;
+  keiki: typeof keiki;
   "runner/contract": typeof runner_contract;
   "runner/handlers/authorize_and_execute": typeof runner_handlers_authorize_and_execute;
   "runner/handlers/detect_or_receive": typeof runner_handlers_detect_or_receive;
