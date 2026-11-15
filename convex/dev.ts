@@ -20,7 +20,7 @@ import {
 } from "./workflow";
 import { approveCase, declineCase, startCaseRun } from "./runner/run";
 import { checkJourneys, type MonitorResult } from "./monitor";
-import { CREDENTIAL_REF, call, controlBase, describeFailure } from "./protectedApp/client";
+import { CREDENTIAL_REF, call, controlBase, describeFailure, runJourneyCheck } from "./protectedApp/client";
 import { latestProposal } from "./protectedApp/records";
 import { BOOKING_APP_NAME, registerBookingApp } from "./protectedApp/registry";
 
@@ -364,6 +364,59 @@ export const stageStoreFailure = action({
     });
     if (response.kind !== "response" || response.status !== 200) throw new Error(`Could not change the staged store failure: ${describeFailure(response)}.`);
     return { staged: true, bookingStoreFailure: on };
+  },
+});
+
+export const recommendationsOn = action({
+  args: {},
+  handler: async () => {
+    requireEnabled();
+    const base = controlBase();
+    if (!base) throw new Error("PROTECTED_APP_URL is not set on this deployment.");
+    const response = await call(`${base}/flags`, { method: "POST", body: { recommendationsEnabled: true }, credentialRef: CREDENTIAL_REF });
+    if (response.kind !== "response" || response.status !== 200 || (response.body as { recommendationsEnabled?: unknown } | null)?.recommendationsEnabled !== true) throw new Error(`The owner could not confirm recommendations are on: ${describeFailure(response)}.`);
+    return { recommendationsEnabled: true, summary: "The owner turned recommendations back on. turtl did not run a recovery. Staged switches and incident history were not changed." };
+  },
+});
+
+export const resetBooking = action({
+  args: {},
+  handler: async (ctx): Promise<{ summary: string; deletedCases: number; deletedMemories: number; deletedPermissions: number; deleted: Record<string, number> }> => {
+    requireEnabled();
+    const scope = await ctx.runMutation(internal.memory.reset.prepare, {});
+    const completed = ["Open booking cases were marked declined, pending work was cancelled, pass watermarks were cleared, and booking permissions were removed"];
+    let deletionStarted = false;
+    try {
+      for (const [path, body] of [
+        ["/staged-failure", { providerTimeout: false }],
+        ["/staged-failure", { bookingStoreFailure: false }],
+        ["/flags", { recommendationsEnabled: true }],
+      ] as const) {
+        const response = await call(`${scope.base}${path}`, { method: "POST", body, credentialRef: CREDENTIAL_REF });
+        const [field, expected] = Object.entries(body)[0];
+        if (response.kind !== "response" || response.status !== 200 || (response.body as Record<string, unknown> | null)?.[field] !== expected) throw new Error(`${path} did not confirm ${field}=${expected} (${describeFailure(response)}); that change is not confirmed`);
+        completed.push(`${field}=${expected} was confirmed`);
+      }
+      const passedJourneys: { journeyId: Id<"journeys">; observedAt: number }[] = [];
+      for (const journey of scope.journeys) {
+        if (journey.check.kind !== "http") throw new Error("This journey needs a non-HTTP check");
+        const observedAt = Date.now();
+        const outcome = await runJourneyCheck(journey.check.config);
+        if (!outcome.ok || outcome.result.verdict !== "passed") throw new Error("The fresh booking journey did not pass");
+        passedJourneys.push({ journeyId: journey._id, observedAt });
+      }
+      completed.push("The fresh booking journey passed");
+      deletionStarted = true;
+      const deleted = await ctx.runMutation(internal.memory.reset.clear, { appId: scope.appId, caseIds: scope.caseIds, passedJourneys });
+      const deletedPermissions = scope.permissionsDeleted + deleted.permissions;
+      return {
+        deletedCases: deleted.cases, deletedMemories: deleted.recoveryMemories, deletedPermissions,
+        deleted: { ...deleted, permissions: deletedPermissions, cancelledScheduled: scope.cancelledScheduled + deleted.cancelledScheduled },
+        summary: `Booking demo reset: deleted ${deleted.cases} booking cases and their history, ${deleted.recoveryMemories} recovery memories, and ${deletedPermissions} permissions. Recommendations are on, both staged failures are off, and the booking check passed. Registration, sample cases, and dev live runs were kept. Supermemory entries were not deleted; recall ignores entries without a Convex record.`,
+      };
+    } catch (error) {
+      throw new Error(`Booking reset paused. ${completed.join(". ")}. ${error instanceof Error ? error.message : "The reset failed"}. ${deletionStarted ? "Incident deletion was not confirmed; inspect the current history before retrying." : "No incident rows were deleted."}`);
+    }
   },
 });
 

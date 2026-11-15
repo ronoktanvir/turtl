@@ -73,6 +73,7 @@ export const handler: StepHandler = {
       });
 
       const ref = payload.checkRefs.find((r) => r.journeyId === journey._id);
+      const observedAt = Date.now();
       const outcome = await runJourneyCheck(check);
       const title = outcome.ok ? describeJourney(outcome.result) : `The booking check could not be run: ${outcome.reason}.`;
       rows.push(
@@ -84,7 +85,7 @@ export const handler: StepHandler = {
         }),
       );
       journeyPassed = outcome.ok && outcome.result.verdict === "passed";
-      if (journeyPassed) await ctx.runMutation(internal.monitor.recordPass, { journeyId: journey._id });
+      if (journeyPassed) await ctx.runMutation(internal.monitor.recordPass, { journeyId: journey._id, observedAt });
       results.set(CRITERIA.journey.id, { status: journeyPassed ? "passed" : "failed", summary: title, evidence: rows.length - 1 });
     }
 
