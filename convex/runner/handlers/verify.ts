@@ -84,6 +84,7 @@ export const handler: StepHandler = {
         }),
       );
       journeyPassed = outcome.ok && outcome.result.verdict === "passed";
+      if (journeyPassed) await ctx.runMutation(internal.monitor.recordPass, { journeyId: journey._id });
       results.set(CRITERIA.journey.id, { status: journeyPassed ? "passed" : "failed", summary: title, evidence: rows.length - 1 });
     }
 

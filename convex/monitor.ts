@@ -51,7 +51,16 @@ function describeImpact(
   };
 }
 
-// Opens one case per failing journey: nothing happens while a case with the same signature is open.
+// A passing check of the journey, from the monitor or from verify, re-arms its signature.
+export const recordPass = internalMutation({
+  args: { journeyId: v.id("journeys") },
+  handler: async (ctx, { journeyId }) => {
+    if (await ctx.db.get(journeyId)) await ctx.db.patch(journeyId, { lastPassedAt: Date.now() });
+  },
+});
+
+// Opens one case per failure of a journey: nothing while a case with its signature is open, and nothing
+// after that case closes until the journey has passed again.
 export const openCase = internalMutation({
   args: {
     journeyId: v.id("journeys"),
@@ -63,13 +72,23 @@ export const openCase = internalMutation({
     const journey = await ctx.db.get(journeyId);
     if (!journey) throw new Error("Journey not found.");
     const signature = signatureFor(journeyId);
-    const existing = (
-      await ctx.db
-        .query("cases")
-        .filter((q) => q.eq(q.field("signature"), signature))
-        .collect()
-    ).find((row) => !NOT_OPEN.includes(row.status));
-    if (existing) return { opened: false as const, caseId: existing._id };
+    const previous = await ctx.db
+      .query("cases")
+      .withIndex("by_app_and_signature", (q) => q.eq("appId", journey.appId).eq("signature", signature))
+      .collect();
+    const existing = previous.find((row) => !NOT_OPEN.includes(row.status));
+    if (existing) return { opened: false as const, caseId: existing._id, reason: "a case for this failure is open" };
+    const last = previous.reduce<(typeof previous)[number] | null>(
+      (latest, row) => (!latest || row._creationTime > latest._creationTime ? row : latest),
+      null,
+    );
+    if (last && (journey.lastPassedAt ?? 0) <= last._creationTime) {
+      return {
+        opened: false as const,
+        caseId: last._id,
+        reason: `the journey has not passed since the last case for it (${last.status})`,
+      };
+    }
     const { title, impact } = describeImpact(failedStep, counts, countsReason);
     const caseId = await startCaseRun(ctx, {
       appId: journey.appId,
@@ -98,6 +117,7 @@ export type MonitorResult =
         detail: string;
         caseId?: Id<"cases">;
         opened?: boolean;
+        reason?: string;
       }[];
     };
 
@@ -116,6 +136,7 @@ export async function checkJourneys(ctx: ActionCtx): Promise<MonitorResult> {
     }
     const { result } = outcome;
     if (result.verdict === "passed") {
+      await ctx.runMutation(internal.monitor.recordPass, { journeyId: journey._id });
       checked.push({ journeyId: journey._id, outcome: "passed" as const, detail: "The booking check passed." });
       continue;
     }

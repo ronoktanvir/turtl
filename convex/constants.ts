@@ -245,6 +245,7 @@ export const vJourney = v.object({
   description: v.string(),
   check: vCheck,
   checkVersion: v.string(),
+  lastPassedAt: v.optional(v.number()),
 });
 
 export const vActionCatalogEntry = v.object({
