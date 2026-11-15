@@ -7,6 +7,7 @@ import {
   type QueryCtx,
 } from "./_generated/server";
 import {
+  CLOSED_CASE_STATUSES,
   STAGES,
   STAGE_IDS,
   vCaseKind,
@@ -14,6 +15,9 @@ import {
   vStage,
   vStepKind,
 } from "./constants";
+import type { CaseStatus, OutputRef } from "./constants";
+
+export const MAX_ATTEMPTS = 3;
 
 export const vStepDef = v.object({
   key: v.string(),
@@ -105,6 +109,7 @@ export async function startAttempt(ctx: MutationCtx, stepId: Id<"steps">) {
   if (step.status !== "pending" && step.status !== "failed") {
     throw new Error(`Step "${step.key}" is ${step.status}; it cannot start an attempt.`);
   }
+  const inputRefs: Id<"stepAttempts">[] = [];
   for (const key of step.dependsOn) {
     const parent = await ctx.db
       .query("steps")
@@ -113,32 +118,41 @@ export async function startAttempt(ctx: MutationCtx, stepId: Id<"steps">) {
     if (!parent || (parent.status !== "done" && parent.status !== "skipped")) {
       throw new Error(`Step "${step.key}" cannot start: "${key}" is not done or skipped.`);
     }
+    if (parent.currentAttemptId) inputRefs.push(parent.currentAttemptId);
   }
   const last = await ctx.db
     .query("stepAttempts")
     .withIndex("by_step", (q) => q.eq("stepId", stepId))
     .order("desc")
     .first();
+  if (last && last.attempt >= MAX_ATTEMPTS) {
+    throw new Error(`Step "${step.key}" has used all ${MAX_ATTEMPTS} attempts.`);
+  }
   const attemptId = await ctx.db.insert("stepAttempts", {
     stepId,
     caseId: step.caseId,
     attempt: (last?.attempt ?? 0) + 1,
     status: "running",
     startedAt: Date.now(),
+    inputRefs,
   });
   await ctx.db.patch(stepId, { currentAttemptId: attemptId, status: "running" });
   return attemptId;
 }
 
+type AttemptNotes = {
+  summary?: string;
+  handoff?: string;
+  error?: string;
+  externalRef?: string;
+  output?: unknown;
+  outputRefs?: OutputRef[];
+};
+
 export async function finishAttempt(
   ctx: MutationCtx,
   attemptId: Id<"stepAttempts">,
-  result: {
-    status: "done" | "failed";
-    summary?: string;
-    handoff?: string;
-    error?: string;
-  },
+  result: { status: "done" | "failed" } & AttemptNotes,
 ) {
   const attempt = await ctx.db.get(attemptId);
   if (!attempt) throw new Error("Attempt not found.");
@@ -154,6 +168,66 @@ export async function finishAttempt(
   await ctx.db.patch(attemptId, { status, finishedAt: Date.now(), ...notes });
   await ctx.db.patch(step._id, { status });
   return { applied: true };
+}
+
+async function loadAttempt(ctx: MutationCtx, attemptId: Id<"stepAttempts">) {
+  const attempt = await ctx.db.get(attemptId);
+  if (!attempt) throw new Error("Attempt not found.");
+  const step = await ctx.db.get(attempt.stepId);
+  if (!step) throw new Error("Step not found.");
+  const live =
+    step.currentAttemptId === attemptId &&
+    (attempt.status === "running" || attempt.status === "waiting");
+  return { attempt, step, live };
+}
+
+// Park the current attempt until an owner's decision or an external callback arrives.
+export async function waitOnAttempt(
+  ctx: MutationCtx,
+  attemptId: Id<"stepAttempts">,
+  notes: { summary: string; externalRef?: string },
+) {
+  const { step, live } = await loadAttempt(ctx, attemptId);
+  if (!live) return { applied: false, reason: "not the current, unfinished attempt" };
+  await ctx.db.patch(attemptId, { status: "waiting", ...notes });
+  await ctx.db.patch(step._id, { status: "waiting" });
+  return { applied: true };
+}
+
+export async function resumeAttempt(
+  ctx: MutationCtx,
+  attemptId: Id<"stepAttempts">,
+  summary: string,
+) {
+  const { attempt, step, live } = await loadAttempt(ctx, attemptId);
+  if (!live || attempt.status !== "waiting") {
+    throw new Error(`Step "${step.key}" is not waiting on this attempt.`);
+  }
+  await ctx.db.patch(attemptId, { status: "running", summary });
+  await ctx.db.patch(step._id, { status: "running" });
+}
+
+// Keep a result that arrived for an old or finished attempt on that attempt; the step is untouched.
+export async function recordLateResult(
+  ctx: MutationCtx,
+  attemptId: Id<"stepAttempts">,
+  notes: AttemptNotes,
+) {
+  const { live } = await loadAttempt(ctx, attemptId);
+  if (live) throw new Error("This attempt is still current; finish it instead.");
+  await ctx.db.patch(attemptId, { ...notes, lateResultAt: Date.now() });
+}
+
+export async function setCaseStatus(ctx: MutationCtx, caseId: Id<"cases">, status: CaseStatus) {
+  const row = await ctx.db.get(caseId);
+  if (!row) throw new Error("Case not found.");
+  if ((CLOSED_CASE_STATUSES as readonly string[]).includes(row.status)) {
+    throw new Error(`The case is already ${row.status}.`);
+  }
+  await ctx.db.patch(caseId, {
+    status,
+    ...(status === "resolved" && { resolvedAt: Date.now() }),
+  });
 }
 
 export async function skipStep(ctx: MutationCtx, stepId: Id<"steps">, reason: string) {

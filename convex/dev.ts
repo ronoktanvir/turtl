@@ -6,6 +6,7 @@ import {
   mutation,
   query,
   type MutationCtx,
+  type QueryCtx,
 } from "./_generated/server";
 import { CASE_KINDS, CLOSED_CASE_STATUSES, STAGES } from "./constants";
 import type { CaseKind, CaseStatus, RaisedBy } from "./constants";
@@ -13,8 +14,10 @@ import {
   createCaseFromTemplate,
   finishAttempt,
   loadSteps,
+  MAX_ATTEMPTS,
   startAttempt,
 } from "./workflow";
+import { approveCase, declineCase, startCaseRun } from "./runner/run";
 
 declare const process: { env: Record<string, string | undefined> };
 
@@ -22,6 +25,14 @@ const AUTO_RUN_INTERVAL_MS = 1200;
 const AUTO_RUN_STAGGER_MS = 400;
 
 const SAMPLE_APP = { name: "Sample booking app", isSample: true };
+
+const LIVE_APP_NAME = "Live run app (dev)";
+const LIVE_STAGED_STEP = "gather_context";
+const LIVE_STAGINGS = {
+  retry: { fail: 1 },
+  timeout: { hang: 1 },
+  unresolved: { fail: MAX_ATTEMPTS },
+};
 
 const SAMPLES: Record<
   CaseKind,
@@ -219,10 +230,90 @@ export const resetSamples = mutation({
   },
 });
 
+const findLiveApp = (ctx: QueryCtx) =>
+  ctx.db
+    .query("apps")
+    .filter((q) => q.eq(q.field("name"), LIVE_APP_NAME))
+    .first();
+
+const liveCases = async (ctx: QueryCtx) => {
+  const app = await findLiveApp(ctx);
+  if (!app) return [];
+  return (await ctx.db.query("cases").order("desc").collect()).filter(
+    (row) => row.appId === app._id,
+  );
+};
+
+export const startLiveRun = mutation({
+  args: {
+    staged: v.optional(
+      v.union(v.literal("retry"), v.literal("timeout"), v.literal("unresolved")),
+    ),
+  },
+  handler: async (ctx, { staged }) => {
+    requireEnabled();
+    const appId =
+      (await findLiveApp(ctx))?._id ?? (await ctx.db.insert("apps", { name: LIVE_APP_NAME }));
+    const caseId = await startCaseRun(ctx, {
+      appId,
+      kind: "outage",
+      title: staged ? `Live run test case (staged ${staged})` : "Live run test case",
+      impact: "A dev test case. Its steps run on the backend with placeholder handlers.",
+      raisedBy: "owner",
+      raisedByRef: "dev tools",
+    });
+    if (staged) {
+      const step = await ctx.db
+        .query("steps")
+        .withIndex("by_case_and_key", (q) => q.eq("caseId", caseId).eq("key", LIVE_STAGED_STEP))
+        .unique();
+      if (step) await ctx.db.patch(step._id, { staged: LIVE_STAGINGS[staged] });
+    }
+    return caseId;
+  },
+});
+
+export const approveLiveRun = mutation({
+  args: { caseId: v.id("cases") },
+  handler: async (ctx, { caseId }) => {
+    requireEnabled();
+    await approveCase(ctx, caseId);
+  },
+});
+
+export const declineLiveRun = mutation({
+  args: { caseId: v.id("cases") },
+  handler: async (ctx, { caseId }) => {
+    requireEnabled();
+    await declineCase(ctx, caseId);
+  },
+});
+
+export const clearLiveRuns = mutation({
+  args: {},
+  handler: async (ctx) => {
+    requireEnabled();
+    const cases = await liveCases(ctx);
+    for (const row of cases) {
+      for (const table of ["stepAttempts", "steps"] as const) {
+        const rows = await ctx.db
+          .query(table)
+          .withIndex("by_case", (q) => q.eq("caseId", row._id))
+          .collect();
+        for (const doc of rows) await ctx.db.delete(doc._id);
+      }
+      await ctx.db.delete(row._id);
+    }
+    const app = await findLiveApp(ctx);
+    if (app) await ctx.db.delete(app._id);
+    return cases.length;
+  },
+});
+
 export const status = query({
   args: {},
   handler: async (ctx) => {
-    if (!isEnabled()) return { enabled: false as const, cases: [] };
+    if (!isEnabled()) return { enabled: false as const, cases: [], live: [] };
     const samples = await ctx.db
       .query("cases")
       .filter((q) => q.eq(q.field("isSample"), true))
@@ -233,6 +324,12 @@ export const status = query({
         steps: await loadSteps(ctx, sampleCase._id),
       })),
     );
-    return { enabled: true as const, cases };
+    const live = await Promise.all(
+      (await liveCases(ctx)).map(async (row) => ({
+        case: row,
+        steps: await loadSteps(ctx, row._id),
+      })),
+    );
+    return { enabled: true as const, cases, live };
   },
 });
