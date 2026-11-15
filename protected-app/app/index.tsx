@@ -56,14 +56,14 @@ export default function BookingScreen() {
 
   return <ScrollView style={s.page} contentContainerStyle={s.pageContent}>
     <View style={s.shell}>
-      <View style={s.nav}><Text style={s.wordmark}>still<Text style={s.wordmarkDot}>.</Text></Text><View style={s.demoBadge}><View style={s.dot} /><Text style={s.demoText}>BOOKING DEMO</Text></View></View>
+      <View style={[s.nav, !wide && { marginBottom: 24 }]}><Text style={s.wordmark}>still<Text style={s.wordmarkDot}>.</Text></Text><View style={s.demoBadge}><View style={s.dot} /><Text style={s.demoText}>BOOKING DEMO</Text></View></View>
       <View style={[s.main, wide && s.mainWide]}>
         <View style={[s.intro, wide && s.introWide]}>
           <Text style={s.eyebrow}>A LITTLE TIME FOR YOURSELF</Text>
           <Text style={[s.headline, wide && s.headlineWide]}>Less rush.{"\n"}More reset.</Text>
           <Text style={s.introText}>Make space to feel like yourself again. A thoughtful treatment, at a time that works for you.</Text>
-          <View style={s.art}><View style={s.artCircleOuter}><View style={s.artCircleInner}><Text style={s.artStar}>✳</Text></View></View><View style={s.artCaption}><Text style={s.artCaptionTitle}>Take a breath.</Text><Text style={s.artCaptionText}>We'll take it from here.</Text></View></View>
-          <View style={s.introFooter}><Text style={s.tiny}>THOUGHTFUL CARE</Text><Text style={s.tiny}>ONE APPOINTMENT AT A TIME</Text></View>
+          {wide && <><View style={s.art}><View style={s.artCircleOuter}><View style={s.artCircleInner}><Text style={s.artStar}>✳</Text></View></View><View style={s.artCaption}><Text style={s.artCaptionTitle}>Take a breath.</Text><Text style={s.artCaptionText}>We'll take it from here.</Text></View></View>
+          <View style={s.introFooter}><Text style={s.tiny}>THOUGHTFUL CARE</Text><Text style={s.tiny}>ONE APPOINTMENT AT A TIME</Text></View></>}
         </View>
         <View style={[s.card, wide && s.cardWide]}>
           {!catalog || !flags ? <View style={s.loading}><ActivityIndicator color="#31564b" /><Text style={s.body}>Finding a little breathing room…</Text></View> : confirmation ? <View style={s.confirmation}>
