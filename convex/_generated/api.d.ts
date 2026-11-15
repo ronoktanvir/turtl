@@ -8,8 +8,8 @@
  * @module
  */
 
+import type * as cases from "../cases.js";
 import type * as constants from "../constants.js";
-import type * as incidents from "../incidents.js";
 
 import type {
   ApiFromModules,
@@ -18,8 +18,8 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  cases: typeof cases;
   constants: typeof constants;
-  incidents: typeof incidents;
 }>;
 
 /**

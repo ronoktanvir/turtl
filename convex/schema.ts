@@ -1,16 +1,24 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
-import { vIncidentStatus, vStage, vStepStatus } from "./constants";
+import {
+  vCaseKind,
+  vCaseStatus,
+  vRaisedBy,
+  vStage,
+  vStepStatus,
+} from "./constants";
 
 export default defineSchema({
-  incidents: defineTable({
+  cases: defineTable({
     title: v.string(),
-    status: vIncidentStatus,
+    kind: vCaseKind,
+    raisedBy: vRaisedBy,
+    status: vCaseStatus,
     updatedAt: v.number(),
     closedAt: v.optional(v.number()),
   }),
   steps: defineTable({
-    incidentId: v.id("incidents"),
+    caseId: v.id("cases"),
     stage: vStage,
     status: vStepStatus,
     attempt: v.number(),
@@ -18,5 +26,5 @@ export default defineSchema({
     startedAt: v.optional(v.number()),
     finishedAt: v.optional(v.number()),
     updatedAt: v.number(),
-  }).index("by_incident", ["incidentId"]),
+  }).index("by_case", ["caseId"]),
 });

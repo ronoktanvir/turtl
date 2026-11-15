@@ -14,7 +14,15 @@ export const STAGES = [
 
 export const STAGE_IDS = STAGES.map((stage) => stage.id);
 
-export const INCIDENT_STATUSES = ["open", "resolved", "failed"] as const;
+export const CASE_STATUSES = ["open", "resolved", "failed", "declined"] as const;
+
+export const CASE_KINDS = [
+  { id: "outage", label: "Outage" },
+  { id: "bug_report", label: "Bug report" },
+  { id: "feature_request", label: "Feature request" },
+] as const;
+
+export const RAISED_BY = ["monitor", "owner", "customer"] as const;
 
 export const STEP_STATUSES = [
   "pending",
@@ -36,10 +44,23 @@ export const vStage = v.union(
   v.literal("learn"),
 );
 
-export const vIncidentStatus = v.union(
+export const vCaseStatus = v.union(
   v.literal("open"),
   v.literal("resolved"),
   v.literal("failed"),
+  v.literal("declined"),
+);
+
+export const vCaseKind = v.union(
+  v.literal("outage"),
+  v.literal("bug_report"),
+  v.literal("feature_request"),
+);
+
+export const vRaisedBy = v.union(
+  v.literal("monitor"),
+  v.literal("owner"),
+  v.literal("customer"),
 );
 
 export const vStepStatus = v.union(
@@ -52,5 +73,7 @@ export const vStepStatus = v.union(
 );
 
 export type Stage = Infer<typeof vStage>;
-export type IncidentStatus = Infer<typeof vIncidentStatus>;
+export type CaseStatus = Infer<typeof vCaseStatus>;
+export type CaseKind = Infer<typeof vCaseKind>;
+export type RaisedBy = Infer<typeof vRaisedBy>;
 export type StepStatus = Infer<typeof vStepStatus>;

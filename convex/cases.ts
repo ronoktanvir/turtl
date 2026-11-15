@@ -3,6 +3,6 @@ import { query } from "./_generated/server";
 export const list = query({
   args: {},
   handler: async (ctx) => {
-    return await ctx.db.query("incidents").order("desc").collect();
+    return await ctx.db.query("cases").order("desc").collect();
   },
 });
