@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { internalMutation, internalQuery, type MutationCtx, type QueryCtx } from "../_generated/server";
 import { vCriterion, vEvidence, vProposalOption, vVerification } from "../constants";
@@ -110,7 +111,7 @@ export const writeProposal = internalMutation({
       .withIndex("by_step_and_version", (q) => q.eq("stepId", stepId))
       .order("desc")
       .first();
-    return await ctx.db.insert("proposals", {
+    const proposalId = await ctx.db.insert("proposals", {
       caseId,
       stepId,
       version: (last?.version ?? 0) + 1,
@@ -118,6 +119,15 @@ export const writeProposal = internalMutation({
       options,
       doneMeans,
     });
+    const row = await ctx.db.get(caseId);
+    const app = row && (await ctx.db.get(row.appId));
+    const recommended = options.find((o) => o.recommended);
+    await ctx.scheduler.runAfter(0, internal.keiki.notifyOwner, {
+      text: recommended
+        ? `turtl needs your decision on ${app?.name ?? "your app"}: it recommends "${recommended.title}" to restore service. Open turtl to approve or decline.`
+        : `turtl needs your decision on ${app?.name ?? "your app"}. Open turtl to review its proposal.`,
+    });
+    return proposalId;
   },
 });
 

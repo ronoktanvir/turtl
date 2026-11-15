@@ -81,6 +81,10 @@ export const openCase = internalMutation({
       signature,
     });
     await ctx.db.patch(caseId, { journeyId });
+    const app = await ctx.db.get(journey.appId);
+    await ctx.scheduler.runAfter(0, internal.keiki.notifyOwner, {
+      text: `Something is wrong with ${app?.name ?? "your app"}: ${title}. turtl is looking into it now.`,
+    });
     return { opened: true as const, caseId };
   },
 });
