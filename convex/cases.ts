@@ -1,6 +1,6 @@
 import { v } from "convex/values";
-import type { Doc } from "./_generated/dataModel";
 import { query } from "./_generated/server";
+import { loadSteps } from "./workflow";
 
 export const list = query({
   args: {},
@@ -9,36 +9,18 @@ export const list = query({
   },
 });
 
-// A retry is a new step row with the next attempt number; keep only the
-// highest attempt for each stage.
-function currentSteps(steps: Doc<"steps">[]) {
-  const latest = new Map<string, Doc<"steps">>();
-  for (const step of steps) {
-    const seen = latest.get(step.stage);
-    if (!seen || step.attempt > seen.attempt) latest.set(step.stage, step);
-  }
-  return [...latest.values()];
-}
-
-// Home screen: every case, newest first, with its current steps.
+// Home screen: every case, newest first, with its steps and their current attempts.
 export const listWithSteps = query({
   args: {},
   handler: async (ctx) => {
     const cases = await ctx.db.query("cases").order("desc").collect();
     return await Promise.all(
-      cases.map(async (row) => {
-        const steps = await ctx.db
-          .query("steps")
-          .withIndex("by_case", (q) => q.eq("caseId", row._id))
-          .collect();
-        return { ...row, steps: currentSteps(steps) };
-      }),
+      cases.map(async (row) => ({ ...row, steps: await loadSteps(ctx, row._id) })),
     );
   },
 });
 
-// Case screen: one case with its current steps, or null when the id
-// is not a case.
+// Case screen: one case with its steps, or null when the id is not a case.
 export const get = query({
   args: { id: v.string() },
   handler: async (ctx, args) => {
@@ -46,10 +28,6 @@ export const get = query({
     if (!id) return null;
     const row = await ctx.db.get(id);
     if (!row) return null;
-    const steps = await ctx.db
-      .query("steps")
-      .withIndex("by_case", (q) => q.eq("caseId", id))
-      .collect();
-    return { ...row, steps: currentSteps(steps) };
+    return { ...row, steps: await loadSteps(ctx, id) };
   },
 });

@@ -11,6 +11,7 @@
 import type * as cases from "../cases.js";
 import type * as constants from "../constants.js";
 import type * as dev from "../dev.js";
+import type * as workflow from "../workflow.js";
 
 import type {
   ApiFromModules,
@@ -22,6 +23,7 @@ declare const fullApi: ApiFromModules<{
   cases: typeof cases;
   constants: typeof constants;
   dev: typeof dev;
+  workflow: typeof workflow;
 }>;
 
 /**

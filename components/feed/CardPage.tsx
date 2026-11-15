@@ -4,7 +4,6 @@ import {
   CARD_STATUS_LABELS,
   STEP_STATUS_COLORS,
   STEP_STATUS_LABELS,
-  stageLabel,
   type buildCards,
 } from "./cards";
 import { StatusBadge } from "./StatusBadge";
@@ -32,20 +31,20 @@ export function CardPage({
           <Text style={styles.empty}>No steps yet.</Text>
         ) : (
           card.steps.map((step) => (
-            <View key={step._id} style={styles.step} testID={`step-${step.stage}`}>
-              <Text style={styles.stage}>{stageLabel(step.stage)}</Text>
+            <View key={step._id} style={styles.step} testID={`step-${step.key}`}>
+              <Text style={styles.stage}>{step.title}</Text>
               <View style={styles.stepMeta}>
                 <StatusBadge
                   label={STEP_STATUS_LABELS[step.status]}
                   color={STEP_STATUS_COLORS[step.status]}
-                  testID={`step-status-${step.stage}`}
+                  testID={`step-status-${step.key}`}
                 />
-                <Text style={styles.attempt} testID={`step-attempt-${step.stage}`}>
-                  Attempt {step.attempt}
+                <Text style={styles.attempt} testID={`step-attempt-${step.key}`}>
+                  {step.currentAttempt ? `Attempt ${step.currentAttempt.attempt}` : "Not started"}
                 </Text>
               </View>
-              <Text style={styles.summary} testID={`step-summary-${step.stage}`}>
-                {step.summary}
+              <Text style={styles.summary} testID={`step-summary-${step.key}`}>
+                {step.currentAttempt?.summary ?? ""}
               </Text>
             </View>
           ))

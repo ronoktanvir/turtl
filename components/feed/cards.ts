@@ -1,6 +1,7 @@
 import {
   CASE_KINDS,
-  STAGES,
+  CASE_STATUSES,
+  type AttemptStatus,
   type CaseKind,
   type CaseStatus,
   type RaisedBy,
@@ -20,55 +21,56 @@ export type CardDefinition = {
   id: CardId;
   name: string;
   copy: string;
-  stages: readonly Stage[];
+  purposes: readonly Stage[];
 };
 
-// The one place that maps cards to stages. Change the mapping here.
+// The one place that maps cards to step purposes. Change the mapping here.
 export const CARDS: readonly CardDefinition[] = [
   {
     id: "what-broke",
     name: "What broke",
     copy: "Placeholder: a plain-language description of the problem will appear here.",
-    stages: ["detect_or_receive"],
+    purposes: ["detect_or_receive"],
   },
   {
     id: "what-we-found",
     name: "What we found",
     copy: "Placeholder: what the investigation turned up and how sure we are will appear here.",
-    stages: ["gather_context", "investigate", "examine_broader_causes"],
+    purposes: ["gather_context", "investigate", "examine_broader_causes"],
   },
   {
     id: "recommended-action",
     name: "Recommended action",
     copy: "Placeholder: the proposed fix and what it changes will appear here. Nothing runs from this card.",
-    stages: ["plan"],
+    purposes: ["plan"],
   },
   {
     id: "work-in-progress",
     name: "Work in progress",
     copy: "Placeholder: what is being done right now will appear here.",
-    stages: ["authorize_and_execute"],
+    purposes: ["authorize_and_execute"],
   },
   {
     id: "proof",
     name: "Proof",
     copy: "Placeholder: evidence that the app works again will appear here.",
-    stages: ["verify"],
+    purposes: ["verify"],
   },
   {
     id: "what-we-learned",
     name: "What we learned",
     copy: "Placeholder: what to remember for next time will appear here.",
-    stages: ["learn"],
+    purposes: ["learn"],
   },
 ];
 
 export type FeedStep = {
   _id: string;
-  stage: Stage;
+  key: string;
+  title: string;
+  purpose: Stage;
   status: StepStatus;
-  attempt: number;
-  summary: string;
+  currentAttempt: { attempt: number; status: AttemptStatus; summary?: string } | null;
 };
 
 export type CardStatus = "pending" | "in_progress" | "waiting" | "done" | "failed";
@@ -107,17 +109,22 @@ export const STEP_STATUS_COLORS: Record<StepStatus, string> = {
   skipped: CARD_STATUS_COLORS.pending,
 };
 
-export const CASE_STATUS_LABELS: Record<CaseStatus, string> = {
-  open: "Open",
-  resolved: "Resolved",
-  failed: "Failed",
-  declined: "Declined",
-};
+export const CASE_STATUS_LABELS = Object.fromEntries(
+  CASE_STATUSES.map((status) => [status.id, status.label]),
+) as Record<CaseStatus, string>;
+
+const RESTORED_COLOR = "#12A594";
 
 export const CASE_STATUS_COLORS: Record<CaseStatus, string> = {
   open: CARD_STATUS_COLORS.in_progress,
+  investigating: CARD_STATUS_COLORS.in_progress,
+  waiting_for_owner: CARD_STATUS_COLORS.waiting,
+  executing: CARD_STATUS_COLORS.in_progress,
+  waiting_for_deploy: CARD_STATUS_COLORS.waiting,
+  verifying: CARD_STATUS_COLORS.in_progress,
+  restored: RESTORED_COLOR,
   resolved: CARD_STATUS_COLORS.done,
-  failed: CARD_STATUS_COLORS.failed,
+  unresolved: CARD_STATUS_COLORS.failed,
   declined: CARD_STATUS_COLORS.pending,
 };
 
@@ -129,10 +136,6 @@ export const RAISED_BY_LABELS: Record<RaisedBy, string> = {
 
 export function kindLabel(kind: CaseKind) {
   return CASE_KINDS.find((k) => k.id === kind)?.label ?? kind;
-}
-
-export function stageLabel(stage: Stage) {
-  return STAGES.find((s) => s.id === stage)?.label ?? stage;
 }
 
 export function cardStatus(steps: readonly FeedStep[]): CardStatus {
@@ -148,9 +151,7 @@ export function cardStatus(steps: readonly FeedStep[]): CardStatus {
 
 export function buildCards(steps: readonly FeedStep[]) {
   return CARDS.map((card) => {
-    const cardSteps = card.stages
-      .map((stage) => steps.find((s) => s.stage === stage))
-      .filter((s): s is FeedStep => s !== undefined);
+    const cardSteps = steps.filter((s) => card.purposes.includes(s.purpose));
     return { ...card, steps: cardSteps, status: cardStatus(cardSteps) };
   });
 }

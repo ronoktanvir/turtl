@@ -57,6 +57,9 @@ export default function CaseScreen() {
             <Text style={styles.title} testID="case-title">
               {item.title}
             </Text>
+            <Text style={styles.impact} testID="case-impact">
+              {item.impact}
+            </Text>
             <StatusBadge
               label={CASE_STATUS_LABELS[item.status]}
               color={CASE_STATUS_COLORS[item.status]}
@@ -102,6 +105,7 @@ const styles = StyleSheet.create({
   backText: { fontSize: 17, color: "#0A84FF" },
   header: { paddingHorizontal: 16, gap: 6 },
   title: { fontSize: 24, fontWeight: "700", color: "#111111" },
+  impact: { fontSize: 16, color: "#333333" },
   note: { fontSize: 16, color: "#555555", textAlign: "center", padding: 24 },
   dots: { flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 8, paddingVertical: 12 },
   dot: { width: 10, height: 10, borderRadius: 5, backgroundColor: "#C7C7CC" },
