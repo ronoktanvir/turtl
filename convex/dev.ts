@@ -71,6 +71,13 @@ const requireEnabled = () => {
   }
 };
 
+const requireSampleCase = async (ctx: QueryCtx, caseId: Id<"cases">) => {
+  const row = await ctx.db.get(caseId);
+  if (!row?.isSample) {
+    throw new Error(`Case ${caseId} is not a sample case, so dev tools will not change it.`);
+  }
+};
+
 const isClosed = (status: CaseStatus) =>
   (CLOSED_CASE_STATUSES as readonly string[]).includes(status);
 
@@ -153,6 +160,7 @@ export const advance = mutation({
   args: { caseId: v.id("cases") },
   handler: async (ctx, { caseId }) => {
     requireEnabled();
+    await requireSampleCase(ctx, caseId);
     return await advanceOnce(ctx, caseId);
   },
 });
@@ -161,6 +169,7 @@ export const autoRunStep = internalMutation({
   args: { caseId: v.id("cases") },
   handler: async (ctx, { caseId }) => {
     if (!isEnabled()) return;
+    if (!(await ctx.db.get(caseId))?.isSample) return;
     const status = await advanceOnce(ctx, caseId);
     if (!status || isClosed(status)) return;
     await ctx.scheduler.runAfter(AUTO_RUN_INTERVAL_MS, internal.dev.autoRunStep, {
@@ -173,6 +182,7 @@ export const autoRun = mutation({
   args: { caseId: v.optional(v.id("cases")) },
   handler: async (ctx, { caseId }) => {
     requireEnabled();
+    if (caseId) await requireSampleCase(ctx, caseId);
     const targets = caseId
       ? [caseId]
       : (
@@ -249,6 +259,13 @@ const liveCases = async (ctx: QueryCtx) => {
   );
 };
 
+const requireLiveCase = async (ctx: QueryCtx, caseId: Id<"cases">) => {
+  const [row, app] = await Promise.all([ctx.db.get(caseId), findLiveApp(ctx)]);
+  if (!row || !app || row.appId !== app._id) {
+    throw new Error(`Case ${caseId} is not a live run test case, so dev tools will not change it.`);
+  }
+};
+
 export const startLiveRun = mutation({
   args: {
     staged: v.optional(
@@ -282,6 +299,7 @@ export const approveLiveRun = mutation({
   args: { caseId: v.id("cases") },
   handler: async (ctx, { caseId }) => {
     requireEnabled();
+    await requireLiveCase(ctx, caseId);
     await approveCase(ctx, caseId);
   },
 });
@@ -290,6 +308,7 @@ export const declineLiveRun = mutation({
   args: { caseId: v.id("cases") },
   handler: async (ctx, { caseId }) => {
     requireEnabled();
+    await requireLiveCase(ctx, caseId);
     await declineCase(ctx, caseId);
   },
 });
