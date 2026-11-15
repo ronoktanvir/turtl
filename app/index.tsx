@@ -6,7 +6,12 @@ import { api } from "../convex/_generated/api";
 import { CaseRow } from "../components/feed/CaseRow";
 
 export default function Home() {
-  const cases = useQuery(api.cases.listWithSteps);
+  const rows = useQuery(api.cases.listWithSteps);
+  const cases =
+    rows &&
+    [...rows].sort(
+      (a, b) => Number(b.status === "waiting_for_owner") - Number(a.status === "waiting_for_owner"),
+    );
   const insets = useSafeAreaInsets();
   const [now, setNow] = useState(() => Date.now());
 
