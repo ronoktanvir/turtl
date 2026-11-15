@@ -3,13 +3,13 @@ import { StyleSheet, Text, View } from "react-native";
 import { api } from "../convex/_generated/api";
 
 export default function Home() {
-  const incidents = useQuery(api.incidents.list);
+  const cases = useQuery(api.cases.list);
 
   return (
     <View style={styles.container}>
       <Text style={styles.title}>turtl</Text>
       <Text style={styles.count}>
-        {incidents === undefined ? "Loading…" : `Incidents: ${incidents.length}`}
+        {cases === undefined ? "Loading…" : `Cases: ${cases.length}`}
       </Text>
     </View>
   );
