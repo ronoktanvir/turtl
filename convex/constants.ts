@@ -491,6 +491,7 @@ export const vAgentRun = v.object({
   routingReason: v.string(),
   routingPolicyVersion: v.optional(v.string()),
   status: vAgentRunStatus,
+  error: v.optional(v.string()),
   evaluation: v.optional(vAgentEvaluation),
   corrections: v.array(
     v.object({

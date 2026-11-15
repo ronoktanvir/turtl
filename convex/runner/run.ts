@@ -80,7 +80,7 @@ export const advance = internalMutation({
     if (!row || isClosed(row.status)) return;
     const steps = await loadSteps(ctx, caseId);
     if (steps.every(settled)) {
-      await setCaseStatus(ctx, caseId, "resolved");
+      if (row.status !== "restored") await setCaseStatus(ctx, caseId, "resolved");
       return;
     }
     const ready = steps.filter(
@@ -91,6 +91,18 @@ export const advance = internalMutation({
     );
     for (const step of ready) {
       const attemptId = await startAttempt(ctx, step._id);
+      const approved =
+        step.kind === "approval" &&
+        (await ctx.db
+          .query("actions")
+          .withIndex("by_case", (q) => q.eq("caseId", caseId))
+          .order("desc")
+          .first());
+      if (approved) {
+        await setCaseStatus(ctx, caseId, "executing");
+        await dispatch(ctx, step.purpose, attemptId, approved.requestedAt);
+        continue;
+      }
       const status = STATUS_ON_START[step.purpose];
       if (status) await setCaseStatus(ctx, caseId, status);
       if (step.kind === "approval") {

@@ -17,7 +17,7 @@ function DevToolsOverlay() {
   const status = useQuery(api.dev.status);
   const insets = useSafeAreaInsets();
   const [open, setOpen] = useState(false);
-  const { run, error } = useDevActions();
+  const { run, decide, error } = useDevActions();
 
   if (!status?.enabled) return null;
 
@@ -41,6 +41,14 @@ function DevToolsOverlay() {
   const liveLabel = latestLive
     ? `Live run: ${CASE_STATUSES.find((s) => s.id === latestLive.status)?.label ?? latestLive.status}`
     : "No live runs";
+
+  const booking = status.booking ?? null;
+  const bookingLabel = !booking
+    ? "Booking app: not registered"
+    : booking.case
+      ? `Booking app: ${CASE_STATUSES.find((s) => s.id === booking.case?.status)?.label ?? booking.case.status}`
+      : "Booking app: no case";
+  const pending = booking?.proposal ?? null;
 
   return (
     <View
@@ -99,6 +107,44 @@ function DevToolsOverlay() {
               label="Clear live runs"
               disabled={!latestLive}
               onPress={() => run("liveClear")}
+            />
+          </View>
+          <View style={styles.section}>
+            <Text style={styles.progress} testID="dev-booking-status">
+              {bookingLabel}
+            </Text>
+            <DevButton
+              testID="dev-booking-register"
+              label="Register booking app"
+              onPress={() => run("bookingRegister")}
+            />
+            <DevButton
+              testID="dev-booking-check"
+              label="Check now"
+              disabled={!booking}
+              onPress={() => run("bookingCheck")}
+            />
+            <DevButton
+              testID="dev-booking-stage"
+              label="Stage outage (staged)"
+              onPress={() => run("bookingStage")}
+            />
+            <DevButton
+              testID="dev-booking-clear-stage"
+              label="Clear staged outage"
+              onPress={() => run("bookingClearStage")}
+            />
+            <DevButton
+              testID="dev-booking-approve"
+              label="Approve proposal"
+              disabled={!pending || booking?.case?.status !== "waiting_for_owner"}
+              onPress={() => pending && decide("approve", pending)}
+            />
+            <DevButton
+              testID="dev-booking-decline"
+              label="Decline proposal"
+              disabled={!pending || booking?.case?.status !== "waiting_for_owner"}
+              onPress={() => pending && decide("decline", pending)}
             />
           </View>
         </View>

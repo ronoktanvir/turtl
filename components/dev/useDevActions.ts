@@ -1,4 +1,4 @@
-import { useMutation } from "convex/react";
+import { useAction, useMutation } from "convex/react";
 import { useState } from "react";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
@@ -11,7 +11,13 @@ type Action =
   | "liveStart"
   | "liveApprove"
   | "liveDecline"
-  | "liveClear";
+  | "liveClear"
+  | "bookingRegister"
+  | "bookingCheck"
+  | "bookingStage"
+  | "bookingClearStage";
+
+type Proposal = { _id: Id<"proposals">; version: number; optionKey: string };
 
 export function useDevActions() {
   const create = useMutation(api.dev.createSampleCases);
@@ -22,11 +28,24 @@ export function useDevActions() {
   const liveApprove = useMutation(api.dev.approveLiveRun);
   const liveDecline = useMutation(api.dev.declineLiveRun);
   const liveClear = useMutation(api.dev.clearLiveRuns);
+  const bookingRegister = useMutation(api.dev.registerBooking);
+  const bookingCheck = useAction(api.dev.checkNow);
+  const stageOutage = useAction(api.dev.stageOutage);
+  const approve = useMutation(api.decisions.approve);
+  const decline = useMutation(api.decisions.decline);
   const [error, setError] = useState<string | null>(null);
 
-  const run = async (action: Action, caseId?: Id<"cases">) => {
+  const attempt = async (work: () => Promise<unknown>) => {
     setError(null);
     try {
+      await work();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Dev action failed");
+    }
+  };
+
+  const run = (action: Action, caseId?: Id<"cases">) =>
+    attempt(async () => {
       if (action === "create") await create({});
       else if (action === "reset") await reset({});
       else if (action === "autoRun") await autoRun({});
@@ -35,10 +54,20 @@ export function useDevActions() {
       else if (action === "liveApprove" && caseId) await liveApprove({ caseId });
       else if (action === "liveDecline" && caseId) await liveDecline({ caseId });
       else if (action === "advance" && caseId) await advance({ caseId });
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Dev action failed");
-    }
-  };
+      else if (action === "bookingRegister") await bookingRegister({});
+      else if (action === "bookingCheck") await bookingCheck({});
+      else if (action === "bookingStage") await stageOutage({ on: true });
+      else if (action === "bookingClearStage") await stageOutage({ on: false });
+    });
 
-  return { run, error };
+  const decide = (decision: "approve" | "decline", proposal: Proposal) =>
+    attempt(async () => {
+      if (decision === "approve") {
+        await approve({ proposalId: proposal._id, version: proposal.version, optionKey: proposal.optionKey });
+      } else {
+        await decline({ proposalId: proposal._id, version: proposal.version });
+      }
+    });
+
+  return { run, decide, error };
 }
