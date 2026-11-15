@@ -9,12 +9,21 @@
  */
 
 import type * as assistant from "../assistant.js";
+import type * as bookingDemo_booking from "../bookingDemo/booking.js";
+import type * as bookingDemo_catalog from "../bookingDemo/catalog.js";
+import type * as bookingDemo_checks from "../bookingDemo/checks.js";
+import type * as bookingDemo_journeyCore from "../bookingDemo/journeyCore.js";
+import type * as bookingDemo_provider from "../bookingDemo/provider.js";
+import type * as bookingDemo_records from "../bookingDemo/records.js";
+import type * as bookingDemo_state from "../bookingDemo/state.js";
+import type * as bookingDemo_validators from "../bookingDemo/validators.js";
 import type * as cases from "../cases.js";
 import type * as constants from "../constants.js";
 import type * as crons from "../crons.js";
 import type * as decisions from "../decisions.js";
 import type * as dev from "../dev.js";
 import type * as diagnosis from "../diagnosis.js";
+import type * as http from "../http.js";
 import type * as keiki from "../keiki.js";
 import type * as memory_checks from "../memory/checks.js";
 import type * as memory_dev from "../memory/dev.js";
@@ -48,12 +57,21 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   assistant: typeof assistant;
+  "bookingDemo/booking": typeof bookingDemo_booking;
+  "bookingDemo/catalog": typeof bookingDemo_catalog;
+  "bookingDemo/checks": typeof bookingDemo_checks;
+  "bookingDemo/journeyCore": typeof bookingDemo_journeyCore;
+  "bookingDemo/provider": typeof bookingDemo_provider;
+  "bookingDemo/records": typeof bookingDemo_records;
+  "bookingDemo/state": typeof bookingDemo_state;
+  "bookingDemo/validators": typeof bookingDemo_validators;
   cases: typeof cases;
   constants: typeof constants;
   crons: typeof crons;
   decisions: typeof decisions;
   dev: typeof dev;
   diagnosis: typeof diagnosis;
+  http: typeof http;
   keiki: typeof keiki;
   "memory/checks": typeof memory_checks;
   "memory/dev": typeof memory_dev;

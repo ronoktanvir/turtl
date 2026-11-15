@@ -1,5 +1,6 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
+import { bookingError } from "./bookingDemo/validators";
 import {
   vAttemptStatus,
   vCaseKind,
@@ -137,4 +138,27 @@ export default defineSchema({
   contextSources: defineTable(vContextSource)
     .index("by_app", ["appId"])
     .index("by_app_and_source", ["appId", "sourceRef"]),
+  bookingDemoSettings: defineTable({
+    key: v.literal("demo"),
+    recommendationsEnabled: v.boolean(),
+    providerTimeout: v.boolean(),
+    bookingStoreFailure: v.optional(v.boolean()),
+    updatedAt: v.number(),
+  }).index("by_key", ["key"]),
+  bookingDemoBookings: defineTable({
+    serviceId: v.string(),
+    date: v.string(),
+    time: v.string(),
+    createdAt: v.number(),
+    fixtureRunId: v.optional(v.string()),
+  }).index("by_fixture", ["fixtureRunId"]),
+  bookingDemoAttempts: defineTable({
+    serviceId: v.string(),
+    date: v.string(),
+    time: v.string(),
+    timestamp: v.number(),
+    status: v.union(v.literal("passed"), v.literal("failed")),
+    revision: v.string(),
+    error: v.optional(bookingError),
+  }).index("by_timestamp", ["timestamp"]),
 });
