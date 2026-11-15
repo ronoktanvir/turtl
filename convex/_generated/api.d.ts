@@ -10,6 +10,7 @@
 
 import type * as cases from "../cases.js";
 import type * as constants from "../constants.js";
+import type * as dev from "../dev.js";
 
 import type {
   ApiFromModules,
@@ -20,6 +21,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   cases: typeof cases;
   constants: typeof constants;
+  dev: typeof dev;
 }>;
 
 /**

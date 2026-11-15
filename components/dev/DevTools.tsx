@@ -1,0 +1,133 @@
+import { useQuery } from "convex/react";
+import { useState } from "react";
+import { Pressable, StyleSheet, Text, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { api } from "../../convex/_generated/api";
+import { useDevActions } from "./useDevActions";
+
+const clientEnabled = __DEV__ || process.env.EXPO_PUBLIC_DEV_TOOLS === "1";
+
+export function DevTools() {
+  if (!clientEnabled) return null;
+  return <DevToolsOverlay />;
+}
+
+function DevToolsOverlay() {
+  const status = useQuery(api.dev.status);
+  const insets = useSafeAreaInsets();
+  const [open, setOpen] = useState(false);
+  const { run, error } = useDevActions();
+
+  if (!status?.enabled) return null;
+
+  const unfinished = status.cases.find((c) => c.case.status === "open");
+  const totalSteps = status.cases.reduce((n, c) => n + c.steps.length, 0);
+  const doneSteps = status.cases.reduce(
+    (n, c) =>
+      n + c.steps.filter((s) => s.status === "done" || s.status === "skipped").length,
+    0,
+  );
+  const resolvedCases = status.cases.filter((c) => c.case.status === "resolved").length;
+  const progress = status.cases.length
+    ? `${doneSteps} of ${totalSteps} steps done · ${resolvedCases} of ${status.cases.length} cases resolved`
+    : "No sample cases";
+
+  return (
+    <View
+      pointerEvents="box-none"
+      style={[styles.layer, { paddingBottom: insets.bottom + 8 }]}
+    >
+      {open && (
+        <View style={styles.panel}>
+          <Text style={styles.progress}>{progress}</Text>
+          {error && <Text style={styles.error}>{error}</Text>}
+          <DevButton
+            testID="dev-new-sample"
+            label="New sample cases"
+            onPress={() => run("create")}
+          />
+          <DevButton
+            testID="dev-advance"
+            label="Advance"
+            disabled={!unfinished}
+            onPress={() => unfinished && run("advance", unfinished.case._id)}
+          />
+          <DevButton
+            testID="dev-auto-run"
+            label="Auto-run"
+            disabled={!unfinished}
+            onPress={() => run("autoRun")}
+          />
+          <DevButton
+            testID="dev-reset"
+            label="Reset samples"
+            onPress={() => run("reset")}
+          />
+        </View>
+      )}
+      <Pressable
+        testID="dev-tools-toggle"
+        accessibilityRole="button"
+        accessibilityLabel="Dev tools"
+        onPress={() => setOpen((value) => !value)}
+        style={styles.pill}
+      >
+        <Text style={styles.pillText}>{open ? "Dev ✕" : "Dev"}</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+function DevButton(props: {
+  testID: string;
+  label: string;
+  disabled?: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      testID={props.testID}
+      accessibilityRole="button"
+      disabled={props.disabled}
+      onPress={props.onPress}
+      style={[styles.button, props.disabled && styles.buttonDisabled]}
+    >
+      <Text style={styles.buttonText}>{props.label}</Text>
+    </Pressable>
+  );
+}
+
+const styles = StyleSheet.create({
+  layer: {
+    ...StyleSheet.absoluteFill,
+    alignItems: "flex-end",
+    justifyContent: "flex-end",
+    paddingRight: 12,
+    gap: 8,
+  },
+  pill: {
+    backgroundColor: "#111827",
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    opacity: 0.9,
+  },
+  pillText: { color: "#fff", fontSize: 12, fontWeight: "700" },
+  panel: {
+    width: 240,
+    backgroundColor: "#111827",
+    borderRadius: 12,
+    padding: 10,
+    gap: 6,
+  },
+  progress: { color: "#e5e7eb", fontSize: 13, fontWeight: "600" },
+  error: { color: "#fca5a5", fontSize: 12 },
+  button: {
+    backgroundColor: "#374151",
+    borderRadius: 8,
+    paddingVertical: 8,
+    alignItems: "center",
+  },
+  buttonDisabled: { opacity: 0.4 },
+  buttonText: { color: "#fff", fontSize: 13, fontWeight: "600" },
+});

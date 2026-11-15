@@ -1,6 +1,7 @@
 import { ConvexProvider, ConvexReactClient } from "convex/react";
 import { Stack } from "expo-router";
 import { StyleSheet, Text, View } from "react-native";
+import { DevTools } from "../components/dev/DevTools";
 
 const convexUrl = process.env.EXPO_PUBLIC_CONVEX_URL;
 const convex = convexUrl
@@ -22,6 +23,7 @@ export default function RootLayout() {
   return (
     <ConvexProvider client={convex}>
       <Stack screenOptions={{ headerShown: false }} />
+      <DevTools />
     </ConvexProvider>
   );
 }
