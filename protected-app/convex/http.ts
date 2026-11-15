@@ -29,20 +29,21 @@ for (const path of ["/flags", "/staged-failure"] as const) {
     const denied = await authorize(request);
     if (denied) return denied;
     const state = await ctx.runQuery(internal.state.read, {});
-    return json(path === "/flags" ? { recommendationsEnabled: state.recommendationsEnabled, updatedAt: state.updatedAt } : { staged: true, providerTimeout: state.providerTimeout, timeoutMs: STAGED_TIMEOUT_MS, updatedAt: state.updatedAt });
+    return json(path === "/flags" ? { recommendationsEnabled: state.recommendationsEnabled, updatedAt: state.updatedAt } : { staged: true, providerTimeout: state.providerTimeout, bookingStoreFailure: state.bookingStoreFailure, timeoutMs: STAGED_TIMEOUT_MS, updatedAt: state.updatedAt });
   }) });
   http.route({ path, method: "POST", handler: httpAction(async (ctx, request) => {
     const denied = await authorize(request);
     if (denied) return denied;
-    const field = path === "/flags" ? "recommendationsEnabled" : "providerTimeout";
+    const fields = path === "/flags" ? ["recommendationsEnabled"] : ["providerTimeout", "bookingStoreFailure"];
     let body: unknown;
     try { body = await request.json(); } catch { return json({ error: { code: "INVALID_JSON", message: "Expected a JSON object." } }, 400); }
-    if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).length !== 1 || !(field in body) || typeof (body as Record<string, unknown>)[field] !== "boolean") {
-      return json({ error: { code: "INVALID_BODY", message: `Expected exactly one boolean field: ${field}.` } }, 400);
+    const field = body && typeof body === "object" ? Object.keys(body)[0] : undefined;
+    if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).length !== 1 || !field || !fields.includes(field) || typeof (body as Record<string, unknown>)[field] !== "boolean") {
+      return json({ error: { code: "INVALID_BODY", message: `Expected exactly one boolean field: ${fields.join(" or ")}.` } }, 400);
     }
     const value = (body as Record<string, boolean>)[field];
-    const state = await ctx.runMutation(internal.state.set, path === "/flags" ? { recommendationsEnabled: value } : { providerTimeout: value });
-    return json(path === "/flags" ? { recommendationsEnabled: state.recommendationsEnabled, updatedAt: state.updatedAt } : { staged: true, providerTimeout: state.providerTimeout, timeoutMs: STAGED_TIMEOUT_MS, updatedAt: state.updatedAt });
+    const state = await ctx.runMutation(internal.state.set, field === "recommendationsEnabled" ? { recommendationsEnabled: value } : field === "providerTimeout" ? { providerTimeout: value } : { bookingStoreFailure: value });
+    return json(path === "/flags" ? { recommendationsEnabled: state.recommendationsEnabled, updatedAt: state.updatedAt } : { staged: true, providerTimeout: state.providerTimeout, bookingStoreFailure: state.bookingStoreFailure, timeoutMs: STAGED_TIMEOUT_MS, updatedAt: state.updatedAt });
   }) });
 }
 

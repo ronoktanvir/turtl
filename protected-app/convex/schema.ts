@@ -14,6 +14,7 @@ export default defineSchema({
     key: v.literal("demo"),
     recommendationsEnabled: v.boolean(),
     providerTimeout: v.boolean(),
+    bookingStoreFailure: v.optional(v.boolean()),
     updatedAt: v.number(),
   }).index("by_key", ["key"]),
   bookings: defineTable({

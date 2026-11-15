@@ -4,13 +4,15 @@ This is the **app turtl protects**, not the on-call app. It has its own Expo Rou
 
 Customers select a treatment and a time, submit without signing in, and receive a confirmation backed by a stored `bookings` row. Services and tomorrow's four illustrative appointment times (UTC) come from the backend. Slots are not inventory: multiple demo bookings may choose the same time. No personal information, accounts, payment, or real AI is involved.
 
-## The staged defect
+## The staged failures
 
 `convex/provider.ts` is an in-process **simulated upstream recommendation provider**, not a model API. Normally it returns suggested service IDs after 120 ms. The staged `providerTimeout` switch makes it wait 1,200 ms and fail.
 
 **The coupling in `convex/journeyCore.ts` is deliberately defective:** when `recommendationsEnabled` is true, submitting a booking waits for optional recommendations before writing the booking. The staged provider timeout therefore blocks booking and produces a structured failed attempt. Do not repair that dependency in this demo step; a later demo PR performs the permanent repair.
 
-There is exactly one recovery flag, `recommendationsEnabled`. Setting it to false skips the provider on both the screen and the booking path. Booking then works even while `providerTimeout` remains true. The failure switch is test instrumentation, not a second recovery flag. Initial state: recommendations enabled, failure off.
+There is exactly one recovery flag, `recommendationsEnabled`. Setting it to false skips the provider on both the screen and the booking path. Booking then works even while `providerTimeout` remains true, provided the booking store itself is available.
+
+The second **staged** test-instrumentation switch, `bookingStoreFailure`, makes the booking-write mutation in `convex/records.ts` reject before inserting a row. It returns `BOOKING_STORE_UNAVAILABLE` at `submit_booking`, independently of the recommendation flag. The customer sees the same “We couldn't save your spot.” heading, but the structured error identifies the different cause. Turning recommendations off cannot repair this counterexample. When both staged failures are enabled, the store failure takes precedence: the booking path skips the provider and attempts the deliberately failing write. The switches are test instrumentation, not additional recovery flags. Initial state: recommendations enabled, both staged failures off. Existing settings without `bookingStoreFailure` default to false.
 
 ## Local development (no Convex account or keys)
 
@@ -102,16 +104,24 @@ Both return `200`:
 
 ### Staged failure
 
-`GET /staged-failure` takes no body. `POST /staged-failure` accepts **exactly**:
+`GET /staged-failure` takes no body. `POST /staged-failure` accepts **exactly one boolean field**, either:
 
 ```json
 { "providerTimeout": true }
 ```
 
+or:
+
+```json
+{ "bookingStoreFailure": true }
+```
+
+Sending both fields in one request is invalid; setting either leaves the other unchanged.
+
 Both return `200`:
 
 ```ts
-{ staged: true, providerTimeout: boolean, timeoutMs: 1200, updatedAt: number | null }
+{ staged: true, providerTimeout: boolean, bookingStoreFailure: boolean, timeoutMs: 1200, updatedAt: number | null }
 ```
 
 This changes no recovery flag. In-flight bookings/checks use the configuration snapshot they read when they started; run a new check after changing settings.
@@ -126,7 +136,7 @@ An array, wrong field, extra field, or non-boolean value returns `400`:
 
 ```ts
 { error: { code: "INVALID_BODY", message: "Expected exactly one boolean field: recommendationsEnabled." } }
-{ error: { code: "INVALID_BODY", message: "Expected exactly one boolean field: providerTimeout." } }
+{ error: { code: "INVALID_BODY", message: "Expected exactly one boolean field: providerTimeout or bookingStoreFailure." } }
 ```
 
 ### Server booking journey
@@ -147,7 +157,7 @@ HTTP `200` means `verdict: "passed"`; HTTP `503` means `verdict: "failed"` (incl
     detail: string
   }>,
   cleanup: { ok: boolean, deletedBookings: number },
-  configuration: { recommendationsEnabled: boolean, providerTimeout: boolean },
+  configuration: { recommendationsEnabled: boolean, providerTimeout: boolean, bookingStoreFailure: boolean },
   revision: string,
   environment: "protected-app",
   startedAt: number,
@@ -155,7 +165,7 @@ HTTP `200` means `verdict: "passed"`; HTTP `503` means `verdict: "failed"` (incl
 }
 ```
 
-In the staged outage, `failedStep` is `recommendations`, `error.code` is `RECOMMENDATIONS_TIMEOUT`, `submit_booking` and `verify_persisted` are skipped, and cleanup deletes zero rows. With the flag off, recommendations are skipped and the remaining steps pass; cleanup deletes one row. Unexpected execution errors use `JOURNEY_INTERNAL_ERROR`; cleanup errors use `CLEANUP_FAILED`. A persistence mismatch fails `verify_persisted` with `error: null`.
+In the staged provider outage, `failedStep` is `recommendations`, `error.code` is `RECOMMENDATIONS_TIMEOUT`, `submit_booking` and `verify_persisted` are skipped, and cleanup deletes zero rows. With the flag off and the store available, recommendations are skipped and the remaining steps pass; cleanup deletes one row. With `bookingStoreFailure: true`, the result is `failedStep: "submit_booking"` and `error.code: "BOOKING_STORE_UNAVAILABLE"` with the recommendation flag either on or off. Recommendations are skipped because the staged store failure takes precedence; `submit_booking` fails, `verify_persisted` is skipped, and cleanup deletes zero rows. Unexpected execution errors use `JOURNEY_INTERNAL_ERROR`; cleanup errors use `CLEANUP_FAILED`. A persistence mismatch fails `verify_persisted` with `error: null`.
 
 ### Failed bookings and impact
 
@@ -186,9 +196,9 @@ In the staged outage, `failedStep` is `recommendations`, `error.code` is `RECOMM
 }
 ```
 
-`totalBookings` means attempted submissions, not stored bookings. `errorRate` is failed / total in `[0, 1]`, or zero for an empty window. Counts cover the latest 1,000 attempts in the window; `truncated: true` explicitly marks a capped sample, not an exact window-wide total. Errors are the newest 20 failures within that sample, newest first; `id` is the stable Convex attempt ID. A failed optional provider dependency reports `code: "RECOMMENDATIONS_TIMEOUT"`, `step: "recommendations"`, `provider: "simulated-recommendations"`, and `retryable: true`. Invalid customer selections report `INVALID_SELECTION`, `submit_booking`, and `retryable: false`. No customer identity is stored.
+`totalBookings` means attempted submissions, not stored bookings. `errorRate` is failed / total in `[0, 1]`, or zero for an empty window. Counts cover the latest 1,000 attempts in the window; `truncated: true` explicitly marks a capped sample, not an exact window-wide total. Errors are the newest 20 failures within that sample, newest first; `id` is the stable Convex attempt ID. A failed optional provider dependency reports `code: "RECOMMENDATIONS_TIMEOUT"`, `step: "recommendations"`, `provider: "simulated-recommendations"`, and `retryable: true`. The staged store failure reports `BOOKING_STORE_UNAVAILABLE`, `submit_booking`, no `provider` field, and `retryable: true`. Invalid customer selections report `INVALID_SELECTION`, `submit_booking`, and `retryable: false`. No customer identity is stored.
 
-## Reproduce the three states
+## Reproduce the recovery and counterexample
 
 Export `CONTROL_BASE_URL` and a shell-only caller `PROTECTED_APP_CONTROL_SECRET` whose SHA-256 matches the backend's `PROTECTED_APP_CONTROL_SECRET_SHA256`. The test runner sends the original secret, never the stored hash. Never paste either into evidence. Requests use:
 
@@ -203,14 +213,19 @@ curl -X POST -H "Authorization: Bearer $PROTECTED_APP_CONTROL_SECRET" "$CONTROL_
 curl -X POST -H "Authorization: Bearer $PROTECTED_APP_CONTROL_SECRET" \
   -H 'Content-Type: application/json' -d '{"recommendationsEnabled":false}' "$CONTROL_BASE_URL/flags"
 curl -H "Authorization: Bearer $PROTECTED_APP_CONTROL_SECRET" "$CONTROL_BASE_URL/errors"
+curl -X POST -H "Authorization: Bearer $PROTECTED_APP_CONTROL_SECRET" \
+  -H 'Content-Type: application/json' -d '{"bookingStoreFailure":true}' "$CONTROL_BASE_URL/staged-failure"
+curl -X POST -H "Authorization: Bearer $PROTECTED_APP_CONTROL_SECRET" "$CONTROL_BASE_URL/journey-check"
 ```
 
-| State | recommendationsEnabled | providerTimeout | Expected booking/check |
-| --- | --- | --- | --- |
-| Healthy | true | false | Confirmation; stored booking; journey passes |
-| Staged outage | true | true | Booking not saved; failed attempt; journey fails at recommendations |
-| Recovered | false | true | No provider call; confirmation; stored booking; journey passes |
+| State | recommendationsEnabled | providerTimeout | bookingStoreFailure | Expected booking/check |
+| --- | --- | --- | --- | --- |
+| Healthy | true | false | false | Confirmation; stored booking; journey passes |
+| Staged provider outage | true | true | false | Booking not saved; failed attempt; journey fails at recommendations |
+| Recovered | false | true | false | No provider call; confirmation; stored booking; journey passes |
+| Staged store counterexample, flag on | true | either | true | Booking not saved; journey fails at submit_booking |
+| Staged store counterexample, flag off | false | either | true | Same failure: disabling recommendations does not fix the store |
 
-Reload the booking page after toggling the staged provider switch to refresh suggestions. Flag changes update the open page live through a Convex query. After an error, select a service and time and submit again once recovery is applied. A previously confirmed booking is never rewritten when the flag changes.
+Reload the booking page after toggling the staged provider switch to refresh suggestions. Flag changes update the open page live through a Convex query. The staged store switch is checked on each submission. After an error, select a service and time and submit again once recovery is applied. A previously confirmed booking is never rewritten when the flag changes.
 
-`npm run test:control` uses caller-side `PROTECTED_APP_CONTROL_SECRET` and exercises authentication (including rejection of the stored hash as a bearer token), body validation, all three journey states, fixture cleanup, and unchanged customer-impact counts. It prints redacted request/response transcripts. It temporarily changes both settings and restores them in `finally`; run it only against an isolated test deployment with no concurrent customer traffic.
+`npm run test:control` uses caller-side `PROTECTED_APP_CONTROL_SECRET` and exercises authentication (including rejection of the stored hash as a bearer token), body validation, all eight combinations of the recovery flag and two staged failure switches, fixture cleanup, and unchanged customer-impact counts. It prints redacted request/response transcripts. It temporarily changes all three settings and restores them in `finally`; run it only against an isolated test deployment with no concurrent customer traffic.

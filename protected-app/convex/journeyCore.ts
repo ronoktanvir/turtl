@@ -10,14 +10,14 @@ type BookingResult =
   | { ok: true; bookingId: Id<"bookings">; serviceId: string; date: string; time: string }
   | { ok: false; errorId: Id<"bookingAttempts"> | null; error: BookingFailure };
 
-export async function completeBooking(ctx: ActionCtx, input: BookingInput, config?: { recommendationsEnabled: boolean; providerTimeout: boolean }): Promise<BookingResult> {
+export async function completeBooking(ctx: ActionCtx, input: BookingInput, config?: { recommendationsEnabled: boolean; providerTimeout: boolean; bookingStoreFailure: boolean }): Promise<BookingResult> {
   const currentCatalog = catalog();
+  const state = config ?? await ctx.runQuery(internal.state.read, {});
   let error: BookingFailure | undefined;
   if (!currentCatalog.services.some((s) => s.id === input.serviceId) || !currentCatalog.slots.includes(input.time) || input.date !== currentCatalog.date) {
     error = { code: "INVALID_SELECTION", message: "Choose an available service and time.", step: "submit_booking", retryable: false };
   } else {
-    const state = config ?? await ctx.runQuery(internal.state.read, {});
-    if (state.recommendationsEnabled) {
+    if (state.recommendationsEnabled && !state.bookingStoreFailure) {
       // STAGED DEFECT: an optional recommendation gates the core booking write.
       // The demo's later permanent repair removes this coupling, not the flag.
       try {
@@ -27,12 +27,17 @@ export async function completeBooking(ctx: ActionCtx, input: BookingInput, confi
       }
     }
   }
-  if (error) {
-    const errorId = input.fixtureRunId ? null : await ctx.runMutation(internal.records.saveFailure, {
-      serviceId: input.serviceId, date: input.date, time: input.time, error,
-    });
-    return { ok: false, errorId, error };
+  if (!error) {
+    try {
+      const bookingId = await ctx.runMutation(internal.records.saveBooking, { ...input, bookingStoreFailure: state.bookingStoreFailure });
+      return { ok: true, bookingId, serviceId: input.serviceId, date: input.date, time: input.time };
+    } catch (cause) {
+      if (!state.bookingStoreFailure) throw cause;
+      error = { code: "BOOKING_STORE_UNAVAILABLE", message: "The booking store is unavailable. Your booking was not saved.", step: "submit_booking", retryable: true };
+    }
   }
-  const bookingId = await ctx.runMutation(internal.records.saveBooking, input);
-  return { ok: true, bookingId, serviceId: input.serviceId, date: input.date, time: input.time };
+  const errorId = input.fixtureRunId ? null : await ctx.runMutation(internal.records.saveFailure, {
+    serviceId: input.serviceId, date: input.date, time: input.time, error,
+  });
+  return { ok: false, errorId, error };
 }

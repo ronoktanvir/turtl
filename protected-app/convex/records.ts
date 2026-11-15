@@ -1,12 +1,15 @@
 import { internalMutation, internalQuery } from "./_generated/server";
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { bookingError } from "./schema";
 import { revision } from "./catalog";
 
 export const saveBooking = internalMutation({
-  args: { serviceId: v.string(), date: v.string(), time: v.string(), fixtureRunId: v.optional(v.string()) },
+  args: { serviceId: v.string(), date: v.string(), time: v.string(), fixtureRunId: v.optional(v.string()), bookingStoreFailure: v.boolean() },
   handler: async (ctx, args) => {
-    const bookingId = await ctx.db.insert("bookings", { ...args, createdAt: Date.now() });
+    const { bookingStoreFailure, ...booking } = args;
+    // STAGED FAILURE: the booking write is unavailable, independently of recommendations.
+    if (bookingStoreFailure) throw new ConvexError({ code: "BOOKING_STORE_UNAVAILABLE" });
+    const bookingId = await ctx.db.insert("bookings", { ...booking, createdAt: Date.now() });
     if (!args.fixtureRunId) {
       await ctx.db.insert("bookingAttempts", {
         serviceId: args.serviceId, date: args.date, time: args.time,

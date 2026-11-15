@@ -10,7 +10,7 @@ type JourneyResult = {
   error: { code: string; message: string; step?: string; provider?: string; retryable?: boolean } | null;
   steps: { step: string; verdict: "passed" | "failed" | "skipped"; detail: string }[];
   cleanup: { ok: boolean; deletedBookings: number };
-  configuration: { recommendationsEnabled: boolean; providerTimeout: boolean };
+  configuration: { recommendationsEnabled: boolean; providerTimeout: boolean; bookingStoreFailure: boolean };
   revision: string;
   environment: "protected-app";
   startedAt: number;
@@ -34,8 +34,13 @@ export const journey = internalAction({
       if (!result.ok) {
         failedStep = result.error.step;
         error = result.error;
-        steps.push({ step: "recommendations", verdict: "failed", detail: result.error.message });
-        steps.push({ step: "submit_booking", verdict: "skipped", detail: "The staged provider dependency blocked the booking write." });
+        if (failedStep === "recommendations") {
+          steps.push({ step: "recommendations", verdict: "failed", detail: result.error.message });
+          steps.push({ step: "submit_booking", verdict: "skipped", detail: "The staged provider dependency blocked the booking write." });
+        } else {
+          steps.push({ step: "recommendations", verdict: "skipped", detail: "The staged booking-store failure takes precedence; provider not called." });
+          steps.push({ step: "submit_booking", verdict: "failed", detail: result.error.message });
+        }
         steps.push({ step: "verify_persisted", verdict: "skipped", detail: "No confirmation to verify." });
       } else {
         steps.push({ step: "recommendations", verdict: config.recommendationsEnabled ? "passed" : "skipped", detail: config.recommendationsEnabled ? "Simulated provider responded." : "Flag off: provider bypassed." });
@@ -59,6 +64,6 @@ export const journey = internalAction({
         steps.push({ step: "cleanup", verdict: "failed", detail: error.message });
       }
     }
-    return { runId, verdict: failedStep ? "failed" : "passed", failedStep, error, steps, cleanup: { ok: !steps.some((s) => s.step === "cleanup" && s.verdict === "failed"), deletedBookings }, configuration: { recommendationsEnabled: config.recommendationsEnabled, providerTimeout: config.providerTimeout }, revision: revision(), environment: "protected-app", startedAt, completedAt: Date.now() };
+    return { runId, verdict: failedStep ? "failed" : "passed", failedStep, error, steps, cleanup: { ok: !steps.some((s) => s.step === "cleanup" && s.verdict === "failed"), deletedBookings }, configuration: { recommendationsEnabled: config.recommendationsEnabled, providerTimeout: config.providerTimeout, bookingStoreFailure: config.bookingStoreFailure }, revision: revision(), environment: "protected-app", startedAt, completedAt: Date.now() };
   },
 });

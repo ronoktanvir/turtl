@@ -22,7 +22,7 @@ export default function BookingScreen() {
   const [time, setTime] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<Suggestions>({ status: "loading", serviceIds: [] });
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<{ message: string; id?: string } | null>(null);
+  const [error, setError] = useState<{ message: string; id?: string; code?: string } | null>(null);
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
   const service = catalog?.services.find((s) => s.id === (confirmation?.serviceId ?? serviceId));
   const date = catalog ? new Date(`${confirmation?.date ?? catalog.date}T12:00:00Z`).toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric", timeZone: "UTC" }) : "";
@@ -46,7 +46,7 @@ export default function BookingScreen() {
     try {
       const result = await submit({ serviceId, date: catalog.date, time });
       if (result.ok) setConfirmation(result);
-      else setError({ message: result.error.message, id: result.errorId ?? undefined });
+      else setError({ message: result.error.message, id: result.errorId ?? undefined, code: result.error.code });
     } catch {
       setError({ message: "We couldn't confirm your booking. Please check your connection and try again." });
     } finally {
@@ -85,7 +85,7 @@ export default function BookingScreen() {
             })}</View>
             <View style={s.timeHeading}><Text style={s.sectionLabel}>02 <Text style={s.sectionTitle}>Find your time</Text></Text><Text style={s.date}>{date} · UTC</Text></View>
             <View style={s.slots}>{catalog.slots.map((slot) => <Pressable key={slot} accessibilityRole="radio" accessibilityState={{ checked: time === slot }} onPress={() => { setTime(slot); setError(null); }} style={[s.slot, time === slot && s.slotSelected]}><Text style={[s.slotText, time === slot && s.slotTextSelected]}>{timeLabel(slot)}</Text></Pressable>)}</View>
-            {error && <View accessibilityRole="alert" accessibilityLiveRegion="assertive" style={s.error}><Text style={s.errorTitle}>We couldn't save your spot.</Text><Text style={s.errorText}>{error.message}</Text>{error.id && <Text selectable style={s.errorId}>Error reference: {error.id}</Text>}<Text style={s.errorId}>Staged demo: optional recommendations are blocking booking.</Text></View>}
+            {error && <View accessibilityRole="alert" accessibilityLiveRegion="assertive" style={s.error}><Text style={s.errorTitle}>We couldn't save your spot.</Text><Text style={s.errorText}>{error.message}</Text>{error.id && <Text selectable style={s.errorId}>Error reference: {error.id}</Text>}{error.code === "RECOMMENDATIONS_TIMEOUT" && <Text style={s.errorId}>Staged demo: optional recommendations are blocking booking.</Text>}{error.code === "BOOKING_STORE_UNAVAILABLE" && <Text style={s.errorId}>Staged demo: the booking store is unavailable.</Text>}</View>}
             <View style={s.summary}><Text style={s.summaryText}>{service && time ? `${service.name} · ${service.minutes} min` : "Your next little reset"}</Text><Text style={s.summaryPrice}>{service ? `$${service.price}` : "—"}</Text></View>
             <Pressable accessibilityRole="button" accessibilityState={{ disabled: !serviceId || !time || busy }} disabled={!serviceId || !time || busy} onPress={book} style={[s.primary, (!serviceId || !time || busy) && s.primaryDisabled]}>{busy ? <ActivityIndicator color="#fff" /> : <Text style={s.primaryText}>Confirm booking  ↗</Text>}</Pressable>
             <Text style={s.disclaimer}>Demo booking only. No payment is collected.</Text>
