@@ -3,7 +3,7 @@ import { useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { api } from "../../convex/_generated/api";
-import { CLOSED_CASE_STATUSES } from "../../convex/constants";
+import { CASE_STATUSES, CLOSED_CASE_STATUSES } from "../../convex/constants";
 import { useDevActions } from "./useDevActions";
 
 const clientEnabled = __DEV__ || process.env.EXPO_PUBLIC_DEV_TOOLS === "1";
@@ -34,6 +34,13 @@ function DevToolsOverlay() {
   const progress = status.cases.length
     ? `${doneSteps} of ${totalSteps} steps done · ${resolvedCases} of ${status.cases.length} cases resolved`
     : "No sample cases";
+
+  const live = status.live ?? [];
+  const latestLive = live[0]?.case;
+  const waitingLive = live.find((c) => c.case.status === "waiting_for_owner")?.case;
+  const liveLabel = latestLive
+    ? `Live run: ${CASE_STATUSES.find((s) => s.id === latestLive.status)?.label ?? latestLive.status}`
+    : "No live runs";
 
   return (
     <View
@@ -66,6 +73,34 @@ function DevToolsOverlay() {
             label="Reset samples"
             onPress={() => run("reset")}
           />
+          <View style={styles.section}>
+            <Text style={styles.progress} testID="dev-live-status">
+              {liveLabel}
+            </Text>
+            <DevButton
+              testID="dev-live-start"
+              label="Start live run"
+              onPress={() => run("liveStart")}
+            />
+            <DevButton
+              testID="dev-live-approve"
+              label="Approve"
+              disabled={!waitingLive}
+              onPress={() => waitingLive && run("liveApprove", waitingLive._id)}
+            />
+            <DevButton
+              testID="dev-live-decline"
+              label="Decline"
+              disabled={!waitingLive}
+              onPress={() => waitingLive && run("liveDecline", waitingLive._id)}
+            />
+            <DevButton
+              testID="dev-live-clear"
+              label="Clear live runs"
+              disabled={!latestLive}
+              onPress={() => run("liveClear")}
+            />
+          </View>
         </View>
       )}
       <Pressable
@@ -124,6 +159,12 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   progress: { color: "#e5e7eb", fontSize: 13, fontWeight: "600" },
+  section: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: "#4b5563",
+    paddingTop: 6,
+    gap: 6,
+  },
   error: { color: "#fca5a5", fontSize: 12 },
   button: {
     backgroundColor: "#374151",

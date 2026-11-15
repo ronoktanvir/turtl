@@ -108,6 +108,13 @@ export const vStepStatus = v.union(
   v.literal("skipped"),
 );
 
+// A pointer from a step attempt's handoff to something it produced: a commit, an artifact, evidence, an open question.
+export const vOutputRef = v.object({
+  kind: v.string(),
+  id: v.string(),
+  label: v.optional(v.string()),
+});
+
 export type Stage = Infer<typeof vStage>;
 export type CaseStatus = Infer<typeof vCaseStatus>;
 export type CaseKind = Infer<typeof vCaseKind>;
@@ -546,3 +553,4 @@ export type AgentRunStatus = Infer<typeof vAgentRunStatus>;
 export type AgentEvaluation = Infer<typeof vAgentEvaluation>;
 export type AgentRun = Infer<typeof vAgentRun>;
 export type ContextSource = Infer<typeof vContextSource>;
+export type OutputRef = Infer<typeof vOutputRef>;

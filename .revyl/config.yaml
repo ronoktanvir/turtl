@@ -34,4 +34,5 @@ pr_review:
             - Advance (testID dev-advance) moves one open case forward by one step.
             - Auto-run (testID dev-auto-run) takes every step of every sample case from pending to done in about 25 seconds.
             - Reset samples (testID dev-reset) removes the sample cases.
+            - Below them, Start live run (testID dev-live-start) creates a case whose steps run on the backend by themselves; it stops at "Waiting for you" until you tap Approve (testID dev-live-approve) or Decline (testID dev-live-decline), and Clear live runs (testID dev-live-clear) removes those cases.
             Create sample cases before you judge the case feed or a case screen, and tap the pill again to close the panel when it covers what you are checking. When you finish, open the panel and tap Reset samples.

@@ -4,6 +4,7 @@ import {
   vAttemptStatus,
   vCaseKind,
   vCaseStatus,
+  vOutputRef,
   vRaisedBy,
   vStage,
   vStepKind,
@@ -60,6 +61,9 @@ export default defineSchema({
     status: vStepStatus,
     skipReason: v.optional(v.string()),
     currentAttemptId: v.optional(v.id("stepAttempts")),
+    staged: v.optional(
+      v.object({ fail: v.optional(v.number()), hang: v.optional(v.number()) }),
+    ),
   })
     .index("by_case", ["caseId"])
     .index("by_case_and_key", ["caseId", "key"]),
@@ -75,6 +79,10 @@ export default defineSchema({
     handoff: v.optional(v.string()),
     error: v.optional(v.string()),
     externalRef: v.optional(v.string()),
+    inputRefs: v.optional(v.array(v.id("stepAttempts"))),
+    output: v.optional(v.any()),
+    outputRefs: v.optional(v.array(vOutputRef)),
+    lateResultAt: v.optional(v.number()),
   })
     .index("by_step", ["stepId"])
     .index("by_case", ["caseId"]),
