@@ -453,6 +453,7 @@ export const vPermission = v.object({
   grantedAtRevision: v.optional(v.string()),
   expiresAt: v.optional(v.number()),
   revokedAt: v.optional(v.number()),
+  endedReason: v.optional(v.string()),
 });
 
 export const vAgentRunStatus = v.union(

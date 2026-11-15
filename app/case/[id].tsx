@@ -1,6 +1,6 @@
 import { useQuery } from "convex/react";
 import { Link, useLocalSearchParams } from "expo-router";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   FlatList,
   Pressable,
@@ -17,6 +17,7 @@ import { buildCards, CASE_STATUS_COLORS, CASE_STATUS_LABELS } from "../../compon
 import { CardPage } from "../../components/feed/CardPage";
 import { CaseKindChip } from "../../components/feed/CaseKindChip";
 import { DecisionPanel } from "../../components/feed/DecisionPanel";
+import { PermissionPanel } from "../../components/feed/PermissionPanel";
 import { incidentContent } from "../../components/feed/incident";
 import { StatusBadge } from "../../components/feed/StatusBadge";
 
@@ -57,6 +58,13 @@ export default function CaseScreen() {
         optionTitle={option.title}
       />
     ) : null;
+  const offer = data?.case.status === "restored" && data.case.journeyId ? data.permissionOffer : null;
+  const permission = !offer ? null : offer.active ? (
+    <PermissionPanel key={offer.active._id} kind="revoke" permissionId={offer.active._id} />
+  ) : offer.timesVerified >= offer.minVerified && !offer.invalidated ? (
+    <PermissionPanel key={offer.memoryId} kind="grant" memoryId={offer.memoryId} />
+  ) : null;
+  const footers: Partial<Record<string, ReactNode>> = { "recommended-action": decision, "what-we-learned": permission };
 
   return (
     <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
@@ -98,10 +106,10 @@ export default function CaseScreen() {
                 card={card}
                 width={width}
                 content={content?.[card.id]}
-                footer={card.id === "recommended-action" ? decision : null}
+                footer={footers[card.id] ?? null}
               />
             )}
-            extraData={[content, decision]}
+            extraData={[content, decision, permission]}
             horizontal
             pagingEnabled
             showsHorizontalScrollIndicator={false}

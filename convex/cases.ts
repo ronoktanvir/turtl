@@ -1,5 +1,14 @@
 import { v } from "convex/values";
 import { query } from "./_generated/server";
+import {
+  DEFAULT_MAX_ATTEMPTS,
+  currentPermission,
+  MIN_VERIFIED_RECOVERIES,
+  NOT_RUN_PREFIX,
+  permissionsFor,
+  sourceAction,
+  usesOf,
+} from "./permissions";
 import { latestAction, latestProposal } from "./protectedApp/records";
 import { loadSteps } from "./workflow";
 
@@ -16,7 +25,11 @@ export const listWithSteps = query({
   handler: async (ctx) => {
     const cases = await ctx.db.query("cases").order("desc").collect();
     return await Promise.all(
-      cases.map(async (row) => ({ ...row, steps: await loadSteps(ctx, row._id) })),
+      cases.map(async (row) => ({
+        ...row,
+        steps: await loadSteps(ctx, row._id),
+        handledUnderPermission: !!(await latestAction(ctx, row._id))?.permissionId,
+      })),
     );
   },
 });
@@ -47,6 +60,17 @@ export const cards = query({
     const executeStep = steps.find((s) => s.purpose === "authorize_and_execute");
     const matchedMemory = row.matchedMemoryId ? await ctx.db.get(row.matchedMemoryId) : null;
     const matchedVerification = matchedMemory ? await ctx.db.get(matchedMemory.verificationId) : null;
+    const learnedMemory = await ctx.db
+      .query("recoveryMemories")
+      .withIndex("by_source_case", (q) => q.eq("sourceCaseId", id))
+      .first();
+    const action = await latestAction(ctx, id);
+    const runPermission = action?.permissionId ? await ctx.db.get(action.permissionId) : null;
+    const memory = matchedMemory ?? learnedMemory;
+    const permissions = memory ? await permissionsFor(ctx, memory) : [];
+    const active = memory ? await currentPermission(ctx, memory, Date.now()) : null;
+    const source = memory ? await sourceAction(ctx, memory) : null;
+    const approvalSummary = steps.find((s) => s.kind === "approval")?.currentAttempt?.summary ?? "";
     return {
       case: row,
       journey: row.journeyId ? await ctx.db.get(row.journeyId) : null,
@@ -61,16 +85,35 @@ export const cards = query({
         ...matchedMemory,
         lastVerifiedAt: matchedVerification?.completedAt ?? null,
       },
-      learnedMemory: await ctx.db
-        .query("recoveryMemories")
-        .withIndex("by_source_case", (q) => q.eq("sourceCaseId", id))
-        .first(),
+      learnedMemory,
+      runPermission: runPermission && {
+        ...runPermission,
+        use: (await usesOf(ctx, runPermission._id)).indexOf(action!.idempotencyKey) + 1,
+      },
+      permissionNotRun: approvalSummary.includes(NOT_RUN_PREFIX)
+        ? approvalSummary.slice(approvalSummary.indexOf(NOT_RUN_PREFIX) + NOT_RUN_PREFIX.length)
+        : null,
+      permissionOffer: memory && {
+        memoryId: memory._id,
+        timesVerified: memory.timesVerified,
+        invalidated: memory.invalidatedAt !== undefined,
+        actionType: memory.actionType,
+        conditions: memory.conditions,
+        notWhen: memory.notWhen,
+        appRevision: memory.appRevision ?? null,
+        target: source?.executionPayload.target ?? null,
+        parameters: source?.executionPayload.parameters ?? [],
+        minVerified: MIN_VERIFIED_RECOVERIES,
+        maxAttempts: DEFAULT_MAX_ATTEMPTS,
+        active: active ? { ...active, used: (await usesOf(ctx, active._id)).length } : null,
+        ended: !active && permissions[0] ? permissions[0] : null,
+      },
       evidence: await ctx.db
         .query("evidence")
         .withIndex("by_case", (q) => q.eq("caseId", id))
         .collect(),
       proposal: await latestProposal(ctx, id),
-      action: await latestAction(ctx, id),
+      action,
       verifications: await ctx.db
         .query("verifications")
         .withIndex("by_case", (q) => q.eq("caseId", id))

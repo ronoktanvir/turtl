@@ -27,6 +27,8 @@ import { vHandlerResult } from "./contract";
 import type { HandlerResult, LoadedInput } from "./contract";
 import { HANDLERS } from "./handlers";
 import { matchRecovery } from "../memory/flow";
+import { NOT_RUN_PREFIX, runUnderPermission, settlePermissionRun } from "../permissions";
+import { latestProposal } from "../protectedApp/records";
 
 const STEP_GAP_MS = 1000;
 const RETRY_DELAY_MS = 1000;
@@ -74,6 +76,17 @@ async function dispatch(
   });
 }
 
+// Tells the owner a decision is waiting, once the case actually waits for them.
+async function askOwner(ctx: MutationCtx, row: Doc<"cases">) {
+  const app = await ctx.db.get(row.appId);
+  const recommended = (await latestProposal(ctx, row._id))?.options.find((o) => o.recommended);
+  await ctx.scheduler.runAfter(0, internal.keiki.notifyOwner, {
+    text: recommended
+      ? `turtl needs your decision on ${app?.name ?? "your app"}: it recommends "${recommended.title}" to restore service. Open turtl to approve or decline.`
+      : `turtl needs your decision on ${app?.name ?? "your app"}. Open turtl to review its proposal.`,
+  });
+}
+
 export const advance = internalMutation({
   args: { caseId: v.id("cases") },
   handler: async (ctx, { caseId }): Promise<void> => {
@@ -104,12 +117,21 @@ export const advance = internalMutation({
         await dispatch(ctx, step.purpose, attemptId, approved.requestedAt);
         continue;
       }
+      const permission = step.kind === "approval" ? await runUnderPermission(ctx, caseId) : null;
+      if (permission?.ran) {
+        await setCaseStatus(ctx, caseId, "executing");
+        await dispatch(ctx, step.purpose, attemptId, Date.now());
+        continue;
+      }
       const status = STATUS_ON_START[step.purpose];
       if (status) await setCaseStatus(ctx, caseId, status);
       if (step.kind === "approval") {
         await waitOnAttempt(ctx, attemptId, {
-          summary: "Waiting for the owner to approve or decline.",
+          summary: permission
+            ? `Waiting for the owner to approve or decline. ${NOT_RUN_PREFIX}${permission.reasons.join(" ")}`
+            : "Waiting for the owner to approve or decline.",
         });
+        await askOwner(ctx, row);
         continue;
       }
       await dispatch(ctx, step.purpose, attemptId);
@@ -267,12 +289,16 @@ async function applyResult(
 
   if (result.status !== "failed" && result.caseStatus) {
     await setCaseStatus(ctx, row._id, result.caseStatus);
+    if (result.caseStatus === "restored") {
+      await settlePermissionRun(ctx, row._id, { status: "restored", check: result.summary ?? "it passed." });
+    }
   }
   if (result.status === "waiting") return { applied: true };
   if (result.status === "done") {
     await ctx.scheduler.runAfter(STEP_GAP_MS, internal.runner.run.advance, { caseId: row._id });
   } else if (attempt.attempt >= MAX_ATTEMPTS) {
     await setCaseStatus(ctx, row._id, "unresolved");
+    await settlePermissionRun(ctx, row._id, { status: "unresolved" });
   } else {
     await ctx.scheduler.runAfter(RETRY_DELAY_MS, internal.runner.run.advance, {
       caseId: row._id,
