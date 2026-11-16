@@ -9,35 +9,36 @@ import { turtlReachable } from "./client";
 import { canStopAnswering, MAX_JOURNEYS } from "./watching";
 
 // Cases for an app that stops answering turtl's checks. The case means what its title says: the app gives turtl
-// nothing at all (the design's second revision, V1 to V6).
+// nothing at all (the design's revisions: V2 and V6 from the second, W1 to W3 from the third).
 //
-// What a try got (V1): not sent (turtl refused to send: evidence of nothing); answered (a check result, passed or
-// failed, or any reply below 500 with or without one: a 404, a 401, a 429 or a redirect means the app is serving, though
-// turtl cannot run that check there); or quiet (no response at all, or a reply of 500 or more with no check result).
-// Only the monitor's own rounds count (monitor.ts calls settleRound at the end of a round); a case's steps check the app
-// too, and those tries count for nothing here.
+// What a try got (W1): a result (a check result, passed or failed: the app's own code answered, the only proof it is
+// serving); quiet (no response at all, or a reply of 500 or more with no check result); unreadable (any other reply,
+// below 500 with no result: a 404, a 401, a 429, a redirect, a page, perhaps answered by a front layer without the app);
+// or not sent. Unreadable proves nothing either way and is treated exactly like not sent: it clears that check's count,
+// is not evidence, and neither opens nor keeps open a case. Only the monitor's own rounds count (monitor.ts calls
+// settleRound at the end of a round); a case's steps check the app too, and those tries count for nothing here.
 //
 // Counting, per check (V2): only a check that can stop answering (watching.ts, canStopAnswering: a journey-contract
 // check that has passed before) keeps a count, of quiet tries in a row, cleared by anything else; a pass a case's verify
 // step records clears it too. At UNANSWERED_AFTER it shows as not answering on the project, case or no case.
 //
-// Evidence, per round (V3): every try the round sent, its check countable or not. A health check that answers turtl's
-// POST with a 405 shows the app is serving.
+// Opening (W2): one case for the whole project (signature not_answering:<appId>) after a round in which, among the
+// countable checks that gave a result or went quiet, there is at least one, every one is at UNANSWERED_AFTER or more,
+// and no check of any kind gave a result. So one check in trouble while another gives a result opens nothing: it shows
+// on the project, with no push. The case is raised by the monitor, an outage, no journey, status waiting_for_app, with
+// one step parked as waiting from the start, never dispatched, so it has no time limit, no retries and no model call.
+// Before it opens: none already open, at most NOT_ANSWERING_CASES_PER_DAY a day, never a practice project, the fleet
+// check, and turtl asking its own site; if either says turtl's own requests may not be getting out, nothing opens and
+// the counts are held one short.
 //
-// Opening (V4): one case for the whole project (signature not_answering:<appId>) after a round in which at least one
-// countable check was sent, every countable check sent is at UNANSWERED_AFTER or more, and no check sent answered. So
-// one check in trouble while another answers opens nothing: it shows on the project, with no push. The case is raised
-// by the monitor, an outage, no journey, status waiting_for_app, with one step parked as waiting from the start, never
-// dispatched, so it has no time limit, no retries and no model call. Before it opens: none already open, at most
-// NOT_ANSWERING_CASES_PER_DAY a day, never a practice project, the fleet check, and turtl asking its own site; if either
-// check says turtl's own requests may not be getting out, nothing opens and the counts are held one short.
-//
-// Closing (V5): at the end of a round in which any check answered, as answered, with a second notice; allPassed (read by
-// the case page) only when a check passed, none failed and none sent was quiet. A pass recorded outside a round closes
-// it too, allPassed only if no other check of the project has a count. When turtl stops checking (every check refused,
-// the project skipped or left with nothing to check: watching.ts schedules `stopped`), it closes unresolved with no
-// notice. The project's row records its open case (apps.notAnsweringCase), which the monitor reads on every turn, so a
-// round is always settled while a case is open, whatever the counts say.
+// Closing (W3): as answered, with a second notice, at the end of a round in which any check gave a result; allPassed
+// (read by the case page) only when a check passed, none failed and none was quiet. Unresolved, with no notice, when the
+// round sent checks but no countable check gave a result or went quiet and none gave a result: turtl can no longer tell
+// (the app came back behind a rotated token, or without the route turtl checked). Unresolved, with no notice, when turtl
+// stops checking (every check refused, the project skipped or left with nothing to check: watching.ts schedules
+// `stopped`). A pass recorded outside a round closes it as answered only if observed after the case opened. The
+// project's row records its open case (apps.notAnsweringCase), which the monitor reads on every turn, so a round is
+// always settled while a case is open, whatever the counts say.
 //
 // The fleet check (V6), with accounts on, before turtl asks its own site: when at least FLEET_EVIDENCE other projects
 // that answered within FLEET_ANSWERED_WITHIN_MS were checked since this one went quiet, and not one of them got a usable
@@ -93,10 +94,10 @@ const FLEET_RECENT_MS = 5 * 60_000;
 export const FLEET_ANSWERED_WITHIN_MS = 30 * 60_000;
 /** The longest a fleet hold lasts: once this project has been quiet this long, the case is no longer held for the fleet. */
 export const FLEET_HOLD_AT_MOST_MS = 30 * 60_000;
-/** A reply with no check result is quiet from this status up (a server error), and an answer below it (V1). */
+/** A reply with no check result is quiet from this status up (a server error), and unreadable below it (W1). */
 export const QUIET_FROM_STATUS = 500;
-/** The tail of a closing summary when the app answered but no check passed (a 404, say, or a health check's 405). */
-const NONE_PASSED = "It answered, but none of its checks passed this time.";
+/** What a case says when it closes because no check it can count gave a result or went quiet, and none gave a result (W3). */
+const CANNOT_TELL = "turtl closed this case because it can no longer tell whether the app answers: its checks no longer get a reply turtl can read.";
 
 /** What one of the monitor's tries of one check got. */
 const vGot = v.union(
@@ -109,10 +110,16 @@ const vGot = v.union(
 export const vTry = v.object({ journeyId: v.id("journeys"), at: v.number(), got: vGot });
 export type Try = Infer<typeof vTry>;
 
-/** Whether a try was quiet (V1): no response at all, or a reply of QUIET_FROM_STATUS or more with no check result. */
+/** Whether a try gave a check result, passed or failed (W1): the app's own code answered, the only proof it serves. */
+export const hasResult = (got: Try["got"]) => got.kind === "passed" || got.kind === "failed";
+/** Whether a try was quiet (W1): no response at all, or a reply of QUIET_FROM_STATUS or more with no check result. */
 export const isQuiet = (got: Try["got"]): got is UnansweredTry => got.kind === "no_response" || (got.kind === "no_result" && got.status >= QUIET_FROM_STATUS);
-/** Whether a try was answered (V1): a check result, or any reply below QUIET_FROM_STATUS. The app is serving. */
-export const isAnswered = (got: Try["got"]) => got.kind === "passed" || got.kind === "failed" || (got.kind === "no_result" && got.status < QUIET_FROM_STATUS);
+/**
+ * Whether a try reached something that replied, as the fleet check counts it (V6): a result, or any reply below
+ * QUIET_FROM_STATUS. Such a reply says turtl's requests get out, though if it has no result (W1: unreadable, perhaps a
+ * front layer answering by itself) it says nothing about the app.
+ */
+export const gotThrough = (got: Try["got"]) => hasResult(got) || (got.kind === "no_result" && got.status < QUIET_FROM_STATUS);
 /** Whether a check is not answering now. Only a check that can stop answering ever is (watching.ts, canStopAnswering). */
 export const isNotAnswering = (journey: Pick<Doc<"journeys">, "check" | "lastPassedAt"> & { unanswered?: Unanswered }) =>
   canStopAnswering(journey) && (journey.unanswered?.count ?? 0) >= UNANSWERED_AFTER;
@@ -172,9 +179,10 @@ function impactOf(quiet: Doc<"journeys">[]): string {
 }
 
 /**
- * How the checks stand now that the app answered, from every try the round sent (V3, V5): the ones that fail, and the
- * ones still quiet, in words; and allPassed, true only when one passed, none failed and none was quiet. A check that
- * answered without a result (a 404, a health check's 405) neither passes nor spoils it.
+ * How the checks stand now that the app gave a result, from every try the round sent: the ones that fail, and the ones
+ * still quiet, in words; and allPassed, true only when one passed, none failed and none was quiet. An unreadable reply
+ * (a 404, a health check's 405) neither passes nor spoils it, and is not named. Called only after a result, so when no
+ * check fails or is quiet, one passed.
  */
 function nowWords(journeys: Doc<"journeys">[], sent: Try[]): { tail: string; allPassed: boolean } {
   const names = (kind: (got: Try["got"]) => boolean) =>
@@ -186,7 +194,7 @@ function nowWords(journeys: Doc<"journeys">[], sent: Try[]): { tail: string; all
   if (failing.length) parts.push(`${quoted(failing)} ${failing.length === 1 ? "fails" : "fail"} now, which turtl handles as a separate issue.`);
   if (quiet.length) parts.push(`${quoted(quiet)} got no answer this time.`);
   const allPassed = anyPassed && !sent.some((tried) => tried.got.kind === "failed" || isQuiet(tried.got));
-  return { tail: parts.length ? parts.join(" ") : anyPassed ? "Its checks pass now." : NONE_PASSED, allPassed };
+  return { tail: parts.length ? parts.join(" ") : "Its checks pass now.", allPassed };
 }
 
 const stoppedWords = (reason: string) => `turtl stopped checking this project, so it closed this case without knowing whether the app answers again. ${reason}`;
@@ -205,17 +213,22 @@ const quietSince = (attempt: Doc<"stepAttempts"> | null, row: Doc<"cases">): num
 };
 
 /**
- * Closes the case. Its step's output records when the app went quiet, when the case closed, whether the app answered,
- * and whether every check that ran then passed (false when turtl stopped checking: nothing ran). The case page reads
- * these, never the summary's words.
+ * Closes the case: as answered (a check gave a result), or unresolved with no notice, because turtl stopped checking
+ * (`reason`) or can no longer tell (`cannotTell`, W3). Its step's output records when the app went quiet, when the case
+ * closed, whether the app answered, and whether every check that ran then passed (false unless it answered). The case
+ * page reads these, never the summary's words.
  */
-async function close(ctx: MutationCtx, row: Doc<"cases">, how: { answered: true; tail: string; allPassed: boolean } | { answered: false; reason: string }) {
+async function close(
+  ctx: MutationCtx,
+  row: Doc<"cases">,
+  how: { answered: true; tail: string; allPassed: boolean } | { answered: false; reason: string } | { answered: false; cannotTell: true },
+) {
   const now = Date.now();
   const attempt = await waitingAttempt(ctx, row._id);
   const since = quietSince(attempt, row);
   const summary = how.answered
     ? `The app answered turtl's checks again after about ${about(now - since)} without an answer. ${how.tail}`
-    : stoppedWords(how.reason);
+    : "cannotTell" in how ? CANNOT_TELL : stoppedWords(how.reason);
   const allPassed = how.answered && how.allPassed;
   if (attempt) await finishAttempt(ctx, attempt._id, { status: "done", summary, output: { quietSince: since, closedAt: now, answered: how.answered, allPassed } });
   await setCaseStatus(ctx, row._id, how.answered ? "resolved" : "unresolved");
@@ -270,10 +283,11 @@ const older = (journey: Doc<"journeys">, one: Try) => one.at < (journey.unanswer
 
 /**
  * The end of one round of a project's checks. Counts each countable check's quiet tries (V2), clearing the count of any
- * check the round did not run; takes every try the round sent as evidence (V3); closes an open case when any check
- * answered (V5); and says `would_open` when a case would open (V4), which `open` decides once turtl has looked across the
- * fleet and asked its own site (settleRound). A try older than what its check has on record changes nothing. A
- * practice project keeps no count and gets no case. Keeps the project's record of its open case true.
+ * check that got anything else or that the round did not run; takes a result from any check as the app serving and an
+ * unreadable reply as nothing (W1); closes an open case as answered, or as turtl no longer able to tell (W3); and says
+ * `would_open` when a case would open (W2), which `open` decides once turtl has looked across the fleet and asked its own
+ * site (settleRound). A try older than what its check has on record changes nothing. A practice project keeps no count
+ * and gets no case. Keeps the project's record of its open case true.
  */
 export const settle = internalMutation({
   args: { appId: v.id("apps"), tries: v.array(vTry) },
@@ -301,9 +315,11 @@ export const settle = internalMutation({
       }
     }
     const sent = fresh.filter((one) => one.got.kind !== "not_sent");
-    const answered = sent.some((one) => isAnswered(one.got));
-    const reached = new Set(sent.map((one) => one.journeyId as string));
-    const counted = journeys.filter((journey) => reached.has(journey._id) && canStopAnswering(journey));
+    // A result from any check shows the app serving; an unreadable reply shows nothing, as if the check were not sent.
+    const answered = sent.some((one) => hasResult(one.got));
+    const readable = new Set(sent.filter((one) => hasResult(one.got) || isQuiet(one.got)).map((one) => one.journeyId as string));
+    // The countable checks this round gave a result or went quiet: only they can open a case (W2) or keep one open (W3).
+    const counted = journeys.filter((journey) => readable.has(journey._id) && canStopAnswering(journey));
     const recent = await recentCases(ctx, appId);
     const open = openOf(recent);
     if ((app.notAnsweringCase ?? null) !== (open?._id ?? null)) await ctx.db.patch(appId, { notAnsweringCase: open?._id });
@@ -316,7 +332,12 @@ export const settle = internalMutation({
         await close(ctx, open, { answered: false, reason: NOT_SENT });
         return { kind: "closed", caseId: open._id, answered: false };
       }
-      // Nothing answered, or only older results came back: the app has not answered yet.
+      if (sent.length > 0 && counted.length === 0) {
+        // Checks were sent, but none that can stop answering gave a result or went quiet: turtl can no longer tell (W3).
+        await close(ctx, open, { answered: false, cannotTell: true });
+        return { kind: "closed", caseId: open._id, answered: false };
+      }
+      // Still quiet, or only older results came back: the app has not answered yet.
       return { kind: "open", caseId: open._id };
     }
     if (answered || counted.length === 0 || !counted.every(isNotAnswering)) return { kind: "none" };
@@ -405,15 +426,20 @@ export const stopped = internalMutation({
 });
 
 /**
- * A pass recorded outside the monitor's rounds (a case's verify step): the check's count goes, and an open case closes
- * as answered (V5), allPassed only if no other check of the project has a count. Reads the project's row, and its cases
- * and checks only when it records an open case.
+ * A pass recorded outside the monitor's rounds (a case's verify step), observed at `observedAt`: the check's count goes
+ * unless the pass is older than its latest quiet try (as settle ignores an older try), and an open case closes as
+ * answered only if the pass was observed after the case opened (W3; the third review's H3: verify.ts stamps a pass when
+ * its check starts, so one from just before the outage can land late). allPassed only if no check of the project still
+ * has a count. Reads the project's row, and its cases and checks only when it records an open case.
  */
-export async function passedOutsideRound(ctx: MutationCtx, journey: Doc<"journeys">) {
-  if (journey.unanswered) await ctx.db.patch(journey._id, { unanswered: undefined });
+export async function passedOutsideRound(ctx: MutationCtx, journey: Doc<"journeys">, observedAt: number) {
+  const stale = journey.unanswered !== undefined && observedAt < journey.unanswered.at;
+  if (journey.unanswered && !stale) await ctx.db.patch(journey._id, { unanswered: undefined });
   if (!(await ctx.db.get(journey.appId))?.notAnsweringCase) return;
   const open = openOf(await recentCases(ctx, journey.appId));
   if (!open) return;
-  const others = (await journeysOf(ctx, journey.appId)).filter((other) => other._id !== journey._id && other.unanswered !== undefined);
-  await close(ctx, open, { answered: true, tail: `${quoted([journey.name])} passed when another of this project's cases checked it.`, allPassed: others.length === 0 });
+  const openedAt = (await waitingAttempt(ctx, open._id))?.startedAt ?? open._creationTime;
+  if (observedAt <= openedAt) return;
+  const counted = (await journeysOf(ctx, journey.appId)).filter((other) => other.unanswered !== undefined);
+  await close(ctx, open, { answered: true, tail: `${quoted([journey.name])} passed when another of this project's cases checked it.`, allPassed: counted.length === 0 });
 }

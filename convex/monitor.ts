@@ -7,7 +7,7 @@ import { accessEnforced, MAX_PROJECTS } from "./access";
 const CLOSED_DEMO_SKIPPED = "This deployment holds accounts but runs as the single-owner demo, so the monitor checked nothing (the backend log says why).";
 import { CLOSED_CASE_STATUSES } from "./constants";
 import { controlBase, readErrors, runJourneyCheck, type JourneyOutcome, type WatchedApp } from "./protectedApp/client";
-import { isAnswered, isQuiet, passedOutsideRound, PRACTICE_QUIET, settleRound, type Try } from "./protectedApp/notAnswering";
+import { gotThrough, isQuiet, passedOutsideRound, PRACTICE_QUIET, settleRound, type Try } from "./protectedApp/notAnswering";
 import { watchedApp } from "./protectedApp/watched";
 import { canStopAnswering, MAX_JOURNEYS, WATCH_WORDS, type Runnable } from "./protectedApp/watching";
 import { startCaseRun } from "./runner/run";
@@ -85,7 +85,7 @@ export const recordPass = internalMutation({
     if (journey && observedAt > (journey.lastPassedAt ?? 0)) {
       await ctx.db.patch(journeyId, { lastPassedAt: observedAt, ...(journey.passingSince === undefined && { passingSince: observedAt }) });
     }
-    if (journey && !round) await passedOutsideRound(ctx, journey);
+    if (journey && !round) await passedOutsideRound(ctx, journey, observedAt);
   },
 });
 
@@ -229,7 +229,8 @@ async function checkJourney(ctx: ActionCtx, journey: Runnable, base: string, app
  * Whether the end of a round has anything to settle (notAnswering.ts): the project records an open not-answering case,
  * a check of it has quiet tries on record, or a check that can stop answering (watching.ts, canStopAnswering) was quiet
  * this round. Otherwise nothing is read or written: a health check's reply, or a check that has never passed getting
- * none, settles nothing on its own. When it settles, every try the round sent goes as evidence (V3).
+ * none, settles nothing on its own. When it settles, every try the round sent goes with it: a result from any check
+ * shows the app serving (W1).
  */
 const toSettle = (caseOpen: boolean, unanswered: boolean, journeys: Runnable[], tries: Try[]) => {
   const can = new Set<string>(journeys.filter((journey) => journey.countable).map((journey) => journey.journeyId));
@@ -319,9 +320,10 @@ export const checkProject = internalAction({
         }
       }
       failure = failureOf(checked);
-      // Recorded for the fleet check (notAnswering.ts, fleetQuiet): the app answered something this round. Never for a
-      // practice project, which runs on turtl's own site and so is no evidence about turtl reaching the internet.
-      answered = !plan.practice && tries.some((tried) => isAnswered(tried.got));
+      // Recorded for the fleet check (notAnswering.ts, fleetQuiet): a check of this round reached something that replied,
+      // so turtl's requests get out. Never for a practice project, which runs on turtl's own site and so is no evidence
+      // about turtl reaching the internet.
+      answered = !plan.practice && tries.some((tried) => gotThrough(tried.got));
       // A practice project's app is turtl's own: a check of it that is quiet is turtl's trouble, for the operator's log,
       // once a round. Its tries count for nothing (only a count or case left from before is settled away).
       const evidence = plan.practice ? [] : tries;

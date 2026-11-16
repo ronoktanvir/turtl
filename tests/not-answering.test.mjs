@@ -1144,9 +1144,11 @@ const DRIFTED = [
   ["a redirect", () => new Response("", { status: 302, headers: { Location: "https://elsewhere.example/" } })],
 ];
 const closingOf = (w, caseId) => w.rows("stepAttempts").find((row) => row.caseId === caseId);
+/** What a case says when it closes because its checks no longer get a reply turtl can read (W3). */
+const CANNOT_TELL = "turtl closed this case because it can no longer tell whether the app answers: its checks no longer get a reply turtl can read.";
 const appRow = (w, appId) => w.rows("apps").find((row) => row._id === appId);
 
-test("V1, G1: a check whose route now answers 404, 401, 429 or a redirect keeps no count and opens nothing, alone or beside a passing check; a real outage then opens one case and its recovery closes it", async (t) => {
+test("W1, G1: a check whose route now answers 404, 401, 429 or a redirect keeps no count and opens nothing, alone or beside a passing check; a real outage then opens one case, which closes as answered beside a passing check and as turtl no longer able to tell alone", async (t) => {
   for (const [what, drifted] of DRIFTED) {
     for (const checks of [1, 2]) {
       await t.test(`${what}, ${checks === 1 ? "alone" : "beside a passing check"}`, async (t) => {
@@ -1166,7 +1168,14 @@ test("V1, G1: a check whose route now answers 404, 401, 429 or a redirect keeps 
         assert.deepEqual([notAnswering(w).map((row) => row.status), pushes(w)], [["waiting_for_app"], ["not_answering"]]);
         appDown = false;
         await minutes(t, w, 230, 260);
-        assert.deepEqual([notAnswering(w).map((row) => row.status), pushes(w)], [["resolved"], ["not_answering", "answering_again"]]);
+        if (checks === 2) {
+          assert.deepEqual([notAnswering(w).map((row) => row.status), pushes(w)], [["resolved"], ["not_answering", "answering_again"]]);
+        } else {
+          // Its one check is unreadable again: turtl can no longer tell, closes the case and says nothing to the phone (W3).
+          assert.deepEqual([notAnswering(w).map((row) => row.status), pushes(w)], [["unresolved"], ["not_answering"]]);
+          assert.equal(closingOf(w, notAnswering(w)[0]._id).summary, CANNOT_TELL);
+        }
+        assert.equal(appRow(w, appId).notAnsweringCase, undefined);
       });
     }
   }
@@ -1195,27 +1204,33 @@ test("V1, V4: a single-check project whose check gets 502s opens a case that say
   assert.deepEqual(pushes(w), ["not_answering"]);
 });
 
-test("V3, V4: a health check answering turtl's POST with 405 beside a quiet journey check opens nothing; with the health check quiet too, a case opens", async (t) => {
-  const w = world(t);
-  let healthUp = true;
-  network(t, (host) => (host === "shop.example"
-    ? (target) => (target.pathname === "/health" || target.pathname === "/ready" ? (healthUp ? new Response("Method not allowed", { status: 405 }) : down()) : down())
-    : null));
-  const ada = await w.db.insert("users", { email: "ada@example.com" });
-  const appId = await project(w, ada, "shop.example");
-  await healthAndReadiness(w, appId, "shop.example");
-  await minutes(t, w, 0, 60);
-  assert.deepEqual([notAnswering(w), pushes(w)], [[], []], "the app answers its health check");
-  assert.ok(counts(w, appId)[0] >= 3, "and its journey check shows as not answering");
-  assert.equal((await overview(w, appId, ada))[0].notAnswering?.tries >= 3, true);
-  healthUp = false;
-  await minutes(t, w, 60, 80);
-  const [opened] = notAnswering(w);
-  assert.equal(opened?.status, "waiting_for_app");
-  assert.match(opened.impact, /the "Check 0" check/, "it names the check that can stop answering");
+test("W1, W2: a health check that is unreadable (a 405) or quiet beside a quiet journey check changes nothing about when the case opens", async (t) => {
+  const openedAt = {};
+  for (const health of ["none", "405", "quiet"]) {
+    await t.test(health, async (t) => {
+      const w = world(t);
+      network(t, (host) => (host === "shop.example"
+        ? (target) => (target.pathname === "/health" || target.pathname === "/ready"
+          ? (health === "405" ? new Response("Method not allowed", { status: 405 }) : down())
+          : Date.now() >= at(1) ? down() : json(passed))
+        : null));
+      const ada = await w.db.insert("users", { email: "ada@example.com" });
+      const appId = await project(w, ada, "shop.example");
+      if (health !== "none") await healthAndReadiness(w, appId, "shop.example");
+      let minute = 0;
+      while (!notAnswering(w).length) {
+        assert.ok(minute < 60, "no case in an hour");
+        await minutes(t, w, minute, ++minute);
+      }
+      openedAt[health] = minute;
+      assert.match(notAnswering(w)[0].impact, /^At least three tries in a row of the "Check 0" check/, "it names the check that can stop answering");
+      assert.deepEqual(pushes(w), ["not_answering"]);
+    });
+  }
+  assert.deepEqual([openedAt["405"], openedAt.quiet], [openedAt.none, openedAt.none]);
 });
 
-test("V5, G2: with a case open and no countable check in the round (the control token removed), it closes when something answers, and is never stranded", async (t) => {
+test("W3, G2: with a case open and no countable check readable in the round (the control token removed), it closes as turtl no longer able to tell, with no notice, and is never stranded", async (t) => {
   const w = world(t);
   const { CREDENTIAL_REF } = w.load("convex/protectedApp/client.ts");
   let appDown = true;
@@ -1236,21 +1251,18 @@ test("V5, G2: with a case open and no countable check in the round (the control 
 
   await w.run("api.secrets.project.removeControlToken", { projectId: appId }, ada);
   const calls = settleCalls(w);
-  await minutes(t, w, 6, 60);
-  assert.equal(notAnswering(w)[0].status, "waiting_for_app", "still no answer");
-  assert.ok(calls.length >= 5, `each round with the case open is settled (${calls.length})`);
-  assert.ok(calls.every((args) => args.tries.length === 2), "with the health and readiness tries as evidence");
-  appDown = false;
-  await minutes(t, w, 60, 90);
+  await minutes(t, w, 6, 30);
+  // Only the health and readiness checks run now, and they cannot stop answering: turtl can no longer tell.
   const [closed] = notAnswering(w);
-  assert.equal(closed.status, "resolved", "the health check answered");
-  assert.deepEqual({ answered: closingOf(w, closed._id).output.answered, allPassed: closingOf(w, closed._id).output.allPassed }, { answered: true, allPassed: false });
-  assert.equal(closingOf(w, closed._id).summary.endsWith("It answered, but none of its checks passed this time."), true, closingOf(w, closed._id).summary);
+  assert.equal(closed.status, "unresolved");
+  assert.equal(closingOf(w, closed._id).summary, CANNOT_TELL);
+  assert.deepEqual({ answered: closingOf(w, closed._id).output.answered, allPassed: closingOf(w, closed._id).output.allPassed }, { answered: false, allPassed: false });
   assert.equal(appRow(w, appId).notAnsweringCase, undefined, "and the project no longer records it");
-  const settled = calls.length;
-  await minutes(t, w, 90, 150);
-  assert.equal(calls.length, settled, "with nothing open, counted or quiet, a round settles nothing again");
-  assert.deepEqual(events(w), ["not_answering", "answering_again"]);
+  assert.deepEqual(calls.map((args) => args.tries.length), [2], "settled once, with the health and readiness tries as evidence");
+  appDown = false;
+  await minutes(t, w, 30, 90);
+  assert.equal(calls.length, 1, "with nothing open, counted or quiet, a round settles nothing again");
+  assert.deepEqual(events(w), ["not_answering"], "no 'answering again'");
 });
 
 test("V5, G2: with no check left to run at all (the control token removed, no health check), the case closes as turtl having stopped checking", async (t) => {
@@ -1292,22 +1304,35 @@ test("V5: the project's record of its open case is mended when the case was clos
   assert.equal(appRow(w, appId).notAnsweringCase, undefined);
 });
 
-test("V5: allPassed when only a check that cannot stop answering answered: false, and the quiet checks are named", async (t) => {
+test("W1, W3, H2: an unreadable reply during an outage neither closes the case nor says anything; when the app is back, the summary and allPassed ignore it", async (t) => {
   const w = world(t);
-  let healthUp = false;
-  network(t, (host) => (host === "shop.example" ? (target) => (target.pathname === "/health" || target.pathname === "/ready" ? (healthUp ? healthReply() : down()) : down()) : null));
+  let health = "down";
+  let appUp = false;
+  network(t, (host) => (host === "shop.example"
+    ? (target) => (target.pathname === "/health" || target.pathname === "/ready"
+      ? (health === "429" ? new Response("Too Many Requests", { status: 429 }) : health === "page" ? healthReply() : down())
+      : appUp ? json(passed) : down())
+    : null));
   const ada = await w.db.insert("users", { email: "ada@example.com" });
   const appId = await project(w, ada, "shop.example");
   await healthAndReadiness(w, appId, "shop.example");
   await minutes(t, w, 0, 5);
   const [opened] = notAnswering(w);
   assert.equal(opened?.status, "waiting_for_app");
-  healthUp = true;
-  await minutes(t, w, 5, 30);
+  // The edge answers the health checks (a firewall's 429, then a page) while the app is still down.
+  health = "429";
+  await minutes(t, w, 5, 20);
+  health = "page";
+  await minutes(t, w, 20, 40);
+  assert.deepEqual([notAnswering(w).map((row) => row.status), pushes(w)], [["waiting_for_app"], ["not_answering"]], "still down: no 'answering again'");
+  appUp = true;
+  await minutes(t, w, 40, 60);
   const closing = closingOf(w, opened._id);
   assert.equal(notAnswering(w)[0].status, "resolved");
-  assert.deepEqual({ answered: closing.output.answered, allPassed: closing.output.allPassed }, { answered: true, allPassed: false });
-  assert.match(closing.summary, /"Check 0" got no answer this time\.$/);
+  assert.deepEqual({ answered: closing.output.answered, allPassed: closing.output.allPassed }, { answered: true, allPassed: true });
+  assert.match(closing.summary, /Its checks pass now\.$/);
+  assert.ok(!/Health|Ready/.test(closing.summary), closing.summary);
+  assert.deepEqual(pushes(w), ["not_answering", "answering_again"]);
 });
 
 test("V3, V5, G4a: a failing check that has never passed is evidence; the case closes with allPassed false and says it fails", async (t) => {
@@ -1492,4 +1517,134 @@ test("V5, R9: in the single-owner demo an open case with no count behind it is s
       assert.equal(appRow(w, appId).notAnsweringCase, undefined);
     });
   }
+});
+
+// =====================================================================================================================
+// Third revision (the design's W1 to W3; the third review's H1 to H3). Only a check result shows the app is serving. A
+// reply below 500 with no result is unreadable: it proves nothing either way, so it counts for nothing either way.
+// =====================================================================================================================
+
+const BAD_GATEWAY = () => new Response("<html><body>502 Bad Gateway</body></html>", { status: 502, headers: { "Content-Type": "text/html" } });
+
+/** Runs the monitor until a not-answering case exists, from `from`; returns the minute after the one that opened it. */
+async function untilCase(t, w, from, limit = 60) {
+  let minute = from;
+  while (!notAnswering(w).some((row) => row.status === "waiting_for_app")) {
+    assert.ok(minute < from + limit, `no case within ${limit} minutes`);
+    await minutes(t, w, minute, ++minute);
+  }
+  return minute;
+}
+
+test("W1, H1a: the proxy answers /health itself while the app behind it is down for a day; a case opens in three rounds on the quiet checks, with one push", async (t) => {
+  const w = world(t);
+  let backendDown = false;
+  network(t, (host) => (host === "shop.example"
+    ? (target) => {
+      // nginx: location = /health { return 200 "ok"; }, answered by the proxy whether or not the app is there.
+      if (target.pathname === "/health") return new Response("ok", { status: 200 });
+      if (backendDown) return BAD_GATEWAY();
+      return target.pathname === "/ready" ? healthReply() : json(passed);
+    }
+    : null));
+  const ada = await w.db.insert("users", { email: "ada@example.com" });
+  const appId = await project(w, ada, "shop.example", 2);
+  await healthAndReadiness(w, appId, "shop.example");
+  await minutes(t, w, 0, 2);
+  backendDown = true;
+  const opened = await untilCase(t, w, 2);
+  assert.ok(opened - 2 <= 4, `opened ${opened - 2} minutes after the app went down`);
+  assert.deepEqual(counts(w, appId).slice(0, 2), [3, 3], "on its third quiet round");
+  assert.equal(notAnswering(w)[0].impact, 'At least three tries in a row of each of 2 checks ("Check 0" and "Check 1") got no usable answer: the app replied with HTTP 502 but no check result.');
+  await minutes(t, w, opened, 24 * 60);
+  assert.deepEqual([notAnswering(w).map((row) => row.status), pushes(w)], [["waiting_for_app"], ["not_answering"]], "one case and one push for a day down");
+});
+
+test("W1, H1b: a front layer answers one check by itself (a 200 page, a 404, a redirect) while the app behind it is down for a day; a case opens in three rounds on the other check, with one push", async (t) => {
+  for (const [what, edge] of [
+    ["a 200 page", () => new Response("<html>Welcome</html>", { status: 200, headers: { "Content-Type": "text/html" } })],
+    ["a 404", () => new Response("Not Found", { status: 404 })],
+    ["a redirect", () => new Response("", { status: 302, headers: { Location: "https://login.example/" } })],
+  ]) {
+    await t.test(what, async (t) => {
+      const w = world(t);
+      let apiDown = false;
+      network(t, (host) => (host === "shop.example" ? (target) => (target.pathname.startsWith("/check-1/") ? edge() : apiDown ? BAD_GATEWAY() : json(passed)) : null));
+      const ada = await w.db.insert("users", { email: "ada@example.com" });
+      const appId = await project(w, ada, "shop.example", 2);
+      await minutes(t, w, 0, 2);
+      assert.deepEqual([counts(w, appId), notAnswering(w)], [[0, 0], []]);
+      apiDown = true;
+      const opened = await untilCase(t, w, 2);
+      assert.ok(opened - 2 <= 4, `opened ${opened - 2} minutes after the app went down`);
+      assert.equal(notAnswering(w)[0].impact, 'At least three tries in a row of the "Check 0" check got no usable answer: the app replied with HTTP 502 but no check result.');
+      await minutes(t, w, opened, 24 * 60);
+      assert.deepEqual([notAnswering(w).map((row) => row.status), pushes(w)], [["waiting_for_app"], ["not_answering"]]);
+    });
+  }
+});
+
+test("W3: the app comes back behind a rotated token (401): the case closes as turtl no longer able to tell, with no push and the record cleared; down again, a new case opens after three quiet rounds", async (t) => {
+  const w = world(t);
+  let state = "down";
+  network(t, (host) => (host === "shop.example" ? () => (state === "401" ? json({ error: { code: "UNAUTHORIZED" } }, 401) : down()) : null));
+  const ada = await w.db.insert("users", { email: "ada@example.com" });
+  const appId = await project(w, ada, "shop.example");
+  await minutes(t, w, 0, 4);
+  const [opened] = notAnswering(w);
+  assert.equal(opened?.status, "waiting_for_app");
+  state = "401";
+  await minutes(t, w, 4, 60);
+  const [closed, ...more] = notAnswering(w);
+  assert.deepEqual([closed.status, more], ["unresolved", []]);
+  const closing = closingOf(w, closed._id);
+  assert.equal(closing.summary, CANNOT_TELL);
+  assert.deepEqual({ answered: closing.output.answered, allPassed: closing.output.allPassed }, { answered: false, allPassed: false });
+  assert.deepEqual([pushes(w), events(w), appRow(w, appId).notAnsweringCase, counts(w, appId)], [["not_answering"], ["not_answering"], undefined, [0]]);
+  state = "down";
+  const reopened = await untilCase(t, w, 60);
+  assert.ok(reopened - 60 <= 16, `reopened ${reopened - 60} minutes later`);
+  assert.deepEqual(counts(w, appId), [3]);
+  assert.deepEqual([notAnswering(w).map((row) => row.status), pushes(w)], [["unresolved", "waiting_for_app"], ["not_answering", "not_answering"]]);
+});
+
+test("W2, W3: a check that has never passed and returns a result closes an open case, and keeps a new one from opening", async (t) => {
+  const w = world(t);
+  let prevent = "down";
+  network(t, (host) => (host === "shop.example" ? (target) => (target.pathname.startsWith("/prevent/") ? (prevent === "failing" ? json(failed, 503) : down()) : down()) : null));
+  const ada = await w.db.insert("users", { email: "ada@example.com" });
+  const appId = await project(w, ada, "shop.example");
+  await w.db.insert("journeys", { appId, name: "Booking survives a slow store", description: ".", checkVersion: "journey-check-v1+slow_store", check: { kind: "http", config: { url: "https://shop.example/prevent/journey-check?scenario=slow_store", method: "POST", expectedStatus: 200 } } });
+  await minutes(t, w, 0, 4);
+  const [opened] = notAnswering(w);
+  assert.equal(opened?.status, "waiting_for_app");
+  prevent = "failing";
+  await minutes(t, w, 4, 90);
+  const [closed, ...more] = notAnswering(w);
+  assert.deepEqual([closed.status, more], ["resolved", []], "closed by the result, and no new case though the other check stays quiet");
+  assert.ok(counts(w, appId)[0] >= 3);
+  assert.equal(closingOf(w, closed._id).output.allPassed, false);
+  assert.deepEqual(pushes(w), ["not_answering", "answering_again"]);
+});
+
+test("W3, H3: a verify step's pass observed before the case opened leaves it open; one observed after closes it", async (t) => {
+  const w = world(t);
+  network(t, (host) => (host === "shop.example" ? BAD_GATEWAY : null));
+  const ada = await w.db.insert("users", { email: "ada@example.com" });
+  const appId = await project(w, ada, "shop.example");
+  await minutes(t, w, 0, 6);
+  const [opened] = notAnswering(w);
+  assert.equal(opened?.status, "waiting_for_app");
+  const [journey] = w.rows("journeys").filter((row) => row.appId === appId);
+  // A verify step that started 20 s before the first quiet try reports its pass now.
+  await w.run("internal.monitor.recordPass", { journeyId: journey._id, observedAt: at(0) - 20_000 });
+  await w.drain(RUNS);
+  assert.equal(notAnswering(w)[0].status, "waiting_for_app", "a pass from before the case opened says nothing about since");
+  assert.ok(counts(w, appId)[0] >= 3, "and does not clear the newer quiet tries");
+  assert.deepEqual(pushes(w), ["not_answering"]);
+  t.mock.timers.setTime(at(6));
+  await w.run("internal.monitor.recordPass", { journeyId: journey._id, observedAt: at(6) });
+  await w.drain(RUNS);
+  assert.equal(notAnswering(w)[0].status, "resolved");
+  assert.deepEqual(pushes(w), ["not_answering", "answering_again"]);
 });
