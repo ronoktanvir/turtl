@@ -305,9 +305,9 @@ export default function Investigate() {
                       testID={"network-node-" + n.id}
                       style={{
                         position: "absolute",
-                        left: p.x * scale - 55 * scale,
+                        left: p.x * scale - 70,
                         top: p.y * scale - size / 2,
-                        width: 110 * scale,
+                        width: 140,
                         alignItems: "center",
                         opacity: nodeRelated(n) ? 1 : 0.25,
                       }}

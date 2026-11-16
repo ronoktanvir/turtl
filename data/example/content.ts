@@ -181,6 +181,8 @@ const plans: Record<string, StepSeed[]> = {
   ],
 };
 
+export const headChangesOnce = ["email_salon_time_zone"];
+
 export function planFor(fix: FixOption): StepSeed[] {
   return (
     plans[fix.key] ??

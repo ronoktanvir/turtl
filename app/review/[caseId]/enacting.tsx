@@ -38,7 +38,9 @@ export default function Enacting() {
   const insets = useSafeAreaInsets();
   const [openStep, setOpenStep] = useState<string | null>(null);
   const [question, setQuestion] = useState("");
+  const [asked, setAsked] = useState(false);
   const [approving, setApproving] = useState<FixOption | null>(null);
+  const [refused, setRefused] = useState<string | null>(null);
 
   const e = c?.enactment;
   const back = ("/review/" + caseId) as never;
@@ -71,10 +73,10 @@ export default function Enacting() {
             : "Checks running: " + passed + " of " + pr.checkRuns.length + " passed";
   const canStop = e.state === "running" || e.state === "needs_you" || e.state === "waiting_for_merge";
   const canMerge = e.state === "waiting_for_merge" && !!pr?.mergeable;
-  const asked = chat.messages.some((m) => m.role === "owner");
   const ask = () => {
     if (!question.trim()) return;
     chat.send(question);
+    setAsked(true);
     setQuestion("");
   };
 
@@ -109,11 +111,26 @@ export default function Enacting() {
               onPress={() => stopEnactment(c.id)}
               testID="enacting-stop"
             />
-            <Button label="Merge" disabled={!canMerge} onPress={() => mergePullRequest(c.id)} testID="enacting-merge" />
+            <Button
+              label="Merge"
+              disabled={!canMerge}
+              onPress={async () => {
+                if (!pr) return;
+                const result = await mergePullRequest(c.id, pr.headSha);
+                setRefused(result.ok ? null : result.reason);
+              }}
+              testID="enacting-merge"
+            />
             <T variant="small" color={pr?.checks === "passing" ? "statusClear" : "textMuted"} style={{ flex: 1, fontWeight: "600" }} testID="enacting-ci">
               {ci}
             </T>
           </View>
+
+          {refused && (
+            <T color="statusNeedsYou" style={{ fontWeight: "600" }} testID="enacting-merge-refused">
+              {"! " + refused}
+            </T>
+          )}
 
           {pr && (
             <Card style={{ gap: 8 }} testID="enacting-pr">
@@ -122,6 +139,9 @@ export default function Enacting() {
                   {"Pull request #" + pr.number + ": " + pr.title}
                 </T>
               </Pressable>
+              <T variant="small" color="textMuted" testID="enacting-pr-head">
+                {"Latest commit " + pr.headSha}
+              </T>
               {pr.checkRuns.map((run) => (
                 <View key={run.name} style={{ flexDirection: "row", justifyContent: "space-between", gap: 12 }}>
                   <T style={{ flex: 1 }}>{run.name}</T>

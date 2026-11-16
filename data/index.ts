@@ -67,8 +67,11 @@ export function stopEnactment(caseId: string): Promise<void> {
   return store.stopEnactment(caseId);
 }
 
-export function mergePullRequest(caseId: string): Promise<void> {
-  return store.mergePullRequest(caseId);
+export function mergePullRequest(
+  caseId: string,
+  headSha: string,
+): Promise<{ ok: true } | { ok: false; reason: string }> {
+  return store.mergePullRequest(caseId, headSha);
 }
 
 export function setApprovals(projectId: string, mode: ApprovalMode): Promise<void> {

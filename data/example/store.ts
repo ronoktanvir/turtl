@@ -17,6 +17,7 @@ import {
   afterShots,
   caseReplies,
   caseSeeds,
+  headChangesOnce,
   learnedFor,
   networks,
   planFor,
@@ -39,6 +40,7 @@ const seedHealth = new Map<string, Health>(caseSeeds.map((c) => [c.id, c.health]
 const seedStatus = new Map<string, CaseStatus>(caseSeeds.map((c) => [c.id, c.status]));
 const plans = new Map<string, StepSeed[]>();
 const answered = new Set<string>();
+const headChanged = new Set<string>();
 const timers = new Map<string, ReturnType<typeof setTimeout>>();
 const chats = new Map<string, ChatMessage[]>();
 const busy = new Set<string>();
@@ -286,11 +288,51 @@ export async function stopEnactment(caseId: string): Promise<void> {
   commit();
 }
 
-export async function mergePullRequest(caseId: string): Promise<void> {
+export async function mergePullRequest(
+  caseId: string,
+  headSha: string,
+): Promise<{ ok: true } | { ok: false; reason: string }> {
   const c = cases.get(caseId);
   const e = c?.enactment;
   const pr = e?.pullRequest;
-  if (!c || !e || !pr || !pr.mergeable || e.state !== "waiting_for_merge") return;
+  if (!c || !e || !pr) return { ok: false, reason: "There is no pull request to merge yet." };
+  if (pr.state !== "open") {
+    return { ok: false, reason: pr.state === "merged" ? "This pull request is already merged." : "This pull request was closed." };
+  }
+  if (e.state !== "waiting_for_merge" || !pr.mergeable) return { ok: false, reason: "The checks have not passed yet." };
+  if (headChangesOnce.includes(e.fixKey) && !headChanged.has(caseId)) {
+    headChanged.add(caseId);
+    const newHead = "c41d7e2";
+    patch(caseId, (c) => ({
+      ...c,
+      status: "enacting",
+      health: during(c, "working"),
+      enactment: {
+        ...e,
+        state: "running",
+        steps: e.steps.map((s) =>
+          s.key === "checks" ? { ...s, status: "running", summary: "A new commit arrived, so the checks are running again." } : s,
+        ),
+        pullRequest: {
+          ...pr,
+          headSha: newHead,
+          checks: "pending",
+          mergeable: false,
+          checkRuns: pr.checkRuns.map((r) => ({ ...r, status: "pending" })),
+        },
+      },
+    }));
+    commit();
+    schedule(caseId, 1300);
+    return {
+      ok: false,
+      reason:
+        "Not merged. turtl added a commit (" + newHead + ") after the version you were looking at (" + headSha + "). The checks are running again; merge once they pass.",
+    };
+  }
+  if (headSha !== pr.headSha) {
+    return { ok: false, reason: "Not merged. The pull request changed after you looked. Check it again, then merge." };
+  }
   patch(caseId, (c) => ({
     ...c,
     status: "enacting",
@@ -299,6 +341,7 @@ export async function mergePullRequest(caseId: string): Promise<void> {
   }));
   commit();
   schedule(caseId, 400);
+  return { ok: true };
 }
 
 export async function setApprovals(projectId: string, mode: ApprovalMode): Promise<void> {
