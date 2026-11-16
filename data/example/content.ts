@@ -72,7 +72,7 @@ const pullRequestSteps = (what: string, verify: string): StepSeed[] => [
   {
     key: "checks",
     title: "Run the checks",
-    detail: "The project's own checks run on the change, then turtl runs the journey on a test phone.",
+    detail: "The project's checks and turtl's journey on a test phone run together on the same change.",
     summary: "Every check passed.",
     ms: 1300,
     effect: "checks",
@@ -257,7 +257,7 @@ export const proposals: Record<string, { text: string; fix: FixOption; code?: Co
       whatChanges: "A small code change to the booking screen, shipped as a pull request that you merge.",
       whatMightBeLost:
         "On a slow day customers wait two seconds and then see no suggestions. Customers stay blocked until you merge.",
-      howChecked: "The project's checks run on the pull request, then turtl runs the booking journey on a test phone.",
+      howChecked: "The project's checks and turtl's booking journey on a test phone run together on the pull request.",
       confidence: 0.78,
       codeIds: ["code-limit"],
     },
@@ -462,7 +462,7 @@ const booking10: CaseDetail = {
       whatChanges: "A code change to the booking screen, shipped as a pull request that you merge.",
       whatMightBeLost:
         "It is slower than turning recommendations off: customers stay blocked until the checks pass and you merge. Suggestions may appear a moment after the form.",
-      howChecked: "The project's checks run on the pull request, then turtl runs the booking journey on a test phone.",
+      howChecked: "The project's checks and turtl's booking journey on a test phone run together on the pull request.",
       usersCantNow: "Complete a booking.",
       confidence: 0.84,
       codeIds: ["code-await"],
