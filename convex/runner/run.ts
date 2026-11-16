@@ -280,6 +280,12 @@ async function applyResult(
 
   if (result.status === "waiting") {
     await waitOnAttempt(ctx, attemptId, { ...notes, summary: result.summary });
+    if (step.purpose === "verify") {
+      for (const job of await ctx.db.system.query("_scheduled_functions").collect()) {
+        const args = job.args[0] as { attemptId?: string } | undefined;
+        if (job.state.kind === "pending" && job.name.endsWith("checkTimeout") && args?.attemptId === attemptId) await ctx.scheduler.cancel(job._id);
+      }
+    }
   } else {
     await finishAttempt(ctx, attemptId, {
       ...notes,
@@ -313,6 +319,22 @@ async function applyResult(
 export const recordResult = internalMutation({
   args: { attemptId: v.id("stepAttempts"), result: vHandlerResult },
   handler: async (ctx, { attemptId, result }) => applyResult(ctx, attemptId, result),
+});
+
+export const resumeDeviceVerification = internalMutation({
+  args: { attemptId: v.id("stepAttempts") },
+  handler: async (ctx, { attemptId }): Promise<"resumed" | "running" | "stale"> => {
+    const source = await ctx.db.get(attemptId);
+    const step = source && await ctx.db.get(source.stepId);
+    const row = source && await ctx.db.get(source.caseId);
+    const current = step?.currentAttemptId && await ctx.db.get(step.currentAttemptId);
+    if (!step || step.purpose !== "verify" || !row || isClosed(row.status) || !current) return "stale";
+    if (current.status === "running") return "running";
+    if (current.status !== "waiting") return "stale";
+    await resumeAttempt(ctx, current._id, "The device run finished; collecting fresh verification evidence.");
+    await dispatch(ctx, "verify", current._id);
+    return "resumed";
+  },
 });
 
 export const checkTimeout = internalMutation({

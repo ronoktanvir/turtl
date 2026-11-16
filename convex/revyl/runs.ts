@@ -37,6 +37,12 @@ export async function startRun(
     credentialRef?: string;
   },
 ): Promise<StartResult> {
+  if (args.caseId && args.stepAttemptId) {
+    const existing: Doc<"revylRuns"> | null = await ctx.runQuery(internal.revyl.runs.forVerification, {
+      caseId: args.caseId, stepAttemptId: args.stepAttemptId, phase: args.phase,
+    });
+    if (existing) return { outcome: "started", runId: existing._id, taskId: existing.taskId };
+  }
   const resolved = revylConfig(args);
   if (!resolved.ok) return { outcome: "not_configured", missing: resolved.missing };
   const started = await startWorkflow(resolved.config);
@@ -138,6 +144,10 @@ export const follow = internalAction({
   handler: async (ctx, { runId }) => {
     const run = await advanceRun(ctx, runId);
     if (!run) await ctx.scheduler.runAfter(POLL_MS, internal.revyl.runs.follow, { runId });
+    if (run?.stepAttemptId) {
+      const resumed = await ctx.runMutation(internal.runner.run.resumeDeviceVerification, { attemptId: run.stepAttemptId });
+      if (resumed === "running") await ctx.scheduler.runAfter(POLL_MS, internal.revyl.runs.follow, { runId });
+    }
     return run ? { status: run.status, summary: run.summary } : { status: "running" as const };
   },
 });
@@ -145,6 +155,20 @@ export const follow = internalAction({
 export const get = internalQuery({
   args: { runId: v.id("revylRuns") },
   handler: (ctx, { runId }) => ctx.db.get(runId),
+});
+
+export const forVerification = internalQuery({
+  args: { caseId: v.id("cases"), stepAttemptId: v.id("stepAttempts"), phase: vScreenshotPhase },
+  handler: async (ctx, { caseId, stepAttemptId, phase }): Promise<Doc<"revylRuns"> | null> => {
+    const attempt = await ctx.db.get(stepAttemptId);
+    if (!attempt || attempt.caseId !== caseId) throw new Error("The verification attempt does not belong to this case.");
+    const runs = await ctx.db.query("revylRuns").withIndex("by_case", (q) => q.eq("caseId", caseId)).order("desc").collect();
+    for (const run of runs) {
+      if (run.phase !== phase || !run.stepAttemptId) continue;
+      if ((await ctx.db.get(run.stepAttemptId))?.stepId === attempt.stepId) return run;
+    }
+    return null;
+  },
 });
 
 export const create = internalMutation({
