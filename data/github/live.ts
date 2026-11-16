@@ -20,11 +20,11 @@ export function useGithubRepositories(enabled = true): GithubRepository[] | unde
   return useLiveQuery(api.github.connect.repositories, enabled ? {} : "skip");
 }
 
-// GitHub's install page, carrying a state for this attempt. GitHub's last redirect comes back to the app's own scheme,
-// or on the web to this page's origin.
-export async function beginGithubConnect(): Promise<string> {
+// GitHub's install page (or, for an installation that already exists, its authorize page), carrying a state for this
+// attempt. GitHub's last redirect comes back to the app's own scheme, or on the web to this page's origin.
+export async function beginGithubConnect(start: "install" | "authorize" = "install"): Promise<string> {
   const returnTo = Platform.OS === "web" && typeof window !== "undefined" ? window.location.origin : "app";
-  const { url } = await readable(() => requireLiveClient().action(api.github.connect.begin, { returnTo }));
+  const { url } = await readable(() => requireLiveClient().action(api.github.connect.begin, { returnTo, ...(start === "authorize" && { start }) }));
   return url;
 }
 

@@ -8,7 +8,7 @@ const unavailable = () => Promise.reject(new Error("Connecting GitHub needs a tu
 
 export const useGithubStatus = (_enabled = true): GithubStatus | undefined => NOT_CONNECTED;
 export const useGithubRepositories = (_enabled = true): GithubRepository[] | undefined => NONE;
-export const beginGithubConnect = (): Promise<string> => unavailable();
+export const beginGithubConnect = (_start: "install" | "authorize" = "install"): Promise<string> => unavailable();
 export const finishGithubConnect = (_ticket: string): Promise<{ connected: number; githubLogin: string }> => unavailable();
 export const refreshGithubRepositories = (): Promise<{ ok: boolean; problems: string[] }> => unavailable();
 export const disconnectGithub = (_accounts: boolean): Promise<GithubDisconnect> => unavailable();

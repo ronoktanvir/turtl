@@ -5,7 +5,7 @@ import { action, internalAction, internalMutation, internalQuery, mutation, quer
 import { accessEnforced, currentAccount, requireAccount } from "../access";
 import { requireOwnerPasscode } from "../ownerPasscode";
 import { deleteInstallation } from "./api";
-import { appConfig, connectConfig, githubWebUrl, installationSettingsUrl, returnAddress } from "./config";
+import { appConfig, authorizeUrl, connectConfig, githubWebUrl, installationSettingsUrl, returnAddress } from "./config";
 import { signAppJwt, UNREADABLE_KEY } from "./jwt";
 import { activeLinks, linkAllows } from "./links";
 import { randomSecret, sha256 } from "./secrets";
@@ -130,20 +130,25 @@ export const repositories = query({
   },
 });
 
-// Starts connecting: returns GitHub's install page for the app to open. returnTo is "app" (turtl://) or, on the web,
-// the page's own origin on this computer.
+// Starts connecting: returns the GitHub page for the app to open. returnTo is "app" (turtl://) or, on the web, the
+// page's own origin on this computer. start "install" (the default) opens GitHub's install page, where the owner
+// chooses repositories; "authorize" goes straight to authorizing turtl, for someone whose installation already exists.
+// Both end at the same callback, which connects only what GitHub lists for the person.
 export const begin = action({
-  args: { returnTo: v.string() },
+  args: { returnTo: v.string(), start: v.optional(v.union(v.literal("install"), v.literal("authorize"))) },
   returns: v.object({ url: v.string() }),
-  handler: async (ctx, { returnTo }) => {
+  handler: async (ctx, { returnTo, start }) => {
     const account = await requireAccount(ctx);
     const connect = connectConfig();
     if (!connect.ok) throw new ConvexError(NOT_SET_UP);
     const target = returnAddress(returnTo);
     if (!target) throw new ConvexError("turtl can only bring you back to the turtl app after GitHub.");
     const state = randomSecret();
-    await ctx.runMutation(internal.github.connect.start, { account, stateHash: await sha256(state), codeVerifier: randomSecret(), returnTo: target });
-    return { url: `${githubWebUrl()}/apps/${encodeURIComponent(connect.slug)}/installations/new?state=${state}` };
+    const codeVerifier = randomSecret();
+    await ctx.runMutation(internal.github.connect.start, { account, stateHash: await sha256(state), codeVerifier, returnTo: target });
+    return {
+      url: start === "authorize" ? await authorizeUrl(connect, state, codeVerifier) : `${githubWebUrl()}/apps/${encodeURIComponent(connect.slug)}/installations/new?state=${state}`,
+    };
   },
 });
 

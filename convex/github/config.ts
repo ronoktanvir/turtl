@@ -1,3 +1,5 @@
+import { codeChallenge } from "./secrets";
+
 declare const process: { env: Record<string, string | undefined> };
 
 export const GITHUB_APP_VARIABLES = ["GITHUB_APP_ID", "GITHUB_APP_SLUG", "GITHUB_APP_PRIVATE_KEY", "GITHUB_APP_WEBHOOK_SECRET"] as const;
@@ -51,6 +53,19 @@ export function connectConfig(): ConnectConfig {
     ...(site ? [] : ["CONVEX_SITE_URL"]),
   ];
   return { ok: false, missing };
+}
+
+// GitHub's authorize page for Connect GitHub: the person authorizes turtl, and GitHub sends them to the callback with a
+// code only this attempt's PKCE verifier can exchange.
+export async function authorizeUrl(connect: Extract<ConnectConfig, { ok: true }>, state: string, codeVerifier: string): Promise<string> {
+  const params = new URLSearchParams({
+    client_id: connect.clientId,
+    redirect_uri: connect.site + CALLBACK_PATH,
+    state,
+    code_challenge: await codeChallenge(codeVerifier),
+    code_challenge_method: "S256",
+  });
+  return `${githubWebUrl()}/login/oauth/authorize?${params}`;
 }
 
 // Where GitHub's last redirect sends the person, decided when they start and never read from a request GitHub

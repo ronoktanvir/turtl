@@ -103,6 +103,22 @@ test("Connect GitHub binds an installation to the account that started, once Git
   assert.deepEqual(await w.pickable(null), []);
 });
 
+test("someone whose installation already exists can start at GitHub's authorize page and skip the install page", async (t) => {
+  const w = await connectWorld(t, { accounts: true });
+  const alice = await w.project("alice-account");
+  w.stub.install({ id: 7101, login: "alice", repositories: ["alice/app"] });
+  w.stub.signIn("alice");
+  const { url } = await w.backend.call("github.connect.begin", { returnTo: "app", start: "authorize" }, "alice-account");
+  const authorize = new URL(url);
+  assert.equal(authorize.origin + authorize.pathname, w.stub.url + "/login/oauth/authorize");
+  assert.deepEqual([authorize.searchParams.get("client_id"), authorize.searchParams.get("redirect_uri"), authorize.searchParams.get("code_challenge_method")], [w.stub.clientId, SITE + "/github/callback", "S256"]);
+  const landed = await w.open(url);
+  assert.deepEqual(landed.visited.map((address) => new URL(address).pathname), ["/login/oauth/authorize", "/github/callback"]);
+  const ticket = new URL(landed.url).searchParams.get("ticket");
+  assert.deepEqual(await w.backend.call("github.connect.finish", { ticket }, "alice-account"), { connected: 1, githubLogin: "alice" });
+  assert.equal((await w.access("alice/app", { appId: alice.appId })).installationId, 7101);
+});
+
 test("a forged installation id connects nothing: turtl binds only what GitHub lists for the person who came back", async (t) => {
   const w = await connectWorld(t, { accounts: true });
   await w.connected("alice-account", "alice", { id: 7101, repositories: ["alice/app"] });
@@ -352,7 +368,12 @@ test("the app asks GitHub to come back to turtl:// on a phone and to the page's 
   globalThis.window = { location: { origin: "http://localhost:8108" } };
   t.after(() => delete globalThis.window);
   await live("web").beginGithubConnect();
-  assert.deepEqual(calls.splice(0), [["api.github.connect.begin", { returnTo: "app" }], ["api.github.connect.begin", { returnTo: "http://localhost:8108" }]]);
+  await live("ios").beginGithubConnect("authorize");
+  assert.deepEqual(calls.splice(0), [
+    ["api.github.connect.begin", { returnTo: "app" }],
+    ["api.github.connect.begin", { returnTo: "http://localhost:8108" }],
+    ["api.github.connect.begin", { returnTo: "app", start: "authorize" }],
+  ]);
 
   await live("ios").disconnectGithub(true);
   assert.deepEqual([calls.splice(0), passcodes.splice(0)], [[["api.github.connect.disconnect", {}]], []], "accounts on: the signed-in account decides");

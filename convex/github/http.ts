@@ -2,9 +2,9 @@ import type { HttpRouter } from "convex/server";
 import { internal } from "../_generated/api";
 import { httpAction, type ActionCtx } from "../_generated/server";
 import { exchangeCode, listUserInstallations, listUserRepositories, readUser, revokeUserToken, REPOSITORIES_PER_PAGE, type UserInstallation } from "./api";
-import { CALLBACK_PATH, connectConfig, githubWebUrl, SETUP_PATH, webhookSecret, type ConnectConfig } from "./config";
+import { authorizeUrl, CALLBACK_PATH, connectConfig, SETUP_PATH, webhookSecret, type ConnectConfig } from "./config";
 import { MAX_LINKS } from "./links";
-import { codeChallenge, randomSecret, sha256 } from "./secrets";
+import { randomSecret, sha256 } from "./secrets";
 import type { GithubUser, Repository } from "./shapes";
 import { bodyDigest, readDelivery, signatureMatches } from "./webhook";
 
@@ -67,15 +67,6 @@ const backTo = (returnTo: string, params: Record<string, string>) => redirect(`$
 const installed = () => page(200, "Go back to turtl", "turtl's GitHub App was installed or changed on GitHub. Go back to turtl. If turtl does not show your repositories, tap Connect GitHub there again.");
 const linkExpired = () => page(400, "This link has expired", "It was already used, or it is more than 15 minutes old. Go back to turtl and tap Connect GitHub again. Nothing was connected.");
 const notSetUp = () => page(503, "Connecting GitHub is not set up", "This turtl backend cannot connect GitHub yet. Nothing was connected.");
-
-const authorizeUrl = async (connect: Extract<ConnectConfig, { ok: true }>, state: string, codeVerifier: string) =>
-  `${githubWebUrl()}/login/oauth/authorize?${new URLSearchParams({
-    client_id: connect.clientId,
-    redirect_uri: connect.site + CALLBACK_PATH,
-    state,
-    code_challenge: await codeChallenge(codeVerifier),
-    code_challenge_method: "S256",
-  })}`;
 
 // GET /github/setup: where GitHub sends a person after they install or change the app. The installation id GitHub
 // puts in this address is not read, because anyone can type one. With the state of an attempt that is still waiting,

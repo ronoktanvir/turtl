@@ -141,11 +141,11 @@ export default function ConnectGithub({
     if (connected && !refreshed.current && !returned.ticket) void refresh();
   }, [connected]);
 
-  const connect = async () => {
+  const connect = async (start: "install" | "authorize" = "install") => {
     setPhase("opening");
     setNote(null);
     try {
-      await openForConnect(await beginGithubConnect());
+      await openForConnect(await beginGithubConnect(start));
     } catch (error) {
       setNote({ text: reason(error), problem: true });
     } finally {
@@ -171,6 +171,7 @@ export default function ConnectGithub({
           <T variant="heading">Connect GitHub</T>
           <T color="textMuted">turtl reads only the repositories you choose. On GitHub, pick "Only select repositories", choose this app's repository, and come back here.</T>
           <ConnectButton label={phase === "opening" ? "Opening GitHub…" : phase === "finishing" ? "Finishing…" : "Connect GitHub"} disabled={busy} onPress={() => void connect()} testID="github-connect" />
+          <TextLink label="Already installed? Confirm on GitHub" disabled={busy} onPress={() => void connect("authorize")} testID="github-confirm-existing" />
         </Card>
         {message}
       </View>
