@@ -1,6 +1,7 @@
 import type { Stage } from "../../constants";
 import { withCustomerReports } from "../../intake/workflow";
 import type { StepHandler } from "../contract";
+import { appStateHandler, errorWindowHandler } from "../../evidence/collectors";
 import { handler as authorize_and_execute } from "./authorize_and_execute";
 import { handler as detect_or_receive } from "./detect_or_receive";
 import { handler as examine_broader_causes } from "./examine_broader_causes";
@@ -12,6 +13,8 @@ import { handler as verify } from "./verify";
 
 export const HANDLERS: Record<Stage, StepHandler> = withCustomerReports({
   detect_or_receive,
+  collect_app_state: appStateHandler,
+  collect_error_window: errorWindowHandler,
   gather_context,
   investigate,
   examine_broader_causes,

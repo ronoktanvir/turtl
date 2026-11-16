@@ -11,6 +11,7 @@ export const useProjects = isLiveData ? live.useProjects : example.useProjects;
 export const useProject = isLiveData ? live.useProject : example.useProject;
 export const useCases = isLiveData ? live.useCases : example.useCases;
 export const useCase = isLiveData ? live.useCase : example.useCase;
+export const useWorkflow = isLiveData ? live.useWorkflow : (_caseId: string): import("./workflow").Workflow | null => null;
 export const useChat = isLiveData ? live.useChat : example.useChat;
 export const useVoice = isLiveData ? useLiveVoice : useExampleVoice;
 export const useCodeNetwork = isLiveData ? live.useCodeNetwork : example.useCodeNetwork;

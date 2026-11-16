@@ -95,6 +95,7 @@ export const openCase = internalMutation({
     const { title, impact } = describeImpact(failedStep, counts, countsReason);
     const caseId = await startCaseRun(ctx, {
       appId: journey.appId,
+      journeyId,
       title,
       impact,
       kind: "outage",
@@ -102,7 +103,6 @@ export const openCase = internalMutation({
       raisedByRef: `journey check: ${journey.name}`,
       signature,
     });
-    await ctx.db.patch(caseId, { journeyId });
     const app = await ctx.db.get(journey.appId);
     await ctx.scheduler.runAfter(0, internal.notices.notifyOwner, {
       caseId,
