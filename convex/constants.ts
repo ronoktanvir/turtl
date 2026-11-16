@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import type { Infer } from "convex/values";
+import { agentRunRoutingFields } from "./routing/validators";
 
 export const STAGES = [
   { id: "detect_or_receive", label: "Detect or receive a request" },
@@ -542,6 +543,7 @@ export const vAgentRun = v.object({
   ),
   costUsd: v.optional(v.number()),
   durationMs: v.optional(v.number()),
+  ...agentRunRoutingFields,
 });
 
 export const vContextSource = v.object({

@@ -1,39 +1,24 @@
-import { v } from "convex/values";
-import { internalMutation } from "./_generated/server";
+import type { Doc } from "./_generated/dataModel";
 import type { Facts } from "./runner/handlers/journey";
 import { supportedFactKeys } from "./memory/checks";
+import { CONFIGURATIONS, type ConfigKey, type Configuration, type ModelRef } from "./routing/configs";
+import { callModel, type ModelAnswer } from "./routing/models";
+import type { Traits } from "./routing/selector";
 
 declare const process: { env: Record<string, string | undefined> };
 
-// One model call that turns the facts and evidence into a cause in plain language. When no model
-// answers, a deterministic reading of the facts is used and labelled as such: it is never presented
-// as a model's diagnosis.
+// Diagnosis turns the facts and evidence into a cause in plain language, with the configuration the router chose.
+// When no model answers, a deterministic reading of the facts is used and labelled as such: it is never presented as
+// a model's diagnosis.
 
-export const DEFAULT_MODEL = "gpt-5.4-mini";
 export const MODEL_ENV = "DIAGNOSIS_MODEL";
-export const HARNESS_VERSION = "turtl-diagnosis-v1";
-export const PROMPT_VERSION = "diagnosis-prompt-v2";
-export const PAST_CASES_PROMPT_VERSION = "diagnosis-prompt-v2-with-past-cases";
-const MODEL_TIMEOUT_MS = 30_000;
+export const DEFAULT_MODEL = CONFIGURATIONS.quick.model.model;
 
+// The quick configuration's model; DIAGNOSIS_MODEL overrides it, as before routing existed.
 export const modelId = () => process.env[MODEL_ENV] || DEFAULT_MODEL;
 
-const SYSTEM_PROMPT = [
-  "You diagnose an outage in a small booking app for its owner, who is not an engineer.",
-  "Use only the facts and evidence you are given. Do not invent causes they do not support.",
-  'Reply with a JSON object: {"cause": string, "confidence": number, "supportingEvidenceIds": string[], "supportingFactKeys": string[]}.',
-  "cause: at most two plain sentences saying why customers cannot book.",
-  "confidence: from 0 to 1, how strongly the evidence supports that cause.",
-  "supportingEvidenceIds: ids from the evidence list that support it.",
-  "supportingFactKeys: exact keys from the supplied facts whose observed values support this cause. Name the failed journey step and error code when relevant; do not name facts you did not use. Never infer or include staging switches.",
-  "If the evidence does not establish a cause, say so and give a low confidence.",
-].join("\n");
-
-const PAST_CASES_PROMPT = [
-  "pastCases: notes from earlier cases on this app, given as background only. They may not apply to this case; the fresh facts and evidence decide.",
-  "Base the cause and the confidence on this case's facts and evidence. Never cite a past case as support: supportingEvidenceIds and supportingFactKeys come only from this case.",
-  "A past case's recovery is not a recommendation or an approval for this case.",
-].join("\n");
+export const modelFor = (config: Configuration): ModelRef =>
+  config.key === "quick" ? { ...config.model, model: modelId() } : config.model;
 
 export type EvidenceSummary = {
   id: string;
@@ -47,107 +32,144 @@ export type Reading = {
   confidence: number;
   supportingEvidenceIds: string[];
   supportingFactKeys: string[];
+  alternatives: string[];
+  missingEvidence: string[];
 };
 
+export type LookAlike = { memoryId: string; failedChecks: string[] };
+
+export type DiagnosisContext = {
+  facts: Facts;
+  evidence: EvidenceSummary[];
+  pastCases: string[];
+  lookAlikes: LookAlike[];
+  handoff?: string;
+};
+
+const strings = (value: unknown) =>
+  Array.isArray(value) ? value.filter((item): item is string => typeof item === "string" && !!item.trim()).slice(0, 8) : [];
+
+// What each configuration receives: the same facts, with evidence detail, past cases, look-alike memories and the
+// handoff as its context settings say.
+export function payloadFor(config: Configuration, context: DiagnosisContext) {
+  const limit = config.context.evidenceBodyChars;
+  const evidence = context.evidence.map((item) => ({
+    ...item,
+    ...(item.body !== undefined && { body: limit === null ? item.body : item.body.slice(0, limit) }),
+  }));
+  const pastCases = context.pastCases.slice(0, config.context.pastCases);
+  return {
+    facts: context.facts,
+    evidence,
+    ...(pastCases.length && { pastCases }),
+    ...(config.context.lookAlikeMemories && context.lookAlikes.length && { lookAlikeMemories: context.lookAlikes }),
+    ...(config.context.handoff && context.handoff && { handoff: context.handoff }),
+  };
+}
+
 export async function askModel(
-  facts: Facts,
-  evidence: EvidenceSummary[],
-  pastCases: string[] = [],
-): Promise<{ ok: true; reading: Reading } | { ok: false; reason: string }> {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
-    return {
-      ok: false,
-      reason:
-        "OPENAI_API_KEY is not set on this deployment, so no request was sent",
-    };
+  config: Configuration,
+  context: DiagnosisContext,
+): Promise<{ answer: ModelAnswer; reading: Reading | null; unusable?: string }> {
+  const answer = await callModel({
+    ref: modelFor(config),
+    system: config.instructions.join("\n"),
+    user: JSON.stringify(payloadFor(config, context)),
+    timeoutMs: config.timeoutMs,
+    maxOutputTokens: config.maxOutputTokens,
+  });
+  if (!answer.ok) return { answer, reading: null };
+  const parsed = answer.json;
+  if (typeof parsed.cause !== "string" || !parsed.cause.trim()) {
+    return { answer, reading: null, unusable: "the model's answer had no cause" };
   }
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), MODEL_TIMEOUT_MS);
-  try {
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: modelId(),
-        response_format: { type: "json_object" },
-        messages: [
-          {
-            role: "system",
-            content: pastCases.length
-              ? `${SYSTEM_PROMPT}\n${PAST_CASES_PROMPT}`
-              : SYSTEM_PROMPT,
-          },
-          {
-            role: "user",
-            content: JSON.stringify(
-              pastCases.length
-                ? { facts, evidence, pastCases }
-                : { facts, evidence },
-            ),
-          },
-        ],
-      }),
-      signal: controller.signal,
-    });
-    if (!response.ok)
-      return {
-        ok: false,
-        reason: `the model call returned HTTP ${response.status}`,
-      };
-    const body = (await response.json()) as {
-      choices?: { message?: { content?: string } }[];
-    };
-    const parsed = JSON.parse(
-      body.choices?.[0]?.message?.content ?? "null",
-    ) as Partial<Reading> | null;
-    if (!parsed || typeof parsed.cause !== "string" || !parsed.cause.trim()) {
-      return { ok: false, reason: "the model's answer had no cause" };
-    }
-    const known = new Set(evidence.map((e) => e.id));
-    const confidence = Number(parsed.confidence);
-    return {
-      ok: true,
-      reading: {
-        cause: parsed.cause.trim(),
-        confidence: Number.isFinite(confidence)
-          ? Math.min(1, Math.max(0, confidence))
-          : 0,
-        supportingEvidenceIds: (parsed.supportingEvidenceIds ?? []).filter(
-          (id) => known.has(id),
-        ),
-        supportingFactKeys: supportedFactKeys(facts, parsed.supportingFactKeys),
-      },
-    };
-  } catch (error) {
-    return {
-      ok: false,
-      reason: controller.signal.aborted
-        ? `the model did not answer within ${MODEL_TIMEOUT_MS / 1000} s`
-        : `the model call failed (${error instanceof Error ? error.name : "unknown error"})`,
-    };
-  } finally {
-    clearTimeout(timer);
+  const known = new Set(context.evidence.map((e) => e.id));
+  const confidence = Number(parsed.confidence);
+  return {
+    answer,
+    reading: {
+      cause: parsed.cause.trim(),
+      confidence: Number.isFinite(confidence) ? Math.min(1, Math.max(0, confidence)) : 0,
+      supportingEvidenceIds: strings(parsed.supportingEvidenceIds).filter((id) => known.has(id)),
+      supportingFactKeys: supportedFactKeys(context.facts, parsed.supportingFactKeys as string[] | undefined),
+      alternatives: strings(parsed.alternatives),
+      missingEvidence: strings(parsed.missingEvidence),
+    },
+  };
+}
+
+const SENSITIVE = /\b(auth\w*|login|sign[- ]?in|session|token|password|permission\w*|payment\w*|billing|charge|refund|delete\w*|migration|secret\w*)\b/i;
+
+// The case traits the selector reads. Difficulty and consequence are kept apart: a sensitive area or an irreversible
+// action raises consequence however easy the failure looks.
+export function traitsFor(args: {
+  row: Doc<"cases">;
+  facts: Facts;
+  evidence: EvidenceSummary[];
+  catalog: Doc<"actionCatalog">[];
+  recall: { applies: boolean }[];
+  verifiedFailures: string[];
+}): Traits {
+  const { row, facts, evidence, catalog, recall, verifiedFailures } = args;
+  const verdict = facts["journey.verdict"];
+  const step = typeof facts["journey.failedStep"] === "string" ? facts["journey.failedStep"] : "none";
+  const code = typeof facts["journey.errorCode"] === "string" ? facts["journey.errorCode"] : "none";
+  const topCode = facts["errors.topCode"];
+  const signals: string[] = [];
+  const components = new Set<string>();
+  if (verdict === "failed") {
+    signals.push(`the journey fails at ${step}`);
+    components.add(step);
   }
+  if (typeof facts["errors.failedBookings"] === "number" && facts["errors.failedBookings"] > 0) {
+    signals.push(`${facts["errors.failedBookings"]} customer attempts failed`);
+  }
+  if (typeof topCode === "string" && topCode !== "none" && topCode !== code) {
+    signals.push(`customers see ${topCode}, not ${code}`);
+    components.add(topCode);
+  }
+  if (facts["health.ok"] === false) {
+    signals.push("the server's health check fails");
+    components.add("server");
+  }
+  const expected = ["journey_check", "errors", "flags", "health", "revision"];
+  const kinds = new Set(evidence.map((item) => item.kind));
+  const failure = `${step}:${code}`;
+  const sensitive = SENSITIVE.exec([step, code, row.title].join(" "));
+  const irreversible = catalog.filter((entry) => !entry.reversible);
+  const reversible = catalog.filter((entry) => entry.reversible).map((entry) => entry.name);
+  return {
+    caseKind: row.kind,
+    reproduces: verdict === "failed" ? "yes" : verdict === "passed" ? "no" : "unknown",
+    signals,
+    components: [...components],
+    evidenceKinds: expected.filter((kind) => kinds.has(kind)).length,
+    evidenceExpected: expected.length,
+    memory: recall.some((item) => item.applies) ? "matched" : recall.length ? "look_alike_rejected" : "none",
+    familiarFailure: verifiedFailures.includes(failure),
+    failure,
+    consequence: sensitive || irreversible.length ? "high" : "low",
+    consequenceWhy: sensitive
+      ? `the failure touches ${sensitive[0].toLowerCase()}`
+      : irreversible.length
+        ? `the app's actions include ${irreversible.map((entry) => entry.name).join(", ")}, which cannot be undone`
+        : reversible.length
+          ? `the actions on offer can be undone (${reversible.join(", ")})`
+          : "no recovery action is registered, so only a reviewed code change could follow",
+  };
 }
 
 // The deterministic fallback: fixed rules over the facts. Its confidence is capped low on purpose.
-export function ruleReading(
-  facts: Facts,
-  evidence: EvidenceSummary[],
-): Reading {
-  const byKind = (kinds: string[]) =>
-    evidence.filter((e) => kinds.includes(e.kind)).map((e) => e.id);
+export function ruleReading(facts: Facts, evidence: EvidenceSummary[]): Reading {
+  const byKind = (kinds: string[]) => evidence.filter((e) => kinds.includes(e.kind)).map((e) => e.id);
+  const none = { alternatives: [], missingEvidence: [] };
   if (facts["journey.verdict"] === "passed") {
     return {
-      cause:
-        "The booking check passes now, so these facts show no current failure to explain.",
+      cause: "The booking check passes now, so these facts show no current failure to explain.",
       confidence: 0.2,
       supportingEvidenceIds: byKind(["journey_check"]),
       supportingFactKeys: ["journey.verdict"],
+      ...none,
     };
   }
   if (
@@ -161,13 +183,8 @@ export function ruleReading(
         "Booking waits for service recommendations while they are turned on, and the recommendations provider is timing out, so bookings never get saved.",
       confidence: 0.5,
       supportingEvidenceIds: byKind(["journey_check", "flags", "errors"]),
-      supportingFactKeys: [
-        "journey.verdict",
-        "journey.failedStep",
-        "journey.errorCode",
-        "flags.recommendationsEnabled",
-        "health.ok",
-      ],
+      supportingFactKeys: ["journey.verdict", "journey.failedStep", "journey.errorCode", "flags.recommendationsEnabled", "health.ok"],
+      ...none,
     };
   }
   const step = facts["journey.failedStep"] ?? "unknown";
@@ -176,69 +193,9 @@ export function ruleReading(
     cause: `The booking check fails at the "${step}" step with ${code}. No rule matches this, so the cause is unknown.`,
     confidence: 0.1,
     supportingEvidenceIds: byKind(["journey_check"]),
-    supportingFactKeys: supportedFactKeys(facts, [
-      "journey.verdict",
-      "journey.failedStep",
-      "journey.errorCode",
-    ]),
+    supportingFactKeys: supportedFactKeys(facts, ["journey.verdict", "journey.failedStep", "journey.errorCode"]),
+    ...none,
   };
 }
 
-export const startRun = internalMutation({
-  args: {
-    caseId: v.id("cases"),
-    stepId: v.id("steps"),
-    stepAttemptId: v.id("stepAttempts"),
-    modelId: v.string(),
-    pastCaseCount: v.number(),
-  },
-  handler: async (
-    ctx,
-    { caseId, stepId, stepAttemptId, modelId, pastCaseCount },
-  ) => {
-    const attempt = await ctx.db.get(stepAttemptId);
-    if (!attempt || attempt.caseId !== caseId || attempt.stepId !== stepId) {
-      throw new Error("The step attempt does not belong to this case.");
-    }
-    return await ctx.db.insert("agentRuns", {
-      caseId,
-      stepId,
-      stepAttemptId,
-      taskType: "diagnose_outage",
-      config: {
-        modelId,
-        harnessVersion: HARNESS_VERSION,
-        promptVersion: pastCaseCount
-          ? PAST_CASES_PROMPT_VERSION
-          : PROMPT_VERSION,
-        credentialRef: "OPENAI_API_KEY",
-      },
-      taskCharacteristics: {
-        complexity: "one failing journey",
-        risk: "customer-facing outage",
-        framework: "Expo and Convex",
-        repositoryArea: "not inspected",
-      },
-      contextRefs: [],
-      routingReason:
-        "Fixed: the only diagnosis configuration. No routing between configurations yet.",
-      status: "running",
-      corrections: [],
-    });
-  },
-});
-
-export const finishRun = internalMutation({
-  args: {
-    agentRunId: v.id("agentRuns"),
-    status: v.union(v.literal("completed"), v.literal("failed")),
-    durationMs: v.number(),
-    error: v.optional(v.string()),
-  },
-  handler: async (ctx, { agentRunId, ...fields }) => {
-    const run = await ctx.db.get(agentRunId);
-    if (!run || run.status !== "running")
-      throw new Error("This agent run is not running.");
-    await ctx.db.patch(agentRunId, fields);
-  },
-});
+export const configuration = (key: ConfigKey) => CONFIGURATIONS[key];

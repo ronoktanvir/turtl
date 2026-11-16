@@ -112,6 +112,7 @@ export type PlanStep = {
   finishedAt?: number;
   estimatedDurationMs?: number; // how long this step usually takes (added in 1.9)
   summary?: string;
+  agents?: AgentRunView[]; // who worked on this step and why (TURA-29)
 };
 
 export type PullRequest = {
@@ -221,3 +222,38 @@ export type StructuralFinding = {
   check?: PreventionCheck;
   foundAt: number;
 };
+
+// Who worked on a case and why, and the council's consolidated view (TURA-29; not yet in the UI contract).
+export type AgentOutcome = "verified" | "corrected" | "failed" | "infra_failure";
+export type AgentRunView = {
+  id: string;
+  stepKey: string;
+  task: "diagnosis" | "council_member" | "council_consolidation" | "other";
+  configuration: string; // "Quick look", "Careful review", "Council member"
+  model: string; // the model and its reasoning level
+  reason: string; // why this configuration was chosen, in plain words
+  handedUpFrom?: string; // the configuration that handed its evidence up to this run
+  handedUpTo?: string; // the configuration this run handed its evidence up to
+  handoff?: string;
+  status: "running" | "completed" | "failed";
+  error?: string;
+  outcome?: AgentOutcome; // filled in once the case verifies, fails, or the owner corrects it
+  outcomeReason?: string;
+  costUsd?: number; // estimated from reported tokens at list prices
+  durationMs?: number;
+  startedAt: number;
+};
+export type CouncilView = {
+  id: string;
+  status: "running" | "completed" | "skipped" | "failed";
+  notice: string; // agreement is not proof; nothing was verified or approved
+  summary?: string;
+  skippedReason?: string;
+  agreements: string[];
+  disagreements: string[];
+  missingEvidence: string[];
+  members: { label: string; status: "answered" | "failed" | "not_run"; hypothesis?: string; confidence?: number; note?: string }[];
+  costUsd: number;
+  startedAt: number;
+};
+export type AgentWork = { runs: AgentRunView[]; council?: CouncilView };

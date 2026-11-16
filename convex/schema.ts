@@ -2,6 +2,7 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 import { bookingError } from "./bookingDemo/validators";
 import { codeNetworkTables } from "./codeNetwork/schema";
+import { councilTables } from "./council/schema";
 import { vPullRequestRow } from "./prTracking/validators";
 import {
   vAttemptStatus,
@@ -142,7 +143,9 @@ export default defineSchema({
   // Mutations must check case/step/attempt/context ownership, reject stale callbacks, enforce lifecycle transitions, and evaluate only with evidence while keeping corrections separate.
   agentRuns: defineTable(vAgentRun)
     .index("by_case", ["caseId"])
-    .index("by_attempt", ["stepAttemptId"]),
+    .index("by_attempt", ["stepAttemptId"])
+    .index("by_task_and_settled", ["taskType", "outcomeAt"])
+    .index("by_settled", ["outcomeAt"]),
   // Mutations must enforce app ownership and source/revision freshness; retrieved context never authorizes execution.
   contextSources: defineTable(vContextSource)
     .index("by_app", ["appId"])
@@ -189,4 +192,5 @@ export default defineSchema({
   ...voiceTables,
   ...intakeTables,
   ...structuralTables,
+  ...councilTables,
 });
