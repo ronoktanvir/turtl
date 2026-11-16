@@ -562,6 +562,37 @@ test("the reserve admits only an outage the monitor raised on a real project who
   });
 });
 
+// Statement 4: once the general part is used up, what stops and what goes on, in the words an owner reads.
+test("once the general part is used up, the chat, voice, customer reports and repository readings wait until tomorrow, and outage diagnosis goes on", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: NOV_16 });
+  await withEnv(ACCOUNTS, async () => {
+    const db = world({ alice: 2, mallory: 1, newcomer: 1 }, { newAccounts: ["newcomer"] });
+    // $15.20 of the $25 day is used: only the $10 kept for outages is left (and $0.20 of it is gone).
+    await db.insert("deploymentTotals", { name: "model_usd_day", window: "2026-11-16", value: 15.2, updatedAt: 1 });
+    const ctx = actions(db);
+    const waits = limits.spendRefusal.reserveKept();
+    assert.equal((await modelCall(ctx, { caseId: "cases:alice-0" }, CHAT)).reason, waits, "the case chat");
+    assert.equal((await modelCall(ctx, { caseId: "cases:alice-0" }, VOICE)).reason, waits, "voice");
+    assert.equal((await modelCall(ctx, { appId: "apps:alice-0" }, TRIAGE)).reason, waits, "customer reports");
+    assert.equal((await modelCall(ctx, { appId: "apps:alice-0" }, READING)).reason, waits, "a repository reading or a code question");
+    await db.patch("cases:alice-1", { raisedBy: "customer", kind: "bug_report" });
+    assert.equal((await modelCall(ctx, { caseId: "cases:alice-1" }, { ...DIAGNOSIS, allowance: "intake" })).reason, waits, "reading a case customers raised");
+    assert.equal(waits, "turtl is keeping the rest of today's AI for finding the cause of outages, so no model was asked; it starts again tomorrow");
+    plain(waits);
+    // Outage diagnosis goes on: on the reserve for an established owner who has used little today ...
+    const day = (name) => ledger.accountDay({ db }, `users:${name}`, Date.now());
+    assert.equal((await modelCall(ctx, { caseId: "cases:alice-0" }, DIAGNOSIS)).ok, true, "her outage is diagnosed");
+    assert.deepEqual([(await day("alice")).ownUsd > 0, (await day("alice")).floorUsd], [true, 0], "on the reserve");
+    // ... and on the floor for an owner the reserve does not admit: one made today, or one who used her share.
+    assert.equal((await modelCall(ctx, { caseId: "cases:newcomer-0" }, DIAGNOSIS)).ok, true);
+    assert.ok((await day("newcomer")).floorUsd > 0, "a new owner, on her floor");
+    await db.insert("accountSpendDays", { account: "users:mallory", day: "2026-11-16", ownUsd: 2.5, ownHeldUsd: 0, intakeUsd: 0, intakeHeldUsd: 0, calls: 50, updatedAt: 1 });
+    assert.equal((await modelCall(ctx, { caseId: "cases:mallory-0" }, DIAGNOSIS)).ok, true);
+    assert.ok((await day("mallory")).floorUsd > 0, "an owner past her share, on her floor");
+    assert.ok(Math.abs((await ceilings.deploymentSpendToday({ db }, Date.now())) - (15.2 + DIAGNOSIS.cost)) < 1e-4, "only the reserve's call is in the shared day");
+  });
+});
+
 test("the reserve's settings: defaults, 0 keeps none, 100 keeps the whole day, and it keeps its proportion of the ceiling", async (t) => {
   await withEnv({ OUTAGE_RESERVE_PERCENT: undefined, OUTAGE_RESERVE_ACCOUNT_USD: undefined }, () => {
     assert.deepEqual([limits.outageReservePercent(), limits.outageReserveAccountUsd()], [40, 0.5]);

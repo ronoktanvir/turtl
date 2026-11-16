@@ -65,6 +65,20 @@ No number of accounts stops another owner's diagnosis of a real outage now: past
 
 A practice app's cases (convex/practice) have a small allowance instead, `PRACTICE_AI_PER_DAY_USD` (default $2.00 an account a day, within its own $2.50 share, so the practice app gives an account no more room in the shared day; it counts toward the month as its own calls do). What is left of the share after the practice app is all its own calls may spend that day, and an outage on a real project then goes on its floor. One break, explained (a quick diagnosis, a careful one when that is unsure, the fixes on offer and a look for a broader cause), costs about $0.13 with the default models, so the ten breaks a day the practice app allows fit, and asking about it again and again stops there: "this account has used today's $2.00 of AI for its practice app". The case still opens and turtl explains it with its own rules. Accounts made for an attack cannot reach the reserve for two weeks, and then only through real projects whose live apps pass turtl's checks for a day before each failure, one such failure per project per day.
 
+## When the general part is used up
+
+Once the shared day has no room left for them (its first $15 while the reserve keeps the rest, or the whole $25 with no reserve), these wait for everyone until midnight UTC, and each says so where the owner asked:
+
+- the case chat: "turtl can't answer right now: …";
+- voice: "turtl can't listen: …";
+- code questions: "turtl can't answer questions about your code: …";
+- repository readings: the map of the code waits ("The map of the code was not built: …"), and reading a repository to prepare it gives text-search leads only ("No model answered: … These results are text-search leads only.");
+- customer reports: triage and the cases customers raised fall back to turtl's rules, labelled "No model answered: … Rule-based triage was used instead." or "No model answered: … A rule-based reading says: …".
+
+After the colon: "turtl is keeping the rest of today's AI for finding the cause of outages, so no model was asked; it starts again tomorrow" while the reserve lasts, and "turtl has reached the most AI it uses in one day across everyone, so no model was asked; it starts again tomorrow" once the whole day is used.
+
+What goes on is finding the cause of an outage turtl's checks found on an owner's own real project (the diagnosis, the council, the fixes on offer): on the reserve for an owner it admits, while it lasts, and on the owner's own floor otherwise, up to $1.25 a day. A practice app's cases wait with the rest.
+
 In the single-owner demo there is no limit and nothing is recorded.
 
 ## Files
