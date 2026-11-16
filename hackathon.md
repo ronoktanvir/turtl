@@ -11,7 +11,7 @@
 - **Auth:** Convex Auth (`@convex-dev/auth` 0.0.98): email and password (with the address confirmed by an emailed code), Sign in with Apple, and GitHub, whenever `AUTH_REQUIRED` is set to anything but empty or `false`. Unset, empty or `false`, the deployment is the single-owner demo: nobody signs in, and it refuses to run if it holds any account
 - **AI models:** gpt-5.4-mini (Quick look diagnosis, and by default fix proposals, case chat, report triage and preference reading; `DIAGNOSIS_MODEL` and `FIXES_MODEL` override it), gpt-6.1-sol (Careful review diagnosis and council consolidation), gpt-5.5 and gpt-6.1-terra (council members), gpt-5.4 (broader-cause examination, `STRUCTURAL_MODEL` overrides it), gpt-6-luna (assistant chat, code network and onboarding inspection, `OPENAI_MODEL` overrides it), gpt-4o-mini-transcribe and gpt-4o-mini-tts (voice); claude-sonnet-4-5 and gemini-2.5-pro join the council only when `ANTHROPIC_API_KEY` or `GEMINI_API_KEY` is set. All are called through each provider's API, not the Convex AI Gateway
 - **Started:** 2026-11-15T20:37:34Z
-- **Last updated:** 2026-11-16T20:28:23Z
+- **Last updated:** 2026-11-16T23:58:35Z
 
 ## Log
 
@@ -371,3 +371,9 @@ Made a not-answering case mean what its title says: the app gives turtl nothing 
 
 ### 2026-11-16 - 8b4f4da
 Brought the documents to that revision: what counts as quiet, when a case opens and closes, the new field, and what the rule gives up (a check whose route is gone, an app that answers everything below 500, one check failing while another answers, projects with no journey that has passed).
+
+### 2026-11-16 - 0e66f7a
+Counted only a check result as the app answering: a reply below 500 with no result (a 404, a 401, a redirect, a page a proxy or CDN sends by itself) is unreadable and counts for nothing either way, so a front layer that answers for a stopped app no longer hides the outage. A case opens when the countable checks that gave a result or went quiet are all at three and no check gave a result; it closes on any result, and closes quietly when turtl can no longer tell because its checks get only replies it cannot read. A verify step's pass closes the case only if seen after it opened (`convex/protectedApp/notAnswering.ts`, `convex/monitor.ts`, `data/live/caseMapping.ts`).
+
+### 2026-11-16 - 59a4dac
+Brought the documents to that revision, with the third revision's list of what turtl gives up: unreadable checks, hosts that serve a page for a stopped app, one check failing beside one with a result, projects with no countable check, a lone readable check's 5xx, alerts up to half an hour late while turtl suspects itself, and more than one push when an outage turns unreadable for a round.
