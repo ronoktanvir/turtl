@@ -67,7 +67,7 @@ export type Allowance = "account" | "intake" | "outage";
 export type Purpose = "send" | "start_thread" | "erase";
 
 type Answer =
-  | { ok: true; account: string; appId?: Id<"apps">; held?: number; practice?: boolean; floor?: boolean }
+  | { ok: true; account: string; appId?: Id<"apps">; held?: number; holdId?: Id<"modelCallHolds">; practice?: boolean; floor?: boolean }
   | { ok: false; reason: string };
 
 export interface Gate {
@@ -253,6 +253,7 @@ const vAnswer = v.union(
     account: v.string(),
     appId: v.optional(v.id("apps")),
     held: v.optional(v.number()),
+    holdId: v.optional(v.id("modelCallHolds")),
     practice: v.optional(v.boolean()),
     floor: v.optional(v.boolean()),
   }),
@@ -283,8 +284,8 @@ export const admit = internalMutation({
       await noteHardStop(ctx);
     }
     if (!answer.ok || !hold) return answer;
-    await holdModelCall(ctx, answer.account, hold, held);
-    return { ...answer, held };
+    const holdId = await holdModelCall(ctx, answer.account, hold, held, answer.appId);
+    return { ...answer, held, holdId };
   },
 });
 
@@ -299,55 +300,87 @@ export function gateFor(ctx: Runner, scope: Scope, allowance: Allowance = "accou
   // Where the last call let through counts: the account's practice allowance (a practice app), its floor (an outage
   // past the shared day), or its own share. A cost that comes back with no hold counts there.
   let last: { practice: boolean; floor: boolean } = { practice: false, floor: false };
-  // The model calls this gate let through whose cost has not come back yet, oldest first: each one's hold and where it
-  // counts, so a call admitted on the floor is spent on the floor even when the next was admitted on the shared day.
-  const holds: { held: number; practice: boolean; floor: boolean }[] = [];
+  // The model calls this gate let through whose cost has not come back yet, oldest first: each one's hold, its row, where
+  // it counts, and whether the vendor has answered it, so a call admitted on the floor is spent on the floor even when
+  // the next was admitted on the shared day.
+  type Held = { held: number; holdId?: Id<"modelCallHolds">; practice: boolean; floor: boolean; answered: boolean };
+  const holds: Held[] = [];
+
+  const record = async (entry: Held | null, costUsd: number) => {
+    if (!account) return;
+    try {
+      await ctx.runMutation(internal.spend.ledger.addModelSpend, {
+        account,
+        costUsd,
+        ...(entry?.holdId && { holdId: entry.holdId }),
+        ...(intakeApp && { appId: intakeApp }),
+        ...(entry && entry.held > 0 && { held: entry.held }),
+        ...((entry?.practice ?? last.practice) && { practice: true }),
+        ...((entry?.floor ?? last.floor) && { floor: true }),
+      });
+    } catch {
+      console.error("Recording model spend failed");
+    }
+  };
 
   // `estimateUsd` set: the call is about to be sent, so a model call is counted at once (admit); otherwise only asked.
-  const ask = async (service: Outbound, purpose: Purpose, admitting: { estimateUsd?: number } | null): Promise<Answer> => {
-    if (!enforced) return await ctx.runQuery(internal.consent.gate.check, { scope, service, purpose });
+  const ask = async (service: Outbound, purpose: Purpose, admitting: { estimateUsd?: number } | null): Promise<{ answer: Answer; entry: Held | null }> => {
+    if (!enforced) return { answer: await ctx.runQuery(internal.consent.gate.check, { scope, service, purpose }), entry: null };
     // Deleting the owner's copies at a vendor needs no permission: it sends nothing but the ids to remove.
-    if (purpose === "erase") return { ok: true, account: account ?? "" };
+    if (purpose === "erase") return { answer: { ok: true, account: account ?? "" }, entry: null };
     const args = { scope, service, purpose, ...(allowance !== "account" && { allowance }) };
     const answer: Answer = admitting && isModelCall(service, purpose)
       ? await ctx.runMutation(internal.consent.gate.admit, { ...args, ...(admitting.estimateUsd !== undefined && { estimateUsd: admitting.estimateUsd }) })
       : await ctx.runQuery(internal.consent.gate.check, args);
+    let entry: Held | null = null;
     if (answer.ok) {
       account = answer.account;
       intakeApp = answer.appId ?? intakeApp;
       if (isModelCall(service, purpose)) last = { practice: answer.practice === true, floor: answer.floor === true };
-      if (answer.held) holds.push({ held: answer.held, ...last });
+      if (answer.held) holds.push((entry = { held: answer.held, ...(answer.holdId && { holdId: answer.holdId }), ...last, answered: false }));
     }
-    return answer;
+    return { answer, entry };
   };
 
   return {
     blocked: async (service, purpose = "send") => {
-      const answer = await ask(service, purpose, null);
+      const { answer } = await ask(service, purpose, null);
       return answer.ok ? null : answer.reason;
     },
     open: async (service, purpose = "send", estimateUsd) => {
-      const answer = await ask(service, purpose, { estimateUsd });
-      return answer.ok ? { ok: true, fetch: sendTo(service) } : { ok: false, reason: answer.reason };
+      const { answer, entry } = await ask(service, purpose, { estimateUsd });
+      if (!answer.ok) return { ok: false, reason: answer.reason };
+      const send = sendTo(service);
+      if (!entry) return { ok: true, fetch: send };
+      // Every model helper sends through this fetch (tests/consent-gate.test.mjs fails for one that does not), so the
+      // gate sees how the vendor answered (finding 26). An error status means the vendor did no work it bills for: the
+      // hold is given back at once, on the share, the floor and the deployment's day alike. A request that throws (a
+      // timeout, the network) may have been done, so its hold stands until its cost comes back or its time runs out.
+      const fetchAndSettle: typeof fetch = async (input, init) => {
+        const response = await send(input, init);
+        if (response.ok) entry.answered = true;
+        else {
+          const index = holds.indexOf(entry);
+          if (index >= 0) {
+            holds.splice(index, 1);
+            await record(entry, 0);
+          }
+        }
+        return response;
+      };
+      return { ok: true, fetch: fetchAndSettle };
     },
     spent: async (costUsd) => {
       if (!enforced || !account) return;
       if (allowance === "intake" && !intakeApp) return;
-      // Each call's cost takes the place of the hold it was let through with.
-      const { held: release, practice, floor } = holds.shift() ?? { held: 0, ...last };
-      if (!(costUsd > 0) && release === 0) return;
-      try {
-        await ctx.runMutation(internal.spend.ledger.addModelSpend, {
-          account,
-          costUsd: costUsd > 0 ? costUsd : 0,
-          ...(intakeApp && { appId: intakeApp }),
-          ...(release > 0 && { held: release }),
-          ...(practice && { practice: true }),
-          ...(floor && { floor: true }),
-        });
-      } catch {
-        console.error("Recording model spend failed");
-      }
+      // Each call's cost takes the place of the hold it was let through with: the oldest call the vendor has answered,
+      // else the oldest still out. A call reporting no cost is counted at its hold: only an error status gives a hold
+      // back at nothing (above), so a vendor's answer without its usage never makes a call free.
+      const answered = holds.findIndex((held) => held.answered);
+      const entry = answered >= 0 ? holds.splice(answered, 1)[0] : (holds.shift() ?? null);
+      const cost = costUsd > 0 ? costUsd : (entry?.held ?? 0);
+      if (!(cost > 0)) return;
+      await record(entry, cost);
     },
     threadStarted: async (requestId) => {
       if (!enforced || !account) return;

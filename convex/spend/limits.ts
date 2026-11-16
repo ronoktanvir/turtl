@@ -64,11 +64,19 @@ export const DEFAULT_OUTAGE_FLOOR_PER_DAY_USD = 1.25;
  * What a model call counts for from the moment the gate lets it through until its cost comes back, when its caller
  * gives no estimate of its own (callEstimate). Without a hold a burst of calls started together would each pass the
  * check before any was counted, and one account could pass its share by as many calls as it can start at once. A call
- * whose cost never comes back (it failed) keeps its hold for the rest of the day.
+ * the vendor answered with an error status gives its hold back at once (nothing is billed for it); one whose cost never
+ * comes back otherwise is counted at its hold after MODEL_CALL_HOLD_MS.
  */
 export const MODEL_CALL_HOLD_USD = 0.1;
 /** The most one call's hold may be, whatever its caller estimates. */
 export const MAX_CALL_HOLD_USD = 5;
+/**
+ * How long a model call's hold stands waiting for its cost (fifth review, finding 26). Every call is made from an
+ * action, and Convex stops an action after ten minutes, so no cost can come back later than that: a hold still standing
+ * then belongs to a call that timed out, failed after the vendor may have done the work, or whose action stopped, and
+ * it is counted at its own amount, the most the call could cost, never released at nothing.
+ */
+export const MODEL_CALL_HOLD_MS = 10 * 60_000;
 /**
  * The most a model call writes when its caller sets no smaller maximum. askJson (convex/fixOptions.ts) and the
  * structural review send it as their maximum, so their estimate is an upper bound: a prompt that coaxes a model into a

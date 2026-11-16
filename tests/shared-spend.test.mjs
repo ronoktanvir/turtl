@@ -950,3 +950,148 @@ test("the single-owner demo has no shares and no hard stop: nothing is read or w
     assert.deepEqual([...new Set(read)].sort(), ["apps", "authAccounts", "users"]);
   });
 });
+
+// Fifth review, finding 26: every admitted call added its hold to the shared day's and the deployment's calls in flight,
+// and only a reported cost released it. A call the vendor answered with an error status (a 429 from bursting past the
+// operator's rate limit, a 5xx in an outage) reported none, nor did one that timed out, so their holds stood until
+// midnight: fourteen fresh accounts whose calls all failed brought the deployment to the hard stop with nothing spent.
+const ERROR_STATUSES = [400, 429, 500, 503];
+const answering = (status) => async () =>
+  new Response(JSON.stringify({ error: { type: status === 429 ? "rate_limit_exceeded" : "server_error" } }), { status, headers: { "Content-Type": "application/json" } });
+const timingOut = async () => {
+  throw new DOMException("The operation was aborted.", "AbortError");
+};
+// A long diagnosis prompt to the careful model: held at about $0.52 a call.
+const LONG_CALL = { ref: { provider: "openai", model: "gpt-6.1-sol" }, system: "s", user: "x".repeat(200_000), timeoutMs: 1000, maxOutputTokens: 12_000 };
+const STAND_IN = { OPENAI_API_KEY: "sk-test-stand-in", FIXES_MODEL: undefined, DIAGNOSIS_MODEL: undefined, OPENAI_MODEL: undefined };
+
+/** Everything still held: on each account's day, on the deployment's day, and as rows. */
+async function heldEverywhere(db) {
+  const onAccounts = db.rows("accountSpendDays").reduce((sum, row) => sum + row.ownHeldUsd + row.intakeHeldUsd + (row.practiceHeldUsd ?? 0) + (row.floorHeldUsd ?? 0), 0);
+  const out = await ledger.deploymentDay({ db }, Date.now());
+  return { onAccounts, onDeployment: out.heldUsd, rows: db.rows("modelCallHolds").length };
+}
+
+/** Fresh accounts with only a practice project each, every one asking every model it may, a burst at a time, through
+ * the real model helpers: diagnosis-sized calls on its practice case, the case chat, and its customers' reports. */
+async function failingAccounts(ctx, names, rounds = 3) {
+  const { callModel } = load("convex/routing/models.ts");
+  const { askJson } = load("convex/fixOptions.ts");
+  for (let round = 0; round < rounds; round++) {
+    await Promise.all(names.flatMap((name) => [
+      ...Array.from({ length: 8 }, () => callModel(gates.gateFor(ctx, { caseId: `cases:${name}-0` }), LONG_CALL)),
+      ...Array.from({ length: 4 }, () => askJson(gates.gateFor(ctx, { caseId: `cases:${name}-0` }), "system", { long: "x".repeat(60_000) })),
+      ...Array.from({ length: 4 }, () => askJson(gates.gateFor(ctx, { appId: `apps:${name}-0` }, "intake"), "system", { report: "x".repeat(20_000) })),
+    ]));
+  }
+}
+
+test("ATTACK (finding 26): fourteen fresh accounts whose calls all get HTTP 429 hold nothing, and a day-old owner's outage is diagnosed on her floor", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: NOV_16 });
+  t.mock.method(globalThis, "fetch", answering(429));
+  t.mock.method(console, "error", () => {});
+  await withEnv({ ...ACCOUNTS, ...STAND_IN }, async () => {
+    const names = Array.from({ length: 14 }, (_, n) => `mallory${n}`);
+    const db = world({ alice: 1, ...Object.fromEntries(names.map((name) => [name, 0])) }, { newAccounts: names, madeAgo: { alice: DAY } });
+    const ctx = actions(db);
+    await failingAccounts(ctx, names);
+    // Every hold was given back as its 429 came in: nothing is held or spent, on any account or the deployment.
+    assert.deepEqual(await heldEverywhere(db), { onAccounts: 0, onDeployment: 0, rows: 0 });
+    assert.equal(await hardTotal(db), 0);
+    for (const name of names) assert.equal(await ledger.monthSpend({ db }, `users:${name}`, Date.now()), 0);
+    // Alice's outage on her real project is diagnosed in full, on her floor (the reserve is not for a day-old account).
+    assert.deepEqual((await diagnoseOutage(ctx, "cases:alice-0")).refusals, []);
+  });
+});
+
+test("a call the vendor answered with an error status gives its hold back at once through every model helper, on the share, the floor and the deployment's day", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: NOV_16 });
+  const { callModel } = load("convex/routing/models.ts");
+  const { askJson } = load("convex/fixOptions.ts");
+  const { respond } = load("convex/codeNetwork/openai.ts");
+  const voice = load("convex/voice/openai.ts");
+  const examine = load("convex/structural/examine.ts");
+  const context = { skip: null, prompt: { availableChecks: [] }, known: {}, relatedCaseIds: ["cases:x", "cases:y"], triggerSummary: "two related cases.", reason: "related_history", seededCaseCount: 0 };
+  const helpers = [
+    ["diagnosis and the council (callModel), on the floor", (ctx) => callModel(gates.gateFor(ctx, { caseId: "cases:ada-0" }, "outage"), LONG_CALL)],
+    ["fix options, triage and the case chat (askJson)", (ctx) => askJson(gates.gateFor(ctx, { appId: "apps:ada-0" }, "intake"), "system", { a: 1 })],
+    ["code questions and repository readings (respond)", (ctx) => respond(gates.gateFor(ctx, { appId: "apps:ada-0" }), { instructions: "i", input: "q", maxOutputTokens: 100 }).catch(() => null)],
+    ["voice (transcribe)", (ctx) => voice.transcribe(gates.gateFor(ctx, { caseId: "cases:ada-0" }), new ArrayBuffer(8), "audio/m4a", "prompt")],
+    ["voice (speak)", (ctx) => voice.speak(gates.gateFor(ctx, { caseId: "cases:ada-0" }), "hello")],
+    ["the structural review (examine)", (ctx) => {
+      const wrapped = {
+        runQuery: async (fn, args) => (fn.path === "internal.structural.records.examineContext" ? context : ctx.runQuery(fn, args)),
+        runMutation: async (fn, args) => (fn.path.startsWith("internal.structural.records.") ? "agentRuns:1" : ctx.runMutation(fn, args)),
+      };
+      return examine.examineBroaderCauses(wrapped, { case: { _id: "cases:ada-0", appId: "apps:ada-0", raisedBy: "monitor", kind: "outage" }, step: { _id: "steps:1" }, attempt: { _id: "stepAttempts:1" } });
+    }],
+  ];
+  await withEnv({ ...ACCOUNTS, ...STAND_IN }, async () => {
+    for (const status of ERROR_STATUSES) {
+      for (const [helper, run] of helpers) {
+        const which = `${helper}, HTTP ${status}`;
+        const db = world({ ada: 1 }, { newAccounts: ["ada"] });
+        // The shared day is used up for the diagnosis, so it is held on the floor.
+        const floor = helper.includes("on the floor");
+        if (floor) await db.insert("deploymentTotals", { name: "model_usd_day", window: "2026-11-16", value: 25, updatedAt: 1 });
+        let sent = 0;
+        const seen = [];
+        t.mock.method(globalThis, "fetch", async () => {
+          sent += 1;
+          seen.push(await heldEverywhere(db));
+          return answering(status)();
+        });
+        t.mock.method(console, "error", () => {});
+        await run(actions(db));
+        t.mock.restoreAll();
+        assert.ok(sent > 0 && seen.every((held) => held.rows === 1 && held.onDeployment > 0), `${which}: it was held while it was out`);
+        assert.deepEqual(await heldEverywhere(db), { onAccounts: 0, onDeployment: 0, rows: 0 }, which);
+        assert.equal(await hardTotal(db), floor ? 25 : 0, `${which}: nothing billed`);
+        assert.equal(await ledger.monthSpend({ db }, "users:ada", Date.now()), 0, `${which}: nothing on the month`);
+      }
+    }
+  });
+});
+
+test("a successful call's cost replaces its hold exactly; one answered without its usage is counted at its hold, never at nothing", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: NOV_16 });
+  const { callModel } = load("convex/routing/models.ts");
+  await withEnv({ ...ACCOUNTS, ...STAND_IN }, async () => {
+    const answered = (usage) => async () =>
+      new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ cause: "x", confidence: 0.4 }) } }], ...(usage && { usage }) }), { headers: { "Content-Type": "application/json" } });
+    const hold = limits.callEstimate(LONG_CALL.ref.model, [LONG_CALL.system, LONG_CALL.user], LONG_CALL.maxOutputTokens);
+    for (const [usage, expected] of [
+      [{ prompt_tokens: 50_000, completion_tokens: 3_000 }, limits.modelCost("gpt-6.1-sol", { inputTokens: 50_000, outputTokens: 3_000 })],
+      [null, hold],
+    ]) {
+      const db = world({ ada: 1 });
+      t.mock.method(globalThis, "fetch", answered(usage));
+      assert.equal((await callModel(gates.gateFor(actions(db), { caseId: "cases:ada-0" }), LONG_CALL)).ok, true);
+      t.mock.restoreAll();
+      const which = usage ? "its reported cost" : "its hold";
+      assert.equal((await ledger.accountDay({ db }, "users:ada", Date.now())).ownUsd, Math.round(expected * 1e6) / 1e6, which);
+      assert.deepEqual(await heldEverywhere(db), { onAccounts: 0, onDeployment: 0, rows: 0 }, which);
+      assert.ok(Math.abs((await ledger.monthSpend({ db }, "users:ada", Date.now())) - expected) < 1e-9, which);
+      assert.ok(Math.abs((await ceilings.deploymentSpendToday({ db }, Date.now())) - expected) < 1e-9, which);
+    }
+  });
+});
+
+test("deleting an account with calls out counts them at their holds in the deployment's day and leaves none standing", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: NOV_16 });
+  await withEnv(ACCOUNTS, async () => {
+    const db = world({ ada: 1 }, { newAccounts: ["ada"] });
+    const ctx = actions(db);
+    // One call out on the shared day; then, the day used up, one on her floor.
+    assert.equal((await gates.gateFor(ctx, { caseId: "cases:ada-0" }).open("openai", "send", 0.3)).ok, true);
+    await db.insert("deploymentTotals", { name: "model_usd_day", window: "2026-11-16", value: 25, updatedAt: 1 });
+    assert.equal((await gates.gateFor(ctx, { caseId: "cases:ada-0" }, "outage").open("openai", "send", 0.2)).ok, true);
+    assert.deepEqual([(await ledger.deploymentDay({ db }, Date.now())).heldUsd, (await ledger.deploymentDay({ db }, Date.now())).floorHeldUsd], [0.5, 0.2]);
+    assert.deepEqual(await ledger.eraseHolds.handler({ db }, { account: "users:ada" }), { done: true });
+    const out = await ledger.deploymentDay({ db }, Date.now());
+    assert.deepEqual([out.heldUsd, out.floorHeldUsd, out.floorUsd], [0, 0, 0.2]);
+    assert.equal(await ceilings.deploymentSpendToday({ db }, Date.now()), 25.3);
+    assert.deepEqual(db.rows("modelCallHolds"), []);
+    assert.equal(await ledger.monthSpend({ db }, "users:ada", Date.now()), 0, "her own totals are left for the deletion to remove");
+  });
+});

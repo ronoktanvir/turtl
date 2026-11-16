@@ -1,4 +1,5 @@
 import type { FunctionReference, IndexNames, NamedTableInfo } from "convex/server";
+import { internal } from "../_generated/api";
 import type { DataModel, Id, TableNames } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { codeNamespace } from "../codeNetwork/schema";
@@ -134,6 +135,8 @@ export const projectErasers: Eraser[] = [
 export const accountErasers: Eraser[] = [
   accountRows("pushTokens", "by_account_and_disabled"),
   accountRows("aiConsents", "by_account"),
+  // Its model calls still out, counted at their holds in the deployment's day before its own totals go (convex/spend).
+  call("account", "spend.holds", ["modelCallHolds"], internal.spend.ledger.eraseHolds),
   accountRows("modelSpend", "by_account_and_month"),
   accountRows("accountSpendDays", "by_account_and_day"),
   accountRows("codingThreads", "by_account_day_and_request"),
