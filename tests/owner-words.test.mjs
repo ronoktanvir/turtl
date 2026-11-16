@@ -103,3 +103,36 @@ test("a setting change is reported with the setting's name in words", () => {
   assert.match(source, /Turned \$\{settingName\(flag\)\} \$\{value \? "on" : "off"\}, and the booking app confirmed the change\./);
   assert.doesNotMatch(source, /label: action\.type \}/);
 });
+
+test("a booking step is named in words, never by its id, wherever the owner reads where a check stopped", () => {
+  const { describeJourney } = createLoader({ "convex/protectedApp/watched": {} })("convex/protectedApp/client.ts");
+  const failed = { verdict: "failed", failedStep: "submit_booking", steps: [], cleanup: { ok: true, deletedBookings: 0 } };
+  assert.equal(describeJourney(failed), 'The booking check failed at the "submit booking" step, so no booking was saved.');
+  const { failedRunWords } = createLoader()("convex/structural/checks.ts");
+  assert.equal(failedRunWords("submit_booking"), 'Its first run failed at the "submit booking" step.');
+  const monitor = read("convex/monitor.ts");
+  assert.match(monitor, /The booking check fails at the "\$\{failedStep\.replace\(\/_\/g, " "\)\}" step/);
+  assert.match(monitor, /It failed at the "\$\{failedStep\.replace\(\/_\/g, " "\)\}" step\./);
+});
+
+test("turtl's own reading (no AI) says what it knows in words: no error codes, no \"cause is unknown\"", () => {
+  const { ruleReading } = createLoader()("convex/diagnosis.ts");
+  const evidence = [{ id: "e1", kind: "journey_check" }, { id: "e2", kind: "errors" }];
+  const store = ruleReading({ "journey.verdict": "failed", "journey.failedStep": "submit_booking", "journey.errorCode": "BOOKING_STORE_UNAVAILABLE", "health.ok": true }, evidence);
+  assert.equal(store.cause, "The booking store answers that it is unavailable, so every booking fails when it is saved.");
+  assert.equal(store.confidence, 0.5);
+  const other = ruleReading({ "journey.verdict": "failed", "journey.failedStep": "pay_now", "journey.errorCode": "PAYMENT_PROVIDER_DOWN", "health.ok": true }, evidence);
+  assert.equal(other.cause, 'The booking check stops at the "pay now" step. The app itself still answers. turtl\'s own rules know where it stops but not why, so they do not guess at a cause.');
+  assert.equal(other.confidence, 0.1);
+  const bare = ruleReading({ "journey.verdict": "failed" }, evidence);
+  assert.match(bare.cause, /^The booking check stops before a booking is saved\. turtl's own rules/);
+  for (const reading of [store, other, bare]) assert.doesNotMatch(reading.cause, /[A-Z]{2,}_[A-Z_]+|unknown|_/);
+  assert.match(read("convex/runner/handlers/investigate.ts"), /\$\{cost > 0 \? ` Model cost about \$\{money\(cost\)\}\.` : ""\}/);
+});
+
+test("the device criterion and an agent run's cost read once and plainly", () => {
+  const { DEVICE_NOT_COVERED } = createLoader({ "convex/protectedApp/watched": {} })("convex/protectedApp/client.ts");
+  assert.equal(DEVICE_NOT_COVERED, "turtl does not check the booking screen on a real phone yet, so this part was not checked.");
+  assert.doesNotMatch(DEVICE_NOT_COVERED, /Not covered|Revyl/, "the criterion line already says Not covered");
+  assert.match(read("data/live/agentWork.ts"), /\$\{run\.costUsd === undefined \? "Cost unknown" : `Cost \$\{money\(run\.costUsd\)\}`\}/);
+});

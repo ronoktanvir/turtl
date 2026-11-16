@@ -189,10 +189,21 @@ export function ruleReading(facts: Facts, evidence: EvidenceSummary[]): Reading 
       ...none,
     };
   }
-  const step = facts["journey.failedStep"] ?? "unknown";
-  const code = facts["journey.errorCode"] ?? "unknown";
+  if (facts["journey.failedStep"] === "submit_booking" && facts["journey.errorCode"] === "BOOKING_STORE_UNAVAILABLE") {
+    return {
+      cause: "The booking store answers that it is unavailable, so every booking fails when it is saved.",
+      confidence: 0.5,
+      supportingEvidenceIds: byKind(["journey_check", "errors"]),
+      supportingFactKeys: supportedFactKeys(facts, ["journey.verdict", "journey.failedStep", "journey.errorCode"]),
+      ...none,
+    };
+  }
+  // No rule explains it. This is what an owner reads without the AI permission, so it says what the facts do show
+  // (where the booking stops, whether the app answers) in words, and that turtl is not guessing past that.
+  const step = typeof facts["journey.failedStep"] === "string" ? String(facts["journey.failedStep"]).replace(/_/g, " ") : null;
+  const answers = facts["health.ok"] === true ? " The app itself still answers." : facts["health.ok"] === false ? " The app's own health check fails too." : "";
   return {
-    cause: `The booking check fails at the "${step}" step with ${code}. No rule matches this, so the cause is unknown.`,
+    cause: `The booking check stops ${step ? `at the "${step}" step` : "before a booking is saved"}.${answers} turtl's own rules know where it stops but not why, so they do not guess at a cause.`,
     confidence: 0.1,
     supportingEvidenceIds: byKind(["journey_check"]),
     supportingFactKeys: supportedFactKeys(facts, ["journey.verdict", "journey.failedStep", "journey.errorCode"]),

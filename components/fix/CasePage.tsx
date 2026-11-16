@@ -182,7 +182,7 @@ export function CasePage({ caseId, current }: { caseId: string; current: boolean
               <Reveal>
                 <View style={{ gap: 12 }}>
                   <View style={{ flexDirection: "row", flexWrap: "wrap", columnGap: 12, alignItems: "center" }}>
-                    {feature ? <RequestState state={issueState(c)} testID={id("case-health")} /> : c.status === "new" ? <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }} testID={id("case-health")}><Icon name="Plus" size={15} color="statusNew" /><T variant="small" color="statusNew">New issue</T></View> : <HealthWord health={c.health} testID={id("case-health")} />}
+                    {feature ? <RequestState state={issueState(c)} testID={id("case-health")} /> : c.status === "new" ? <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }} testID={id("case-health")}><Icon name="Plus" size={15} color="statusNew" /><T variant="small" color="statusNew">New issue</T></View> : <HealthWord health={c.health} practice={practice} testID={id("case-health")} />}
                     <T variant="small" color="textMuted">
                       {ago(c.happenedAt)}
                     </T>

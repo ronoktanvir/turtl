@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { Moon, Sun, UserRound, Zap, type LucideIcon } from "lucide-react-native";
 import { Pressable, View } from "react-native";
-import { isLiveData, setApprovals, useApprovalSettings } from "../../data";
+import { isLiveData, setApprovals, useApprovalSettings, useProject } from "../../data";
 import type { ApprovalMode } from "../../data/types";
 import { useTheme, type ThemeMode } from "../../theme";
 import { Button, Icon, Sheet, T } from "../ui";
@@ -29,6 +29,8 @@ const modes: { mode: ThemeMode; label: string; icon: LucideIcon }[] = [{ mode: "
 export default function SettingsSheet({ visible, onClose, projectId }: { visible: boolean; onClose: () => void; projectId: string }) {
   const { mode, setMode, colors } = useTheme();
   const settings = useApprovalSettings(projectId);
+  // A practice app has no customers, so it has no report form to set up.
+  const practice = useProject(projectId)?.practice === true;
   const pending = useRef(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -65,7 +67,7 @@ export default function SettingsSheet({ visible, onClose, projectId }: { visible
     </View>
     <PreferencesSettings projectId={projectId} />
     {visible && <ControlTokenSettings projectId={projectId} />}
-    {visible && <CustomerReportsSettings projectId={projectId} />}
+    {visible && !practice && <CustomerReportsSettings projectId={projectId} />}
     {visible && <NotificationsSettings />}
     <AiSettings onClose={onClose} />
     {isLiveData && visible && <OwnerPasscodeSettings />}

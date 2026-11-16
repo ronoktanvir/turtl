@@ -12,6 +12,14 @@ const RETURNS: Record<Exclude<GithubReturn, "connected">, string> = {
   requested: "GitHub asked your organization's owner to approve turtl. When they have, tap Connect GitHub again.",
 };
 
+// The empty picker. turtl lists only repositories the person may change; when some were left out, the reason for
+// each is below, so the sentence points there instead of sending a reader-only member to GitHub to choose more.
+export function emptyPicker(leftOut: number): string {
+  return leftOut > 0
+    ? "turtl can't add any of your repositories yet. Below is why for each one, and what would change it."
+    : "turtl cannot reach any of your repositories yet. If you can change their settings on GitHub, choose some there, then come back. If not, ask whoever can.";
+}
+
 const reason = (error: unknown) => (error instanceof Error ? error.message : "turtl could not reach GitHub. Try again.");
 const repoUrlOf = (fullName: string) => `https://github.com/${fullName}`;
 
@@ -191,7 +199,7 @@ export default function ConnectGithub({
         {repositories === undefined || (repositories.length === 0 && phase === "refreshing") ? (
           <T color="textMuted" testID="github-repos-loading">Reading your repositories from GitHub…</T>
         ) : repositories.length === 0 ? (
-          <T color="textMuted" testID="github-repos-empty">turtl cannot reach any of your repositories yet. Choose some on GitHub, then come back.</T>
+          <T color="textMuted" testID="github-repos-empty">{emptyPicker(leftOut.length)}</T>
         ) : (
           <View accessibilityRole="radiogroup" accessibilityLabel="Your repositories" style={{ gap: 8 }}>
             {repositories.map((repository) => (

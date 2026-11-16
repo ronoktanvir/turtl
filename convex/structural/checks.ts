@@ -31,7 +31,7 @@ export const approve = mutation({
 
 // The owner reads this on the case: where the run stopped, in words, never the app's error code.
 export function failedRunWords(failedStep: string | undefined): string {
-  return failedStep ? `Its first run failed at the "${failedStep}" step.` : "Its first run failed.";
+  return failedStep ? `Its first run failed at the "${failedStep.replace(/_/g, " ")}" step.` : "Its first run failed.";
 }
 
 export const load = internalQuery({

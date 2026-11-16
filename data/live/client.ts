@@ -15,7 +15,9 @@ const logger = {
     if (typeof args[0] !== "string" || !signInRefusal.test(args[0])) console.error(...args);
   },
 };
-export const liveClient = url ? new ConvexReactClient(url, { unsavedChangesWarning: false, logger }) : null;
+// The example build (EXPO_PUBLIC_DATA_SOURCE=example, the public web demo) reads nothing from a backend, so it opens no
+// connection, even when a backend address is set: otherwise every visitor's console fills with connection errors.
+export const liveClient = url && isLiveData ? new ConvexReactClient(url, { unsavedChangesWarning: false, logger }) : null;
 
 const states = new Map<string, { error?: string; loading: boolean }>();
 const listeners = new Set<() => void>();

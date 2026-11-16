@@ -64,7 +64,7 @@ export function agentRunLogText(run: AgentRunView): string {
     `Why: ${run.reason}`,
     run.handedUpFrom && `Handed up from the ${run.handedUpFrom.toLowerCase()}.`,
     run.handedUpTo && `Handed its evidence up to the ${run.handedUpTo.toLowerCase()}.`,
-    `Cost ${money(run.costUsd)} · took ${seconds(run.durationMs)}`,
+    `${run.costUsd === undefined ? "Cost unknown" : `Cost ${money(run.costUsd)}`} · took ${seconds(run.durationMs)}`,
     run.outcome ? `Outcome: ${outcomeWords[run.outcome]}.` : run.outcomeReason ? run.outcomeReason : "Outcome: not known yet.",
     run.error,
   ].filter(Boolean).join("\n");

@@ -40,6 +40,9 @@ export default function ProjectHome() {
   const quiet = project ? project.bugCount === 0 && project.featureCount === 0 : false;
   // A repository turtl could not read is not "All clear": nothing is watched until the owner reads it again.
   const unreadable = onboarding?.stage === "inspection_failed";
+  // A check still failing with no case open (its fixes were declined) is not "All clear" either.
+  const failing = !!overview?.checks.some((check) => check.state === "failing");
+  const shown = (unreadable || failing) && project?.health === "clear" ? "needs_you" : project?.health ?? "clear";
   if (project === undefined) return <Screen testID="project-home">{errors.length === 0 && <T style={{ padding: 20 }}>Loading…</T>}</Screen>;
   if (project === null) return <Screen testID="project-home"><Header title="Project not found" fallback="/projects" /><View style={{ padding: 20, gap: 16 }}><T>This project is no longer available.</T><Button label="Back to Projects" onPress={() => router.replace("/projects")} testID="project-not-found-back" /></View></Screen>;
 
@@ -54,8 +57,8 @@ export default function ProjectHome() {
       <View testID="project-home-scroll" style={{ flex: 1, minHeight: 0, paddingHorizontal: 20, paddingTop: compact ? 8 : 16, paddingBottom: insets.bottom + 12, gap: compact ? 12 : 20 }}>
         <View style={{ gap: compact ? 0 : 4 }}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-            <Turtle health={unreadable && project.health === "clear" ? "needs_you" : project.health} size={compact ? 36 : 48} />
-            <View style={{ flex: 1, gap: 4 }}><View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: 10, rowGap: 4 }}><HealthWord health={unreadable && project.health === "clear" ? "needs_you" : project.health} testID="project-health" />{project.practice && <Chip label="Practice" tone="brandDeep" testID="project-practice-chip" />}</View>{project.summary && <T color="textMuted" numberOfLines={short ? 1 : 2}>{project.summary}</T>}</View>
+            <Turtle health={shown} size={compact ? 36 : 48} />
+            <View style={{ flex: 1, gap: 4 }}><View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: 10, rowGap: 4 }}><HealthWord health={shown} practice={!!project.practice} testID="project-health" />{project.practice && <Chip label="Practice" tone="brandDeep" testID="project-practice-chip" />}</View>{project.summary && <T color="textMuted" numberOfLines={short ? 1 : 2}>{project.summary}</T>}</View>
           </View>
           {(project.repoUrl || project.productionUrl) && <View style={{ flexDirection: "row", gap: 20, paddingLeft: compact ? 48 : 60 }}>
             {([{ label: "GitHub", id: "project-github", url: project.repoUrl }, { label: "Live app", id: "project-live-app", url: project.productionUrl }] as const).map((link) => link.url && <Pressable key={link.id} testID={link.id} accessibilityRole="link" onPress={() => Linking.openURL(link.url!)} style={{ minHeight: 44, flexDirection: "row", alignItems: "center", gap: 6 }}>{link.id === "project-github" ? <BrandIcon name="github" size={20} /> : <Icon name="ExternalLink" size={15} color="textMuted" />}<T variant="small" color="textMuted">{link.label}</T></Pressable>)}

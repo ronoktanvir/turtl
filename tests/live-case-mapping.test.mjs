@@ -365,3 +365,29 @@ test("a case closed because turtl could not reach the app says what to fix and w
   const other = step({ status: "failed", currentAttempt: attempt({ status: "failed", error: "The model did not answer." }) });
   assert.ok(!content(map(cards({ case: row({ status: "unresolved" }), steps: [other] }))).includes("turtl stopped this case"), "not for other failures");
 });
+
+test("a rule-based reading says \"No model answered\" once, even when the stored reason already says it", () => {
+  const diagnosing = step({ currentAttempt: attempt({ output: { diagnosis: { source: "rules", cause: "Booking waited.", noModelReason: "No model answered: OpenAI is not connected to turtl yet, so no request was sent." } } }) });
+  const text = content(map(cards({ steps: [diagnosing] })));
+  assert.ok(text.includes("No model answered: OpenAI is not connected to turtl yet, so no request was sent."), text);
+  assert.ok(!text.includes("No model answered: No model answered"));
+});
+
+test("why a remembered recovery does not apply is said in words, once per difference", () => {
+  const body = [
+    'Required condition failed: journey.errorCode equals "RECOMMENDATIONS_TIMEOUT"; observed "BOOKING_STORE_UNAVAILABLE".',
+    'Required condition failed: journey.failedStep equals "recommendations"; observed "submit_booking".',
+    'Do not use this recovery: journey.errorCode does not equal "RECOMMENDATIONS_TIMEOUT"; observed "BOOKING_STORE_UNAVAILABLE".',
+    "This recovery memory has been invalidated.",
+  ].join("\n");
+  const memory = evidence({ _id: "m1", kind: "memory_match", title: "A recovery turtl remembers does not apply.", body, sourceRef: "recoveryMemories/abc" });
+  const line = map(cards({ evidence: [memory] })).logs.find((log) => log.id === "m1").text;
+  assert.equal(line, [
+    "A recovery turtl remembers does not apply.",
+    "It was for the error being recommendations timeout; this time it is booking store unavailable.",
+    "It was for where the booking stopped being recommendations; this time it is submit booking.",
+    "This recovery memory has been invalidated.",
+    "From a recovery turtl remembers.",
+  ].join("\n"));
+  assert.doesNotMatch(line, /journey\.|_|Required condition|Do not use/);
+});

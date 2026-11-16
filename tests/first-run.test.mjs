@@ -155,7 +155,9 @@ test("a project whose repository could not be read says so, rather than that tur
   assert.match(watching, /turtl couldn't read this project's repository, so it is not watching anything yet\. Open Preparation/);
   const home = readFileSync(new URL("../app/project/[projectId]/index.tsx", import.meta.url), "utf8");
   assert.match(home, /const unreadable = onboarding\?\.stage === "inspection_failed";/);
-  assert.match(home, /<HealthWord health=\{unreadable && project\.health === "clear" \? "needs_you" : project\.health\}/);
+  assert.match(home, /const shown = \(unreadable \|\| failing\) && project\?\.health === "clear" \? "needs_you" : project\?\.health \?\? "clear";/);
+  assert.match(home, /<HealthWord health=\{shown\}/);
+  assert.match(home, /const failing = !!overview\?\.checks\.some\(\(check\) => check\.state === "failing"\);/);
 });
 
 // --- The old case list and case screen are gone from store builds (RC-05) ---
