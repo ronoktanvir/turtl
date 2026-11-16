@@ -59,6 +59,7 @@ export function CasePage({ caseId, current }: { caseId: string; current: boolean
               key={name}
               onPress={() => setTab(name)}
               accessibilityRole="tab"
+              aria-selected={tab === name}
               accessibilityState={{ selected: tab === name }}
               testID={id("tab-" + name.toLowerCase())}
               style={{

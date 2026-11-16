@@ -46,6 +46,7 @@ export function FixCard({
           onPress={() => setOpen(!open)}
           accessibilityRole="button"
           accessibilityState={{ expanded: open }}
+          aria-expanded={open}
           testID={prefix + "-toggle-" + fix.key}
           style={{ flex: 1, flexDirection: "row", gap: 8, minHeight: 44 }}
         >

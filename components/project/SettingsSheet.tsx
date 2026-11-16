@@ -8,7 +8,7 @@ import { Button, Icon, Sheet, T } from "../ui";
 
 function Choice({ label, selected, onPress, testID, icon: Symbol }: { label: string; selected: boolean; onPress: () => void; testID: string; icon: LucideIcon }) {
   const { colors } = useTheme();
-  return <Pressable onPress={onPress} accessibilityRole="radio" accessibilityState={{ selected }} testID={testID} style={({ pressed }) => ({ flex: 1, minHeight: 64, borderRadius: 12, borderWidth: 1, borderColor: selected ? colors.brandDeep : colors.surfaceRaised, backgroundColor: selected ? colors.brand : pressed ? colors.surface : colors.surfaceRaised, alignItems: "center", justifyContent: "center", gap: 4, paddingHorizontal: 4 })}>
+  return <Pressable onPress={onPress} accessibilityRole="radio" aria-checked={selected} accessibilityState={{ checked: selected }} testID={testID} style={({ pressed }) => ({ flex: 1, minHeight: 64, borderRadius: 12, borderWidth: 1, borderColor: selected ? colors.brandDeep : colors.surfaceRaised, backgroundColor: selected ? colors.brand : pressed ? colors.surface : colors.surfaceRaised, alignItems: "center", justifyContent: "center", gap: 4, paddingHorizontal: 4 })}>
     <Symbol size={19} strokeWidth={1.7} color={selected ? colors.onBrand : colors.textMuted} />
     <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>{selected && <Icon name="Check" size={13} color="onBrand" />}<T variant="strong" color={selected ? "onBrand" : "textMuted"}>{label}</T></View>
   </Pressable>;
