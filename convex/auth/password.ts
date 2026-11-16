@@ -9,6 +9,7 @@ import {
 import type { GenericActionCtx } from "convex/server";
 import { ConvexError } from "convex/values";
 import { Scrypt } from "lucia";
+import { internal } from "../_generated/api";
 import type { DataModel, Doc } from "../_generated/dataModel";
 import { resetProvider } from "./email";
 import { normalizeEmail, passwordProblem, words } from "./rules";
@@ -77,8 +78,11 @@ export function password() {
         case "reset": {
           if (!reset) throw refuse(words.resetOff);
           const account = await findPasswordAccount(ctx, email);
-          // The same answer whether or not there is an account, for the same reason.
-          if (account) await signInViaProvider(ctx, reset, { accountId: account._id, params: { email } });
+          // The same answer whether or not there is an account, for the same reason, and whether or not a code
+          // went out in the last minute (the one already sent still works).
+          if (account && !(await ctx.runQuery(internal.auth.email.sentRecently, { accountId: account._id }))) {
+            await signInViaProvider(ctx, reset, { accountId: account._id, params: { email } });
+          }
           return null;
         }
         case "reset-verification": {

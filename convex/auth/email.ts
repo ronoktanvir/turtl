@@ -1,5 +1,6 @@
 import { Email } from "@convex-dev/auth/providers/Email";
-import { ConvexError } from "convex/values";
+import { ConvexError, v } from "convex/values";
+import { internalQuery } from "../_generated/server";
 import { resetEmail } from "./settings";
 import { words } from "./rules";
 
@@ -51,6 +52,19 @@ export async function sendResetCode(to: string, code: string, fetcher: typeof fe
     throw new ConvexError("turtl couldn't send the email just now. Try again in a few minutes.");
   }
 }
+
+/** At most one reset email a minute for an account, so the form cannot be used to flood someone's inbox or the
+ * email bill. Convex Auth keeps one code per account and replaces it when it sends another. */
+export const RESEND_AFTER_MS = 60_000;
+
+export const sentRecently = internalQuery({
+  args: { accountId: v.id("authAccounts") },
+  returns: v.boolean(),
+  handler: async (ctx, { accountId }) => {
+    const code = await ctx.db.query("authVerificationCodes").withIndex("accountId", (q) => q.eq("accountId", accountId)).first();
+    return code !== null && code.provider === RESET_PROVIDER_ID && code._creationTime > Date.now() - RESEND_AFTER_MS;
+  },
+});
 
 /** The provider Convex Auth sends and checks reset codes through, or undefined when reset is switched off. */
 export function resetProvider() {

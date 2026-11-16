@@ -303,10 +303,21 @@ test("password reset emails a one-time code, changes the password, and signs out
   const { load, auth, standIn } = await world(t, { AUTH_RESEND_KEY: "stand-in-key", AUTH_EMAIL_FROM: "turtl <no-reply@example.com>" });
   const { words } = load("convex/auth/rules.ts");
   const provider = load("convex/auth/password.ts").password();
-  const ctx = {};
+  let sentRecently = false;
+  const ctx = {
+    runQuery: async (fn, args) => {
+      assert.equal(fn.path, "internal.auth.email.sentRecently");
+      assert.equal(args.accountId, auth.accounts[0]._id);
+      return sentRecently;
+    },
+  };
   await provider.authorize({ flow: "signUp", email: "owner@example.com", password: "tide pools at dawn" }, ctx);
   assert.equal(await provider.authorize({ flow: "reset", email: "nobody@example.com" }, ctx), null);
   assert.equal(standIn.emails.length, 0, "no email for an address without an account, and the same answer");
+  sentRecently = true;
+  assert.equal(await provider.authorize({ flow: "reset", email: "owner@example.com" }, ctx), null);
+  assert.equal(standIn.emails.length, 0, "no second email within a minute, and the same answer");
+  sentRecently = false;
   assert.equal(await provider.authorize({ flow: "reset", email: "Owner@example.com" }, ctx), null);
   const [email] = standIn.emails;
   assert.deepEqual([email.to, email.from, email.authorization], [["owner@example.com"], "turtl <no-reply@example.com>", "Bearer stand-in-key"]);
@@ -333,6 +344,14 @@ test("the reset email reports a refused send without echoing the reply, and is o
   const codes = await Promise.all(Array.from({ length: 50 }, () => email.resetProvider().generateVerificationToken()));
   assert.ok(codes.every((code) => /^\d{8}$/.test(code)));
   assert.ok(new Set(codes).size > 45, "codes vary");
+  // A minute between reset emails to one account: Convex Auth keeps one code per account.
+  const store = fakeDb(indexesOf(realAuth.authTables));
+  const ctx = { db: store.db };
+  assert.equal(await email.sentRecently.handler(ctx, { accountId: "authAccounts:1" }), false);
+  await store.seed("authVerificationCodes", { accountId: "authAccounts:1", provider: "password-reset", code: "hash", expirationTime: Date.now() + 900_000 });
+  assert.equal(await email.sentRecently.handler(ctx, { accountId: "authAccounts:1" }), true);
+  t.mock.timers.enable({ apis: ["Date"], now: Date.now() + email.RESEND_AFTER_MS + 1 });
+  assert.equal(await email.sentRecently.handler(ctx, { accountId: "authAccounts:1" }), false);
 });
 
 test("users.mode answers before sign-in; users.viewer returns the signed-in person or null", async (t) => {
