@@ -7,6 +7,7 @@ import type { FixOption, Screenshot } from "../../data/types";
 import { useTheme } from "../../theme";
 import { ago, Button, Card, Chip, devToolsOn, HealthWord, Icon, Reveal, T, Turtle } from "../ui";
 import { CouncilView } from "./CouncilView";
+import { CustomerReportsControl } from "./CustomerReports";
 import { CodeBox, LogRow, SpanText, Viz } from "./Evidence";
 import { ApproveSheet, DeclineSheet, FixCard } from "./FixCard";
 import { StructuralFindingCard } from "./StructuralFinding";
@@ -121,6 +122,7 @@ export function CasePage({ caseId, current }: { caseId: string; current: boolean
                   </View>
                 ),
               )}
+              <CustomerReportsControl caseId={c.id} id={id} />
               <CouncilView caseId={c.id} prefix={id("")} />
               <View style={{ gap: 12 }}>
                 <T variant="heading">Screenshots from app</T>

@@ -13,7 +13,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       ["expo-secure-store", { faceIDPermission: false }],
       // Push for cases that need the owner (components/push). Preview and production builds use Apple's production push service.
       ["expo-notifications", { mode: !process.env.EXPO_PUBLIC_APP_ENV || process.env.EXPO_PUBLIC_APP_ENV === "development" ? "development" : "production", enableBackgroundRemoteNotifications: false }],
-      ["expo-audio", { microphonePermission: "turtl listens when you tap Talk, so you can ask about a case out loud. Recordings are transcribed and not kept.", enableBackgroundPlayback: false }],
+      ["expo-audio", { microphonePermission: "turtl listens after you tap Talk so you can ask about a case out loud. Your recording is sent to OpenAI to be turned into text, and is not kept.", enableBackgroundPlayback: false }],
     ],
     ...(process.env.TURTL_PREVIEW_ORIGIN
       ? { extra: { ...config.extra, router: { ...config.extra?.router, origin: process.env.TURTL_PREVIEW_ORIGIN } } }

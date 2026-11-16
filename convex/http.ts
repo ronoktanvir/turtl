@@ -2,6 +2,7 @@ import { httpRouter } from "convex/server";
 import { httpAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { revision } from "./bookingDemo/catalog";
+import { readScenario } from "./bookingDemo/journeyCore";
 import { STAGED_TIMEOUT_MS } from "./bookingDemo/provider";
 import { registerGithubRoutes } from "./github/http";
 import { registerIntakeRoutes } from "./intake/http";
@@ -54,7 +55,9 @@ for (const path of ["/booking-demo/flags", "/booking-demo/staged-failure"] as co
 http.route({ path: "/booking-demo/journey-check", method: "POST", handler: httpAction(async (ctx, request) => {
   const denied = await authorize(request);
   if (denied) return denied;
-  const result = await ctx.runAction(internal.bookingDemo.checks.journey, {});
+  const read = readScenario(new URL(request.url));
+  if (!read.ok) return json({ error: { code: "UNKNOWN_SCENARIO", message: read.message } }, 400);
+  const result = await ctx.runAction(internal.bookingDemo.checks.journey, read.scenario ? { scenario: read.scenario } : {});
   return json(result, result.verdict === "passed" ? 200 : 503);
 }) });
 

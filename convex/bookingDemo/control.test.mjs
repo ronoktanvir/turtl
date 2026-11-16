@@ -65,10 +65,45 @@ try {
     assert.equal(result.json.cleanup.ok, true);
     assert.equal(result.json.cleanup.deletedBookings, verdict === "passed" ? 1 : 0);
     assert.deepEqual(result.json.configuration, { recommendationsEnabled: enabled, providerTimeout: timeout, bookingStoreFailure: storeFailure });
+    assert.equal("scenario" in result.json, false, "A plain journey check answers exactly as before scenarios existed");
     assert.deepEqual((await call("/errors")).json.counts, baseline, "Fixture runs must not change customer impact");
     assert.equal((await call("/health", "GET", undefined, false)).json.ok, true);
   }
-  console.log("PASS: hash-only control authentication, validation, all eight staged configurations, cleanup, and impact isolation");
+  // The slow_recommendations scenario: the live settings with the provider slowed for one run. It never writes
+  // the settings, never leaves a booking behind, never counts as customer impact, and says which scenario ran.
+  const scenarioPath = "/journey-check?scenario=slow_recommendations";
+  assert.equal((await call(scenarioPath, "POST", undefined, false)).status, 401);
+  for (const query of ["unknown", "", "slow_recommendations&scenario=slow_recommendations", "SLOW_RECOMMENDATIONS"]) {
+    const refused = await call(`/journey-check?scenario=${query}`, "POST");
+    assert.equal(refused.status, 400);
+    assert.equal(refused.json.error.code, "UNKNOWN_SCENARIO");
+  }
+  for (const [enabled, storeFailure, failedStep] of [
+    [true, false, "recommendations"],
+    [false, false, null],
+    [true, true, "submit_booking"],
+  ]) {
+    assert.equal((await call("/flags", "POST", { recommendationsEnabled: enabled })).status, 200);
+    assert.equal((await call("/staged-failure", "POST", { providerTimeout: false })).status, 200);
+    assert.equal((await call("/staged-failure", "POST", { bookingStoreFailure: storeFailure })).status, 200);
+    const before = { flags: (await call("/flags")).json, failure: (await call("/staged-failure")).json };
+    const result = await call(scenarioPath, "POST");
+    const verdict = failedStep ? "failed" : "passed";
+    assert.equal(result.status, verdict === "passed" ? 200 : 503);
+    assert.equal(result.json.scenario, "slow_recommendations");
+    assert.equal(result.json.verdict, verdict);
+    assert.equal(result.json.failedStep, failedStep);
+    if (failedStep === "recommendations") assert.equal(result.json.error.code, "RECOMMENDATIONS_TIMEOUT");
+    assert.deepEqual(result.json.configuration, { recommendationsEnabled: enabled, providerTimeout: false, bookingStoreFailure: storeFailure }, "configuration reports the live settings");
+    assert.equal(result.json.cleanup.ok, true);
+    assert.equal(result.json.cleanup.deletedBookings, verdict === "passed" ? 1 : 0);
+    assert.deepEqual({ flags: (await call("/flags")).json, failure: (await call("/staged-failure")).json }, before, "A scenario must not change the real settings");
+    assert.deepEqual((await call("/errors")).json.counts, baseline, "Scenario runs must not change customer impact");
+  }
+  const plain = await call("/journey-check", "POST");
+  assert.equal(plain.json.failedStep, "submit_booking", "The plain run still sees only the live settings (the staged store failure)");
+  assert.equal("scenario" in plain.json, false);
+  console.log("PASS: hash-only control authentication, validation, all eight staged configurations, the slow_recommendations scenario, cleanup, and impact isolation");
 } finally {
   await call("/flags", "POST", { recommendationsEnabled: originalFlag });
   await call("/staged-failure", "POST", { providerTimeout: originalFailure.providerTimeout });
