@@ -28,6 +28,7 @@ import {
   vContextSource,
   vOwnerNotice,
 } from "./constants";
+import { githubTables } from "./github/schema";
 import { intakeTables } from "./intake/schema";
 import { learningTables } from "./learning/schema";
 import { revylTables } from "./revyl/schema";
@@ -206,4 +207,5 @@ export default defineSchema({
   ...councilTables,
   ...learningTables,
   ...onboardingTables,
+  ...githubTables,
 });

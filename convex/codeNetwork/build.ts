@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import { internalAction } from "../_generated/server";
+import { repositoryAccess } from "../github/access";
 import { addDocuments, type CodeDocument } from "../supermemory";
 import {
   buildGraph,
@@ -192,7 +193,9 @@ export const build = internalAction({
     if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) return { outcome: "failed", reason: `repo must be owner/name, got ${repo}.` };
 
     const started = Date.now();
-    const fetched = await fetchRepository(repo, ref ?? "HEAD", process.env.GITHUB_TOKEN);
+    const access = await repositoryAccess(ctx, repo);
+    if (!access.ok) return { outcome: "failed", reason: access.message };
+    const fetched = await fetchRepository(repo, ref ?? "HEAD", access.token);
     if ("reason" in fetched) return { outcome: "failed", reason: fetched.reason };
     const githubMs = Date.now() - started;
     const { nodes: graphNodes, edges } = buildGraph(fetched.files);

@@ -3,6 +3,7 @@ import { httpAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { revision } from "./bookingDemo/catalog";
 import { STAGED_TIMEOUT_MS } from "./bookingDemo/provider";
+import { registerGithubRoutes } from "./github/http";
 import { registerIntakeRoutes } from "./intake/http";
 
 declare const process: { env: Record<string, string | undefined> };
@@ -65,5 +66,6 @@ http.route({ path: "/booking-demo/errors", method: "GET", handler: httpAction(as
 }) });
 
 registerIntakeRoutes(http);
+registerGithubRoutes(http);
 
 export default http;
