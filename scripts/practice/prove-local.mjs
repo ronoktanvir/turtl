@@ -5,7 +5,8 @@
 // model key and no vendor is configured: the cases run on turtl's rules, as they do without the AI permission.
 //   CONVEX_AGENT_MODE=anonymous npx convex dev --typecheck disable --local-cloud-port 3270 --local-site-port 3271   (keep it running)
 //   node scripts/practice/prove-local.mjs
-// It refuses to run unless .env.local names a local backend, and removes every variable it set when it ends.
+// It refuses to run unless .env.local names a local backend, and removes every variable it set when it ends. It begins
+// with the single-owner demo, which serves only a backend that holds no account, so give it a fresh local backend.
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { randomBytes } from "node:crypto";
@@ -73,6 +74,26 @@ async function until(read, ok, label, timeout = 120_000) {
   throw new Error(`${label}: ${JSON.stringify(value)?.slice(0, 1500)}`);
 }
 const message = (error) => String(error?.data ?? error?.message ?? error);
+// The single-owner demo refuses to serve a deployment that holds any account (convex/access.ts), so the demo is shown
+// first, on a backend that holds none, and at the end refusing once accounts exist.
+const UNAVAILABLE = "turtl is unavailable right now. Please try again later.";
+const LOGGED = /Refused a call: AUTH_REQUIRED is unset, empty or "false", which makes this deployment the single-owner demo, but it holds accounts \(rows in authAccounts\)/;
+const refused = (error) => message(error).includes(UNAVAILABLE);
+const onAFreshBackend = async (call) => {
+  try {
+    return await call();
+  } catch (error) {
+    if (refused(error)) throw new Error("This backend already holds accounts from an earlier run, and the single-owner demo refuses to serve it. Stop the backend, remove .convex/local/default, start it again, and run this once more.");
+    throw error;
+  }
+};
+// What the operator sees: `npx convex run` prints the function's log lines with its error.
+const refusedWithLogLine = async (name, args = {}) => {
+  const answer = await convex("run", name, JSON.stringify(args)).then(() => null, (error) => `${error.stdout}\n${error.stderr}`);
+  assert.ok(answer, `${name} answered`);
+  assert.ok(answer.includes(UNAVAILABLE), answer);
+  assert.match(answer, LOGGED);
+};
 let passed = 0;
 const step = async (name, body) => {
   const started = Date.now();
@@ -107,7 +128,20 @@ try {
     writeFileSync(file, value, { mode: 0o600 });
     await convex("env", "set", name, "--from-file", file);
   }
-  for (const [name, value] of Object.entries(plain)) await convex("env", "set", name, value);
+  // Everything but AUTH_REQUIRED first: the single-owner demo, on a backend that holds no account yet.
+  for (const [name, value] of Object.entries(plain)) if (name !== "AUTH_REQUIRED") await convex("env", "set", name, value);
+  await sleep(1500);
+
+  await step("with AUTH_REQUIRED unset (the single-owner demo) and no account yet, there is no practice app to offer or make, and nobody can sign up", async () => {
+    assert.deepEqual(await onAFreshBackend(() => admin.query(fn.status, {})), { available: false, breaksPerDay: 2, project: null });
+    await assert.rejects(admin.action(fn.create, {}), /A practice app needs accounts/);
+    const stranger = new ConvexHttpClient(convexUrl);
+    const signUp = { provider: "password", params: { email: `stranger-${randomBytes(3).toString("hex")}@example.com`, password: "local proof " + randomBytes(12).toString("hex"), flow: "signUp" } };
+    await assert.rejects(stranger.action(ref("auth:signIn"), signUp), /This turtl has no accounts, so there is nothing to sign in to\./);
+    assert.deepEqual(await admin.query(fn.status, {}), { available: false, breaksPerDay: 2, project: null }, "the refused sign-up left no account, so the demo still serves");
+  });
+
+  await convex("env", "set", "AUTH_REQUIRED", plain.AUTH_REQUIRED);
   await sleep(1500);
 
   const signUp = async (label) => {
@@ -303,11 +337,13 @@ try {
     assert.deepEqual(await demoSwitches(), demoBefore);
   });
 
-  await step("with AUTH_REQUIRED unset (the single-owner demo) there is no practice app to offer or make", async () => {
+  await step("with AUTH_REQUIRED removed while accounts exist, every call is refused in plain words, and the backend log says why", async () => {
     await convex("env", "remove", "AUTH_REQUIRED");
     await sleep(1500);
-    assert.deepEqual(await admin.query(fn.status, {}), { available: false, breaksPerDay: 2, project: null });
-    await assert.rejects(admin.action(fn.create, {}), /A practice app needs accounts/);
+    await assert.rejects(admin.query(fn.status, {}), refused, "nobody is the single owner of these accounts' projects");
+    await assert.rejects(admin.action(fn.create, {}), refused);
+    await assert.rejects(bob.client.query(fn.list, {}), refused, "nor is a signed-in owner served as the demo");
+    await refusedWithLogLine("practice/projects:status");
   });
 
   console.log(`\n${passed} checks passed.`);
