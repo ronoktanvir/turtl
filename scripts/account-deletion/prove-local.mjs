@@ -80,6 +80,9 @@ const plain = {
   AUTH_REQUIRED: "true",
   SITE_URL: "http://localhost:8111",
   AUTH_STAND_IN_URL: front,
+  // A password sign-up confirms its address with an emailed code; the stand-in receives the email, not Resend.
+  AUTH_RESEND_KEY: "stand-in-key",
+  AUTH_EMAIL_FROM: "turtl <no-reply@example.com>",
   AUTH_APPLE_TEAM_ID: apple.appleClient.teamId,
   AUTH_APPLE_KEY_ID: apple.appleClient.keyId,
   SUPERMEMORY_API_KEY: memory.apiKey,
@@ -129,6 +132,7 @@ try {
     const email = `${label}-${randomBytes(3).toString("hex")}@example.com`;
     const secret = password();
     const signedIn = await signIn("password", { email, password: secret, flow: "signUp" });
+    await signedIn.client.mutation(ref("auth/confirmation:confirm"), { code: apple.lastCode(email) });
     accounts[label] = { ...signedIn, email, secret, label };
   }
   const nonce = randomBytes(32).toString("hex");
