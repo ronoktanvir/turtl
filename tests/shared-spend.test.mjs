@@ -432,6 +432,28 @@ test("ATTACK: a burst of 1,200 outage diagnoses on sixty owners' floors stops at
   });
 });
 
+test("the operator hears of the hard stop once a day: one line in the backend log, not one a call", async (t) => {
+  const lines = [];
+  t.mock.method(console, "error", (line) => lines.push(line));
+  t.mock.timers.enable({ apis: ["Date"], now: NOV_16 });
+  const stop = limits.spendRefusal.hardStop();
+  await withEnv({ ...ACCOUNTS, DEPLOYMENT_MODEL_HARD_STOP_PER_DAY_USD: "1" }, async () => {
+    const db = world({ ada: 1 });
+    const ctx = actions(db);
+    for (let day = 0; day < 2; day++) {
+      t.mock.timers.setTime(NOV_16 + day * DAY);
+      assert.equal((await spendAll(ctx, { caseId: "cases:ada-0" }, CHAT, 20)).refusal, stop);
+      for (let n = 0; n < 30; n++) assert.equal((await modelCall(ctx, { caseId: "cases:ada-0" }, CHAT)).reason, stop);
+      // Asking without sending (gate.blocked) is refused too, and writes nothing.
+      assert.equal(await gates.gateFor(ctx, { caseId: "cases:ada-0" }).blocked("openai"), stop);
+      assert.equal(lines.length, day + 1, lines.join("\n"));
+    }
+    assert.match(lines[0], /^Model spend reached the deployment's hard stop for 2026-11-16 \(UTC\): \$0\.9\d of \$1\.00 spent or in flight, the shared day and every account's floor together\. No model is asked for anyone, outages included, until midnight UTC\. DEPLOYMENT_MODEL_HARD_STOP_PER_DAY_USD sets it\.$/);
+    assert.match(lines[1], /hard stop for 2026-11-17 \(UTC\)/);
+    assert.deepEqual(db.rows("deploymentModelDays").map((row) => row.day), ["2026-11-17"], "older days are dropped");
+  });
+});
+
 test("the hard stop is a setting: twice the ceiling unless set, following it when the ceiling moves", async () => {
   const hard = (env) => withEnv({ DEPLOYMENT_MODEL_HARD_STOP_PER_DAY_USD: undefined, DEPLOYMENT_MODEL_SPEND_PER_DAY_USD: undefined, ...env }, () => limits.deploymentModelHardStopPerDayUsd());
   assert.equal(await hard({}), 50);

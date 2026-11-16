@@ -126,26 +126,27 @@ export async function holdModelCall(ctx: MutationCtx, account: string, share: Sh
   await addToDeploymentDay(ctx, { heldUsd: holdUsd });
 }
 
-export type DeploymentDay = { floorUsd: number; heldUsd: number };
+export type DeploymentDay = { floorUsd: number; heldUsd: number; stopLoggedAt: number | null };
 
 const deploymentDayRow = (ctx: Reader, day: string) =>
   ctx.db.query("deploymentModelDays").withIndex("by_day", (q) => q.eq("day", day)).unique();
 
-/** What every account's floor cost today (UTC) and what every call still out is held at. With the shared day's cost
- * (deploymentSpendToday) it is everything the hard stop counts. */
+/** What every account's floor cost today (UTC), what every call still out is held at, and when the log was told the
+ * hard stop was reached. With the shared day's cost (deploymentSpendToday) it is everything the hard stop counts. */
 export async function deploymentDay(ctx: Reader, at: number): Promise<DeploymentDay> {
   const row = await deploymentDayRow(ctx, dayKey(at));
-  return { floorUsd: row?.floorUsd ?? 0, heldUsd: row?.heldUsd ?? 0 };
+  return { floorUsd: row?.floorUsd ?? 0, heldUsd: row?.heldUsd ?? 0, stopLoggedAt: row?.stopLoggedAt ?? null };
 }
 
 /** Adds to the deployment's totals for today, starting the day's row (and dropping older ones) if needed. */
-async function addToDeploymentDay(ctx: MutationCtx, add: { floorUsd?: number; heldUsd?: number }) {
+async function addToDeploymentDay(ctx: MutationCtx, add: { floorUsd?: number; heldUsd?: number; stopLoggedAt?: number }) {
   const now = Date.now();
   const day = dayKey(now);
   const row = await deploymentDayRow(ctx, day);
   const fields = {
     floorUsd: cents((row?.floorUsd ?? 0) + (add.floorUsd ?? 0)),
     heldUsd: cents((row?.heldUsd ?? 0) + (add.heldUsd ?? 0)),
+    ...(add.stopLoggedAt !== undefined && { stopLoggedAt: add.stopLoggedAt }),
     updatedAt: now,
   };
   if (row) {
@@ -156,6 +157,11 @@ async function addToDeploymentDay(ctx: MutationCtx, add: { floorUsd?: number; he
     await ctx.db.delete(old._id);
   }
   await ctx.db.insert("deploymentModelDays", { day, ...fields });
+}
+
+/** Records that the backend log was told today's hard stop was reached, so it is told once a day. */
+export async function noteHardStop(ctx: MutationCtx) {
+  await addToDeploymentDay(ctx, { stopLoggedAt: Date.now() });
 }
 
 /** Which of the account's day shares a model call counts against. */

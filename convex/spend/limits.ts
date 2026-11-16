@@ -133,6 +133,11 @@ export const deploymentModelSpendPerDayUsd = () => positive(process.env.DEPLOYME
 export const DEFAULT_HARD_STOP_TIMES_CEILING = 2;
 export const deploymentModelHardStopPerDayUsd = () =>
   positive(process.env.DEPLOYMENT_MODEL_HARD_STOP_PER_DAY_USD, DEFAULT_HARD_STOP_TIMES_CEILING * deploymentModelSpendPerDayUsd(), false);
+
+/** The one line the backend log gets on a day the hard stop is reached. For the operator, so it names the setting. */
+export const hardStopLog = (day: string, totalUsd: number, stopUsd: number) =>
+  `Model spend reached the deployment's hard stop for ${day} (UTC): ${dollars(totalUsd)} of ${dollars(stopUsd)} spent or in flight, the shared day and every account's floor together. No model is asked for anyone, outages included, until midnight UTC. DEPLOYMENT_MODEL_HARD_STOP_PER_DAY_USD sets it.`;
+
 /** Estimated model spend of one account's own calls in one calendar day (UTC): its share of the deployment's day. */
 export const accountModelSpendPerDayUsd = () => positive(process.env.ACCOUNT_MODEL_SPEND_PER_DAY_USD, DEFAULT_ACCOUNT_MODEL_SPEND_PER_DAY_USD, false);
 

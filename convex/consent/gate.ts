@@ -10,6 +10,7 @@ import {
   holdModelCall,
   intakeSpendToday,
   monthSpend,
+  noteHardStop,
   threadsToday,
   type AccountDay,
   type Share,
@@ -18,8 +19,10 @@ import {
   accountIntakeSpendPerDayUsd,
   accountModelSpendPerDayUsd,
   codingThreadsPerDay,
+  dayKey,
   deploymentModelHardStopPerDayUsd,
   deploymentModelSpendPerDayUsd,
+  hardStopLog,
   intakeSpendPerDayUsd,
   MAX_CALL_HOLD_USD,
   MODEL_CALL_HOLD_USD,
@@ -116,7 +119,12 @@ async function accountMadeAt(ctx: Pick<QueryCtx, "db">, account: string): Promis
 }
 
 type Args = { scope: Scope; service: string; purpose: Purpose; allowance?: Allowance; estimateUsd?: number };
-type Decision = { answer: Answer; hold: Share | null };
+type Decision = {
+  answer: Answer;
+  hold: Share | null;
+  /** The deployment's hard stop refused the call: what it stood at, and whether the backend log was told today. */
+  stopped?: { totalUsd: number; stopUsd: number; logged: boolean };
+};
 
 const isModelCall = (service: string, purpose: Purpose) => purpose === "send" && (MODEL_SERVICES as readonly string[]).includes(service);
 
@@ -144,7 +152,9 @@ async function decide(ctx: Pick<QueryCtx, "db">, { scope, service, purpose, allo
     const out = await deploymentDay(ctx, now);
     const all = total + out.floorUsd + out.heldUsd;
     const stop = deploymentModelHardStopPerDayUsd();
-    if (all >= stop || all + holdUsd > stop) return no(spendRefusal.hardStop());
+    if (all >= stop || all + holdUsd > stop) {
+      return { ...no(spendRefusal.hardStop()), stopped: { totalUsd: all, stopUsd: stop, logged: out.stopLoggedAt !== null } };
+    }
     const day = await accountDay(ctx, account, now);
     const shared = await sharedDay(ctx, { account, appId, allowance, practice, raisedByMonitor, passingForMs, day, total, now });
     if ("hold" in shared) hold = shared.hold;
@@ -266,7 +276,12 @@ export const admit = internalMutation({
   returns: vAnswer,
   handler: async (ctx, args): Promise<Answer> => {
     const held = holdFor(args.estimateUsd);
-    const { answer, hold } = await decide(ctx, args, isModelCall(args.service, args.purpose) ? held : 0);
+    const { answer, hold, stopped } = await decide(ctx, args, isModelCall(args.service, args.purpose) ? held : 0);
+    // The operator hears of the hard stop once a day: the first call it refuses writes one line to the backend log.
+    if (stopped && !stopped.logged) {
+      console.error(hardStopLog(dayKey(Date.now()), stopped.totalUsd, stopped.stopUsd));
+      await noteHardStop(ctx);
+    }
     if (!answer.ok || !hold) return answer;
     await holdModelCall(ctx, answer.account, hold, held);
     return { ...answer, held };

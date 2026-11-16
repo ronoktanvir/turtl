@@ -56,12 +56,14 @@ export const spendTables = {
   }).index("by_account_and_day", ["account", "day"]),
   // One row per calendar day (UTC) on which a model was asked, for the deployment's hard stop
   // (DEPLOYMENT_MODEL_HARD_STOP_PER_DAY_USD): what every account's floor cost (the shared day's cost is model_usd_day in
-  // deploymentTotals) and what every call let through whose cost has not come back yet is held at, whichever share it
-  // spends. Older days are deleted as a new one starts. It names no account, so it is not deleted with one.
+  // deploymentTotals), what every call let through whose cost has not come back yet is held at, whichever share it
+  // spends, and when the backend log was told the stop was reached. Older days are deleted as a new one starts. It names
+  // no account, so it is not deleted with one.
   deploymentModelDays: defineTable({
     day: v.string(),
     floorUsd: v.number(),
     heldUsd: v.number(),
+    stopLoggedAt: v.optional(v.number()),
     updatedAt: v.number(),
   }).index("by_day", ["day"]),
   // Deployment-wide running totals that belong to no account (finding 7): new accounts per clock hour and per day (Apple
