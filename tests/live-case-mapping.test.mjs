@@ -372,3 +372,22 @@ test("a rule-based reading says \"No model answered\" once, even when the stored
   assert.ok(text.includes("No model answered: OpenAI is not connected to turtl yet, so no request was sent."), text);
   assert.ok(!text.includes("No model answered: No model answered"));
 });
+
+test("why a remembered recovery does not apply is said in words, once per difference", () => {
+  const body = [
+    'Required condition failed: journey.errorCode equals "RECOMMENDATIONS_TIMEOUT"; observed "BOOKING_STORE_UNAVAILABLE".',
+    'Required condition failed: journey.failedStep equals "recommendations"; observed "submit_booking".',
+    'Do not use this recovery: journey.errorCode does not equal "RECOMMENDATIONS_TIMEOUT"; observed "BOOKING_STORE_UNAVAILABLE".',
+    "This recovery memory has been invalidated.",
+  ].join("\n");
+  const memory = evidence({ _id: "m1", kind: "memory_match", title: "A recovery turtl remembers does not apply.", body, sourceRef: "recoveryMemories/abc" });
+  const line = map(cards({ evidence: [memory] })).logs.find((log) => log.id === "m1").text;
+  assert.equal(line, [
+    "A recovery turtl remembers does not apply.",
+    "It was for the error being recommendations timeout; this time it is booking store unavailable.",
+    "It was for where the booking stopped being recommendations; this time it is submit booking.",
+    "This recovery memory has been invalidated.",
+    "From a recovery turtl remembers.",
+  ].join("\n"));
+  assert.doesNotMatch(line, /journey\.|_|Required condition|Do not use/);
+});

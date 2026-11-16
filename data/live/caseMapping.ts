@@ -149,6 +149,40 @@ export function journeyBodyWords(body: string): string {
 // control token (TOKEN_WORDS).
 const UNREACHABLE = /so turtl sent nothing|no control token is set for this project|could not open this project's control token|cannot open stored tokens on this backend/;
 
+// Why a remembered recovery does not apply, from convex/memory/checks.ts's lines ("Required condition failed:
+// journey.errorCode equals \"RECOMMENDATIONS_TIMEOUT\"; observed \"BOOKING_STORE_UNAVAILABLE\".") in words. The stored lines
+// stay as they are: the feed reads them too.
+const FACT_WORDS: Record<string, string> = {
+  "journey.errorCode": "the error",
+  "journey.failedStep": "where the booking stopped",
+  "journey.verdict": "the booking check",
+  "flags.recommendationsEnabled": "recommendations",
+  "health.ok": "whether the app answered",
+  "app.revision": "the app's version",
+  "errors.topCode": "the most common error",
+};
+const valueWords = (raw: string) => {
+  let value: unknown = raw;
+  try { value = JSON.parse(raw); } catch { /* left as written */ }
+  if (value === true) return "on";
+  if (value === false) return "off";
+  return String(value).replace(/_+/g, " ").toLowerCase();
+};
+export function recoveryMismatchWords(body: string): string {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const line of body.split("\n")) {
+    const match = /^(?:Required condition failed|Do not use this recovery): (\S+) (?:equals|does not equal|is less than|is at most|is greater than|is at least) (.+); observed (.+)\.$/.exec(line.trim());
+    if (!match) { if (line.trim()) out.push(line.trim()); continue; }
+    const [, field, expected, observed] = match;
+    if (seen.has(field)) continue;
+    seen.add(field);
+    const what = FACT_WORDS[field] ?? "one condition";
+    out.push(`It was for ${what} being ${valueWords(expected)}; this time it is ${valueWords(observed)}.`);
+  }
+  return out.join("\n");
+}
+
 /** What an unresolved case says when it stopped because turtl could not reach the app at all. */
 export function unreachableStop(stepTitle: string): string {
   return `turtl stopped this case because it could not reach your app, so it sent nothing. The reason is under "${stepTitle}" below: usually the project's control token is missing, or its live address is one turtl may not send to. Fix it in this project's Settings. turtl's next check opens a new case if the problem is still there, and a new report from a customer does too. This case stays closed.`;
@@ -306,7 +340,7 @@ export function mapCaseDetail(
       continue;
     }
     const from = evidence.sourceRef ? plainSource(evidence.sourceRef) : null;
-    logs.push({ id: evidence._id, at: evidence.observedAt, level: "info", source: `Evidence · ${named(evidenceWords, evidence.kind)}`, text: [ownerWords(evidence.title), evidence.body && (evidence.kind === "journey_check" ? journeyBodyWords(evidence.body) : evidence.body), from && `From ${from}.`].filter(Boolean).join("\n") });
+    logs.push({ id: evidence._id, at: evidence.observedAt, level: "info", source: `Evidence · ${named(evidenceWords, evidence.kind)}`, text: [ownerWords(evidence.title), evidence.body && (evidence.kind === "journey_check" ? journeyBodyWords(evidence.body) : evidence.kind === "memory_match" ? recoveryMismatchWords(evidence.body) : evidence.body), from && `From ${from}.`].filter(Boolean).join("\n") });
     citations.push({ id: evidence._id, kind: "log", logId: evidence._id });
     if (evidence.kind === "customer_report" && customerReports?.reports.length) continue;
     paragraph([sourceSpan(ownerWords(evidence.title), evidence._id)]);
