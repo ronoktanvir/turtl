@@ -93,6 +93,8 @@ export async function setApprovals(projectId: string, mode: ApprovalMode, passco
   } catch (error) { throw new Error(errorMessage(error)); }
 }
 
-export async function setStarred(_caseId: string, _starred: boolean): Promise<void> {
-  throw new Error("Stars are not stored by this backend yet. Nothing was changed.");
+export async function setStarred(caseId: string, starred: boolean): Promise<void> {
+  try {
+    await requireLiveClient().mutation(api.cases.setStarred, { caseId: caseId as Id<"cases">, starred });
+  } catch (error) { throw new Error(errorMessage(error)); }
 }

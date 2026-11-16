@@ -42,6 +42,7 @@ export function mapCaseSummary(row: Doc<"cases">, number: number, pullRequest?: 
     status,
     health,
     happenedAt: row._creationTime,
+    ...(row.starred && { starred: true }),
     ...(row.kind === "feature_request"
       ? row.distinctRequesterCount !== undefined && { reportCount: row.distinctRequesterCount }
       : row.reportCount !== undefined && { reportCount: row.reportCount }),
