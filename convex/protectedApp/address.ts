@@ -35,11 +35,19 @@ export function loopbackAllowed(): boolean {
   return process.env.WATCHED_APP_ALLOW_LOOPBACK === "true" && localBackend();
 }
 
+/** A host as the network reads it: lower case, without the dot that may end a fully qualified name, so
+ * "app.example.com." and "app.example.com" are one host. */
+const hostOf = (url: URL) => url.hostname.toLowerCase().replace(/\.+$/, "");
+
+/** An origin with its host as the network reads it, so the same origin spelled with a trailing dot compares equal
+ * (review finding 25). The scheme and port still count: a stand-in app on another port of this machine is not turtl. */
+const originOf = (url: URL) => `${url.protocol}//${hostOf(url)}${url.port ? ":" + url.port : ""}`;
+
 /** This deployment's own origins: its site, its API, and its site's custom domain. */
 function ownOrigins(): string[] {
   return [process.env.CONVEX_SITE_URL, process.env.CONVEX_CLOUD_URL, process.env.CUSTOM_AUTH_SITE_URL].flatMap((text) => {
     try {
-      return text ? [new URL(text).origin] : [];
+      return text ? [originOf(new URL(text))] : [];
     } catch {
       return [];
     }
@@ -60,9 +68,9 @@ function problemOf(text: string, allowLoopback: boolean, practiceId?: string): {
   }
   if (url.protocol !== "https:" && url.protocol !== "http:") return { problem: "invalid" };
   if (url.username || url.password) return { problem: "credentials" };
-  if (ownOrigins().includes(url.origin) && !underPractice(url, practiceId)) return { problem: "own" };
+  if (ownOrigins().includes(originOf(url)) && !underPractice(url, practiceId)) return { problem: "own" };
   // The URL parser has already turned 2130706433, 0x7f.1 and 127.1 into 127.0.0.1.
-  const host = url.hostname.toLowerCase().replace(/\.$/, "");
+  const host = hostOf(url);
   if (allowLoopback && LOOPBACK.includes(host)) return { url };
   if (url.protocol !== "https:") return { problem: "not_https" };
   if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host) || host.startsWith("[")) return { problem: "ip_literal" };

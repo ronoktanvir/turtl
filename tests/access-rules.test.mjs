@@ -889,9 +889,14 @@ test("ATTACK (review): a project cannot give turtl's own site or API as its live
   const { alice } = await seed(w);
   const asAlice = w.as("alice");
   const own = "The live app address must be your app's own address, not turtl's.";
-  for (const liveUrl of [OWN.CONVEX_SITE_URL, `${OWN.CONVEX_SITE_URL}/booking-demo`, `${OWN.CONVEX_SITE_URL}/practice/${alice.appId}`, `${OWN.CONVEX_SITE_URL}/intake/report?key=x`, OWN.CONVEX_CLOUD_URL]) {
+  // The same addresses spelled another way are still turtl's own: a trailing dot, or capitals (finding 25).
+  const spelled = ["https://patient-otter-123.convex.site.", "https://patient-otter-123.convex.cloud./api/mutation", "https://PATIENT-OTTER-123.convex.site/booking-demo", "https://Patient-Otter-123.Convex.Site./practice/x"];
+  for (const liveUrl of [OWN.CONVEX_SITE_URL, `${OWN.CONVEX_SITE_URL}/booking-demo`, `${OWN.CONVEX_SITE_URL}/practice/${alice.appId}`, `${OWN.CONVEX_SITE_URL}/intake/report?key=x`, OWN.CONVEX_CLOUD_URL, ...spelled]) {
     await refuses(asAlice("onboarding/projects", "add", { repoUrl: "https://github.com/alice/other", liveUrl }), own);
   }
+  // On another port or over http the host is still turtl's, and the port and https rules refuse it.
+  await refuses(asAlice("onboarding/projects", "add", { repoUrl: "https://github.com/alice/other", liveUrl: "https://patient-otter-123.convex.site:8443/" }), "The live app address must be the one your customers use, with no port number, like https://app.example.com.");
+  await refuses(asAlice("onboarding/projects", "add", { repoUrl: "https://github.com/alice/other", liveUrl: "http://patient-otter-123.convex.site/" }), "The live app address must start with https://, so what turtl sends your app is always encrypted.");
   assert.ok(!w.backend.rows("apps").some((app) => app.productionUrl?.includes("convex")), "nothing was registered");
 
   // A project row that names turtl's site anyway (written before this rule): the monitor's plan skips it, and a request
@@ -909,6 +914,7 @@ test("ATTACK (review): a project cannot give turtl's own site or API as its live
     assert.equal((await client.call(OWN.CONVEX_SITE_URL + path, { app, method: "POST" })).kind, "not_sent", path);
   }
   for (const path of ["/api/query", "/api/mutation"]) assert.equal((await client.call(OWN.CONVEX_CLOUD_URL + path, { app, method: "POST" })).kind, "not_sent", path);
+  for (const url of ["https://patient-otter-123.convex.site./booking-demo/flags", "https://patient-otter-123.convex.cloud./api/mutation"]) assert.equal((await client.call(url, { app, method: "POST" })).kind, "not_sent", url);
   assert.deepEqual(sent, [], "no request left");
 });
 
