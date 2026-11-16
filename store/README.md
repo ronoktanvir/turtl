@@ -1,11 +1,11 @@
 # What App Review reads, apart from the app
 
-Everything Apple reads or asks for when turtl is submitted, other than the build itself. It was written from the code at commit `3d01f64` on 15 November 2026.
+Everything Apple reads or asks for when turtl is submitted, other than the build itself. It was first written from the code at commit `3d01f64` on 15 November 2026; the commit the audit now describes is `auditedCommit` in [`data-practices.json`](data-practices.json), and every code link in `store/*.md` is pinned to it.
 
 | File | What it is |
 | --- | --- |
 | [`data-practices.md`](data-practices.md) | The audit: what turtl collects, where it goes, and how long it is kept, with a link to the line of code behind every claim |
-| [`data-practices.json`](data-practices.json) | The same outside services as data: each one's name, what it receives, why, its settings, and its policy. Build the AI permission screen from this |
+| [`data-practices.json`](data-practices.json) | The same outside services as data: each one's name, what it receives, why, its settings, and its policy. The AI permission screen is built from it: `convex/consent/services.ts` imports it, and asks permission for every service marked `needsPermission` |
 | [`app-privacy.md`](app-privacy.md) | The answers to App Store Connect's App Privacy questions, in Apple's categories, and the privacy manifest values for the build |
 | [`review-checklist.md`](review-checklist.md) | Apple's guidelines, line by line: what is true today, what is missing, and which piece of work closes it |
 | [`review-notes.txt`](review-notes.txt) | The notes the reviewer reads |
@@ -45,9 +45,7 @@ node store/check.mjs --open      # the checklist's open lines, for each owner
 | Review variables | Which `APP_REVIEW_*` variables are not set in this shell | No |
 | Checklist | Open lines, for each owner | No |
 
-"Since the audit" will name `components/project/SettingsSheet.tsx` from the start. That is the pull request that added this folder putting the links into the gear sheet.
-
-`npm run test:ui` runs only the first two, so another pull request cannot fail because the audit has aged.
+`tests/store-listing.test.mjs` (in `npm run test:ci` and `npm run test:ui`) checks only the first two, so another pull request cannot fail because the audit has aged.
 
 ### When the code changes
 
@@ -55,7 +53,7 @@ A new outside address, setting, or library under "Since the audit" means data ma
 
 1. Read the code that uses it and add what it sends to `data-practices.md`.
 2. Add it to `data-practices.json`: under a service, or under `otherHosts`, `otherSettings`, or `libraries` with a word on why it is not a data flow.
-3. If it is a new service that receives personal data, add it to the table in `site/privacy.md`, to the AI permission screen, and to `app-privacy.md` if it changes an answer.
+3. If it is a new service that receives personal data, add it to the table in `site/privacy.md` and to `app-privacy.md` if it changes an answer. A service marked `needsPermission: true` joins the AI permission screen by itself, and every account is asked again (`convex/consent/README.md`); `tests/consent-gate.test.mjs` pins which services are asked and which are named as used without asking, so change it with the list.
 
 To move the whole audit to a newer commit, replace the commit id in `data-practices.json` and in every link, then run the check. It names each link whose line no longer holds its text, and the line the text has moved to.
 
@@ -71,13 +69,7 @@ To move the whole audit to a newer commit, replace the commit id in `data-practi
 
 ## Sending the listing to App Store Connect
 
-This needs an Apple Developer membership, an app record in App Store Connect, and an `eas.json`, none of which exist yet. The store build thread owns `eas.json`; it needs one entry so the dynamic file is used:
-
-```json
-{ "submit": { "production": { "ios": { "metadataPath": "./store.config.js" } } } }
-```
-
-Then, with the six variables above set:
+This needs an Apple Developer membership and an app record in App Store Connect, neither of which exists yet. `eas.json` already points `eas submit` at the dynamic file (`submit.production.ios.metadataPath` is `./store.config.js`). Then, with the six variables above set:
 
 ```sh
 npx eas-cli metadata:lint   # checks the file against Expo's schema, offline
@@ -105,6 +97,6 @@ Every answer is "none" or "no", which Apple rates 4+. Three of them a reviewer m
 
 - **Messaging and chat: no.** Apple's definition is "Users can directly communicate with one another". An owner talks to turtl, not to another person.
 - **User-generated content: no.** Apple's definition is "the broad distribution of content created by users". Nothing an owner or their customer writes is shown to anyone but that owner.
-- **Unrestricted web access: no.** The app has no browser. Links open in Safari.
+- **Unrestricted web access: no.** The app has no browser. Links open in Safari; signing in with GitHub opens GitHub's own page in the system's sign-in sheet and comes back to the app.
 
 turtl is still for adults, and the terms say 18 and over. That is a condition of use, not a content rating.
