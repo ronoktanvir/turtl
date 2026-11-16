@@ -39,6 +39,8 @@ export const variables = [
   { name: "CAPY_PROJECT_ID", production: "optional", what: "Capy project those threads start in. Default: the project that holds the repository." },
   { name: "CAPY_MODEL_ID", production: "optional", what: "Model for those Capy threads. Default: the Capy project's model." },
   { name: "CAPY_REASONING", production: "optional", what: "Reasoning level for those Capy threads. Used only with CAPY_MODEL_ID." },
+  { name: "MODEL_SPEND_LIMIT_USD", production: "optional", what: "With accounts on, the estimated model spend in US dollars one account may reach in a calendar month (UTC); past it turtl asks no model for that account and says so on the case. Default 20. No limit in the single-owner demo." },
+  { name: "CODING_THREADS_PER_DAY", production: "optional", what: "With accounts on, how many Capy threads (code changes) one account may start in a calendar day (UTC), since every thread is billed to CAPY_API_KEY. Default 5. No limit in the single-owner demo." },
   { name: "REVYL_API_KEY", production: "optional", secret: true, what: "Runs a fix's device check on a Revyl cloud phone. Without it a device check reports that it is not set up." },
   { name: "REVYL_BASE_URL", production: "optional", what: "Revyl API address. Default https://backend.revyl.ai." },
   { name: "KEIKI_API_KEY", production: "optional", secret: true, what: "Keiki key for owner alerts by text. Does nothing without KEIKI_AGENT_ID and KEIKI_OWNER_CONTACT." },

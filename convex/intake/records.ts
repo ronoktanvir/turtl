@@ -12,6 +12,7 @@ import { ConvexError } from "convex/values";
 import { internalAction, mutation } from "../_generated/server";
 import { accessEnforced, requireCase } from "../access";
 import { requireOwnerPasscode } from "../ownerPasscode";
+import { gateFor } from "../consent/gate";
 import { deleteDocuments } from "../supermemory";
 import { CONTACT_REF, contactRef } from "./rules";
 import { reportsNamespace } from "./triage";
@@ -492,7 +493,7 @@ export const forgetCopies = internalAction({
   handler: async (ctx, { appId, reportIds, tries }) => {
     if (!process.env.SUPERMEMORY_API_KEY) return { removed: false, reason: "SUPERMEMORY_API_KEY is not set, so turtl keeps no copy in Supermemory." };
     try {
-      await deleteDocuments(reportsNamespace(appId), reportIds);
+      await deleteDocuments(gateFor(ctx, { appId }), reportsNamespace(appId), reportIds);
       return { removed: true };
     } catch (error) {
       const reason = `Supermemory did not confirm the deletion (${error instanceof Error ? error.name : "unknown error"}).`;

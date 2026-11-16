@@ -31,6 +31,8 @@ const server = { query: define, mutation: define, action: define, internalQuery:
 const anything = new Proxy({}, { get: (_, name) => (name === "then" ? undefined : anything) });
 
 const capy = load("../convex/prTracking/capy.ts", {});
+// The single-owner demo's gate: every answer is yes. tests/consent-gate.test.mjs covers the refusals.
+const consentGate = { gateFor: () => ({ blocked: async () => null, open: async () => ({ ok: true, fetch: globalThis.fetch }), spent: async () => {}, threadStarted: async () => {} }) };
 // The real access rule. With AUTH_REQUIRED unset, as here, its checks do nothing.
 const access = load("../convex/access.ts", {
   "convex/values": values,
@@ -52,6 +54,7 @@ const fixOptions = load("../convex/fixOptions.ts", {
   "./decisions": decisions,
   "./diagnosis": { modelId: () => "test-model" },
   "./learning/rules": { fingerprint: () => "", pastDecisionLine: () => null, recommend: () => ({ key: null }) },
+  "./spend/limits": { modelCost: () => 0 }, // what a call cost is not under test here
   "./prTracking/capy": capy,
 });
 
@@ -105,6 +108,7 @@ function backend(options, version = 3) {
     "./_generated/api": { internal: anything },
     "./_generated/server": server,
     "./access": access,
+    "./consent/gate": consentGate,
     "./constants": { vDecisionStatus: values.v.any(), vDelivery: values.v.any(), vOptionKind: values.v.any(), vSpan: values.v.any() },
     "./fixOptions": fixOptions,
     "./learning/model": { cleanStatement: () => null, PREFERENCE_FIELD: "" },
@@ -122,7 +126,8 @@ async function sendToCodingAgent(action) {
   const sent = [];
   const execute = load("../convex/prTracking/execute.ts", {
     "../_generated/api": { internal: anything },
-    "./capy": { ...capy, capyConfig: () => ({ ok: true, apiKey: "stand-in" }), startCapyThread: async (_config, thread) => { sent.push(thread); return { ok: true, body: { threadId: "thread-1" } }; } },
+    "../consent/gate": consentGate,
+    "./capy": { ...capy, capyConfig: () => ({ ok: true, apiKey: "stand-in" }), startCapyThread: async (_gate, _config, thread) => { sent.push(thread); return { ok: true, body: { threadId: "thread-1" } }; } },
     "./github": load("../convex/prTracking/github.ts", {}),
   });
   const ctx = { runQuery: async () => null, runMutation: async () => "pull-request-1" };

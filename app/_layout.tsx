@@ -14,6 +14,7 @@ import OwnerPasscodePrompt from "../components/ui/OwnerPasscodePrompt";
 import PushNotifications from "../components/push/PushNotifications";
 import AccountGate from "../components/account/AccountGate";
 import AccountProvider from "../components/account/AccountProvider";
+import ConsentGate from "../components/consent/ConsentGate";
 
 void SplashScreen.preventAutoHideAsync().catch(() => {});
 
@@ -85,6 +86,7 @@ export default function RootLayout() {
         <AccountGate />
         <DevTools />
         <PushNotifications />
+        <ConsentGate />
         {isStoreBuild && <Unreachable />}
       </AccountProvider>
     </ThemeProvider>

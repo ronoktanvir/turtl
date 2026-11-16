@@ -66,6 +66,11 @@ function createLoader(mocks) {
       const key = resolve(dirname(file), name).slice(root.length + 1);
       if (key in mocks) return mocks[key];
       if (key in generated) return generated[key];
+      // A JSON import (store/data-practices.json, which convex/consent/services.ts reads) is data, not a module to compile.
+      if (key.endsWith(".json")) {
+        const data = JSON.parse(readFileSync(resolve(root, key), "utf8"));
+        return { ...data, default: data };
+      }
       return load(resolve(root, key + ".ts"));
     };
     runInThisContext("(function(require, exports, module) { " + outputText + "\n})", { filename: file })(require, module.exports, module);

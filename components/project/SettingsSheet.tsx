@@ -7,6 +7,7 @@ import { useTheme, type ThemeMode } from "../../theme";
 import { Button, Icon, Sheet, T } from "../ui";
 import LegalLinks from "../legal/LegalLinks";
 import AccountSection from "../account/AccountSection";
+import AiSettings from "../consent/AiSettings";
 import OwnerPasscodeSettings from "./OwnerPasscodeSettings";
 import PreferencesSettings from "./PreferencesSettings";
 import NotificationsSettings from "../push/NotificationsSettings";
@@ -60,6 +61,7 @@ export default function SettingsSheet({ visible, onClose, projectId }: { visible
     </View>
     <PreferencesSettings projectId={projectId} />
     {visible && <NotificationsSettings />}
+    <AiSettings onClose={onClose} />
     {isLiveData && visible && <OwnerPasscodeSettings />}
     <View style={{ gap: 12, marginTop: 8 }}>
       <T variant="heading">Theme</T>

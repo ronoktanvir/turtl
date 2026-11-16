@@ -3,6 +3,7 @@ import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import { action, internalAction, mutation, query, type ActionCtx } from "./_generated/server";
 import { canSeeCase, guardCaseInAction, ownerActor, requireDevTools } from "./access";
+import { gateFor } from "./consent/gate";
 import { repositoryAccess } from "./github/access";
 import { capyConfig, findPullRequestNumber } from "./prTracking/capy";
 import { registerCodeChangeAction } from "./prTracking/catalog";
@@ -38,7 +39,7 @@ async function sync(ctx: ActionCtx, row: Doc<"pullRequests">): Promise<RefreshRe
     if (!row.capyThreadId) return { outcome: "failed", message: "This pull request has no number and no Capy thread." };
     const capy = capyConfig();
     if (!capy.ok) return { outcome: "not_configured", missing: capy.missing };
-    const found = await findPullRequestNumber(capy, row.capyThreadId, row.repo, row.capyCursor);
+    const found = await findPullRequestNumber(gateFor(ctx, { caseId: row.caseId }), capy, row.capyThreadId, row.repo, row.capyCursor);
     if (!found.ok) {
       await ctx.runMutation(internal.prTracking.records.recordSyncError, { id: row._id, error: found.message });
       return { outcome: "failed", message: found.message };

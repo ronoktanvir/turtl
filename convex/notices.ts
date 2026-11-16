@@ -3,6 +3,7 @@ import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { internalAction, internalMutation, query } from "./_generated/server";
 import { canSeeCase } from "./access";
+import { gateFor } from "./consent/gate";
 import { vNoticeEvent, vNoticeOutcome } from "./constants";
 import { sendOwnerNotice } from "./keiki";
 import type { NoticeResult } from "./keiki";
@@ -57,7 +58,7 @@ export const notifyOwner = internalAction({
     if (!noticeId) return null;
     // The owner's phones get a push for this event too (convex/push); its outcome is recorded beside this one.
     if (sendsPush(event)) await ctx.scheduler.runAfter(0, internal.push.deliver.forNotice, { noticeId, caseId, event });
-    const result = await sendOwnerNotice(text);
+    const result = await sendOwnerNotice(gateFor(ctx, { caseId }), text);
     await ctx.runMutation(internal.notices.recordResult, { noticeId, ...result });
     return result;
   },

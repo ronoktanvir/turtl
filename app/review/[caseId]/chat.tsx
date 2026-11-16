@@ -2,6 +2,7 @@ import { useLocalSearchParams } from "expo-router";
 import { useRef, useState, type ComponentRef } from "react";
 import { KeyboardAvoidingView, Platform, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import AiNotice from "../../../components/consent/AiNotice";
 import { AskBar } from "../../../components/execution/AskBar";
 import { ApproveSheet, FixCard } from "../../../components/fix/FixCard";
 import { useTalkSession } from "../../../components/voice/useTalkSession";
@@ -60,6 +61,7 @@ export default function InvestigateFurther() {
   return (
     <Screen testID="chat">
       <Header title="Investigate further" fallback={("/review/" + caseId) as never} testID="chat-title" />
+      <AiNotice uses={["openai"]} cannot="answer here or listen to you" style={{ marginHorizontal: 20, marginTop: 8 }} />
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
         <ScrollView
           ref={list}

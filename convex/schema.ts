@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import { accountTables } from "./auth/schema";
 import { bookingError } from "./bookingDemo/validators";
 import { codeNetworkTables } from "./codeNetwork/schema";
+import { consentTables } from "./consent/schema";
 import { councilTables } from "./council/schema";
 import { onboardingTables } from "./onboarding/schema";
 import { vPullRequestRow } from "./prTracking/validators";
@@ -34,6 +35,7 @@ import { intakeTables } from "./intake/schema";
 import { learningTables } from "./learning/schema";
 import { pushTables } from "./push/schema";
 import { revylTables } from "./revyl/schema";
+import { spendTables } from "./spend/schema";
 import { voiceTables } from "./voice/schema";
 import { structuralTables } from "./structural/schema";
 
@@ -218,4 +220,6 @@ export default defineSchema({
   ...githubTables,
   ...pushTables,
   ...accountTables,
+  ...consentTables,
+  ...spendTables,
 });
