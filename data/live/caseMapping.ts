@@ -42,6 +42,7 @@ export function mapCaseSummary(row: Doc<"cases">, number: number, pullRequest?: 
     status,
     health,
     happenedAt: row._creationTime,
+    ...(row.starred && { starred: true }),
     ...(row.kind === "feature_request"
       ? row.distinctRequesterCount !== undefined && { reportCount: row.distinctRequesterCount }
       : row.reportCount !== undefined && { reportCount: row.reportCount }),
@@ -96,7 +97,54 @@ const verdictWords: Record<string, string> = { passed: "passed", failed: "failed
 const capitalized = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
 const named = (words: Record<string, string>, id: string) => words[id] ?? capitalized(plainWords(id));
 const criterionLine = (status: string, id: string, summary?: string) =>
-  `${status === "uncovered" ? "Not covered" : status === "passed" ? "Passed" : "Failed"} — ${plainWords(id)}${summary ? ": " + summary : ""}`;
+  `${status === "uncovered" ? "Not covered" : status === "passed" ? "Passed" : "Failed"} — ${plainWords(id)}${summary ? ": " + ownerWords(summary) : ""}`;
+// Where a piece of evidence came from, in an owner's words: never a request line, a table name or an id.
+const SOURCES: [RegExp, string][] = [
+  [/^GET \/health\b/, "the app's health check"],
+  [/^GET \/flags\b/, "the app's settings"],
+  [/^GET \/revision\b/, "the version the app reports"],
+  [/^GET \/errors\b/, "the app's record of recent failures"],
+  [/^POST \/journey-check\b/, "turtl's check of the journey"],
+  [/^code:/, "the project's code"],
+  [/^cases\//, "an earlier case"],
+  [/^recoveryMemories\//, "a recovery turtl remembers"],
+  [/^agentRuns\//, "turtl's own work on this case"],
+  [/^reports\//, "a customer's report"],
+  [/^Revyl /, "a test run on a device"],
+];
+const COPY_PREFIX = /^(?:Copied from an earlier step: |Derived from evidence\/[^;]*; stepAttempts\/[^;]*; )/;
+export function plainSource(sourceRef: string): string | null {
+  const ref = sourceRef.replace(COPY_PREFIX, "").trim();
+  for (const [pattern, words] of SOURCES) if (pattern.test(ref)) return words;
+  // Anything else is shown only when it carries no id or request line.
+  return ref && !/[a-z0-9]{16,}|\/|^[A-Z]+ /.test(ref) ? ref : null;
+}
+
+/** The original a gather step's copy of evidence stands for: copyOf, or the id in an older copy's sourceRef. */
+export function copiedFrom(row: { copyOf?: string; sourceRef?: string }): string | undefined {
+  return row.copyOf ?? /^Derived from evidence\/([^;]+);/.exec(row.sourceRef ?? "")?.[1];
+}
+
+// Text meant for an owner, from collectors and checks: an error code in brackets after the words that already say
+// what failed ("(RECOMMENDATIONS_TIMEOUT)") is dropped, and a raw health flag reads as a sentence.
+export function ownerWords(value: string): string {
+  return value
+    .replace(/\s*\((?:[A-Z][A-Z0-9]*_)+[A-Z0-9]+\)/g, "")
+    .replace(/reports health ok is true\b/g, "says it is healthy")
+    .replace(/reports health ok is false\b/g, "says it is not healthy");
+}
+
+// A recorded journey check's body for the Logs: step names in words, the error without its code, and no run id.
+export function journeyBodyWords(body: string): string {
+  return body
+    .split("\n")
+    .map((line) => line
+      .replace(/^([a-z][a-z0-9_]*): (passed|failed|skipped)\. /, (_all, name: string, verdict: string) => `${capitalized(plainWords(name))}: ${verdict}. `)
+      .replace(/^Error [A-Z][A-Z0-9_]*: /, "Error: ")
+      .replace(/\s*Run \S+ on revision \S+\.$/, ""))
+    .join("\n");
+}
+
 // A model reason that names a deployment setting reads as "no model is connected" to an owner.
 const plainModelReason = (reason: string) => (/_API_KEY|_KEY\b/.test(reason) ? "turtl has no model connected yet" : reason);
 
@@ -113,7 +161,7 @@ function journeyVisualization(body: string): Visualization | undefined {
   for (const line of body.split("\n")) {
     const match = /^([^:\n]+): (passed|failed|skipped)\. (.*)$/.exec(line);
     if (!match) continue;
-    steps.push({ label: match[1] + (match[2] === "skipped" ? " (skipped)" : ""), state: match[2] === "skipped" ? "not_reached" : match[2] as "passed" | "failed" });
+    steps.push({ label: capitalized(plainWords(match[1])) + (match[2] === "skipped" ? " (skipped)" : ""), state: match[2] === "skipped" ? "not_reached" : match[2] as "passed" | "failed" });
   }
   return steps.length ? { type: "journey", steps } : undefined;
 }
@@ -129,7 +177,7 @@ function enactmentOf(cards: CaseCards, fixes: CaseFixes | undefined, pullRequest
       title: step.title,
       status: step.status === "waiting" ? "pending" : step.status,
       detail: nameSteps([step.status === "waiting" ? "Waiting." : "", step.skipReason, attempt?.handoff, attempt?.error].filter(Boolean).join(" "), cards.steps) || undefined,
-      summary: attempt?.summary && nameSteps(attempt.summary, cards.steps),
+      summary: attempt?.summary && ownerWords(nameSteps(attempt.summary, cards.steps)),
       startedAt: attempt?.startedAt,
       finishedAt: attempt?.finishedAt,
     };
@@ -187,7 +235,7 @@ export function mapCaseDetail(
     || cards.steps.some((step) => step.staged || /staged|fixture/i.test(step.currentAttempt?.summary ?? ""));
   if (staged && cards.case.raisedBy !== "customer") paragraph([{ text: "This case came from a staged practice failure on the demo app. What it shows is not a real customer problem." }]);
   const names = cards.steps.map((step) => ({ key: step.key, purpose: step.purpose, title: step.title }));
-  const plain = (value: string) => nameSteps(value, names);
+  const plain = (value: string) => ownerWords(nameSteps(value, names));
   const permission = cards.runPermission;
   if (permission && cards.action?.requestedBy === "auto" && cards.action.permissionId === permission._id) {
     const handled = cards.action.status === "completed" && (cards.case.status === "restored" || cards.case.status === "resolved");
@@ -218,7 +266,7 @@ export function mapCaseDetail(
       const supporting = diagnosis.supportingEvidenceIds.filter((id): id is string => typeof id === "string");
       for (const id of supporting) {
         const evidence = cards.evidence.find((row) => row._id === id);
-        if (evidence) paragraph([sourceSpan(evidence.title, id)]);
+        if (evidence) paragraph([sourceSpan(ownerWords(evidence.title), id)]);
       }
     }
   }
@@ -232,10 +280,17 @@ export function mapCaseDetail(
   } : undefined;
 
   for (const evidence of cards.evidence) {
-    logs.push({ id: evidence._id, at: evidence.observedAt, level: "info", source: `Evidence · ${named(evidenceWords, evidence.kind)}`, text: [evidence.title, evidence.body, evidence.sourceRef && `Source: ${evidence.sourceRef}`].filter(Boolean).join("\n") });
+    // A gather step's copy of evidence already on this case is shown once, as its original; citing it opens that.
+    const original = copiedFrom(evidence);
+    if (original && original !== evidence._id && evidenceIds.has(original)) {
+      citations.push({ id: evidence._id, kind: "log", logId: original });
+      continue;
+    }
+    const from = evidence.sourceRef ? plainSource(evidence.sourceRef) : null;
+    logs.push({ id: evidence._id, at: evidence.observedAt, level: "info", source: `Evidence · ${named(evidenceWords, evidence.kind)}`, text: [ownerWords(evidence.title), evidence.body && (evidence.kind === "journey_check" ? journeyBodyWords(evidence.body) : evidence.body), from && `From ${from}.`].filter(Boolean).join("\n") });
     citations.push({ id: evidence._id, kind: "log", logId: evidence._id });
     if (evidence.kind === "customer_report" && customerReports?.reports.length) continue;
-    paragraph([sourceSpan(evidence.title, evidence._id)]);
+    paragraph([sourceSpan(ownerWords(evidence.title), evidence._id)]);
   }
 
   for (const step of cards.steps) {
@@ -274,14 +329,14 @@ export function mapCaseDetail(
     const missing = verification.coverage.uncoveredCriterionIds.filter((criterionId) => !verification.criterionResults.some((result) => result.criterionId === criterionId));
     for (const criterionId of missing) criteria.push(criterionLine("uncovered", criterionId));
     const verdict = verdictWords[verification.verdict] ?? verification.verdict;
-    logs.push({ id, at: verification.completedAt, level: verification.verdict === "failed" ? "error" : verification.verdict === "inconclusive" ? "warn" : "info", source: `Check · ${phase}`, text: [`${phase} — ${verdict}: ${verification.summary}`, ...criteria].join("\n") });
+    logs.push({ id, at: verification.completedAt, level: verification.verdict === "failed" ? "error" : verification.verdict === "inconclusive" ? "warn" : "info", source: `Check · ${phase}`, text: [`${phase} — ${verdict}: ${ownerWords(verification.summary)}`, ...criteria].join("\n") });
     citations.push({ id, kind: "log", logId: id });
-    paragraph([{ text: `${phase} — ${verdict}: ${verification.summary}`, cite: id }]);
+    paragraph([{ text: `${phase} — ${verdict}: ${ownerWords(verification.summary)}`, cite: id }]);
     for (const result of verification.criterionResults) {
       const spans: Span[] = [{ text: criterionLine(result.status, result.criterionId, result.summary) }];
       for (const evidenceId of result.evidenceIds) {
         const evidence = cards.evidence.find((row) => row._id === evidenceId);
-        if (evidence) spans.push(sourceSpan(` ${evidence.title}`, evidenceId));
+        if (evidence) spans.push(sourceSpan(` ${ownerWords(evidence.title)}`, evidenceId));
       }
       paragraph(spans);
     }

@@ -81,10 +81,10 @@ export const handler: StepHandler = {
             evidenceRow(input, revision, {
               kind: "memory_match",
               title: memory.applies
-                ? `Recovery memory ${memory._id} applies: its conditions were rechecked now.`
-                : `Recovery memory ${memory._id} does not apply.`,
+                ? "A recovery turtl remembers applies: its conditions were rechecked now."
+                : "A recovery turtl remembers does not apply.",
               body: memory.applies
-                ? `Previously verified ${memory.timesVerified} time(s). ${memory.conditions.join("; ")}. Owner approval and verification are still required.`
+                ? `Previously verified ${memory.timesVerified === 1 ? "once" : `${memory.timesVerified} times`}. ${memory.conditions.join("; ")}. Owner approval and verification are still required.`
                 : memory.failedChecks.join("\n"),
               sourceRef: `recoveryMemories/${memory._id}`,
             }),
@@ -100,7 +100,7 @@ export const handler: StepHandler = {
       )[0];
     const matched = !!applicable;
     const recallNote = matched
-      ? ` Recovery memory ${applicable!._id} applies; investigation was skipped after current checks passed.`
+      ? " A recovery turtl remembers applies, so investigation was skipped after current checks passed."
       : recalled.candidates.length
         ? " No remembered recovery applies, so investigation will run in full."
         : " No recovery memory was found.";
@@ -111,10 +111,11 @@ export const handler: StepHandler = {
       observed,
       revision: revisionText,
       memories: recalled.candidates,
-    }).catch((error: unknown) => ({
-      uses: [],
-      summary: `No context sources were recorded: ${error instanceof Error ? error.message : "recording failed"}.`,
-    }));
+    }).catch((error: unknown) => {
+      // The owner reads the summary; the error is for the operator.
+      console.error("gather_context: recording context sources failed", error);
+      return { uses: [], summary: "No context sources were recorded, because recording them failed." };
+    });
     return {
       status: "done",
       summary: missing.length

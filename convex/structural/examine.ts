@@ -1,3 +1,4 @@
+import { NO_MODEL_REASON } from "../constants";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import type { ActionCtx } from "../_generated/server";
@@ -38,7 +39,7 @@ type Answer = { ok: true; json: Record<string, unknown> } | { ok: false; reason:
 
 async function ask(gate: Gate, prompt: unknown): Promise<Answer> {
   const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) return { ok: false, reason: "OPENAI_API_KEY is not set on this deployment, so no model was asked" };
+  if (!apiKey) return { ok: false, reason: NO_MODEL_REASON };
   const opened = await gate.open("openai");
   if (!opened.ok) return { ok: false, reason: opened.reason };
   const model = structuralModelId();
@@ -159,8 +160,9 @@ export async function examineBroaderCauses(ctx: ActionCtx, input: HandlerInput):
       [runRef, { kind: "structuralFinding", id: findingId }],
     );
   } catch (error) {
+    console.error("examine_broader_causes failed", error);
     return done(
-      `Broader causes could not be examined (${error instanceof Error ? error.message : "unknown error"}). No finding was recorded; the case continues.`,
+      "Broader causes could not be examined, because something went wrong while turtl looked. No finding was recorded; the case continues.",
       { examined: false, error: true },
     );
   }

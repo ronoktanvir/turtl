@@ -13,10 +13,15 @@ import { api } from "../../convex/_generated/api";
 import { CASE_STATUSES, CLOSED_CASE_STATUSES } from "../../convex/constants";
 import { devToolsAllowed } from "../../data/source";
 import { useDevActions } from "./useDevActions";
+import { useDevToolsOn } from "../ui/devTools";
 
 export function DevTools() {
-  if (!devToolsAllowed) return null;
-  return <DevToolsOverlay />;
+  return devToolsAllowed ? <DevToolsGate /> : null;
+}
+
+// A backend with accounts on refuses every dev tool, so the pill is not drawn at all there.
+function DevToolsGate() {
+  return useDevToolsOn() ? <DevToolsOverlay /> : null;
 }
 
 function DevToolsOverlay() {

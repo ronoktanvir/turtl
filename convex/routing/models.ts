@@ -97,12 +97,14 @@ function request(call: ModelCall, key: string): Request {
 // Infrastructure failures (no key, no answer in time, a refused or failed request) are kept apart from answers that
 // arrived but could not be used, because only the second says anything about the configuration's reasoning.
 // A refusal from the gate is an infrastructure failure marked blocked, so nothing hands it up to a stronger model.
+// The owner reads a reason like this on the case, so it names the provider, never the setting that holds its key.
+const PROVIDER_NAMES: Record<Provider, string> = { openai: "OpenAI", anthropic: "Anthropic", google: "Google Gemini" };
+
 export async function callModel(gate: Gate, call: ModelCall): Promise<ModelAnswer> {
   const started = Date.now();
   const elapsed = () => Date.now() - started;
-  const keyName = PROVIDER_KEYS[call.ref.provider];
   const key = providerKey(call.ref.provider);
-  if (!key) return { ok: false, infra: true, reason: `${keyName} is not set on this deployment, so no request was sent`, durationMs: 0 };
+  if (!key) return { ok: false, infra: true, reason: `${PROVIDER_NAMES[call.ref.provider]} is not connected to turtl yet, so no request was sent`, durationMs: 0 };
   const opened = await gate.open(call.ref.provider);
   if (!opened.ok) return { ok: false, infra: true, blocked: true, reason: opened.reason, durationMs: 0 };
   const { url, headers, body, read } = request(call, key);

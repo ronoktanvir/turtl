@@ -35,3 +35,10 @@ test("a case waiting on the owner needs review, and one turtl is on is currently
   assert.deepEqual(issueState(item("fix", "ready_to_merge", "needs_you")), { label: "Needs review", color: "statusReview", turtle: "review" });
   assert.deepEqual(issueState(item("fix", "investigating", "working")), { label: "Currently working", color: "statusWorking", turtle: "working" });
 });
+
+test("an opened feature request shows the same request words, never a bug's", async () => {
+  const { readFileSync } = await import("node:fs");
+  const page = readFileSync(new URL("../components/fix/CasePage.tsx", import.meta.url), "utf8");
+  assert.match(page, /feature \? <RequestState state=\{issueState\(c\)\}/);
+  assert.match(page, /accessibilityLabel=\{feature \? "New request" : "New issue"\}/);
+});

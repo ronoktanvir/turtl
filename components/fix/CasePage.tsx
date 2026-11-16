@@ -5,11 +5,14 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { isLiveData, useCase, useDataStatus, useWorkflow } from "../../data";
 import type { FixOption, Screenshot } from "../../data/types";
 import { useTheme } from "../../theme";
-import { ago, Button, Card, Chip, devToolsOn, HealthWord, Icon, Reveal, T, Turtle, useReducedMotion } from "../ui";
+import { ago, Button, Card, Chip, HealthWord, Icon, Reveal, T, Turtle, useReducedMotion } from "../ui";
+import { useDevToolsOn } from "../ui/devTools";
 import { Droplet, dropBack, fillDrop, nativeDriver, usePull, useWheelPull } from "../ui/pulse";
 import { swipeTravel } from "../ui/swipe";
 import { CaseTabs, type CaseTab } from "./CaseTabs";
 import { CouncilView } from "./CouncilView";
+import { issueState, type IssueState } from "../project/issueState";
+import { reportLine } from "./counts";
 import { CustomerReportsControl } from "./CustomerReports";
 import { CodeBox, LogRow, SpanText, Viz } from "./Evidence";
 import { ApproveSheet, DeclineSheet, FixCard } from "./FixCard";
@@ -17,6 +20,17 @@ import { PreventionCheckCard, StructuralFindingCard } from "./StructuralFinding"
 import { WorkflowGraph } from "../execution/WorkflowGraph";
 
 const phases: Record<Screenshot["phase"], string> = { failure: "When it failed", before: "Before", after: "After" };
+
+// A feature request's state on its own page, in the Features list's words ("New request", "Needs review"): never a
+// bug's "Users affected" or "New issue".
+function RequestState({ state, testID }: { state: IssueState; testID: string }) {
+  return (
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }} testID={testID}>
+      <Icon name={state.turtle === "new" ? "Plus" : state.turtle === "clear" ? "ShieldCheck" : state.turtle === "working" ? "Sparkles" : "TriangleAlert"} size={15} color={state.color} />
+      <T variant="small" color={state.color}>{state.label}</T>
+    </View>
+  );
+}
 
 // An opened issue is two pages. The first is the issue: the Overview, Logs and Code bar and what it shows. The second
 // is what to do about it: Fixes, or Options for a feature request. Pulling on past the end of the first page, or the
@@ -56,6 +70,7 @@ function focus(view: ViewNode | null) {
 }
 
 export function CasePage({ caseId, current }: { caseId: string; current: boolean }) {
+  const devToolsOn = useDevToolsOn();
   const c = useCase(caseId);
   const workflow = useWorkflow(caseId);
   const { errors } = useDataStatus();
@@ -165,18 +180,18 @@ export function CasePage({ caseId, current }: { caseId: string; current: boolean
               <Reveal>
                 <View style={{ gap: 12 }}>
                   <View style={{ flexDirection: "row", flexWrap: "wrap", columnGap: 12, alignItems: "center" }}>
-                    {c.status === "new" ? <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }} testID={id("case-health")}><Icon name="Plus" size={15} color="statusNew" /><T variant="small" color="statusNew">New issue</T></View> : <HealthWord health={c.health} testID={id("case-health")} />}
+                    {feature ? <RequestState state={issueState(c)} testID={id("case-health")} /> : c.status === "new" ? <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }} testID={id("case-health")}><Icon name="Plus" size={15} color="statusNew" /><T variant="small" color="statusNew">New issue</T></View> : <HealthWord health={c.health} testID={id("case-health")} />}
                     <T variant="small" color="textMuted">
                       {ago(c.happenedAt)}
                     </T>
                   </View>
                   <View style={{ flexDirection: "row", gap: 12, alignItems: "center" }}>
-                    {c.status === "new" ? <Image source={require("../../assets/turtle/new.png")} style={{ width: 44, height: 44 }} accessibilityLabel="New issue" /> : <Turtle health={c.health} size={44} />}
+                    {c.status === "new" ? <Image source={require("../../assets/turtle/new.png")} style={{ width: 44, height: 44 }} accessibilityLabel={feature ? "New request" : "New issue"} /> : <Turtle health={c.health} size={44} />}
                     <T variant="strong" style={{ flex: 1 }} testID={id("case-summary")}>{c.summary || "No summary has been recorded yet."}</T>
                   </View>
                     {!!c.reportCount && (
                       <T variant="small" color="textMuted" style={{ paddingLeft: 56 }}>
-                        {c.reportCount + (feature ? " people asked" : " people reported it")}
+                        {reportLine(c.reportCount, feature)}
                       </T>
                     )}
                 </View>

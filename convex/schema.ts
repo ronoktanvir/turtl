@@ -72,6 +72,8 @@ export default defineSchema({
     distinctRequesterCount: v.optional(v.number()),
     resolvedAt: v.optional(v.number()),
     isSample: v.optional(v.boolean()),
+    // The owner's star: "look at this later". Only the owner sets it; nothing in turtl acts on it.
+    starred: v.optional(v.boolean()),
   })
     .index("by_app_and_signature", ["appId", "signature"])
     .index("by_app", ["appId"])

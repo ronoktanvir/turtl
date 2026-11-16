@@ -4,7 +4,7 @@ import Svg, { Path } from "react-native-svg";
 import { layoutWorkflow, nameSteps, plainWords, statusWords, type Workflow, type WorkflowStatus } from "../../data/workflow";
 import { useTheme, type TokenName } from "../../theme";
 import { Icon, T, type IconName } from "../ui";
-import { formatDuration, formatStart } from "./timing";
+import { formatStart, tookDuration } from "./timing";
 
 const capitalized = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
 const listed = (items: string[]) => (items.length < 2 ? items.join("") : items.slice(0, -1).join(", ") + " and " + items[items.length - 1]);
@@ -96,7 +96,7 @@ export function WorkflowGraph({ workflow }: { workflow: Workflow }) {
       {attempt && <>
         <T color="textMuted">{[
           attempt.attempt > 1 ? `Tried ${attempt.attempt} times.` : "Tried once.",
-          attempt.startedAt !== undefined ? `Started ${formatStart(attempt.startedAt)}` + (attempt.finishedAt !== undefined ? (attempt.finishedAt - attempt.startedAt < 1000 ? ", took under a second." : `, took ${formatDuration(attempt.finishedAt - attempt.startedAt)}.`) : ".") : "",
+          attempt.startedAt !== undefined ? `Started ${formatStart(attempt.startedAt)}` + (attempt.finishedAt !== undefined ? `, took ${tookDuration(attempt.finishedAt - attempt.startedAt)}.` : ".") : "",
         ].filter(Boolean).join(" ")}</T>
         {attempt.summary && <T>{nameSteps(attempt.summary, workflow.steps)}</T>}
         {attempt.error && <T color="statusAffected">{nameSteps(attempt.error, workflow.steps)}</T>}

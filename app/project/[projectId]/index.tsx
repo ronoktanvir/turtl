@@ -37,6 +37,8 @@ export default function ProjectHome() {
 
   // Nothing open yet (or any more): show what turtl is watching, so a new project is not an empty page.
   const quiet = project ? project.bugCount === 0 && project.featureCount === 0 : false;
+  // A repository turtl could not read is not "All clear": nothing is watched until the owner reads it again.
+  const unreadable = onboarding?.stage === "inspection_failed";
   if (project === undefined) return <Screen testID="project-home">{errors.length === 0 && <T style={{ padding: 20 }}>Loading…</T>}</Screen>;
   if (project === null) return <Screen testID="project-home"><Header title="Project not found" fallback="/projects" /><View style={{ padding: 20, gap: 16 }}><T>This project is no longer available.</T><Button label="Back to Projects" onPress={() => router.replace("/projects")} testID="project-not-found-back" /></View></Screen>;
 
@@ -51,16 +53,16 @@ export default function ProjectHome() {
       <View testID="project-home-scroll" style={{ flex: 1, minHeight: 0, paddingHorizontal: 20, paddingTop: compact ? 8 : 16, paddingBottom: insets.bottom + 12, gap: compact ? 12 : 20 }}>
         <View style={{ gap: compact ? 0 : 4 }}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-            <Turtle health={project.health} size={compact ? 36 : 48} />
-            <View style={{ flex: 1, gap: 4 }}><HealthWord health={project.health} />{project.summary && <T color="textMuted" numberOfLines={short ? 1 : 2}>{project.summary}</T>}</View>
+            <Turtle health={unreadable && project.health === "clear" ? "needs_you" : project.health} size={compact ? 36 : 48} />
+            <View style={{ flex: 1, gap: 4 }}><HealthWord health={unreadable && project.health === "clear" ? "needs_you" : project.health} testID="project-health" />{project.summary && <T color="textMuted" numberOfLines={short ? 1 : 2}>{project.summary}</T>}</View>
           </View>
           {(project.repoUrl || project.productionUrl) && <View style={{ flexDirection: "row", gap: 20, paddingLeft: compact ? 48 : 60 }}>
             {([{ label: "GitHub", id: "project-github", url: project.repoUrl }, { label: "Live app", id: "project-live-app", url: project.productionUrl }] as const).map((link) => link.url && <Pressable key={link.id} testID={link.id} accessibilityRole="link" onPress={() => Linking.openURL(link.url!)} style={{ minHeight: 44, flexDirection: "row", alignItems: "center", gap: 6 }}>{link.id === "project-github" ? <BrandIcon name="github" size={20} /> : <Icon name="ExternalLink" size={15} color="textMuted" />}<T variant="small" color="textMuted">{link.label}</T></Pressable>)}
           </View>}
-          {onboarding && (project.health === "clear" || ownerStages.includes(onboarding.stage)) && <Pressable testID="project-preparation" accessibilityRole="link" onPress={() => router.push(`/project/${project.id}/prepare` as Href)} style={{ minHeight: 44, flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: compact ? 48 : 60 }}>
-            <Glyph name="ClipboardCheck" size={17} color={ownerStages.includes(onboarding.stage) ? "statusNeedsYou" : "brandDeep"} />
+          {onboarding && (project.health === "clear" || unreadable || ownerStages.includes(onboarding.stage)) && <Pressable testID="project-preparation" accessibilityRole="link" onPress={() => router.push(`/project/${project.id}/prepare` as Href)} style={{ minHeight: 44, flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: compact ? 48 : 60 }}>
+            <Glyph name="ClipboardCheck" size={17} color={unreadable || ownerStages.includes(onboarding.stage) ? "statusNeedsYou" : "brandDeep"} />
             <T variant="small">Preparation</T>
-            <T variant="small" color={ownerStages.includes(onboarding.stage) ? "statusNeedsYou" : "textMuted"} numberOfLines={1} style={{ flex: 1 }} testID="project-preparation-status">{preparationStatus(onboarding)}</T>
+            <T variant="small" color={unreadable || ownerStages.includes(onboarding.stage) ? "statusNeedsYou" : "textMuted"} numberOfLines={1} style={{ flex: 1 }} testID="project-preparation-status">{preparationStatus(onboarding)}</T>
             <Icon name="ChevronRight" size={16} color="textMuted" />
           </Pressable>}
         </View>

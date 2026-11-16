@@ -17,6 +17,16 @@ const status = (answer, allowed, extra = {}) => ({
   ...extra,
 });
 
+test("after Not now, a reload at the start returns to \"turtl will work without AI\", not the whole list", () => {
+  assert.equal(words.showsDeclined(true, false, status("none", false, { needsAnswer: true })), true);
+  assert.equal(words.showsDeclined(false, true, status("declined", false)), true);
+  assert.equal(words.showsDeclined(false, false, status("declined", false)), false, "from the gear sheet or a notice: the list, to allow");
+  assert.equal(words.showsDeclined(false, true, status("declined", false, { needsAnswer: true })), false, "a changed list is asked again");
+  assert.equal(words.showsDeclined(false, true, status("none", false, { needsAnswer: true })), false);
+  const screen = readFileSync(join(root, "app/ai-permission.tsx"), "utf8");
+  assert.match(screen, /if \(showsDeclined\(declined, atStart, status\)\)/);
+});
+
 test("the gear sheet says where the permission and the spend stand, in one sentence each", () => {
   assert.equal(words.listNames(["OpenAI"]), "OpenAI");
   assert.equal(words.listNames(["OpenAI", "Capy"]), "OpenAI and Capy");

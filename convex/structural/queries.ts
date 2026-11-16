@@ -76,7 +76,8 @@ async function view(ctx: QueryCtx, finding: Doc<"structuralFindings">): Promise<
         description: check.description,
         status: check.status,
         ...(check.reason && { reason: check.reason }),
-        ...(lastResult && { lastResult: { verdict: lastResult.verdict, at: lastResult.at, summary: lastResult.summary } }),
+        // Runs recorded before the code was left out still carry it, as "(RECOMMENDATIONS_TIMEOUT)".
+        ...(lastResult && { lastResult: { verdict: lastResult.verdict, at: lastResult.at, summary: lastResult.summary.replace(/\s*\((?:[A-Z][A-Z0-9]*_)+[A-Z0-9]+\)/g, "") } }),
       },
     }),
     foundAt: finding.foundAt,

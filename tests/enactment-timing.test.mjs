@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { EXAMPLE_RUN_SPEED, estimatedStepDuration, playbackDuration, readExecutionClock, changeClockState } from "../data/example/timing.ts";
-import { formatDuration, remainingDuration } from "../components/execution/timing.ts";
+import { formatDuration, remainingDuration, tookDuration } from "../components/execution/timing.ts";
 import { approvalLabel } from "../theme/design.ts";
 
 test("one pace constant gives realistic minutes and watchable step durations", () => {
@@ -41,4 +41,24 @@ test("remaining estimates exclude completed work and durations retain seconds", 
   ];
   assert.equal(remainingDuration(steps, 40_000), 195_000);
   assert.equal(remainingDuration(steps, 250_000), 45_000);
+});
+
+test("a step that finished in under a second says so, never \"took 0 s\"", async () => {
+  assert.equal(tookDuration(0), "under a second");
+  assert.equal(tookDuration(999), "under a second");
+  assert.equal(tookDuration(1000), "1 s");
+  assert.equal(tookDuration(220_000), "3 min 40 s");
+  const { readFileSync } = await import("node:fs");
+  for (const file of ["PlanGraph.tsx", "WorkflowGraph.tsx"]) {
+    const source = readFileSync(new URL("../components/execution/" + file, import.meta.url), "utf8");
+    assert.match(source, /took \$\{tookDuration\(/, file);
+    assert.doesNotMatch(source, /took \$\{formatDuration\(/, file);
+  }
+});
+
+test("at 320 wide the running fix's status wraps under Stop and Merge instead of squeezing beside them", async () => {
+  const { readFileSync } = await import("node:fs");
+  const screen = readFileSync(new URL("../app/review/[caseId]/enacting.tsx", import.meta.url), "utf8");
+  assert.match(screen, /flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: 12, rowGap: 10/);
+  assert.match(screen, /style=\{\{ flexGrow: 1, flexShrink: 1, flexBasis: 120, minWidth: 0 \}\} testID="enacting-ci"/);
 });

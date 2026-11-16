@@ -3,7 +3,7 @@ import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import { internalMutation, internalQuery, query, type MutationCtx, type QueryCtx } from "../_generated/server";
 import { canSeeApp, canSeeCase } from "../access";
-import { CLOSED_CASE_STATUSES } from "../constants";
+import { CLOSED_CASE_STATUSES, NO_SUPERMEMORY } from "../constants";
 import { startCaseRun } from "../runner/run";
 import { HARNESS_VERSION, RATE_LIMITS, TRIAGE_PROMPT_VERSION, fingerprint, windowStart, type Candidate } from "./rules";
 import { vReportHint, vTriageVerdict } from "./schema";
@@ -500,7 +500,7 @@ export const forgetCopies = internalAction({
   args: { appId: v.id("apps"), reportIds: v.array(v.string()), tries: v.number() },
   returns: v.object({ removed: v.boolean(), reason: v.optional(v.string()) }),
   handler: async (ctx, { appId, reportIds, tries }) => {
-    if (!process.env.SUPERMEMORY_API_KEY) return { removed: false, reason: "SUPERMEMORY_API_KEY is not set, so turtl keeps no copy in Supermemory." };
+    if (!process.env.SUPERMEMORY_API_KEY) return { removed: false, reason: `${NO_SUPERMEMORY}, so turtl keeps no copy there.` };
     try {
       await deleteDocuments(gateFor(ctx, { appId }), reportsNamespace(appId), reportIds);
       return { removed: true };

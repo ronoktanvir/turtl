@@ -184,10 +184,11 @@ export default function Enacting() {
                 ))}
               </View>
             )}
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+            {/* The status wraps under the buttons when the row is too narrow for it (320 wide), not into a sliver beside them. */}
+            <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: 12, rowGap: 10 }}>
               <Button label={control === "stop" ? "Stopping…" : "Stop"} icon="X" kind="danger" disabled={!canStop || control !== null} onPress={() => void stop()} testID="enacting-stop" />
               <Button label={control === "merge" ? "Merging…" : "Merge"} icon="GitMerge" disabled={!canMerge || control !== null} onPress={() => void merge()} testID="enacting-merge" />
-              <T variant="small" color={pr?.checks === "passing" ? "statusClear" : "textMuted"} style={{ flex: 1 }} testID="enacting-ci">{ci}</T>
+              <T variant="small" color={pr?.checks === "passing" ? "statusClear" : "textMuted"} style={{ flexGrow: 1, flexShrink: 1, flexBasis: 120, minWidth: 0 }} testID="enacting-ci">{ci}</T>
             </View>
             {stopError && <T font="text" color="statusAffected" accessibilityRole="alert" testID="enacting-stop-error">{stopError}</T>}
             {refused && (

@@ -1,6 +1,6 @@
 import { v } from "convex/values";
-import { query } from "./_generated/server";
-import { accessEnforced, canSeeCase, visibleCases } from "./access";
+import { mutation, query } from "./_generated/server";
+import { accessEnforced, canSeeCase, requireCase, visibleCases } from "./access";
 import {
   DEFAULT_MAX_ATTEMPTS,
   currentPermission,
@@ -127,5 +127,17 @@ export const cards = query({
         .withIndex("by_case", (q) => q.eq("caseId", id))
         .collect(),
     };
+  },
+});
+
+// Stars a case for the owner to look at later, or takes the star off. Only the case's owner can; for anyone else the
+// case reads as not found. In the single-owner demo no passcode is asked: a star decides nothing.
+export const setStarred = mutation({
+  args: { caseId: v.id("cases"), starred: v.boolean() },
+  returns: v.null(),
+  handler: async (ctx, { caseId, starred }) => {
+    await requireCase(ctx, caseId);
+    await ctx.db.patch(caseId, { starred });
+    return null;
   },
 });

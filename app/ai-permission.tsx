@@ -3,7 +3,7 @@ import { useRef, useState } from "react";
 import { ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import ServiceCard from "../components/consent/ServiceCard";
-import { day, listNames, whatItDoes } from "../components/consent/words";
+import { day, listNames, showsDeclined, whatItDoes } from "../components/consent/words";
 import LegalLinks from "../components/legal/LegalLinks";
 import { Button, Header, Screen, T } from "../components/ui";
 import { allowAi, declineAi, useAiPermission, withdrawAi } from "../data/consent";
@@ -53,7 +53,7 @@ export default function AiPermission() {
     }
 
     // After a no: what turtl still does, and what it cannot do without these services.
-    if (declined) {
+    if (showsDeclined(declined, atStart, status)) {
       return (
         <View style={{ gap: 16 }} testID="ai-permission-declined">
           <T variant="title" accessibilityRole="header">turtl will work without AI</T>

@@ -123,3 +123,12 @@ test("scenario checks exist only for plain journey-check URLs", () => {
   assert.equal(scenarioUrl("https://x.convex.site/booking-demo/health", "slow_recommendations"), null);
   assert.equal(scenarioUrl("https://x.convex.site/booking-demo/journey-check?scenario=a", "slow_recommendations"), null);
 });
+
+test("a prevention check's failed first run says where it stopped, without the app's error code", async () => {
+  const { createLoader } = await import("./fixtures/convex-memory.mjs");
+  const { failedRunWords } = createLoader()("convex/structural/checks.ts");
+  assert.equal(failedRunWords("recommendations"), 'Its first run failed at the "recommendations" step.');
+  assert.equal(failedRunWords(undefined), "Its first run failed.");
+  const source = (await import("node:fs")).readFileSync(new URL("../convex/structural/checks.ts", import.meta.url), "utf8");
+  assert.doesNotMatch(source, /error\?\.code/);
+});

@@ -4,11 +4,13 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import ProfileButton from "../components/account/ProfileButton";
 import ProjectIcon from "../components/project/ProjectIcon";
 import FirstRun from "../components/project/FirstRun";
-import { Card, HealthWord, Icon, Reveal, Screen, T, Turtle, devToolsOn } from "../components/ui";
+import { Card, HealthWord, Icon, Reveal, Screen, T, Turtle } from "../components/ui";
+import { useDevToolsOn } from "../components/ui/devTools";
 import { useDataStatus, useProjects } from "../data";
 import { approvalLabel, healthOrder, healthToken, useTheme } from "../theme";
 
 export default function Projects() {
+  const devToolsOn = useDevToolsOn();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();

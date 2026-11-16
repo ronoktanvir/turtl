@@ -1,3 +1,4 @@
+import { NO_SUPERMEMORY } from "../constants";
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
@@ -32,7 +33,7 @@ export async function runVendorTask(ctx: ActionCtx, account: string, task: Pick<
 async function eraseNamespace(ctx: ActionCtx, account: string, namespace: string): Promise<Outcome> {
   if (!namespace) return { ok: true, skipped: true, note: "No namespace was named." };
   // Without a key turtl never wrote to Supermemory, and cannot reach it to delete.
-  if (!process.env.SUPERMEMORY_API_KEY) return { ok: true, skipped: true, note: "SUPERMEMORY_API_KEY is not set on this deployment, so turtl kept nothing at Supermemory." };
+  if (!process.env.SUPERMEMORY_API_KEY) return { ok: true, skipped: true, note: `${NO_SUPERMEMORY}, so turtl kept nothing there.` };
   try {
     const deleted = await deleteNamespace(gateFor(ctx, { account }), namespace);
     return { ok: true, note: deleted ? "Deleted at Supermemory." : "Supermemory had nothing under this name." };

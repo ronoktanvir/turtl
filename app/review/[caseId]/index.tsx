@@ -4,7 +4,7 @@ import { Pressable, ScrollView, View } from "react-native";
 import AiNotice from "../../../components/consent/AiNotice";
 import { CasePage } from "../../../components/fix/CasePage";
 import { caseTitle, Header, Icon, Screen, T } from "../../../components/ui";
-import { isLiveData, setStarred, useCase, useCases, useDataStatus } from "../../../data";
+import { setStarred, useCase, useCases, useDataStatus } from "../../../data";
 import { useTheme } from "../../../theme";
 
 export default function Review() {
@@ -28,7 +28,7 @@ export default function Review() {
   const [starring, setStarring] = useState(false);
   const [starError, setStarError] = useState<string | null>(null);
   const toggleStar = async () => {
-    if (!current || isLiveData || starPending.current) return;
+    if (!current || starPending.current) return;
     starPending.current = true;
     setStarring(true);
     setStarError(null);
@@ -74,10 +74,10 @@ export default function Review() {
         right={
           <Pressable
             onPress={() => void toggleStar()}
-            disabled={isLiveData || starring}
+            disabled={starring}
             accessibilityRole="button"
-            accessibilityLabel={isLiveData ? "Stars are not available on this backend yet" : current.starred ? "Starred. Tap to remove the star" : "Star this to look at later"}
-            accessibilityState={{ selected: !!current.starred, disabled: isLiveData || starring, busy: starring }}
+            accessibilityLabel={current.starred ? "Starred. Tap to remove the star" : "Star this to look at later"}
+            accessibilityState={{ selected: !!current.starred, disabled: starring, busy: starring }}
             testID="case-star"
             hitSlop={8}
             style={{ alignItems: "center", justifyContent: "center", width: 44, height: 44 }}
@@ -86,7 +86,6 @@ export default function Review() {
           </Pressable>
         }
       />
-      {isLiveData && <T variant="small" font="text" color="textMuted" testID="case-star-unavailable" style={{ paddingHorizontal: 20, paddingVertical: 8 }}>Stars are not available on this backend yet</T>}
       {starError && <T font="text" color="statusAffected" accessibilityRole="alert" testID="case-star-error" style={{ paddingHorizontal: 20, paddingVertical: 8 }}>{starError}</T>}
       <AiNotice uses={["openai", "capy"]} cannot="diagnose this with AI or write code fixes" style={{ marginHorizontal: 20, marginTop: 8 }} />
 

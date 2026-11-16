@@ -59,6 +59,7 @@ const fixOptions = load("../convex/fixOptions.ts", {
   "./learning/rules": { fingerprint: () => "", pastDecisionLine: () => null, recommend: () => ({ key: null }) },
   "./spend/limits": { modelCost: () => 0 }, // what a call cost is not under test here
   "./prTracking/capy": capy,
+  "./constants": { NO_MODEL_REASON: "no AI model is connected to turtl yet, so none was asked" },
 });
 
 const prEntry = {

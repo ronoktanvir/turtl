@@ -73,9 +73,18 @@ export async function mergePullRequest(caseId: string, headSha: string, passcode
     const result = await requireLiveClient().action(api.pullRequests.merge, { caseId: caseId as Id<"cases">, headSha, ...(passcode !== undefined && { passcode }) });
     if (result.outcome === "merged") return { ok: true };
     if (result.outcome === "refused") return { ok: false, reason: result.reason };
-    if (result.outcome === "not_configured") return { ok: false, reason: `Merging is not configured on the backend: ${result.missing.join(", ")}.` };
+    if (result.outcome === "not_configured") return { ok: false, reason: mergeNotSetUp(result.missing) };
     return { ok: false, reason: result.message };
   } catch (error) { return { ok: false, reason: errorMessage(error) }; }
+}
+
+// What the owner reads when the backend cannot merge yet. A setting's name means nothing to them; a thing they can
+// add themselves, such as their coding agent's key, is named.
+export function mergeNotSetUp(missing: string[]): string {
+  const theirs = missing.filter((item) => !/^[A-Z][A-Z0-9_]*$/.test(item));
+  return theirs.length
+    ? `turtl needs ${theirs.join(" and ")} before it can merge this. You can still merge it on GitHub.`
+    : "Merging from turtl is not set up yet. You can still merge it on GitHub.";
 }
 
 export async function setApprovals(projectId: string, mode: ApprovalMode, passcode?: string): Promise<void> {
@@ -93,6 +102,8 @@ export async function setApprovals(projectId: string, mode: ApprovalMode, passco
   } catch (error) { throw new Error(errorMessage(error)); }
 }
 
-export async function setStarred(_caseId: string, _starred: boolean): Promise<void> {
-  throw new Error("Stars are not stored by this backend yet. Nothing was changed.");
+export async function setStarred(caseId: string, starred: boolean): Promise<void> {
+  try {
+    await requireLiveClient().mutation(api.cases.setStarred, { caseId: caseId as Id<"cases">, starred });
+  } catch (error) { throw new Error(errorMessage(error)); }
 }
