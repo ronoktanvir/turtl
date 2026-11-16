@@ -112,28 +112,6 @@
       "policy": "https://capy.ai/privacy-policy"
     },
     {
-      "id": "keiki",
-      "name": "Keiki",
-      "kind": "ai",
-      "inPrivacyPolicy": true,
-      "needsPermission": true,
-      "does": "Texts the owner when a case needs them",
-      "receives": [
-        "A notice of one or two sentences, such as the app's name and a case title",
-        "The phone number alerts go to"
-      ],
-      "hosts": [
-        "onkeiki.com"
-      ],
-      "settings": [
-        "KEIKI_API_KEY",
-        "KEIKI_AGENT_ID",
-        "KEIKI_OWNER_CONTACT",
-        "KEIKI_BASE_URL"
-      ],
-      "policy": "https://onkeiki.com/privacy"
-    },
-    {
       "id": "github",
       "name": "GitHub",
       "kind": "tool",
@@ -278,7 +256,8 @@
     "example.com": "An example address in a message to the owner. Nothing is sent to it",
     "app.example.com": "An example address in a message to the owner. Nothing is sent to it",
     "guardian-scoring.vercel.app": "The live address of a project in the app's example data, shown as a link. The app sends nothing to it",
-    "orca-teams.vercel.app": "The live address of a project in the app's example data, shown as a link. The app sends nothing to it"
+    "orca-teams.vercel.app": "The live address of a project in the app's example data, shown as a link. The app sends nothing to it",
+    "onkeiki.com": "Keiki, which texts the owner of the single-owner demo when a case needs them. Only in that demo: its one phone number reads as unset with accounts on, and the AI permission refuses every call to it, because this list does not name it"
   },
   "otherSettings": {
     "VOICE_ENABLED": "Switches talking on. Off by default",
@@ -309,7 +288,11 @@
     "PROJECTS_PER_ACCOUNT": "The projects one account may have",
     "INTAKE_KEYS_PER_PROJECT": "The report form keys one project may have at once",
     "EVIDENCE_LOCAL_PROOF": "Opens the local evidence fixtures on a local backend. Never set in production",
-    "EXPO_PUBLIC_APP_ENV": "Which kind of build this is. Picks Apple's development or production push service"
+    "EXPO_PUBLIC_APP_ENV": "Which kind of build this is. Picks Apple's development or production push service",
+    "KEIKI_API_KEY": "Lets the single-owner demo text its owner through Keiki (see onkeiki.com)",
+    "KEIKI_AGENT_ID": "The Keiki agent the single-owner demo texts through",
+    "KEIKI_OWNER_CONTACT": "The one phone number the single-owner demo texts. Read as unset with accounts on",
+    "KEIKI_BASE_URL": "Points Keiki calls at a stand-in in tests. With accounts on it is honoured only on a local backend"
   },
   "libraries": {
     "@auth/core": "Sign in with GitHub, used only in the backend",

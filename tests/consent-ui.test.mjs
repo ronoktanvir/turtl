@@ -13,7 +13,7 @@ const words = createLoader()("components/consent/words.ts");
 const service = (id, name, allowed) => ({ id, name, does: "Does things", receives: [], policy: "", allowed });
 const status = (answer, allowed, extra = {}) => ({
   enforced: true, signedIn: true, answer, needsAnswer: false, listVersion: "v", alsoUsed: [],
-  services: [service("openai", "OpenAI", allowed), service("supermemory", "Supermemory", allowed), service("capy", "Capy", allowed), service("keiki", "Keiki", allowed)],
+  services: [service("openai", "OpenAI", allowed), service("supermemory", "Supermemory", allowed), service("capy", "Capy", allowed)],
   ...extra,
 });
 
@@ -30,15 +30,15 @@ test("after Not now, a reload at the start returns to \"turtl will work without 
 test("the gear sheet says where the permission and the spend stand, in one sentence each", () => {
   assert.equal(words.listNames(["OpenAI"]), "OpenAI");
   assert.equal(words.listNames(["OpenAI", "Capy"]), "OpenAI and Capy");
-  assert.equal(words.listNames(["OpenAI", "Supermemory", "Capy", "Keiki"]), "OpenAI, Supermemory, Capy and Keiki");
+  assert.equal(words.listNames(["OpenAI", "Supermemory", "Capy"]), "OpenAI, Supermemory and Capy");
   const nov15 = Date.parse("2026-11-15T12:00:00Z");
-  assert.equal(words.standingLine(status("allowed", true, { answeredAt: nov15 })), "turtl may use OpenAI, Supermemory, Capy and Keiki, as you allowed on 15 November.");
+  assert.equal(words.standingLine(status("allowed", true, { answeredAt: nov15 })), "turtl may use OpenAI, Supermemory and Capy, as you allowed on 15 November.");
   assert.equal(words.standingLine(status("declined", false)), "You chose Not now, so turtl sends nothing to AI services and uses its own rules.");
   assert.equal(words.standingLine(status("withdrawn", false, { withdrawnAt: nov15 })), "You took permission back on 15 November, so turtl sends nothing to AI services and uses its own rules.");
   assert.equal(words.standingLine(status("none", false)), "You have not answered yet, so turtl sends nothing to AI services and uses its own rules.");
   const changed = status("allowed", true);
-  changed.services[3].allowed = false;
-  assert.equal(words.standingLine(changed), "turtl's list changed after you agreed. Read it again to let turtl use Keiki.");
+  changed.services[2].allowed = false;
+  assert.equal(words.standingLine(changed), "turtl's list changed after you agreed. Read it again to let turtl use Capy.");
   assert.equal(
     words.spendLine({ enforced: true, signedIn: true, month: "November 2026", spentUsd: 3.254, limitUsd: 20, threadsToday: 1, threadsPerDay: 5 }),
     "AI use in November: $3.25 of $20.00. Code changes today: 1 of 5.",

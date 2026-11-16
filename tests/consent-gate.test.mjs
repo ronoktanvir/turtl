@@ -4,9 +4,9 @@ import { join, relative } from "node:path";
 import { test } from "node:test";
 import { createLoader, memoryDb, root, withEnv } from "./fixtures/convex-memory.mjs";
 
-// The AI permission (RC-26): the list comes from store/data-practices.json, nothing reaches OpenAI, Supermemory,
-// Capy or Keiki for an account that has not said yes, taking it back stops the next call, and a changed list asks
-// again. The demo (AUTH_REQUIRED unset) is untouched. Everything here runs against stand-ins: no vendor is called.
+// The AI permission (RC-26): the list comes from store/data-practices.json, nothing reaches OpenAI, Supermemory or
+// Capy for an account that has not said yes (nor Keiki, Anthropic or Google, which only the demo uses), taking it back
+// stops the next call, and a changed list asks again. The demo (AUTH_REQUIRED unset) is untouched. Everything here runs against stand-ins: no vendor is called.
 
 const practices = JSON.parse(readFileSync(join(root, "store/data-practices.json"), "utf8"));
 const load = createLoader();
@@ -48,7 +48,7 @@ const untouchable = new Proxy({}, { get: (_target, key) => assert.fail(`the demo
 
 test("the screen's list is store/data-practices.json's, imported and not copied", () => {
   const asked = practices.services.filter((service) => service.needsPermission);
-  assert.deepEqual(services.ASKED.map((service) => service.id), ["openai", "supermemory", "capy", "keiki"]);
+  assert.deepEqual(services.ASKED.map((service) => service.id), ["openai", "supermemory", "capy"]);
   assert.deepEqual(
     services.ASKED.map(({ id, name, does, receives, policy }) => ({ id, name, does, receives, policy })),
     asked.map(({ id, name, does, receives, policy }) => ({ id, name, does, receives, policy })),
@@ -71,12 +71,12 @@ test("a yes covers exactly the services, and the version of each, that were on t
   assert.equal(refused(null), REASON);
   assert.match(refused({ ...agreement, answer: "declined", services: [] }), /^you chose not to let turtl send anything to OpenAI, so nothing was sent/);
   assert.match(refused({ ...agreement, withdrawnAt: 5 }), /^you took back turtl's permission to send anything to OpenAI/);
-  assert.match(refused({ ...agreement, services: agreement.services.filter((s) => s.id !== "keiki") }, "keiki"), /^turtl added Keiki to its list after you answered/);
+  assert.match(refused({ ...agreement, services: agreement.services.filter((s) => s.id !== "capy") }, "capy"), /^turtl added Capy to its list after you answered/);
   assert.match(refused({ ...agreement, services: agreement.services.map((s) => (s.id === "openai" ? { ...s, version: "00000000" } : s)) }), /^what turtl sends to OpenAI changed after you agreed/);
   assert.equal(refused(agreement, "anthropic"), "turtl has not asked you about Anthropic, so nothing was sent to it");
   assert.equal(refused(agreement, "google"), "turtl has not asked you about Google, so nothing was sent to it");
   assert.deepEqual(services.standingOf(null), { answer: "none", allowed: [], needsAnswer: true });
-  assert.deepEqual(services.standingOf(agreement), { answer: "allowed", allowed: ["openai", "supermemory", "capy", "keiki"], needsAnswer: false });
+  assert.deepEqual(services.standingOf(agreement), { answer: "allowed", allowed: ["openai", "supermemory", "capy"], needsAnswer: false });
   assert.equal(services.standingOf({ ...agreement, listVersion: "00000000" }).needsAnswer, true, "adding a service later asks again");
   assert.deepEqual(services.standingOf({ ...agreement, withdrawnAt: 9 }), { answer: "withdrawn", allowed: [], needsAnswer: false });
 });
@@ -99,15 +99,15 @@ test("in the demo the gate says yes without reading or writing anything", async 
 test("in accounts mode nothing is sent until the owner says yes, and taking it back stops the next call", async () => {
   await withEnv(ACCOUNTS, async () => {
     const db = world();
-    for (const service of ["openai", "supermemory", "capy", "keiki"]) {
+    for (const service of ["openai", "supermemory", "capy"]) {
       const answer = await check(db, { appId: "apps:1" }, service);
       assert.equal(answer.ok, false, service);
       assert.match(answer.reason, /^you have not said yet whether turtl may send anything to /);
     }
     const ctx = { db, auth: signedIn(ADA) };
     await permission.allow.handler(ctx, { listVersion: services.LIST_VERSION });
-    for (const service of ["openai", "supermemory", "capy", "keiki"]) assert.deepEqual(await check(db, { appId: "apps:1" }, service), { ok: true, account: ADA });
-    for (const service of ["anthropic", "google"]) assert.match((await check(db, { appId: "apps:1" }, service)).reason, /^turtl has not asked you about /);
+    for (const service of ["openai", "supermemory", "capy"]) assert.deepEqual(await check(db, { appId: "apps:1" }, service), { ok: true, account: ADA });
+    for (const service of ["anthropic", "google", "keiki"]) assert.match((await check(db, { appId: "apps:1" }, service)).reason, /^turtl has not asked you about /);
 
     await permission.withdraw.handler(ctx, {});
     const withdrawn = await check(db, { caseId: "cases:1" }, "openai");
@@ -129,7 +129,7 @@ test("the owner is read from the project, never from whoever is calling", async 
     assert.deepEqual(await check(db, { appId: "apps:3" }, "openai"), { ok: true, account: "acct-bob" });
     assert.deepEqual(await check(db, { appId: "apps:2" }, "openai"), { ok: false, reason: "turtl could not tell whose project this is, so nothing was sent to OpenAI" });
     assert.deepEqual(await check(db, { appId: "not-an-id" }, "openai"), { ok: false, reason: "turtl could not tell whose project this is, so nothing was sent to OpenAI" });
-    assert.deepEqual(await check(db, { account: "acct-bob" }, "keiki"), { ok: true, account: "acct-bob" });
+    assert.deepEqual(await check(db, { account: "acct-bob" }, "capy"), { ok: true, account: "acct-bob" });
     assert.deepEqual(await check(db, { appId: "apps:2" }, "supermemory", "erase"), { ok: true, account: "" }, "deleting a copy needs no permission");
   });
 });
@@ -150,7 +150,7 @@ test("the status tells the app whether to ask, and never asks in the demo or bef
   await withEnv(DEMO, async () => {
     const status = await permission.status.handler({ db: world(), auth: signedIn(null) }, {});
     assert.deepEqual([status.enforced, status.needsAnswer], [false, false]);
-    assert.equal(status.services.length, 4);
+    assert.equal(status.services.length, 3);
   });
   await withEnv(ACCOUNTS, async () => {
     const db = world();
@@ -158,7 +158,7 @@ test("the status tells the app whether to ask, and never asks in the demo or bef
     assert.deepEqual([signedOut.enforced, signedOut.signedIn, signedOut.needsAnswer], [true, false, false]);
     const fresh = await permission.status.handler({ db, auth: signedIn(ADA) }, {});
     assert.deepEqual([fresh.answer, fresh.needsAnswer, fresh.listVersion], ["none", true, services.LIST_VERSION]);
-    assert.deepEqual(fresh.services.map((service) => [service.id, service.allowed]), [["openai", false], ["supermemory", false], ["capy", false], ["keiki", false]]);
+    assert.deepEqual(fresh.services.map((service) => [service.id, service.allowed]), [["openai", false], ["supermemory", false], ["capy", false]]);
     assert.deepEqual(fresh.services[0].receives, practices.services.find((service) => service.id === "openai").receives);
     await permission.allow.handler({ db, auth: signedIn(ADA) }, { listVersion: services.LIST_VERSION });
     const allowed = await permission.status.handler({ db, auth: signedIn(ADA) }, {});
