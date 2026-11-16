@@ -590,7 +590,9 @@ test("practice: turtl's own site failing never tells a practice owner their app 
 
   turtlDown = true;
   const roundsBefore = jobs(w, "internal.monitor.checkProject").length;
+  w.reads.length = 0;
   await minutes(t, w, 1, 30);
+  assert.deepEqual(w.reads.filter(([table]) => table === "cases"), [], "a practice round settles nothing: no case is even read");
   assert.deepEqual(projects.map((appId) => counts(w, appId)), [[0], [0], [0], [0]], "no count on any practice check");
   assert.deepEqual([notAnswering(w), events(w), pushes(w)], [[], [], []], "no case and no notice");
   for (const [n, appId] of projects.entries()) {
@@ -629,6 +631,7 @@ test("practice: counts a practice check has on record go at its next round, and 
   const appId = await practiceProject(w, ada);
   const [journey] = w.rows("journeys");
   await w.db.patch(journey._id, { unanswered: { count: 5, since: at(-10), at: at(-1), latest: { kind: "no_result", status: 502 } } });
+  assert.equal((await overview(w, appId, ada))[0].notAnswering, undefined, "never shown as not answering, even with a count on record");
   assert.equal(await w.run("internal.protectedApp.notAnswering.open", { appId, ran: [journey._id], turtl: "reachable" }), null);
   assert.deepEqual(notAnswering(w), [], "open() refuses a practice project");
   const caseId = await w.db.insert("cases", { appId, title: "x", impact: ".", kind: "outage", raisedBy: "monitor", status: "waiting_for_app", signature: `not_answering:${appId}` });
