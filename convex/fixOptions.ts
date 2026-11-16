@@ -3,6 +3,7 @@ import type { Criterion, Delivery, OptionKind, ProposalOption, Span } from "./co
 import { checkParameters } from "./decisions";
 import { modelId as diagnosisModelId } from "./diagnosis";
 import { fingerprint, pastDecisionLine, recommend, type TurnedDown } from "./learning/rules";
+import { codeChangeInstructions, instructionsToSend } from "./prTracking/capy";
 import type { Facts } from "./runner/handlers/journey";
 
 declare const process: { env: Record<string, string | undefined> };
@@ -36,9 +37,33 @@ export type FixOption = {
   delivery: Delivery;
   preferences?: { id: string; statement: string }[];
   pastDecisions?: string;
+  sends?: FixSends;
 };
 
-export function toFixOption(option: ProposalOption): FixOption {
+// What approving sends, word for word as the option stores it (TUR-68): the coding agent's full instructions for a
+// code change, or the catalog action with the exact target and values decisions.ts freezes and runs.
+export type FixSends =
+  | { kind: "instructions"; text: string }
+  | { kind: "action"; name: string; description?: string; target: string; values: { name: string; value: string }[] };
+
+type CatalogWords = Pick<Doc<"actionCatalog">, "name" | "description">;
+
+export function sendsOf(option: ProposalOption, entry?: CatalogWords | null): FixSends | undefined {
+  if (option.delivery === "pull_request") {
+    const text = instructionsToSend(option.parameters, option.target);
+    return text ? { kind: "instructions", text } : undefined;
+  }
+  return {
+    kind: "action",
+    name: entry?.name ?? option.title,
+    ...(entry?.description && { description: entry.description }),
+    target: `${option.target.resourceRef} (${option.target.environment.replace(/[_-]+/g, " ")})`,
+    values: option.parameters.map((p) => ({ name: p.name, value: JSON.stringify(p.value) })),
+  };
+}
+
+export function toFixOption(option: ProposalOption, entry?: CatalogWords | null): FixOption {
+  const sends = sendsOf(option, entry);
   return {
     key: option.key,
     title: option.title,
@@ -57,6 +82,7 @@ export function toFixOption(option: ProposalOption): FixOption {
       preferences: option.preferences.map((p) => ({ id: p.preferenceId as string, statement: p.statement })),
     }),
     ...(option.pastDecisions && { pastDecisions: option.pastDecisions }),
+    ...(sends && { sends }),
   };
 }
 
@@ -108,12 +134,14 @@ export function pullRequestOption(
   key: string,
 ): ProposalOption {
   if (entry.config.kind !== "capy") throw new Error("The catalog entry does not open pull requests.");
+  const repo = entry.config.repoUrl.replace(/^https?:\/\/github\.com\//, "").replace(/\.git$/, "");
+  // The stored "change" is the coding agent's full instructions, so the owner approves the exact text that is sent.
+  const change = codeChangeInstructions({ repo, baseBranch: entry.config.baseBranch, title: draft.title, change: draft.change });
   const parameters = [
     { name: "title", value: draft.title },
-    { name: "change", value: draft.change },
+    { name: "change", value: change },
   ];
   checkParameters(parameters, entry.parameterConstraints);
-  const repo = entry.config.repoUrl.replace(/^https?:\/\/github\.com\//, "").replace(/\.git$/, "");
   return {
     key,
     title: draft.title,
