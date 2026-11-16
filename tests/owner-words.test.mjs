@@ -78,3 +78,18 @@ test("reading a repository through the GitHub connection blames the connection, 
   assert.equal(odd, "GitHub did not answer when turtl tried to read acme/app. Try again in a few minutes.");
   assert.match(read("convex/onboarding/inspect.ts"), /readRepository\(inspection\.repo, access\.token, access\.source === "installation"\)/);
 });
+
+test("a journey check's stored words carry no error code or run id", () => {
+  const { describeJourney, journeyBody } = createLoader({ "convex/protectedApp/watched": {} })("convex/protectedApp/client.ts");
+  const failed = {
+    verdict: "failed", failedStep: "recommendations", runId: "6198e797-0455-400c-891b-571e2f63275e", revision: "local-qa",
+    error: { code: "RECOMMENDATIONS_TIMEOUT", message: "The recommendation provider timed out." },
+    steps: [{ step: "load_catalog", verdict: "passed", detail: "Selected a service." }, { step: "recommendations", verdict: "failed", detail: "Timed out." }],
+    cleanup: { ok: true, deletedBookings: 1 },
+  };
+  assert.equal(describeJourney(failed), 'The booking check failed at the "recommendations" step, so no booking was saved.');
+  assert.equal(describeJourney({ ...failed, failedStep: undefined }), "The booking check failed, so no booking was saved.");
+  assert.equal(journeyBody(failed), "load_catalog: passed. Selected a service.\nrecommendations: failed. Timed out.\nError: The recommendation provider timed out.\nCleanup succeeded (1 test booking deleted).");
+  assert.match(journeyBody({ ...failed, error: undefined, cleanup: { ok: true, deletedBookings: 0 } }), /Cleanup succeeded \(0 test bookings deleted\)\.$/);
+  for (const text of [describeJourney(failed), journeyBody(failed)]) for (const raw of ["RECOMMENDATIONS_TIMEOUT", "6198e797", "local-qa"]) assert.ok(!text.includes(raw), raw);
+});

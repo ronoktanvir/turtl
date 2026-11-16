@@ -196,20 +196,22 @@ export async function runJourneyCheck(config: { url: string; credentialRef?: str
   };
 }
 
+// The owner reads these two on the case. The error code is kept as a fact (journey.errorCode, gather_context), the
+// revision on the evidence row, and the run id is the app's own record of its test booking, so none is written here.
 export function describeJourney(result: JourneyResult) {
   if (result.verdict === "passed") {
     return "The booking check passed: a test booking was saved and matched its confirmation.";
   }
-  const code = result.error?.code ? ` (${result.error.code})` : "";
-  return `The booking check failed at the "${result.failedStep ?? "unknown"}" step${code}, so no booking was saved.`;
+  return result.failedStep
+    ? `The booking check failed at the "${result.failedStep}" step, so no booking was saved.`
+    : "The booking check failed, so no booking was saved.";
 }
 
 export function journeyBody(result: JourneyResult) {
   const lines = result.steps.map((s) => `${s.step}: ${s.verdict}. ${s.detail}`);
-  if (result.error) lines.push(`Error ${result.error.code}: ${result.error.message}`);
-  lines.push(
-    `Cleanup ${result.cleanup.ok ? "succeeded" : "failed"} (${result.cleanup.deletedBookings} test booking(s) deleted). Run ${result.runId} on revision ${result.revision}.`,
-  );
+  if (result.error) lines.push(`Error: ${result.error.message}`);
+  const deleted = result.cleanup.deletedBookings;
+  lines.push(`Cleanup ${result.cleanup.ok ? "succeeded" : "failed"} (${deleted} test ${deleted === 1 ? "booking" : "bookings"} deleted).`);
   return lines.join("\n");
 }
 
