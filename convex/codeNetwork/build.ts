@@ -27,6 +27,7 @@ const MODEL_OUTPUT_TOKENS = 16_000;
 const CLUSTER_PROMPT = [
   "You map a software repository for its owner, who cannot read code.",
   "Group the pieces below into 4 to 9 parts the owner would recognise by what the app does (for example \"Booking\", \"Recommendations\", \"Payments\", \"Sign-in\"), not by folder.",
+  "Keep the parts balanced: no part should hold more than about a fifth of the pieces, so split a broad area into the separate jobs an owner would recognise.",
   "For each part give a short id in lowercase-with-hyphens, a plain name of one to three words, and one plain sentence of at most 30 words on what happens there.",
   "For every piece give its id exactly as listed, the id of its part, a plain label of two to four words, and one plain sentence of at most 25 words on what happens there.",
   "Do not use code words such as function, mutation, handler, schema or module. Never describe behaviour the code does not show. Every piece appears exactly once.",

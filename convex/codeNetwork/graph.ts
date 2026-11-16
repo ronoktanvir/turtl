@@ -56,7 +56,7 @@ export function lineCount(content: string): number {
 }
 
 export function buildGraph(files: SourceFile[]): { nodes: GraphNode[]; edges: GraphEdge[] } {
-  const sources = files.filter((file) => isSourcePath(file.path));
+  const sources = files.filter((file) => isSourcePath(file.path) && !file.content.startsWith("// @generated"));
   const paths = new Set(sources.map((file) => file.path));
   const nodes = new Map<string, GraphNode>();
   const edges = new Map<string, GraphEdge>();

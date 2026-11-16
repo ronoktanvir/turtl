@@ -47,9 +47,10 @@ export async function addMemory(
 export type CodeDocument = { id: string; content: string; metadata: MemoryMetadata };
 export type DocumentMatch = { field: string; value: string };
 
-const BATCH_LIMIT = 600;
+const BATCH_SIZE = 20;
+const BATCH_TIMEOUT_SECONDS = 180;
 
-// Adds documents to `namespace` for retrieval only, without memory extraction, 600 per request.
+// Adds documents to `namespace` for retrieval only, without memory extraction. Whole source files are large, so it sends 20 per request.
 export async function addDocuments(
   namespace: string,
   documents: CodeDocument[],
@@ -57,11 +58,12 @@ export async function addDocuments(
   const supermemory = client(namespace);
   let count = 0;
   let failed = 0;
-  for (let start = 0; start < documents.length; start += BATCH_LIMIT) {
-    const response = await supermemory.documents.batchAdd(namespace, {
-      documents: documents.slice(start, start + BATCH_LIMIT),
-      taskType: "superrag",
-    });
+  for (let start = 0; start < documents.length; start += BATCH_SIZE) {
+    const response = await supermemory.documents.batchAdd(
+      namespace,
+      { documents: documents.slice(start, start + BATCH_SIZE), taskType: "superrag" },
+      { timeoutInSeconds: BATCH_TIMEOUT_SECONDS },
+    );
     count += response.count;
     failed += response.failed;
   }
