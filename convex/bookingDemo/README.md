@@ -12,7 +12,7 @@ The weakened boundary is credential isolation: turtl's caller secret (`PROTECTED
 - Set `PROTECTED_APP_URL=https://<deployment>.convex.site/booking-demo` in turtl. Keep the prefix, omit a trailing slash, and use the **site** URL rather than `.convex.cloud`. Existing turtl callers append the remaining paths unchanged.
 - Request/response fields, bearer hash verification, 401/503 responses, fixture cleanup, impact semantics, and revision reporting match the [standalone app's contract](https://github.com/ronoktanvir/turtl/blob/capy/protected-booking-demo/protected-app/README.md). Only the base URL changes.
 
-Recommendations are an optional enhancement loaded through the separate customer `recommendations` action. Booking submission never calls or waits for the provider, so failed, timed-out, or still-pending suggestions cannot prevent persistence. The journey check marks recommendations as skipped rather than claiming the provider responded. The `recommendationsEnabled`, `providerTimeout`, and `bookingStoreFailure` controls remain available; the independent staged `bookingStoreFailure` still rejects the booking write at `submit_booking` with `BOOKING_STORE_UNAVAILABLE`, with recommendations on or off.
+The optional recommendations still deliberately gate the booking write (**staged defect**). The staged `providerTimeout` failure is recovered by disabling `recommendationsEnabled`. The independent staged `bookingStoreFailure` rejects the booking write at `submit_booking` with `BOOKING_STORE_UNAVAILABLE`, with recommendations on or off. It takes precedence if both staged failures are on. These are test instruments, not production failure injection or permanent repairs.
 
 ## Environment and verification
 
@@ -28,15 +28,7 @@ After deploying, register with `npx convex run dev:registerBooking '{}'`. Existi
 
 For local verification, run an anonymous root Convex deployment and set its `PROTECTED_APP_URL` to `http://127.0.0.1:<site-port>/booking-demo`, with a matching caller token/hash and development controls enabled. No model key is required: turtl labels its deterministic diagnosis fallback when no model answers. Do not treat that as a model run or a Revyl device proof.
 
-From the repository root, the focused regression check runs without a deployment:
-
-```sh
-node --test convex/bookingDemo/optionalRecommendations.test.mjs
-```
-
-It covers all eight flag/failure configurations, persistence and fixture cleanup, optional suggestions that respond, fail, time out, or never settle, and unchanged invalid-selection and booking-store errors. It uses mocked Convex storage calls, not a deployed backend or device.
-
-The original staged-defect integration script below expects an enabled, timed-out provider to block booking. That expectation describes the pre-repair demo, not this repaired backend. The script is retained unchanged for the original staged scenario and runs against the full prefixed base URL:
+From the repository root, the integration check runs against the full prefixed base URL:
 
 ```sh
 CONTROL_BASE_URL=http://127.0.0.1:3211/booking-demo \
