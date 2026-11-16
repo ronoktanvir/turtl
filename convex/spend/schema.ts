@@ -20,4 +20,16 @@ export const spendTables = {
     requestId: v.string(),
     startedAt: v.number(),
   }).index("by_account_day_and_request", ["account", "day", "requestId"]),
+  // One row per project per calendar day (UTC) on which its customer reports cost something: the estimated model spend
+  // of reading them (triage, and the cases they opened) and how many cases they opened. Kept apart from the account's
+  // month, so a customer cannot spend what diagnosing the owner's outages needs. Older days are deleted as new ones
+  // start; the rows go with the project.
+  intakeDays: defineTable({
+    appId: v.id("apps"),
+    day: v.string(),
+    costUsd: v.number(),
+    calls: v.number(),
+    casesOpened: v.number(),
+    updatedAt: v.number(),
+  }).index("by_app_and_day", ["appId", "day"]),
 };

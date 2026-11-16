@@ -1,10 +1,15 @@
 import { v } from "convex/values";
-import { internalMutation, type QueryCtx } from "../_generated/server";
-import { codingThreadsPerDay, dayKey, monthKey } from "./limits";
+import type { Id } from "../_generated/dataModel";
+import { internalMutation, type MutationCtx, type QueryCtx } from "../_generated/server";
+import { codingThreadsPerDay, dayKey, intakeCasesPerDay, monthKey } from "./limits";
 
-// Writes and reads of the running totals. Only the gate (convex/consent/gate.ts) writes here, after a call it let through.
+// Writes and reads of the running totals. Only the gate (convex/consent/gate.ts) writes spend here, after a call it
+// let through; intake (convex/intake/records.ts) counts the cases customer reports open.
 
 type Reader = Pick<QueryCtx, "db">;
+
+/** Older days of a project's customer-report totals deleted at most per new day; the check needs only today's. */
+const PRUNE_DAYS = 10;
 
 /** Estimated model spend for the account in this calendar month (UTC). */
 export async function monthSpend(ctx: Reader, account: string, at: number): Promise<number> {
@@ -24,11 +29,48 @@ export async function threadsToday(ctx: Reader, account: string, at: number): Pr
   return rows.length;
 }
 
+const intakeDay = (ctx: Reader, appId: Id<"apps">, day: string) =>
+  ctx.db.query("intakeDays").withIndex("by_app_and_day", (q) => q.eq("appId", appId).eq("day", day)).unique();
+
+/** Estimated model spend on the project's customer reports today (UTC), apart from the account's month. */
+export async function intakeSpendToday(ctx: Reader, appId: Id<"apps">, at: number): Promise<number> {
+  return (await intakeDay(ctx, appId, dayKey(at)))?.costUsd ?? 0;
+}
+
+/** Adds to the project's customer-report totals for today, starting the day's row (and dropping older ones) if needed. */
+async function addToIntakeDay(ctx: MutationCtx, appId: Id<"apps">, add: { costUsd: number; calls: number; casesOpened: number }) {
+  const now = Date.now();
+  const day = dayKey(now);
+  const row = await intakeDay(ctx, appId, day);
+  if (row) {
+    await ctx.db.patch(row._id, { costUsd: row.costUsd + add.costUsd, calls: row.calls + add.calls, casesOpened: row.casesOpened + add.casesOpened, updatedAt: now });
+    return;
+  }
+  for (const old of await ctx.db.query("intakeDays").withIndex("by_app_and_day", (q) => q.eq("appId", appId).lt("day", day)).take(PRUNE_DAYS)) {
+    await ctx.db.delete(old._id);
+  }
+  await ctx.db.insert("intakeDays", { appId, day, ...add, updatedAt: now });
+}
+
+/** Counts a case opened from customer reports today, or says no when the project's daily cap is reached. */
+export async function openIntakeCase(ctx: MutationCtx, appId: Id<"apps">): Promise<boolean> {
+  const opened = (await intakeDay(ctx, appId, dayKey(Date.now())))?.casesOpened ?? 0;
+  if (opened >= intakeCasesPerDay()) return false;
+  await addToIntakeDay(ctx, appId, { costUsd: 0, calls: 0, casesOpened: 1 });
+  return true;
+}
+
+// With appId the call read a project's customer reports and counts against that project's day (the intake
+// allowance); without it, against the account's month.
 export const addModelSpend = internalMutation({
-  args: { account: v.string(), costUsd: v.number() },
+  args: { account: v.string(), costUsd: v.number(), appId: v.optional(v.id("apps")) },
   returns: v.null(),
-  handler: async (ctx, { account, costUsd }) => {
+  handler: async (ctx, { account, costUsd, appId }) => {
     if (!Number.isFinite(costUsd) || costUsd <= 0) return null;
+    if (appId) {
+      await addToIntakeDay(ctx, appId, { costUsd, calls: 1, casesOpened: 0 });
+      return null;
+    }
     const now = Date.now();
     const month = monthKey(now);
     const row = await ctx.db

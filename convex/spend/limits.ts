@@ -9,6 +9,10 @@ export const MODEL_SPEND_LIMIT_ENV = "MODEL_SPEND_LIMIT_USD";
 export const CODING_THREADS_ENV = "CODING_THREADS_PER_DAY";
 export const DEFAULT_MODEL_SPEND_LIMIT_USD = 20;
 export const DEFAULT_CODING_THREADS_PER_DAY = 5;
+/** What reading one project's customer reports may cost in a day, apart from the account's allowance (finding 5). */
+export const DEFAULT_INTAKE_SPEND_PER_DAY_USD = 0.5;
+/** New cases customer reports may open on one project in a day. */
+export const DEFAULT_INTAKE_CASES_PER_DAY = 5;
 
 /** A flat estimate for one speech-to-text or text-to-speech call, which report no token counts. */
 export const VOICE_CALL_ESTIMATE_USD = 0.01;
@@ -24,6 +28,12 @@ export const modelSpendLimitUsd = () => positive(process.env.MODEL_SPEND_LIMIT_U
 
 /** Coding-agent threads (Capy) one account may start in a calendar day (UTC). */
 export const codingThreadsPerDay = () => positive(process.env.CODING_THREADS_PER_DAY, DEFAULT_CODING_THREADS_PER_DAY, true);
+
+/** Model spend on one project's customer reports (triage, and reading the cases they open) in a calendar day (UTC). */
+export const intakeSpendPerDayUsd = () => positive(process.env.INTAKE_SPEND_PER_DAY_USD, DEFAULT_INTAKE_SPEND_PER_DAY_USD, false);
+
+/** New cases customer reports may open on one project in a calendar day (UTC). */
+export const intakeCasesPerDay = () => positive(process.env.INTAKE_CASES_PER_DAY, DEFAULT_INTAKE_CASES_PER_DAY, true);
 
 export const monthKey = (at: number) => new Date(at).toISOString().slice(0, 7);
 export const dayKey = (at: number) => new Date(at).toISOString().slice(0, 10);
@@ -62,4 +72,8 @@ export const spendRefusal = {
     `this account has used its ${dollars(limitUsd)} of AI for ${monthLabel(monthKey(at))}, so no model was asked; it starts again on ${nextMonthStart(at)}`,
   threadCap: (cap: number) =>
     `this account has already started ${cap} code change${cap === 1 ? "" : "s"} today, the most for one day, so Capy was not asked; it can start more tomorrow`,
+  intakeSpent: (limitUsd: number) =>
+    `this project has used today's ${dollars(limitUsd)} of AI for reading customer reports, so no model was asked; it starts again tomorrow`,
+  intakeCases: (cap: number) =>
+    `Kept, but no case was opened: customer reports have already opened ${cap} case${cap === 1 ? "" : "s"} on this project today, the most for one day. Reports that match an open case still join it, and new cases open again tomorrow.`,
 };

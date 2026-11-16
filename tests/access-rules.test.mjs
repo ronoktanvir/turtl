@@ -23,6 +23,8 @@ const VARIABLES = [
   // Demo-only and stand-in variables (finding 8), what they need beside them, and the deployment's own address.
   "GITHUB_TOKEN", "GITHUB_APP_ID", "GITHUB_APP_PRIVATE_KEY", "GITHUB_APP_SLUG", "GITHUB_APP_WEBHOOK_SECRET", "AUTH_STAND_IN_URL", "AUTH_RESEND_KEY", "AUTH_EMAIL_FROM",
   "KEIKI_API_KEY", "KEIKI_AGENT_ID", "KEIKI_OWNER_CONTACT", "EXPO_PUSH_API_URL", "REVYL_API_KEY", "REVYL_BOOKING_WORKFLOW_ID", "CONVEX_CLOUD_URL",
+  // Limits (findings 5 and 7).
+  "INTAKE_CASES_PER_DAY", "INTAKE_SPEND_PER_DAY_USD",
 ];
 const PASSCODE = "local-fixture-passcode";
 const SIGN_IN = "Sign in to continue.";
@@ -47,7 +49,12 @@ const generated = {
 function standIns(calls) {
   const note = (name) => async (...args) => { calls.push([name, ...args.slice(1)]); return null; };
   return {
-    "convex/runner/run": { approveCase: note("approveCase"), declineCase: note("declineCase"), startCaseRun: note("startCaseRun") },
+    "convex/runner/run": {
+      approveCase: note("approveCase"),
+      declineCase: note("declineCase"),
+      // Files the case as the runner would, without running it.
+      startCaseRun: async (ctx, fields) => (calls.push(["startCaseRun", fields]), await ctx.db.insert("cases", { ...fields, status: "open" })),
+    },
     "convex/learning/feedback": { recordDecision: note("recordDecision") },
     "convex/learning/model": { cleanStatement: (text) => text, preferenceFromNote: async () => ({ ok: false, reason: "stand-in" }) },
     "convex/supermemory": { searchChunks: async () => [], putDocument: async () => "doc", deleteDocuments: async () => {}, searchWithMetadata: async () => [] },
@@ -569,6 +576,33 @@ test("AUTH_STAND_IN_URL: with accounts on, sign-in trusts no stand-in server unl
   for (const env of [{ ...LOCAL }, {}]) {
     const w = world(t, { ...env, ...reset });
     assert.equal(w.load("convex/auth/settings.ts").appleKeysUrl(), "https://stand-in.example/apple/auth/keys", "a local backend and the demo keep it");
+  }
+});
+
+// Finding 5: customer reports open at most so many new cases on a project a day; past it a report is kept on no case
+// and says why. Each project has its own count, and the demo is unchanged.
+test("customer reports open at most INTAKE_CASES_PER_DAY new cases on a project a day", async (t) => {
+  const report = async (w, appId, n) => {
+    const reportId = await w.backend.db.insert("reports", { appId, channel: "form", fromRef: `form:device:person-${n}`, text: `Problem number ${n} with paying`, provider: "turtl-form", providerEventId: `event-${appId}-${n}`, receivedAt: n });
+    return await w.backend.db.insert("reportTriage", { reportId, appId, fingerprint: `problem ${n}`, status: "pending" });
+  };
+  const land = (w, triageId) => w.as(null)("intake/records", "land", { triageId, verdict: "bug", source: "rules", reason: "Rule-based triage.", open: { title: "Paying fails", impact: "A customer cannot pay." } });
+  {
+    const w = world(t, { AUTH_REQUIRED: "true", INTAKE_CASES_PER_DAY: "2" });
+    const { alice, bob } = await seed(w);
+    const outcomes = [];
+    for (let n = 1; n <= 3; n++) outcomes.push((await land(w, await report(w, alice.appId, n))).outcome);
+    assert.deepEqual(outcomes, ["opened", "opened", "ignored"]);
+    const third = w.backend.rows("reportTriage").filter((row) => row.appId === alice.appId).at(-1);
+    assert.match(third.reason, /^Rule-based triage\. Kept, but no case was opened: customer reports have already opened 2 cases on this project today/);
+    assert.equal(third.caseId, undefined);
+    assert.equal((await land(w, await report(w, bob.appId, 4))).outcome, "opened", "Bob's project has its own count");
+    assert.equal(w.calls.filter(([name]) => name === "startCaseRun").length, 3);
+  }
+  {
+    const w = world(t, { INTAKE_CASES_PER_DAY: "2" });
+    const { alice } = await seed(w);
+    for (let n = 1; n <= 3; n++) assert.equal((await land(w, await report(w, alice.appId, n))).outcome, "opened", "the demo has no cap");
   }
 });
 

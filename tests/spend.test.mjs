@@ -120,6 +120,70 @@ test("past the daily limit no coding agent starts, though one already running is
   });
 });
 
+// Review finding 5: customer reports are read on the project's own daily allowance, so a customer who posts at every
+// key's limit cannot spend the owner's monthly allowance and stop turtl diagnosing the owner's outages.
+test("customer reports have their own allowance per project: once spent, triage is refused and outage diagnosis still passes", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: NOV_15 });
+  await withEnv({ ...ACCOUNTS, INTAKE_SPEND_PER_DAY_USD: undefined }, async () => {
+    const spent = { _id: "intakeDays:1", appId: "apps:1", day: "2026-11-15", costUsd: 0.5, calls: 200, casesOpened: 0, updatedAt: 1 };
+    const db = world({ intakeDays: [spent] });
+    const check = (allowance, service = "openai") => gates.check.handler({ db }, { scope: { appId: "apps:1" }, service, purpose: "send", ...(allowance && { allowance }) });
+    assert.deepEqual(await check("intake"), { ok: false, reason: limits.spendRefusal.intakeSpent(0.5) });
+    assert.equal(limits.spendRefusal.intakeSpent(0.5), "this project has used today's $0.50 of AI for reading customer reports, so no model was asked; it starts again tomorrow");
+    assert.deepEqual(await check(undefined), { ok: true, account: ADA }, "the same account's outage diagnosis still passes the gate");
+    assert.deepEqual(await check("account"), { ok: true, account: ADA });
+    assert.deepEqual(await check("intake", "supermemory"), { ok: true, account: ADA, appId: "apps:1" }, "the allowance is on model spend only");
+    // The allowance is the project's, by day: another day, or a higher limit, lets triage ask a model again.
+    t.mock.timers.setTime(Date.parse("2026-11-16T00:00:01Z"));
+    assert.deepEqual(await check("intake"), { ok: true, account: ADA, appId: "apps:1" });
+    t.mock.timers.setTime(NOV_15);
+    await withEnv({ INTAKE_SPEND_PER_DAY_USD: "2" }, async () => assert.equal((await check("intake")).ok, true));
+  });
+});
+
+test("what customer reports cost lands on the project's day, never on the account's month", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: NOV_15 });
+  await withEnv(ACCOUNTS, async () => {
+    const db = world({ intakeDays: [{ _id: "intakeDays:0", appId: "apps:1", day: "2026-11-01", costUsd: 0.4, calls: 9, casesOpened: 2, updatedAt: 1 }] });
+    // The action-side gate for triage asks with the intake allowance and records spend against the project.
+    const wrote = [];
+    const ctx = {
+      runQuery: async (fn, args) => gates.check.handler({ db }, args),
+      runMutation: async (fn, args) => (wrote.push([fn.path, args]), ledger.addModelSpend.handler({ db }, args)),
+    };
+    const triage = gates.gateFor(ctx, { appId: "apps:1" }, "intake");
+    assert.equal((await triage.open("openai")).ok, true);
+    await triage.spent(0.3);
+    await triage.spent(0.25);
+    assert.deepEqual(wrote.map(([, args]) => args), [{ account: ADA, costUsd: 0.3, appId: "apps:1" }, { account: ADA, costUsd: 0.25, appId: "apps:1" }]);
+    assert.equal(await ledger.monthSpend({ db }, ADA, Date.now()), 0, "the owner's month is untouched");
+    assert.equal((await ledger.intakeSpendToday({ db }, "apps:1", Date.now())).toFixed(2), "0.55");
+    assert.deepEqual(db.rows("intakeDays").map(({ day, calls }) => [day, calls]), [["2026-11-15", 2]], "an earlier day's row is dropped when a new day starts");
+    assert.match((await triage.open("openai")).reason, /used today's \$0\.50 of AI for reading customer reports/);
+    // Diagnosis of an outage on the same project is on the account's allowance.
+    const diagnosis = gates.gateFor(ctx, { appId: "apps:1" });
+    assert.equal((await diagnosis.open("openai")).ok, true);
+    await diagnosis.spent(0.1);
+    assert.deepEqual(wrote.at(-1)[1], { account: ADA, costUsd: 0.1 });
+    assert.equal(await ledger.monthSpend({ db }, ADA, Date.now()), 0.1);
+  });
+});
+
+test("customer reports open at most so many cases on a project a day", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: NOV_15 });
+  await withEnv({ INTAKE_CASES_PER_DAY: "2" }, async () => {
+    const db = world();
+    assert.deepEqual([await ledger.openIntakeCase({ db }, "apps:1"), await ledger.openIntakeCase({ db }, "apps:1"), await ledger.openIntakeCase({ db }, "apps:1")], [true, true, false]);
+    assert.equal(await ledger.openIntakeCase({ db }, "apps:2"), true, "the cap is per project");
+    t.mock.timers.setTime(Date.parse("2026-11-16T00:00:01Z"));
+    assert.equal(await ledger.openIntakeCase({ db }, "apps:1"), true, "and per day");
+  });
+  await withEnv({ INTAKE_CASES_PER_DAY: undefined, INTAKE_SPEND_PER_DAY_USD: undefined }, () => {
+    assert.equal(limits.intakeCasesPerDay(), 5);
+    assert.equal(limits.intakeSpendPerDayUsd(), 0.5);
+  });
+});
+
 test("the gear sheet's line: where the account stands, and nothing in the demo", async (t) => {
   t.mock.timers.enable({ apis: ["Date"], now: NOV_15 });
   const db = world({
