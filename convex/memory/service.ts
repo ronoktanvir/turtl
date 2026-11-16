@@ -9,7 +9,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import { vParameterValue, type Stage } from "../constants";
 import { latestAction, latestProposal } from "../protectedApp/records";
 import type { Facts } from "../runner/handlers/journey";
-import { addMemory, searchMemories } from "../supermemory";
+import { addMemory, searchChunks, searchMemories } from "../supermemory";
 import { loadSteps } from "../workflow";
 import { applicability } from "./checks";
 
@@ -356,7 +356,7 @@ export async function writeCaseNote(
         appId: row.appId,
         kind: "case_note",
       });
-      indexing = "it was indexed in Supermemory";
+      indexing = "Supermemory accepted it for indexing";
     } catch {
       indexing = "indexing it in Supermemory failed";
     }
@@ -424,13 +424,14 @@ export async function readPastCaseNotes(
 ): Promise<{ caseIds: Id<"cases">[]; notes: string[]; summary: string }> {
   try {
     let linked: string[] = [];
+    let searchFailed = false;
     if (process.env.SUPERMEMORY_API_KEY) {
       let timer: ReturnType<typeof setTimeout> | undefined;
       const texts = await Promise.race([
-        searchMemories(
+        searchChunks(
           `app_${row.appId}`,
           `${row.title}. ${row.impact} Journey failed at ${facts["journey.failedStep"] ?? "an unknown step"} with ${facts["journey.errorCode"] ?? "an unknown error"}.`,
-          10,
+          { limit: 10, anyOf: [{ field: "kind", value: "case_note" }] },
         ),
         new Promise<never>((_, reject) => {
           timer = setTimeout(
@@ -438,8 +439,11 @@ export async function readPastCaseNotes(
             PAST_CASE_SEARCH_MS,
           );
         }),
-      ]).finally(() => clearTimeout(timer));
-      linked = texts.flatMap((text) =>
+      ]).catch(() => {
+        searchFailed = true;
+        return [];
+      }).finally(() => clearTimeout(timer));
+      linked = texts.flatMap(({ text }) =>
         [...text.matchAll(/Convex case note: ([a-zA-Z0-9]+)/g)].map(
           (match) => match[1],
         ),
@@ -458,7 +462,7 @@ export async function readPastCaseNotes(
         ? `${read}: none are saved yet.`
         : found.fromSearch
           ? `${read}, found by Supermemory search, as background for the model.`
-          : `${read} from the most recent learn notes in Convex (${process.env.SUPERMEMORY_API_KEY ? "Supermemory search linked to none" : "SUPERMEMORY_API_KEY is not configured"}), as background for the model.`,
+          : `${read} from the most recent learn notes in Convex (${searchFailed ? "Supermemory search failed" : process.env.SUPERMEMORY_API_KEY ? "Supermemory search linked to none" : "SUPERMEMORY_API_KEY is not configured"}), as background for the model.`,
     };
   } catch {
     return {
