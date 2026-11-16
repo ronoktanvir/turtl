@@ -4,6 +4,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import { action, mutation, query, type MutationCtx } from "../_generated/server";
 import { accessEnforced, canSeeApp, guardApp, guardAppInAction, requireAccount, visibleApps } from "../access";
 import { requireOwnerPasscode } from "../ownerPasscode";
+import { ceilingRefusal, projectsPerAccount } from "../spend/limits";
 import { repositoryAccess } from "../github/access";
 import { mergePullRequest, readPullRequest } from "../prTracking/github";
 import { pullRequestOf } from "../prTracking/validators";
@@ -56,6 +57,11 @@ export const add = mutation({
   handler: async (ctx, { repoUrl, liveUrl, folders, passcode }) => {
     const account = await requireAccount(ctx);
     await requireOwnerPasscode(ctx, passcode);
+    // Each project brings its own limits (customer-report keys and allowance), so an account has at most so many.
+    const cap = projectsPerAccount();
+    if (accessEnforced() && (await ctx.db.query("apps").withIndex("by_owner", (q) => q.eq("ownerId", account)).take(cap)).length >= cap) {
+      throw new ConvexError(ceilingRefusal.projects(cap));
+    }
     const parsed = parseGithubUrl(repoUrl);
     if (!parsed) throw new ConvexError("Paste the repository's GitHub address, like https://github.com/owner/name.");
     let scope: string[];

@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import type { Id } from "../_generated/dataModel";
 import { internalMutation, type MutationCtx, type QueryCtx } from "../_generated/server";
+import { addDeploymentSpend } from "./ceilings";
 import { codingThreadsPerDay, dayKey, intakeCasesPerDay, monthKey } from "./limits";
 
 // Writes and reads of the running totals. Only the gate (convex/consent/gate.ts) writes spend here, after a call it
@@ -67,6 +68,8 @@ export const addModelSpend = internalMutation({
   returns: v.null(),
   handler: async (ctx, { account, costUsd, appId }) => {
     if (!Number.isFinite(costUsd) || costUsd <= 0) return null;
+    // Every call counts toward the deployment's day too, whichever allowance it spent.
+    await addDeploymentSpend(ctx, costUsd);
     if (appId) {
       await addToIntakeDay(ctx, appId, { costUsd, calls: 1, casesOpened: 0 });
       return null;

@@ -17,6 +17,28 @@ single-owner demo: the app's Login buttons go straight to Home and nobody signs 
 Accounts are never merged by email: each method makes its own account. GitHub can hand over an address its user has
 not verified, so linking on it would let someone take over another person's account.
 
+## Limits on new accounts, and why there is no email check yet
+
+With `AUTH_REQUIRED=true` the deployment makes at most `NEW_ACCOUNTS_PER_HOUR` and `NEW_ACCOUNTS_PER_DAY` new
+accounts, by any method (`convex/spend/ceilings.ts`, called from the `afterUserCreatedOrUpdated` callback in
+`../auth.ts`). Every spending limit is per account, so these and the deployment's daily model ceiling are what bound a
+script that makes accounts.
+
+Checking an email address before an account may spend needs an email to send, and an email service has not been
+chosen. Reset switches on with `AUTH_RESEND_KEY` and `AUTH_EMAIL_FROM`; verification is not built to switch on with
+them, because:
+
+- Sign-up signs the person in at once, and the app has no screen to enter a code after it. Switching verification on
+  from the backend alone would leave every new account unable to use AI, with nothing in the app to fix it, the moment
+  reset was set up.
+- The same two variables turn on reset. Coupling them would make "set up password reset" silently change who may spend.
+- Sign in with Apple and GitHub accounts need their own rule: Apple confirms the address (or gives a private relay),
+  GitHub may hand over an unconfirmed one.
+
+What it needs: a "verify-email" step in the password provider (send a code with the Email provider, as reset does,
+and mark `users.emailVerificationTime` when it is entered), a code screen after sign-up, a gate rule that refuses
+spending for an unverified password account, and its own switch.
+
 ## What is stored
 
 Convex Auth's tables (`schema.ts`): `users` (email, and a name and picture when Apple or GitHub passes one on),

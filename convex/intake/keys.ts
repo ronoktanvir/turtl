@@ -3,6 +3,7 @@ import type { Id } from "../_generated/dataModel";
 import { mutation, query, type MutationCtx } from "../_generated/server";
 import { accessEnforced, canSeeApp, guardApp } from "../access";
 import { requireOwnerPasscode } from "../ownerPasscode";
+import { ceilingRefusal, intakeKeysPerProject } from "../spend/limits";
 
 // A public intake key names one app in its customers' report form. It is not a secret: it ships inside
 // the customer's app, and the endpoint's rate limits, not the key, stop abuse.
@@ -30,6 +31,11 @@ export const issue = mutation({
     await guardApp(ctx, appId, "This app does not exist.");
     await requireOwnerPasscode(ctx, passcode);
     if (!(await ctx.db.get(appId))) throw new ConvexError("This app does not exist.");
+    // Each live key carries its own report limits, so a project has at most so many at once (finding 7).
+    const cap = intakeKeysPerProject();
+    if (accessEnforced() && (await ctx.db.query("intakeKeys").withIndex("by_app_and_revoked", (q) => q.eq("appId", appId).eq("revokedAt", undefined)).take(cap)).length >= cap) {
+      throw new ConvexError(ceilingRefusal.intakeKeys(cap));
+    }
     return { key: await issueKey(ctx, appId) };
   },
 });

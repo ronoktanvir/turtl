@@ -19,7 +19,10 @@ import { startAuthStandIn } from "./fixtures/auth-stand-in.mjs";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const nodeRequire = createRequire(import.meta.url);
 const realAuth = await import("@convex-dev/auth/server");
-const VARIABLES = ["AUTH_REQUIRED", "AUTH_STAND_IN_URL", "AUTH_RESEND_KEY", "AUTH_EMAIL_FROM", "AUTH_APPLE_BUNDLE_ID", "AUTH_GITHUB_ID", "AUTH_GITHUB_SECRET", "JWT_PRIVATE_KEY", "JWKS", "SITE_URL"];
+const VARIABLES = [
+  "AUTH_REQUIRED", "AUTH_STAND_IN_URL", "AUTH_RESEND_KEY", "AUTH_EMAIL_FROM", "AUTH_APPLE_BUNDLE_ID", "AUTH_GITHUB_ID", "AUTH_GITHUB_SECRET", "JWT_PRIVATE_KEY", "JWKS", "SITE_URL",
+  "CONVEX_CLOUD_URL", "NEW_ACCOUNTS_PER_HOUR", "NEW_ACCOUNTS_PER_DAY",
+];
 
 const ref = (path) => new Proxy({ path }, { get: (target, key) => (key === "path" ? target.path : ref(path + "." + String(key))) });
 const registered = (kind) => (definition) => ({ kind, ...definition });
@@ -71,11 +74,21 @@ function fakeAuthLibrary() {
   let counter = 0;
   let rateLimited = false;
   const find = (provider, id) => accounts.find((row) => row.provider === provider && row.providerAccountId === id);
+  let config = null;
   const library = {
     authTables: realAuth.authTables,
+    // convex/auth.ts's configuration, kept so createAccount can run its callback the way the library does.
+    convexAuth(given) {
+      config = given;
+      return { auth: {}, signIn: {}, signOut: {}, store: {}, isAuthenticated: {} };
+    },
+    /** The mutation context the library's own mutation would give the callbacks; the world sets it. */
+    mutationCtx: null,
     async createAccount(_ctx, { provider, account, profile, shouldLinkViaEmail }) {
       assert.equal(shouldLinkViaEmail, false, "accounts are never linked by email");
       if (find(provider, account.id)) throw new Error(`Account ${account.id} already exists`);
+      // The library calls this inside the mutation that makes the user, so a throw leaves no user or account behind.
+      await config?.callbacks?.afterUserCreatedOrUpdated?.(library.mutationCtx, { userId: "users:" + (counter + 1), existingUserId: null, type: "credentials" });
       const user = { _id: "users:" + ++counter, ...profile };
       users.push(user);
       const row = { _id: "authAccounts:" + ++counter, userId: user._id, provider, providerAccountId: account.id, ...(account.secret !== undefined ? { secret: "hashed:" + account.secret } : {}) };
@@ -130,6 +143,12 @@ function fakeDb(indexes) {
       return row._id;
     },
     get: async (id) => structuredClone([...tables.values()].flat().find((row) => row._id === id) ?? null),
+    patch: async (id, fields) => {
+      for (const list of tables.values()) {
+        const index = list.findIndex((row) => row._id === id);
+        if (index !== -1) list[index] = { ...list[index], ...structuredClone(fields) };
+      }
+    },
     delete: async (id) => {
       for (const list of tables.values()) {
         const index = list.findIndex((row) => row._id === id);
@@ -142,10 +161,11 @@ function fakeDb(indexes) {
         const fields = indexes[table]?.[name];
         assert.ok(fields, `${table} has no index ${name}`);
         const conditions = [];
-        const range = { eq: (field, value) => (conditions.push([field, value]), range) };
+        const tests = { eq: (a, b) => a === b, lt: (a, b) => a < b, lte: (a, b) => a <= b, gt: (a, b) => a > b, gte: (a, b) => a >= b };
+        const range = Object.fromEntries(Object.entries(tests).map(([operator, holds]) => [operator, (field, value) => (conditions.push([field, value, holds]), range)]));
         build(range);
         conditions.forEach(([field], position) => assert.equal(field, fields[position], `${table}.${name} cannot be read by ${field} here`));
-        const matched = () => structuredClone(rows(table).filter((row) => conditions.every(([field, value]) => row[field] === value)));
+        const matched = () => structuredClone(rows(table).filter((row) => conditions.every(([field, value, holds]) => holds(row[field], value))));
         return { first: async () => matched()[0] ?? null, take: async (count) => matched().slice(0, count), unique: async () => matched()[0] ?? null };
       },
     }),
@@ -177,9 +197,11 @@ async function world(t, env = {}) {
     lucia: { Scrypt: class { async hash(secret) { return "scrypt:" + secret; } async verify(hash, secret) { return hash === "scrypt:" + secret; } } },
   });
   const { accountTables } = load("convex/auth/schema.ts");
-  const store = fakeDb(indexesOf(accountTables));
+  const { spendTables } = load("convex/spend/schema.ts");
+  const store = fakeDb(indexesOf({ ...accountTables, ...spendTables }));
   const scheduled = [];
   const mutationCtx = { db: store.db, scheduler: { runAt: async (at, fn, args) => void scheduled.push({ at, path: fn.path, args }) } };
+  auth.library.mutationCtx = mutationCtx;
   const runMutation = async (fn, args) => {
     const segments = fn.path.split(".").slice(1);
     const name = segments.pop();
@@ -352,6 +374,37 @@ test("the reset email reports a refused send without echoing the reply, and is o
   assert.equal(await email.sentRecently.handler(ctx, { accountId: "authAccounts:1" }), true);
   t.mock.timers.enable({ apis: ["Date"], now: Date.now() + email.RESEND_AFTER_MS + 1 });
   assert.equal(await email.sentRecently.handler(ctx, { accountId: "authAccounts:1" }), false);
+});
+
+// Review finding 7: every limit is per account, so a script that makes accounts multiplies them. With accounts on, the
+// deployment makes at most so many new accounts an hour and a day, by any method, counted where Convex Auth makes the user.
+test("with the deployment's ceiling on new accounts reached, a fresh sign-up is refused in plain words and makes nothing", async (t) => {
+  const { load, auth, store } = await world(t, { AUTH_REQUIRED: "true", NEW_ACCOUNTS_PER_HOUR: "2", NEW_ACCOUNTS_PER_DAY: "3" });
+  t.mock.timers.enable({ apis: ["Date"], now: Date.parse("2026-11-15T12:10:00Z") });
+  const { ceilingRefusal } = load("convex/spend/limits.ts");
+  load("convex/auth.ts");
+  const provider = load("convex/auth/password.ts").password();
+  const signUp = (email) => provider.authorize({ flow: "signUp", email, password: "tide pools at dawn" }, {});
+  await signUp("one@example.com");
+  await signUp("two@example.com");
+  await assert.rejects(signUp("three@example.com"), refusal(ceilingRefusal.accountsThisHour));
+  assert.equal(ceilingRefusal.accountsThisHour, "turtl is making a lot of new accounts right now, so it isn't making more this hour. Try again in an hour.");
+  assert.deepEqual(auth.users.map((user) => user.email), ["one@example.com", "two@example.com"], "the refused sign-up left no account");
+  // Signing in to an account that exists is not a new account.
+  assert.ok(await provider.authorize({ flow: "signIn", email: "one@example.com", password: "tide pools at dawn" }, {}));
+  // The next hour opens again, up to the day's ceiling.
+  t.mock.timers.setTime(Date.parse("2026-11-15T13:10:00Z"));
+  await signUp("three@example.com");
+  await assert.rejects(signUp("four@example.com"), refusal(ceilingRefusal.accountsToday));
+  assert.deepEqual(store.rows("deploymentTotals").map(({ name, value }) => [name, value]).sort(), [["accounts_day", 3], ["accounts_hour", 1]], "the earlier hour's count was dropped");
+});
+
+test("the demo has no ceiling on new accounts", async (t) => {
+  const { load, auth } = await world(t, { NEW_ACCOUNTS_PER_HOUR: "1" });
+  load("convex/auth.ts");
+  const provider = load("convex/auth/password.ts").password();
+  for (const email of ["one@example.com", "two@example.com"]) await provider.authorize({ flow: "signUp", email, password: "tide pools at dawn" }, {});
+  assert.equal(auth.users.length, 2);
 });
 
 test("users.mode answers before sign-in; users.viewer returns the signed-in person or null", async (t) => {

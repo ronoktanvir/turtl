@@ -138,6 +138,7 @@ import type * as runner_run from "../runner/run.js";
 import type * as screens_network from "../screens/network.js";
 import type * as screens_overview from "../screens/overview.js";
 import type * as screens_projects from "../screens/projects.js";
+import type * as spend_ceilings from "../spend/ceilings.js";
 import type * as spend_ledger from "../spend/ledger.js";
 import type * as spend_limits from "../spend/limits.js";
 import type * as spend_status from "../spend/status.js";
@@ -293,6 +294,7 @@ declare const fullApi: ApiFromModules<{
   "screens/network": typeof screens_network;
   "screens/overview": typeof screens_overview;
   "screens/projects": typeof screens_projects;
+  "spend/ceilings": typeof spend_ceilings;
   "spend/ledger": typeof spend_ledger;
   "spend/limits": typeof spend_limits;
   "spend/status": typeof spend_status;

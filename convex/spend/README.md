@@ -10,6 +10,14 @@ Each project also has its own allowance for what its customers cause, apart from
 - **A daily allowance for customer reports**, `INTAKE_SPEND_PER_DAY_USD` (default $0.50), per project per calendar day in UTC. Report triage (`convex/intake/triage.ts`) and the investigate and plan steps of a case customers opened (`convex/intake/workflow.ts`) ask the gate with `gateFor(ctx, { appId }, "intake")`; their cost lands on the project's day (`intakeDays`), never on the account's month. Once it is spent, triage judges reports by its rules and those cases get the labelled rule-based reading, until the next day. The account's own model calls are unaffected.
 - **A daily cap on new cases from customer reports**, `INTAKE_CASES_PER_DAY` (default 5), per project. Past it a report that would open a case is kept on no case, and its triage reason says why; a report that matches an open case still joins it.
 
+Every limit above is per account or per project, and nothing yet stops a script from making accounts (there is no email check until an email service is chosen; see `convex/auth/README.md`), so the deployment has ceilings of its own (`ceilings.ts`):
+
+- **A daily ceiling on every account's model spend together**, `DEPLOYMENT_MODEL_SPEND_PER_DAY_USD` (default $25). The gate checks it before any model call, whichever allowance it spends; past it no model is asked for anyone until the next day (UTC).
+- **New accounts per hour and per day**, `NEW_ACCOUNTS_PER_HOUR` (default 20) and `NEW_ACCOUNTS_PER_DAY` (default 100), counted by Convex Auth's `afterUserCreatedOrUpdated` callback (`convex/auth.ts`) inside the mutation that makes the user, so a refused sign-up leaves nothing behind. Any method counts: email and password, Apple, GitHub.
+- **Projects per account**, `PROJECTS_PER_ACCOUNT` (default 10), checked by `onboarding/projects:add`; **intake keys per project**, `INTAKE_KEYS_PER_PROJECT` (default 3 taking reports at once), checked by `intake/keys:issue`.
+
+The totals live in `deploymentTotals` (one row per total per hour or day; older ones are deleted as a new one starts). They belong to no account and are not deleted with one.
+
 In the single-owner demo there is no limit and nothing is recorded.
 
 ## Files

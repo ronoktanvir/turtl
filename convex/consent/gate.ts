@@ -3,6 +3,7 @@ import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { internalQuery, type ActionCtx, type QueryCtx } from "../_generated/server";
 import { accessEnforced, SOLO_ACCOUNT } from "../access";
+import { deploymentSpendReached } from "../spend/ceilings";
 import { intakeSpendToday, monthSpend, threadsToday } from "../spend/ledger";
 import { codingThreadsPerDay, intakeSpendPerDayUsd, modelSpendLimitUsd, spendRefusal } from "../spend/limits";
 import { sendTo } from "./outbound";
@@ -78,6 +79,8 @@ export const check = internalQuery({
     if (!permitted.ok) return permitted;
     const now = Date.now();
     if (purpose === "send" && (MODEL_SERVICES as readonly string[]).includes(service)) {
+      // The deployment's own daily ceiling comes first: however many accounts there are, the day's total is bounded.
+      if (await deploymentSpendReached(ctx, now)) return { ok: false, reason: spendRefusal.deploymentSpent() };
       if (allowance === "intake") {
         const limit = intakeSpendPerDayUsd();
         if ((await intakeSpendToday(ctx, appId!, now)) >= limit) return { ok: false, reason: spendRefusal.intakeSpent(limit) };

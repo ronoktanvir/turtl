@@ -184,6 +184,31 @@ test("customer reports open at most so many cases on a project a day", async (t)
   });
 });
 
+// Review finding 7: the per-account limits multiply with the number of accounts, so the deployment has its own daily
+// ceiling on model spend, across every account and allowance.
+test("past the deployment's daily ceiling no account's model is asked, whatever its own allowance says", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: NOV_15 });
+  await withEnv({ ...ACCOUNTS, DEPLOYMENT_MODEL_SPEND_PER_DAY_USD: "1" }, async () => {
+    const db = world();
+    const check = (allowance) => gates.check.handler({ db }, { scope: { appId: "apps:1" }, service: "openai", purpose: "send", ...(allowance && { allowance }) });
+    assert.equal((await check()).ok, true);
+    await ledger.addModelSpend.handler({ db }, { account: ADA, costUsd: 0.5 });
+    await ledger.addModelSpend.handler({ db }, { account: "acct-bob", costUsd: 0.25, appId: "apps:3" });
+    assert.equal((await check()).ok, true, "$0.75 of $1.00");
+    await ledger.addModelSpend.handler({ db }, { account: "acct-carol", costUsd: 0.25 });
+    assert.deepEqual(await check(), { ok: false, reason: limits.spendRefusal.deploymentSpent() });
+    assert.deepEqual(await check("intake"), { ok: false, reason: limits.spendRefusal.deploymentSpent() });
+    assert.equal(limits.spendRefusal.deploymentSpent(), "turtl has reached the most AI it uses in one day across everyone, so no model was asked; it starts again tomorrow");
+    assert.deepEqual(await gates.check.handler({ db }, { scope: { appId: "apps:1" }, service: "supermemory", purpose: "send" }), { ok: true, account: ADA }, "the ceiling is on model spend only");
+    assert.equal(await ledger.monthSpend({ db }, ADA, Date.now()), 0.5, "each account's own month still adds up");
+    t.mock.timers.setTime(Date.parse("2026-11-16T00:00:01Z"));
+    assert.equal((await check()).ok, true, "a new day starts again");
+  });
+  await withEnv({ DEPLOYMENT_MODEL_SPEND_PER_DAY_USD: undefined, NEW_ACCOUNTS_PER_HOUR: undefined, NEW_ACCOUNTS_PER_DAY: undefined, PROJECTS_PER_ACCOUNT: undefined, INTAKE_KEYS_PER_PROJECT: undefined }, () => {
+    assert.deepEqual([limits.deploymentModelSpendPerDayUsd(), limits.newAccountsPerHour(), limits.newAccountsPerDay(), limits.projectsPerAccount(), limits.intakeKeysPerProject()], [25, 20, 100, 10, 3]);
+  });
+});
+
 test("the gear sheet's line: where the account stands, and nothing in the demo", async (t) => {
   t.mock.timers.enable({ apis: ["Date"], now: NOV_15 });
   const db = world({

@@ -24,7 +24,7 @@ const VARIABLES = [
   "GITHUB_TOKEN", "GITHUB_APP_ID", "GITHUB_APP_PRIVATE_KEY", "GITHUB_APP_SLUG", "GITHUB_APP_WEBHOOK_SECRET", "AUTH_STAND_IN_URL", "AUTH_RESEND_KEY", "AUTH_EMAIL_FROM",
   "KEIKI_API_KEY", "KEIKI_AGENT_ID", "KEIKI_OWNER_CONTACT", "EXPO_PUSH_API_URL", "REVYL_API_KEY", "REVYL_BOOKING_WORKFLOW_ID", "CONVEX_CLOUD_URL",
   // Limits (findings 5 and 7).
-  "INTAKE_CASES_PER_DAY", "INTAKE_SPEND_PER_DAY_USD",
+  "INTAKE_CASES_PER_DAY", "INTAKE_SPEND_PER_DAY_USD", "PROJECTS_PER_ACCOUNT", "INTAKE_KEYS_PER_PROJECT",
 ];
 const PASSCODE = "local-fixture-passcode";
 const SIGN_IN = "Sign in to continue.";
@@ -603,6 +603,32 @@ test("customer reports open at most INTAKE_CASES_PER_DAY new cases on a project 
     const w = world(t, { INTAKE_CASES_PER_DAY: "2" });
     const { alice } = await seed(w);
     for (let n = 1; n <= 3; n++) assert.equal((await land(w, await report(w, alice.appId, n))).outcome, "opened", "the demo has no cap");
+  }
+});
+
+// Finding 7: each project and each intake key brings its own limits, so an account has at most so many of each.
+test("an account past its project cap, or a project past its key cap, is refused in plain words", async (t) => {
+  {
+    const w = world(t, { AUTH_REQUIRED: "true", PROJECTS_PER_ACCOUNT: "2", INTAKE_KEYS_PER_PROJECT: "2" });
+    const { alice, bob } = await seed(w);
+    const asAlice = w.as("alice");
+    await asAlice("onboarding/projects", "add", { repoUrl: "https://github.com/acme/web" });
+    await refuses(asAlice("onboarding/projects", "add", { repoUrl: "https://github.com/acme/api" }), "This account already has 2 projects, the most one account can have. Contact support if you need more.");
+    assert.equal(w.backend.rows("apps").filter((app) => app.ownerId === "alice").length, 2);
+    assert.ok((await w.as("bob")("onboarding/projects", "add", { repoUrl: "https://github.com/acme/api" })).projectId, "the cap is each account's own");
+    const first = (await asAlice("intake/keys", "issue", { appId: alice.appId })).key;
+    await asAlice("intake/keys", "issue", { appId: alice.appId });
+    await refuses(asAlice("intake/keys", "issue", { appId: alice.appId }), "This project already has 2 report keys in use, the most one project can have. Stop one from taking reports before making another.");
+    await asAlice("intake/keys", "revoke", { key: first });
+    assert.match((await asAlice("intake/keys", "issue", { appId: alice.appId })).key, /^tik_/, "a stopped key makes room");
+    assert.match((await w.as("bob")("intake/keys", "issue", { appId: bob.appId })).key, /^tik_/);
+  }
+  {
+    const w = world(t, { PROJECTS_PER_ACCOUNT: "1", INTAKE_KEYS_PER_PROJECT: "1" });
+    const { alice } = await seed(w);
+    await w.as(null)("onboarding/projects", "add", { repoUrl: "https://github.com/acme/web", passcode: PASSCODE });
+    for (let n = 0; n < 2; n++) await w.as(null)("intake/keys", "issue", { appId: alice.appId, passcode: PASSCODE });
+    assert.equal(w.backend.rows("intakeKeys").length, 2, "the demo has no caps");
   }
 });
 
