@@ -4,7 +4,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import ProjectIcon from "../components/project/ProjectIcon";
 import { Card, HealthWord, Icon, Reveal, Screen, T, Turtle, devToolsOn } from "../components/ui";
 import { useProjects } from "../data";
-import { healthOrder, healthToken, useTheme } from "../theme";
+import { approvalLabel, healthOrder, healthToken, useTheme } from "../theme";
 
 export default function Projects() {
   const router = useRouter();
@@ -45,7 +45,7 @@ export default function Projects() {
                       <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}><View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: colors.statusWorking }} /><T color="textMuted"><T variant="strong">{p.featureCount}</T> {p.featureCount === 1 ? "feature" : "features"}</T></View>
                     </View>
                     <View style={{ flexDirection: "row", gap: 8, alignItems: "center", flexShrink: 1 }}>
-                      <T variant="small" color={p.needsApprovalCount > 0 ? "statusNeedsYou" : "textMuted"} style={{ flexShrink: 1, textAlign: "right" }}>{p.needsApprovalCount > 0 ? `${p.needsApprovalCount} needs approval` : p.bugCount > 0 ? "Review fixes" : p.featureCount > 0 ? "Explore features" : "Explore project"}</T>
+                      <T variant="small" testID={`project-approvals-${p.id}`} color={p.needsApprovalCount > 0 ? "statusNeedsYou" : "textMuted"} style={{ flexShrink: 1, textAlign: "right" }}>{p.needsApprovalCount > 0 ? approvalLabel(p.needsApprovalCount) : p.bugCount > 0 ? "Review fixes" : p.featureCount > 0 ? "Explore features" : "Explore project"}</T>
                       <Icon name="ArrowRight" size={18} color="textMuted" />
                     </View>
                   </View>

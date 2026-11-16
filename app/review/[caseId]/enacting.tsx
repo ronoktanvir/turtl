@@ -4,9 +4,10 @@ import { KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, View } 
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AskBar } from "../../../components/execution/AskBar";
 import { PlanGraph } from "../../../components/execution/PlanGraph";
+import { formatDuration, remainingDuration } from "../../../components/execution/timing";
 import { ApproveSheet, FixCard, kindLabel } from "../../../components/fix/FixCard";
 import { Button, Card, Header, Icon, Reveal, Screen, T, Turtle } from "../../../components/ui";
-import { mergePullRequest, stopEnactment, useCase, useChat, useProject } from "../../../data";
+import { mergePullRequest, stopEnactment, useCase, useChat, useEnactmentNow, useProject } from "../../../data";
 import type { Enactment, FixOption, Health } from "../../../data/types";
 import { healthToken, useTheme } from "../../../theme";
 
@@ -23,6 +24,7 @@ const states: Record<Enactment["state"], { word: string; health: Health }> = {
 export default function Enacting() {
   const { caseId } = useLocalSearchParams<{ caseId: string }>();
   const c = useCase(caseId);
+  const now = useEnactmentNow(caseId);
   const project = useProject(c?.projectId ?? "");
   const chat = useChat({ kind: "case", caseId });
   const router = useRouter();
@@ -60,6 +62,12 @@ export default function Enacting() {
   const canStop = e.state === "running" || e.state === "needs_you" || e.state === "waiting_for_merge";
   const canMerge = e.state === "waiting_for_merge" && pr?.state === "open" && pr.checks === "passing" && pr.mergeable;
   const completed = e.steps.filter((step) => step.status === "done").length;
+  const remaining = remainingDuration(e.steps, now);
+  const remainingLabel = e.state === "done" ? "Complete"
+    : (e.state === "waiting_for_merge" ? "After your merge · "
+      : e.state === "stopped" || e.state === "failed" ? "Stopped · "
+        : e.state === "needs_you" ? "Paused · " : "")
+      + (remaining === undefined ? "estimate pending" : `about ${formatDuration(Math.ceil(remaining / 1000) * 1000)} remaining`);
   const ask = () => {
     if (!question.trim() || chat.busy) return;
     chat.send(question.trim());
@@ -85,6 +93,7 @@ export default function Enacting() {
                   <T variant="small" color="textMuted">{completed + " of " + e.steps.length + " steps complete"}</T>
                 </View>
               </View>
+              <T variant="small" color="textMuted" testID="enactment-remaining">{remainingLabel}</T>
               <View style={{ height: 3, backgroundColor: colors.border, borderRadius: 2, overflow: "hidden" }}>
                 <View style={{ height: 3, width: `${e.steps.length ? completed / e.steps.length * 100 : 0}%`, backgroundColor: colors[healthToken[state.health]] }} />
               </View>
@@ -180,7 +189,7 @@ export default function Enacting() {
           <Reveal delay={80}>
             <View style={{ gap: 16 }}>
               <T variant="title" accessibilityRole="header">Plan</T>
-              <PlanGraph steps={e.steps} pullRequest={pr} />
+              <PlanGraph steps={e.steps} pullRequest={pr} now={now} />
             </View>
           </Reveal>
         </ScrollView>
