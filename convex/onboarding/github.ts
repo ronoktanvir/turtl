@@ -18,7 +18,7 @@ export type RepoRead =
     }
   | { ok: false; reason: string };
 
-const rejectedNote = "GITHUB_TOKEN was rejected by GitHub (401), so turtl read without it.";
+const rejectedNote = "GitHub rejected turtl's access token, so turtl read the repository as a public one.";
 
 function unreadable(repo: string, read: Extract<GithubResult<unknown>, { ok: false }>, token: string | undefined, rejected: boolean): string {
   if (read.status === 403 && /rate limit/i.test(read.message)) {

@@ -67,7 +67,7 @@ export default function Prepare() {
     ...(inspection?.items ?? []).filter((i) => i.status !== "found").map((i) => i.label),
     ...o.neverBreak.filter((n) => n.addCheck).map((n) => "A check that " + n.text.charAt(0).toLowerCase() + n.text.slice(1)),
   ];
-  const showAnswers = editable || o.neverBreak.length > 0;
+  const showAnswers = o.stage !== "unsupported" && (editable || o.neverBreak.length > 0);
 
   const save = async () => {
     if (await run("save", () => saveNeverBreak(o.projectId, answers))) setDraft(null);
@@ -112,7 +112,7 @@ export default function Prepare() {
                   <T style={{ flex: 1 }} testID="prepare-note">{note}</T>
                 </View>
               ))}
-              <T variant="small" color="textMuted">{o.repo + (o.folders.length ? " · " + o.folders.join(", ") : "") + (inspection?.ref ? " · read at " + inspection.ref : "")}</T>
+              <T variant="small" color="textMuted">{o.repo + (o.folders.length ? " · " + o.folders.join(", ") : "") + (inspection?.ref ? " · read at " + inspection.ref.slice(0, 7) : "")}</T>
               {inspectableStages.includes(o.stage) && (
                 <Pressable accessibilityRole="button" onPress={() => void run("inspect", () => inspectAgain(o.projectId))} disabled={busy !== null} testID="prepare-inspect-again" style={{ minHeight: 44, justifyContent: "center", alignSelf: "flex-start" }}>
                   <T color="link">{busy === "inspect" ? "Reading again…" : "Read the repository again"}</T>

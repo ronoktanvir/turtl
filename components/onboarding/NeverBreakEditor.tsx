@@ -23,11 +23,15 @@ export function NeverBreakEditor({ answers, editable, onChange }: { answers: Nev
             {answer.suggested && <Chip label="Suggested" tone="brandDeep" />}
             {answer.why && <T variant="small" color="textMuted">{answer.why}</T>}
           </View>
-          <View style={{ alignItems: "center", gap: 4 }}>
+          {!editable ? (
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }} testID={"never-break-" + index + "-decision"}>
+              <Icon name={answer.addCheck ? "Check" : "X"} size={16} color={answer.addCheck ? "statusClear" : "textMuted"} />
+              <T variant="small" color={answer.addCheck ? "statusClear" : "textMuted"}>{answer.addCheck ? "Check added" : "No check"}</T>
+            </View>
+          ) : <View style={{ alignItems: "center", gap: 4 }}>
             <T variant="small" color="textMuted">Add a check</T>
             <Switch
               value={answer.addCheck}
-              disabled={!editable}
               onValueChange={(addCheck) => onChange(answers.map((a, i) => (i === index ? { ...a, addCheck } : a)))}
               accessibilityLabel={"Add a check: " + answer.text}
               testID={"never-break-" + index + "-check"}
@@ -35,7 +39,7 @@ export function NeverBreakEditor({ answers, editable, onChange }: { answers: Nev
               thumbColor={answer.addCheck ? colors.brand : colors.textMuted}
               {...({ activeThumbColor: colors.brand } as object)}
             />
-          </View>
+          </View>}
           {editable && !answer.suggested && (
             <Pressable accessibilityRole="button" accessibilityLabel={"Remove " + answer.text} onPress={() => onChange(answers.filter((_, i) => i !== index))} hitSlop={8} style={{ width: 32, height: 44, alignItems: "center", justifyContent: "center" }}>
               <Icon name="X" size={18} color="textMuted" />
