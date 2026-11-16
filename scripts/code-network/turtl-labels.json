@@ -1,0 +1,781 @@
+{
+  "clusters": [
+    {
+      "id": "owner-app",
+      "name": "The turtl app",
+      "summary": "The screens you use on your phone: your projects, each project's fixes and requests, case cards and settings."
+    },
+    {
+      "id": "reviewing",
+      "name": "Reviewing fixes",
+      "summary": "Where you read what happened in a case, compare its fixes, approve one, and watch it being carried out step by step."
+    },
+    {
+      "id": "look",
+      "name": "Look and feel",
+      "summary": "The app's colours, light and dark themes, icons, the turtle, and its small animations."
+    },
+    {
+      "id": "cases",
+      "name": "Case handling",
+      "summary": "Turns problems into cases and moves each through its steps from detection to learning."
+    },
+    {
+      "id": "watching",
+      "name": "Health checks",
+      "summary": "Tries a booking on a schedule, opens a case when it fails, and checks fixes worked, including runs on a real phone through Revyl."
+    },
+    {
+      "id": "investigation",
+      "name": "Finding the cause",
+      "summary": "Gathers clues, works out the likely cause, and proposes one to four fixes, including new ones from your chat about a case."
+    },
+    {
+      "id": "approvals",
+      "name": "Owner approvals",
+      "summary": "Asks you before acting, texts you, and carries out the fix you approve, including opening and merging its pull request."
+    },
+    {
+      "id": "memory",
+      "name": "What turtl remembers",
+      "summary": "Saves what worked, recalls it when a similar problem comes back, and answers your questions in chat."
+    },
+    {
+      "id": "code-map",
+      "name": "Code map",
+      "summary": "The Investigate screen: draws this map of your app's code from GitHub, keeps the code in Supermemory, and answers your questions about any part."
+    },
+    {
+      "id": "booking",
+      "name": "Booking",
+      "summary": "The demo booking app turtl protects: its booking screen, services and times, saved bookings, and the web links turtl uses to check it."
+    },
+    {
+      "id": "recommendations",
+      "name": "Recommendations",
+      "summary": "Suggests services while a customer books. When the suggestion provider is slow, booking waits on it; turning suggestions off lets booking go through."
+    },
+    {
+      "id": "dev-tools",
+      "name": "Testing tools",
+      "summary": "Sample cases, example data and buttons for trying turtl without a real outage."
+    }
+  ],
+  "nodes": {
+    "app/_layout.tsx": {
+      "clusterId": "owner-app",
+      "label": "App shell",
+      "summary": "Sets up the turtl app and connects it to the live data, so every screen shows current cases."
+    },
+    "app/case/[id].tsx": {
+      "clusterId": "owner-app",
+      "label": "Case screen",
+      "summary": "Shows one case as a set of swipeable cards covering what broke, the cause, the plan and the result."
+    },
+    "app/index.tsx": {
+      "clusterId": "owner-app",
+      "label": "Case list",
+      "summary": "Lists all cases, putting the ones waiting for your decision first."
+    },
+    "components/dev/DevTools.tsx": {
+      "clusterId": "dev-tools",
+      "label": "Test panel",
+      "summary": "A panel of buttons for creating sample cases and running a demo recovery without a real outage."
+    },
+    "components/dev/useDevActions.ts": {
+      "clusterId": "dev-tools",
+      "label": "Test buttons",
+      "summary": "Connects the test panel's buttons to the actions that create, advance and reset sample cases."
+    },
+    "components/feed/CardPage.tsx": {
+      "clusterId": "owner-app",
+      "label": "Case card",
+      "summary": "Draws one card of a case, with its status, details and any decision or permission controls."
+    },
+    "components/feed/CaseKindChip.tsx": {
+      "clusterId": "owner-app",
+      "label": "Case type tag",
+      "summary": "A small tag showing what kind of case this is and who raised it."
+    },
+    "components/feed/CaseRow.tsx": {
+      "clusterId": "owner-app",
+      "label": "Case list row",
+      "summary": "One row in the case list showing the case title, status and how long ago it started."
+    },
+    "components/feed/DecisionPanel.tsx": {
+      "clusterId": "approvals",
+      "label": "Approve or decline",
+      "summary": "Buttons to approve or decline a proposed fix, with a confirmation step before your choice is sent."
+    },
+    "components/feed/PermissionPanel.tsx": {
+      "clusterId": "approvals",
+      "label": "Allow automatic fixes",
+      "summary": "Buttons to let turtl reuse a past fix automatically, or take that permission back, after a confirmation."
+    },
+    "components/feed/ProgressStrip.tsx": {
+      "clusterId": "owner-app",
+      "label": "Progress bar",
+      "summary": "A strip of segments showing how far a case has moved through its steps."
+    },
+    "components/feed/StatusBadge.tsx": {
+      "clusterId": "owner-app",
+      "label": "Status badge",
+      "summary": "A small coloured label showing a status such as waiting for you or restored."
+    },
+    "components/feed/cards.ts": {
+      "clusterId": "owner-app",
+      "label": "Card progress",
+      "summary": "Groups a case's steps into the cards you see and chooses their labels and colours."
+    },
+    "components/feed/incident.ts": {
+      "clusterId": "owner-app",
+      "label": "Incident wording",
+      "summary": "Works out the text shown on each card of a real incident, such as cause, plan and result."
+    },
+    "convex/assistant.ts": {
+      "clusterId": "memory",
+      "label": "Ask turtl chat",
+      "summary": "Answers your questions in chat using OpenAI, drawing on what turtl has saved about past cases."
+    },
+    "convex/bookingDemo/booking.ts": {
+      "clusterId": "booking",
+      "label": "Booking actions",
+      "summary": "Lets the demo app list services, show feature switches, suggest services and submit a booking."
+    },
+    "convex/bookingDemo/catalog.ts": {
+      "clusterId": "booking",
+      "label": "Services and times",
+      "summary": "Holds the demo app's list of services and bookable time slots."
+    },
+    "convex/bookingDemo/checks.ts": {
+      "clusterId": "booking",
+      "label": "Booking test run",
+      "summary": "Runs a full test booking on the demo app and reports whether it worked."
+    },
+    "convex/bookingDemo/journeyCore.ts": {
+      "clusterId": "booking",
+      "label": "Booking steps",
+      "summary": "Carries out a booking from start to finish, including optional suggestions and saving, and reports any error."
+    },
+    "convex/bookingDemo/provider.ts": {
+      "clusterId": "recommendations",
+      "label": "Service suggestions",
+      "summary": "Provides suggested services for a booking and can be made to time out to stage a failure."
+    },
+    "convex/bookingDemo/records.ts": {
+      "clusterId": "booking",
+      "label": "Booking records",
+      "summary": "Saves, reads and cleans up bookings and failed attempts, and counts how many people were affected."
+    },
+    "convex/bookingDemo/state.ts": {
+      "clusterId": "recommendations",
+      "label": "Suggestions switch",
+      "summary": "Keeps the demo app's switches: whether suggestions are on, and the staged slow-provider and booking-store failures."
+    },
+    "convex/bookingDemo/validators.ts": {
+      "clusterId": "booking",
+      "label": "Booking error format",
+      "summary": "Defines the shape of the error details the booking app returns when something goes wrong."
+    },
+    "convex/cases.ts": {
+      "clusterId": "cases",
+      "label": "Case records",
+      "summary": "Creates cases, keeps their status and steps up to date, and supplies the data the app screens show."
+    },
+    "convex/constants.ts": {
+      "clusterId": "cases",
+      "label": "Case steps and statuses",
+      "summary": "Lists the eight steps a case goes through and the statuses a case can have."
+    },
+    "convex/crons.ts": {
+      "clusterId": "watching",
+      "label": "Check schedule",
+      "summary": "Sets the timetable that makes turtl check the booking app regularly."
+    },
+    "convex/decisions.ts": {
+      "clusterId": "approvals",
+      "label": "Approval decisions",
+      "summary": "Records your approval or decline of a proposed fix and moves the case on."
+    },
+    "convex/dev.ts": {
+      "clusterId": "dev-tools",
+      "label": "Sample case tools",
+      "summary": "Creates, advances and resets sample cases and starts demo recoveries for testing."
+    },
+    "convex/diagnosis.ts": {
+      "clusterId": "investigation",
+      "label": "Cause diagnosis",
+      "summary": "Asks OpenAI to work out the likely cause of a problem from the evidence gathered."
+    },
+    "convex/http.ts": {
+      "clusterId": "booking",
+      "label": "Booking app web links",
+      "summary": "Web addresses for the booking app: health, version, switches, test booking and error reports, with protected ones needing a secret."
+    },
+    "convex/keiki.ts": {
+      "clusterId": "approvals",
+      "label": "Text messages",
+      "summary": "Texts you through Keiki when a case opens or needs your decision."
+    },
+    "convex/memory/checks.ts": {
+      "clusterId": "memory",
+      "label": "Memory matching rules",
+      "summary": "Decides whether a saved fix still applies to a new problem and how to confirm it worked."
+    },
+    "convex/memory/dev.ts": {
+      "clusterId": "dev-tools",
+      "label": "Memory test tools",
+      "summary": "Creates and breaks sample memories to test how recall behaves."
+    },
+    "convex/memory/flow.ts": {
+      "clusterId": "memory",
+      "label": "Find past fixes",
+      "summary": "Looks for a saved fix that matches the current problem."
+    },
+    "convex/memory/records.ts": {
+      "clusterId": "memory",
+      "label": "Saved fixes",
+      "summary": "Stores, reads and checks remembered fixes and the evidence behind them."
+    },
+    "convex/memory/service.ts": {
+      "clusterId": "memory",
+      "label": "Learn and recall",
+      "summary": "Saves what worked after a case and recalls matching past fixes for new ones."
+    },
+    "convex/monitor.ts": {
+      "clusterId": "watching",
+      "label": "Booking app watcher",
+      "summary": "Checks on the booking app and opens a case when something looks broken."
+    },
+    "convex/permissions.ts": {
+      "clusterId": "approvals",
+      "label": "Automatic fix permission",
+      "summary": "Records whether you've allowed turtl to reuse a saved fix without asking again."
+    },
+    "convex/protectedApp/client.ts": {
+      "clusterId": "watching",
+      "label": "Booking app connection",
+      "summary": "Defines how turtl talks to the watched app and what counts as fixed."
+    },
+    "convex/protectedApp/records.ts": {
+      "clusterId": "watching",
+      "label": "Case evidence log",
+      "summary": "Saves evidence, proposed fixes, actions taken and check results for a case."
+    },
+    "convex/protectedApp/registry.ts": {
+      "clusterId": "watching",
+      "label": "Watched app setup",
+      "summary": "Registers the demo booking app, its booking journey and the one fix turtl can apply."
+    },
+    "convex/runner/contract.ts": {
+      "clusterId": "cases",
+      "label": "Step rules",
+      "summary": "Defines what each case step receives and must return."
+    },
+    "convex/runner/handlers/authorize_and_execute.ts": {
+      "clusterId": "approvals",
+      "label": "Get approval, apply fix",
+      "summary": "Waits for your approval, then applies the fix to the booking app."
+    },
+    "convex/runner/handlers/detect_or_receive.ts": {
+      "clusterId": "watching",
+      "label": "Spot a problem",
+      "summary": "Starts a case by detecting a failure or receiving a report."
+    },
+    "convex/runner/handlers/examine_broader_causes.ts": {
+      "clusterId": "investigation",
+      "label": "Look wider",
+      "summary": "Checks whether the problem could have other causes or affect more than first thought."
+    },
+    "convex/runner/handlers/gather_context.ts": {
+      "clusterId": "investigation",
+      "label": "Collect clues",
+      "summary": "Gathers recent errors, settings and past similar cases to understand the problem."
+    },
+    "convex/runner/handlers/index.ts": {
+      "clusterId": "cases",
+      "label": "Step directory",
+      "summary": "Lists which piece of code handles each case step."
+    },
+    "convex/runner/handlers/investigate.ts": {
+      "clusterId": "investigation",
+      "label": "Find the cause",
+      "summary": "Studies the clues and names the most likely cause."
+    },
+    "convex/runner/handlers/journey.ts": {
+      "clusterId": "watching",
+      "label": "Test the booking",
+      "summary": "Runs a test booking on the live app to see whether customers can book."
+    },
+    "convex/runner/handlers/learn.ts": {
+      "clusterId": "memory",
+      "label": "Remember the result",
+      "summary": "Saves what happened and what worked so future cases can reuse it."
+    },
+    "convex/runner/handlers/plan.ts": {
+      "clusterId": "investigation",
+      "label": "Plan the fix",
+      "summary": "Proposes fix options for you to choose between."
+    },
+    "convex/runner/handlers/verify.ts": {
+      "clusterId": "watching",
+      "label": "Check it worked",
+      "summary": "Rechecks the booking app after the fix to confirm it works again."
+    },
+    "convex/runner/run.ts": {
+      "clusterId": "cases",
+      "label": "Case runner",
+      "summary": "Runs a case through its steps one after another and records each attempt."
+    },
+    "convex/schema.ts": {
+      "clusterId": "cases",
+      "label": "Data layout",
+      "summary": "Defines every kind of information turtl stores and how it is organised."
+    },
+    "convex/supermemory.ts": {
+      "clusterId": "memory",
+      "label": "Memory search link",
+      "summary": "Sends saved fixes to Supermemory and searches them for similar past problems."
+    },
+    "convex/workflow.ts": {
+      "clusterId": "cases",
+      "label": "Step order",
+      "summary": "Decides which step comes next and when a case waits, finishes or stops."
+    },
+    "table:apps": {
+      "clusterId": "watching",
+      "label": "Watched apps",
+      "summary": "Stores each app turtl watches, such as the demo booking app."
+    },
+    "table:cases": {
+      "clusterId": "cases",
+      "label": "Cases",
+      "summary": "Stores every case with its title, kind and status."
+    },
+    "table:steps": {
+      "clusterId": "cases",
+      "label": "Case steps",
+      "summary": "Stores each step of a case and where it stands."
+    },
+    "table:stepAttempts": {
+      "clusterId": "cases",
+      "label": "Step attempts",
+      "summary": "Stores every try at a step, including failures and retries."
+    },
+    "table:journeys": {
+      "clusterId": "watching",
+      "label": "Customer journeys",
+      "summary": "Stores the customer journeys turtl tests, such as booking an appointment."
+    },
+    "table:actionCatalog": {
+      "clusterId": "approvals",
+      "label": "Allowed fixes",
+      "summary": "Stores the fixes turtl is allowed to apply to each app."
+    },
+    "table:reports": {
+      "clusterId": "watching",
+      "label": "Problem reports",
+      "summary": "Stores reports of failures that start cases."
+    },
+    "table:evidence": {
+      "clusterId": "investigation",
+      "label": "Evidence",
+      "summary": "Stores clues gathered for a case, like errors and settings."
+    },
+    "table:proposals": {
+      "clusterId": "approvals",
+      "label": "Proposed fixes",
+      "summary": "Stores fix options offered to you and your decision."
+    },
+    "table:actions": {
+      "clusterId": "approvals",
+      "label": "Actions taken",
+      "summary": "Stores each fix turtl applied and its outcome."
+    },
+    "table:verifications": {
+      "clusterId": "watching",
+      "label": "Fix checks",
+      "summary": "Stores the results of checking that a fix worked."
+    },
+    "table:recoveryMemories": {
+      "clusterId": "memory",
+      "label": "Saved fixes",
+      "summary": "Stores what worked before so it can be reused."
+    },
+    "table:ownerPreferences": {
+      "clusterId": "approvals",
+      "label": "Your preferences",
+      "summary": "Stores preferences you stated while deciding on a fix, so turtl can follow them next time."
+    },
+    "table:permissions": {
+      "clusterId": "approvals",
+      "label": "Fix permissions",
+      "summary": "Stores which fixes you've allowed turtl to run automatically."
+    },
+    "table:agentRuns": {
+      "clusterId": "investigation",
+      "label": "AI runs",
+      "summary": "Stores each time an AI model was asked to diagnose or plan."
+    },
+    "table:contextSources": {
+      "clusterId": "investigation",
+      "label": "Clue sources",
+      "summary": "Stores where each piece of case information came from."
+    },
+    "table:bookingDemoSettings": {
+      "clusterId": "recommendations",
+      "label": "Demo switches",
+      "summary": "Stores whether suggestions are on and which staged failures are switched on in the demo app."
+    },
+    "table:bookingDemoBookings": {
+      "clusterId": "booking",
+      "label": "Saved bookings",
+      "summary": "Stores bookings made in the demo app."
+    },
+    "table:bookingDemoAttempts": {
+      "clusterId": "booking",
+      "label": "Booking attempts",
+      "summary": "Stores booking tries, including failed ones."
+    },
+    "external:supermemory": {
+      "clusterId": "memory",
+      "label": "Supermemory",
+      "summary": "Outside service that stores saved fixes and finds similar past problems."
+    },
+    "external:openai": {
+      "clusterId": "investigation",
+      "label": "OpenAI",
+      "summary": "Outside AI service that helps diagnose problems and powers the chat assistant."
+    },
+    "external:keiki": {
+      "clusterId": "approvals",
+      "label": "Keiki",
+      "summary": "Outside service that sends you text messages about your cases."
+    },
+    "components/feed/plainWords.ts": {
+      "clusterId": "owner-app",
+      "label": "Plain words",
+      "summary": "Turns stored facts, checks and error codes into short sentences you can read at a glance."
+    },
+    "convex/memory/reset.ts": {
+      "clusterId": "dev-tools",
+      "label": "Reset the demo",
+      "summary": "Clears the booking demo's past cases and history and restores its switches, so the demo can run again."
+    },
+    "protected-app/app/index.tsx": {
+      "clusterId": "booking",
+      "label": "Booking screen",
+      "summary": "The page customers use to pick a treatment and a time, see optional suggestions, and confirm a booking."
+    },
+    "protected-app/app/_layout.tsx": {
+      "clusterId": "booking",
+      "label": "Booking app shell",
+      "summary": "Starts the booking app and connects it to its live data."
+    },
+    "convex/codeNetwork/graph.ts": {
+      "clusterId": "code-map",
+      "label": "Code map builder",
+      "summary": "Reads the code and works out which pieces use, call, read or save which others."
+    },
+    "convex/codeNetwork/build.ts": {
+      "clusterId": "code-map",
+      "label": "Map the code",
+      "summary": "Reads the app's code from GitHub, groups it into parts with plain names, and stores it in Supermemory."
+    },
+    "convex/codeNetwork/ask.ts": {
+      "clusterId": "code-map",
+      "label": "Ask about the code",
+      "summary": "Answers your question about the whole app, one part or one piece, using the map and the code in Supermemory."
+    },
+    "convex/codeNetwork/network.ts": {
+      "clusterId": "code-map",
+      "label": "Code map records",
+      "summary": "Stores this map of the code and your questions and turtl's answers about it."
+    },
+    "convex/codeNetwork/schema.ts": {
+      "clusterId": "code-map",
+      "label": "Code map layout",
+      "summary": "Defines how the map of the code and its conversations are stored."
+    },
+    "convex/codeNetwork/openai.ts": {
+      "clusterId": "code-map",
+      "label": "Model connection",
+      "summary": "Sends one request to OpenAI and returns its written answer."
+    },
+    "convex/codeNetwork/dev.ts": {
+      "clusterId": "dev-tools",
+      "label": "Load the code map",
+      "summary": "Loads the ready-made map of this app's code so the Investigate screen has data without any keys."
+    },
+    "table:codeNetworks": {
+      "clusterId": "code-map",
+      "label": "Code maps",
+      "summary": "Stores each project's map of its code: parts, pieces and how they connect."
+    },
+    "table:codeChatMessages": {
+      "clusterId": "code-map",
+      "label": "Code questions",
+      "summary": "Stores your questions about the code and turtl's answers."
+    },
+    "external:github": {
+      "clusterId": "code-map",
+      "label": "GitHub",
+      "summary": "Where the app's code lives: turtl reads it to draw this map and to follow and merge pull requests."
+    },
+    "app.config.ts": {
+      "clusterId": "look",
+      "label": "App identity",
+      "summary": "Sets the app's name, icon, colours and launch settings that make turtl look like turtl on your phone."
+    },
+    "app/live.tsx": {
+      "clusterId": "owner-app",
+      "label": "Live case feed",
+      "summary": "Lists every case from the live app, putting the ones waiting for your decision first and refreshing the timestamps."
+    },
+    "app/project/[projectId]/features.tsx": {
+      "clusterId": "owner-app",
+      "label": "Feature requests",
+      "summary": "Shows the project's feature ideas on the same start screen used for fixes."
+    },
+    "app/project/[projectId]/fix.tsx": {
+      "clusterId": "owner-app",
+      "label": "Fixes list",
+      "summary": "Shows the project's fix cases on the start screen so you can open one to review."
+    },
+    "app/project/[projectId]/index.tsx": {
+      "clusterId": "owner-app",
+      "label": "Project home",
+      "summary": "The main page for one project, where you see its health and open cases."
+    },
+    "app/project/[projectId]/investigate.tsx": {
+      "clusterId": "code-map",
+      "label": "Investigate screen",
+      "summary": "Shows the whole codebase as a map you can tap, with a chat to ask about the part you picked."
+    },
+    "app/projects.tsx": {
+      "clusterId": "owner-app",
+      "label": "Project list",
+      "summary": "Lists your projects so you can pick which app to look after."
+    },
+    "app/review/[caseId]/chat.tsx": {
+      "clusterId": "reviewing",
+      "label": "Case chat",
+      "summary": "Lets you ask turtl questions about one case and its fix options."
+    },
+    "app/review/[caseId]/enacting.tsx": {
+      "clusterId": "reviewing",
+      "label": "Fix progress",
+      "summary": "Shows turtl carrying out the approved fix step by step, with options to stop or merge."
+    },
+    "app/review/[caseId]/index.tsx": {
+      "clusterId": "reviewing",
+      "label": "Case review",
+      "summary": "Where you read a case, compare the proposed fixes and approve one."
+    },
+    "components/execution/AskBar.tsx": {
+      "clusterId": "reviewing",
+      "label": "Ask box",
+      "summary": "The text box where you type a question to turtl and send it."
+    },
+    "components/execution/PlanGraph.tsx": {
+      "clusterId": "reviewing",
+      "label": "Fix step list",
+      "summary": "Shows each step of the fix with whether it is waiting, working, done or stopped, and its checks."
+    },
+    "components/fix/CasePage.tsx": {
+      "clusterId": "reviewing",
+      "label": "Case page",
+      "summary": "The page layout that tells the story of a case: what broke, the cause and the fixes."
+    },
+    "components/fix/Evidence.tsx": {
+      "clusterId": "reviewing",
+      "label": "Evidence clues",
+      "summary": "Shows the logs, code and sources turtl used as proof for what it found."
+    },
+    "components/fix/FixCard.tsx": {
+      "clusterId": "reviewing",
+      "label": "Fix card",
+      "summary": "A card describing one proposed fix, with the approval sheet where you say yes."
+    },
+    "components/network/Constellation.tsx": {
+      "clusterId": "code-map",
+      "label": "Code map view",
+      "summary": "Draws the codebase as connected dots you can tap to select an area."
+    },
+    "components/network/NetworkChat.tsx": {
+      "clusterId": "code-map",
+      "label": "Code map chat",
+      "summary": "A chat that answers your questions about the whole project or the area you tapped."
+    },
+    "components/project/BeginScreen.tsx": {
+      "clusterId": "owner-app",
+      "label": "Case start screen",
+      "summary": "Lists a project's fixes or features with a swipe up to open the newest one."
+    },
+    "components/project/ProjectIcon.tsx": {
+      "clusterId": "owner-app",
+      "label": "Project icon",
+      "summary": "Shows a project's picture next to its name."
+    },
+    "components/project/SettingsSheet.tsx": {
+      "clusterId": "owner-app",
+      "label": "Project settings",
+      "summary": "A panel for a project's settings, such as approvals."
+    },
+    "components/ui/BrandIcon.tsx": {
+      "clusterId": "look",
+      "label": "Brand logos",
+      "summary": "Draws logos for outside services shown in the app."
+    },
+    "components/ui/Icon.tsx": {
+      "clusterId": "look",
+      "label": "Icon set",
+      "summary": "The small pictures used for buttons and status across the app."
+    },
+    "components/ui/index.tsx": {
+      "clusterId": "look",
+      "label": "Shared building blocks",
+      "summary": "The buttons, headings, chips and the turtle character reused on every screen."
+    },
+    "components/ui/motion.tsx": {
+      "clusterId": "look",
+      "label": "Motion effects",
+      "summary": "The gentle fade and reveal animations used when things appear."
+    },
+    "convex/fixOptions.ts": {
+      "clusterId": "investigation",
+      "label": "Fix option writer",
+      "summary": "Asks the AI to word up to four fix choices, each tied to an action the app really supports."
+    },
+    "convex/fixes.ts": {
+      "clusterId": "investigation",
+      "label": "Fix proposals",
+      "summary": "Creates, stores and serves the fix choices shown for a case, including code-change fixes."
+    },
+    "table:fixChatMessages": {
+      "clusterId": "investigation",
+      "label": "Case chat messages",
+      "summary": "Saved conversation between you and turtl about a case, with the fix each message was about."
+    },
+    "convex/revyl/api.ts": {
+      "clusterId": "watching",
+      "label": "Revyl connection",
+      "summary": "Talks to Revyl to start phone test runs and fetch their results and screenshots."
+    },
+    "convex/revyl/device.ts": {
+      "clusterId": "watching",
+      "label": "Phone check",
+      "summary": "Runs the booking journey on a real phone and reports passed, failed or not covered."
+    },
+    "convex/revyl/runs.ts": {
+      "clusterId": "watching",
+      "label": "Phone run tracking",
+      "summary": "Starts phone test runs, checks on them every few seconds and saves results and screenshots."
+    },
+    "convex/revyl/schema.ts": {
+      "clusterId": "watching",
+      "label": "Phone test records",
+      "summary": "Defines what is saved about phone test runs and their screenshots."
+    },
+    "table:revylRuns": {
+      "clusterId": "watching",
+      "label": "Phone test runs",
+      "summary": "One record per Revyl phone test, with its status, summary and report link."
+    },
+    "table:revylScreenshots": {
+      "clusterId": "watching",
+      "label": "Phone screenshots",
+      "summary": "Screenshots taken during phone tests, with a caption and whether before, after or at failure."
+    },
+    "data/example/content.ts": {
+      "clusterId": "dev-tools",
+      "label": "Sample projects",
+      "summary": "Made-up projects, cases and fixes used to try the app without real data."
+    },
+    "data/example/screenshots.ts": {
+      "clusterId": "dev-tools",
+      "label": "Sample screenshots",
+      "summary": "Pretend phone screenshots used by the sample data."
+    },
+    "data/example/store.ts": {
+      "clusterId": "dev-tools",
+      "label": "Sample data store",
+      "summary": "Serves the sample data so the app works offline without the real backend."
+    },
+    "data/index.ts": {
+      "clusterId": "owner-app",
+      "label": "App data access",
+      "summary": "Where every screen gets its projects, cases and chats, from live or sample data."
+    },
+    "data/types.ts": {
+      "clusterId": "owner-app",
+      "label": "Data shapes",
+      "summary": "Describes the pieces of information the app handles, like cases, fixes and steps."
+    },
+    "theme/design.ts": {
+      "clusterId": "look",
+      "label": "Design rules",
+      "summary": "Sets the spacing, sizes and wording styles that keep screens consistent."
+    },
+    "theme/index.tsx": {
+      "clusterId": "look",
+      "label": "Light and dark theme",
+      "summary": "Provides the app's colours and switches between light and dark."
+    },
+    "theme/tokens.ts": {
+      "clusterId": "look",
+      "label": "Colour palette",
+      "summary": "Lists the named colours, including health status colours."
+    },
+    "convex/pullRequests.ts": {
+      "clusterId": "approvals",
+      "label": "Pull request status",
+      "summary": "Keeps a case's code change up to date from GitHub and merges it only when you tap Merge and its checks pass."
+    },
+    "convex/prTracking/capy.ts": {
+      "clusterId": "approvals",
+      "label": "Capy connection",
+      "summary": "Asks Capy to write the code change for an approved fix and finds the pull request it opens."
+    },
+    "convex/prTracking/catalog.ts": {
+      "clusterId": "approvals",
+      "label": "Code-change fix",
+      "summary": "Adds the booking app's code-change fix, which opens a pull request that only your tap merges."
+    },
+    "convex/prTracking/execute.ts": {
+      "clusterId": "approvals",
+      "label": "Carry out code change",
+      "summary": "Runs an approved code-change fix and waits until its pull request is merged or closed."
+    },
+    "convex/prTracking/github.ts": {
+      "clusterId": "approvals",
+      "label": "GitHub connection",
+      "summary": "Reads a pull request and the results of its checks from GitHub."
+    },
+    "convex/prTracking/records.ts": {
+      "clusterId": "approvals",
+      "label": "Pull request records",
+      "summary": "Saves each case's pull request and finishes the waiting fix step once it is merged or closed."
+    },
+    "convex/prTracking/validators.ts": {
+      "clusterId": "approvals",
+      "label": "Pull request format",
+      "summary": "Describes what turtl keeps about a pull request: its state, its checks and whether it can merge."
+    },
+    "table:pullRequests": {
+      "clusterId": "approvals",
+      "label": "Pull requests",
+      "summary": "One record per code change turtl opened for a case, with its checks and whether it merged."
+    },
+    "external:capy": {
+      "clusterId": "approvals",
+      "label": "Capy",
+      "summary": "Outside coding agent that writes an approved code change and opens its pull request."
+    },
+    "external:revyl": {
+      "clusterId": "watching",
+      "label": "Revyl",
+      "summary": "Outside service that runs the booking journey on a real phone and takes screenshots."
+    }
+  }
+}

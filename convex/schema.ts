@@ -1,6 +1,7 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 import { bookingError } from "./bookingDemo/validators";
+import { codeNetworkTables } from "./codeNetwork/schema";
 import { vPullRequestRow } from "./prTracking/validators";
 import {
   vAttemptStatus,
@@ -178,4 +179,5 @@ export default defineSchema({
     error: v.optional(bookingError),
   }).index("by_timestamp", ["timestamp"]),
   ...revylTables,
+  ...codeNetworkTables,
 });
