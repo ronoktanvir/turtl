@@ -194,3 +194,105 @@ test("a practice app is still checked at once when made or broken, whatever pace
   await w.run("internal.practice.projects.firstCheck", { appId });
   assert.deepEqual(w.scheduled.filter((job) => job.path === "internal.monitor.checkProject").map((job) => job.args.appId), [appId], "its check started at once");
 });
+
+// ---- Statement 7: following pull requests and preparations ----
+
+/** A world whose GitHub access records each repository a read reached for, and goes no further. */
+function following(t, env = ACCOUNTS) {
+  const reached = [];
+  const w = world(t, env, {
+    "convex/github/access": {
+      repositoryAccess: async (_ctx, repo) => (reached.push({ repo, at: Date.now() }), { ok: false, reason: "not_connected", message: `${repo} is not connected.` }),
+    },
+  });
+  network(t, {});
+  return { w, reached };
+}
+
+const DAY = 24 * 60 * MINUTE;
+
+/** Runs the pull-request cron every 30 seconds from `from` to `to`, each claimed read to completion. */
+async function followPullRequests(t, w, from, to) {
+  for (let now = from; now < to; now += 30_000) {
+    t.mock.timers.setTime(now);
+    await w.run("internal.pullRequests.refreshActive", {});
+    await w.drain(["internal.pullRequests.syncDue"]);
+  }
+}
+
+const aCase = (w, appId) => w.db.insert("cases", { appId, title: "x", impact: "x", kind: "outage", raisedBy: "monitor", status: "waiting_for_owner" });
+
+test("ATTACK (finding 15): with 1,000 open pull requests on another account, all due at once, Alice's is read within a minute", async (t) => {
+  const { w, reached } = following(t);
+  const mallorys = await aCase(w, "apps:0");
+  for (let n = 1; n <= 1000; n++) {
+    await w.db.insert("pullRequests", { caseId: mallorys, source: "attached", repo: "mallory/forever", number: n, requestedAt: START - 21 * DAY, nextSyncAt: START - 1_000 });
+  }
+  await w.db.insert("pullRequests", { caseId: await aCase(w, "apps:1"), source: "attached", repo: "alice/shop", number: 7, requestedAt: START, nextSyncAt: START });
+  await followPullRequests(t, w, START, START + MINUTE);
+  const alice = reached.find((read) => read.repo === "alice/shop");
+  assert.ok(alice && alice.at - START < MINUTE, "Alice's pull request was read within a minute");
+  // Mallory's, open for three weeks, are each read once and then not again for an hour; Alice's every 30 seconds.
+  await followPullRequests(t, w, START + MINUTE, START + 59 * MINUTE);
+  assert.equal(reached.filter((read) => read.repo === "mallory/forever").length, 1000);
+  assert.ok(reached.filter((read) => read.repo === "alice/shop").length >= 20);
+  // The whole set is never read: the cron reads due rows through the index, a batch at a time.
+  assert.equal(w.load("convex/prTracking/records.ts").active, undefined);
+});
+
+test("a pull request from before next-sync times were kept is read at once, and so is a new one beside 1,000 such", async (t) => {
+  const { w, reached } = following(t);
+  const caseId = await aCase(w, "apps:0");
+  for (let n = 1; n <= 1000; n++) await w.db.insert("pullRequests", { caseId, source: "attached", repo: "mallory/old", number: n, requestedAt: START - 21 * DAY });
+  await w.db.insert("pullRequests", { caseId, source: "attached", repo: "alice/new", number: 1, requestedAt: START, nextSyncAt: START });
+  await followPullRequests(t, w, START, START + 30_000);
+  assert.deepEqual(reached.filter((read) => read.repo === "alice/new").map((read) => read.at), [START], "the new one at the first tick");
+  assert.equal(reached.filter((read) => read.repo === "mallory/old").length, 1000, "and every old one too");
+});
+
+test("a pull request left open is read less and less often: every 30 seconds, then 2 and 10 minutes, then once an hour", async (t) => {
+  const { w, reached } = following(t);
+  await w.db.insert("pullRequests", { caseId: await aCase(w, "apps:0"), source: "attached", repo: "ada/slow", number: 1, requestedAt: START });
+  await followPullRequests(t, w, START, START + 2 * DAY);
+  const times = reached.map((read) => read.at - START);
+  const gaps = times.slice(1).map((time, i) => time - times[i]);
+  const within = (from, to) => gaps.filter((_, i) => times[i] >= from && times[i] < to);
+  assert.ok(within(0, 9 * MINUTE).every((gap) => gap === 30_000), "the first ten minutes: every tick");
+  assert.ok(within(11 * MINUTE, 59 * MINUTE).every((gap) => gap === 2 * MINUTE), JSON.stringify(within(11 * MINUTE, 59 * MINUTE)));
+  assert.ok(within(61 * MINUTE, 23 * 60 * MINUTE).every((gap) => gap === 10 * MINUTE));
+  assert.ok(within(DAY + MINUTE, 2 * DAY).every((gap) => gap === 60 * MINUTE), "after a day, the floor: once an hour");
+  assert.equal(times.filter((time) => time >= DAY).length, 24);
+});
+
+test("in the single-owner demo every open pull request is still read at every tick", async (t) => {
+  const { w, reached } = following(t, {});
+  await w.db.insert("pullRequests", { caseId: await aCase(w, "apps:0"), source: "attached", repo: "demo/booking", number: 1, requestedAt: START - 21 * DAY });
+  await followPullRequests(t, w, START, START + 10 * MINUTE);
+  assert.equal(reached.length, 20);
+});
+
+test("ATTACK (finding 15): 1,000 older open preparations and 500 never approved no longer leave a new one unread", async (t) => {
+  const { w, reached } = following(t);
+  const mallory = await w.db.insert("users", { email: "mallory@example.com" });
+  const project = (owner, name) => w.db.insert("apps", { name, ownerId: owner, repoUrl: `https://github.com/${name}` });
+  // Rows from before next-sync times were kept: 1,000 approved and still open, 500 never approved.
+  for (let n = 0; n < 1000; n++) {
+    await w.db.insert("onboardingPreparations", { appId: await project(mallory, `m${n}`), neverBreak: [], approvedAt: START - 7 * DAY, requestedAt: START - 7 * DAY, repo: "mallory/forever", number: n + 1, capyThreadId: "t" });
+  }
+  for (let n = 0; n < 500; n++) await w.db.insert("onboardingPreparations", { appId: await project(mallory, `u${n}`), neverBreak: [] });
+  // Alice approves hers now (onboarding/projects:approve sets its first next-sync time).
+  const alice = await w.db.insert("users", { email: "alice@example.com" });
+  const id = await w.db.insert("onboardingPreparations", { appId: await project(alice, "alice/shop"), neverBreak: [], approvedAt: START, requestedAt: START, nextSyncAt: START, repo: "alice/shop", number: 3, capyThreadId: "t" });
+  const tick = async (now) => {
+    t.mock.timers.setTime(now);
+    await w.run("internal.onboarding.prepare.refreshActive", {});
+    await w.drain(["internal.onboarding.prepare.syncDue"]);
+  };
+  await tick(START);
+  assert.deepEqual(reached.filter((read) => read.repo === "alice/shop").map((read) => read.at), [START], "Alice's is read at the first tick");
+  await tick(START + MINUTE);
+  assert.equal(reached.filter((read) => read.repo === "mallory/forever").length, 1000, "every older one was read too, not only the 100 oldest");
+  const rows = w.rows("onboardingPreparations");
+  assert.equal(rows.filter((row) => row.approvedAt === undefined && row.nextSyncAt === Number.MAX_SAFE_INTEGER).length, 500, "the ones never approved are not followed");
+  assert.ok(rows.find((row) => row._id === id).nextSyncAt > START);
+});

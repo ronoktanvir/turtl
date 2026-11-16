@@ -13,7 +13,7 @@ import { checkSoon } from "../protectedApp/watching";
 import { accountSecret } from "../secrets/store";
 import { CONNECT_CODING_AGENT } from "../secrets/words";
 import { normalizeFolders, parseGithubUrl, READINESS_ITEMS } from "./detect";
-import { latestInspection, preparationFor } from "./records";
+import { latestInspection, NOT_FOLLOWED, preparationFor } from "./records";
 import { syncPreparation } from "./prepare";
 import { hasWork, stageOf } from "./stage";
 
@@ -101,7 +101,7 @@ export const add = mutation({
       ...(productionUrl && { productionUrl }),
       ownerId: account,
     });
-    await ctx.db.insert("onboardingPreparations", { appId, neverBreak: [] });
+    await ctx.db.insert("onboardingPreparations", { appId, neverBreak: [], nextSyncAt: NOT_FOLLOWED });
     await startInspection(ctx, appId, parsed.repo, scope);
     return { projectId: appId as string };
   },
@@ -171,6 +171,8 @@ export const approve = mutation({
     await ctx.db.patch(preparation._id, {
       blocked: undefined,
       approvedAt: Date.now(),
+      // The cron follows it from now on (convex/prTracking/follow.ts).
+      nextSyncAt: Date.now(),
       inspectionId: inspection._id,
       requestId: `turtl-onboarding:${preparation._id}:${inspection._id}`,
       repo: inspection.repo,

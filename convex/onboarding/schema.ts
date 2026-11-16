@@ -78,6 +78,9 @@ export const onboardingTables = {
     snapshot: v.optional(vGithubSnapshot),
     requestedAt: v.optional(v.number()),
     syncedAt: v.optional(v.number()),
+    // When the cron next reads it (convex/prTracking/follow.ts), from its approval until it settles; NOT_FOLLOWED
+    // (records.ts) while it is not approved. Missing on a row from before it was kept: due now if approved.
+    nextSyncAt: v.optional(v.number()),
     syncError: v.optional(v.string()),
     openError: v.optional(v.string()),
     // Why turtl handed an approval back without starting anything (no coding agent, or the repository is not
@@ -103,5 +106,6 @@ export const onboardingTables = {
     ),
   })
     .index("by_app", ["appId"])
-    .index("by_settled_and_approved", ["settledAt", "approvedAt"]),
+    .index("by_settled_and_approved", ["settledAt", "approvedAt"])
+    .index("by_settled_and_next_sync", ["settledAt", "nextSyncAt"]),
 };

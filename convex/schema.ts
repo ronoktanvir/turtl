@@ -197,7 +197,7 @@ export default defineSchema({
   pullRequests: defineTable(vPullRequestRow)
     .index("by_case", ["caseId"])
     .index("by_action", ["actionId"])
-    .index("by_settled", ["settledAt"]),
+    .index("by_settled_and_next_sync", ["settledAt", "nextSyncAt"]),
   bookingDemoSettings: defineTable({
     key: v.literal("demo"),
     recommendationsEnabled: v.boolean(),
