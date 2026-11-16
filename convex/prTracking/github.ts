@@ -34,7 +34,7 @@ export function repoFromUrl(repoUrl: string): string | null {
   return match ? `${match[1]}/${match[2]}` : null;
 }
 
-async function github<T>(token: string | undefined, path: string, init?: { method: string; body: unknown }): Promise<GithubResult<T>> {
+export async function github<T>(token: string | undefined, path: string, init?: { method: string; body: unknown }): Promise<GithubResult<T>> {
   try {
     const response = await fetch(`${API_URL}${path}`, {
       method: init?.method ?? "GET",

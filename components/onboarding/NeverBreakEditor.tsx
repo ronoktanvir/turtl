@@ -1,0 +1,63 @@
+import { useState } from "react";
+import { Pressable, Switch, TextInput, View } from "react-native";
+import type { NeverBreakAnswer } from "../../data/onboarding/types";
+import { useTheme } from "../../theme";
+import { Button, Chip, Icon, T } from "../ui";
+
+export function NeverBreakEditor({ answers, editable, onChange }: { answers: NeverBreakAnswer[]; editable: boolean; onChange: (next: NeverBreakAnswer[]) => void }) {
+  const { colors } = useTheme();
+  const [text, setText] = useState("");
+  const add = () => {
+    const value = text.trim();
+    if (!value) return;
+    onChange([...answers, { text: value, suggested: false, addCheck: true }]);
+    setText("");
+  };
+  return (
+    <View style={{ gap: 12 }}>
+      {answers.length === 0 && <T color="textMuted">{editable ? "No suggestions yet. Add what matters most to your customers." : "No answers were given."}</T>}
+      {answers.map((answer, index) => (
+        <View key={answer.id ?? "new-" + index} testID={"never-break-" + index} style={{ flexDirection: "row", alignItems: "center", gap: 12, padding: 16, borderRadius: 16, borderWidth: 1, borderColor: answer.addCheck ? colors.brandDeep : colors.border, backgroundColor: colors.surface }}>
+          <View style={{ flex: 1, gap: 6 }}>
+            <T variant="strong">{answer.text}</T>
+            {answer.suggested && <Chip label="Suggested" tone="brandDeep" />}
+            {answer.why && <T variant="small" color="textMuted">{answer.why}</T>}
+          </View>
+          <View style={{ alignItems: "center", gap: 4 }}>
+            <T variant="small" color="textMuted">Add a check</T>
+            <Switch
+              value={answer.addCheck}
+              disabled={!editable}
+              onValueChange={(addCheck) => onChange(answers.map((a, i) => (i === index ? { ...a, addCheck } : a)))}
+              accessibilityLabel={"Add a check: " + answer.text}
+              testID={"never-break-" + index + "-check"}
+              trackColor={{ false: colors.surfaceRaised, true: colors.brandDeep }}
+              thumbColor={answer.addCheck ? colors.brand : colors.textMuted}
+              {...({ activeThumbColor: colors.brand } as object)}
+            />
+          </View>
+          {editable && !answer.suggested && (
+            <Pressable accessibilityRole="button" accessibilityLabel={"Remove " + answer.text} onPress={() => onChange(answers.filter((_, i) => i !== index))} hitSlop={8} style={{ width: 32, height: 44, alignItems: "center", justifyContent: "center" }}>
+              <Icon name="X" size={18} color="textMuted" />
+            </Pressable>
+          )}
+        </View>
+      ))}
+      {editable && (
+        <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
+          <TextInput
+            value={text}
+            onChangeText={setText}
+            onSubmitEditing={add}
+            placeholder="Something that must never break"
+            placeholderTextColor={colors.textMuted}
+            accessibilityLabel="Something that must never break"
+            testID="never-break-input"
+            style={{ flex: 1, color: colors.text, backgroundColor: colors.surfaceRaised, borderWidth: 1, borderColor: colors.border, borderRadius: 12, minHeight: 48, paddingHorizontal: 14, fontSize: 16, fontFamily: "Capriola_400Regular" }}
+          />
+          <Button label="Add" icon="Plus" kind="outline" disabled={!text.trim()} onPress={add} testID="never-break-add" />
+        </View>
+      )}
+    </View>
+  );
+}

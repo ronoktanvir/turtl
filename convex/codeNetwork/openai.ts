@@ -1,6 +1,6 @@
 declare const process: { env: Record<string, string | undefined> };
 
-const DEFAULT_MODEL = "gpt-6-luna";
+export const DEFAULT_MODEL = "gpt-6-luna";
 
 export type ModelUsage = { inputTokens: number; outputTokens: number };
 

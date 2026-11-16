@@ -59,6 +59,7 @@ export default function Projects() {
           })}
           {projects === undefined && errors.length === 0 && <T color="textMuted">Loading…</T>}
           {projects?.length === 0 && <View style={{ alignItems: "center", paddingVertical: 40, gap: 12 }}><Icon name="Layers" size={36} color="brandDeep" /><T variant="heading">No projects yet</T></View>}
+          <Pressable onPress={() => router.push("/add-project" as Href)} accessibilityRole="button" testID="home-add-project" style={({ pressed }) => ({ minHeight: 48, alignSelf: "center", flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 16, borderRadius: 999, borderWidth: 1, borderColor: colors.border, backgroundColor: pressed ? colors.surfaceRaised : "transparent" })}><Icon name="Plus" size={18} color="brandDeep" /><T>Add project</T></Pressable>
         </View>
         {devToolsOn && <Pressable onPress={() => router.push("/live" as Href)} accessibilityRole="link" testID="home-live-cases" style={{ minHeight: 44, alignSelf: "center", justifyContent: "center" }}><T color="textMuted">Live cases</T></Pressable>}
       </ScrollView>
