@@ -154,8 +154,13 @@ export function unreachableStop(stepTitle: string): string {
   return `turtl stopped this case because it could not reach your app, so it sent nothing. The reason is under "${stepTitle}" below: usually the project's control token is missing, or its live address is one turtl may not send to. Fix it in this project's Settings. turtl's next check opens a new case if the problem is still there, and a new report from a customer does too. This case stays closed.`;
 }
 
-// A model reason that names a deployment setting reads as "no model is connected" to an owner.
-const plainModelReason = (reason: string) => (/_API_KEY|_KEY\b/.test(reason) ? "turtl has no model connected yet" : reason);
+// A model reason that names a deployment setting reads as "no model is connected" to an owner. The outage diagnosis's
+// reason already begins "No model answered" (convex/runner/handlers/investigate.ts), and the line that shows it says
+// so itself, so it is said once.
+const plainModelReason = (reason: string) => {
+  const bare = reason.replace(/^No model answered\s*[:.]?\s*/i, "").trim();
+  return /_API_KEY|_KEY\b/.test(bare) ? "turtl has no model connected yet" : bare;
+};
 
 function record(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};

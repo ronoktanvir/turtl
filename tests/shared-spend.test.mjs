@@ -290,6 +290,92 @@ test("ATTACK: a case a customer raised examines broader causes on the project's 
   });
 });
 
+// Statement 3: whichever ceiling is reached, turtl degrades instead of going dark. Every refusal is a plain sentence
+// (no setting names, no ids), every helper hands it back instead of failing, and the case screen says it once.
+const CEILINGS = [
+  ["the deployment's day", async (db) => db.insert("deploymentTotals", { name: "model_usd_day", window: "2026-11-16", value: 25, updatedAt: 1 }), { own: limits.spendRefusal.deploymentSpent(), outage: limits.spendRefusal.deploymentSpent(), intake: limits.spendRefusal.deploymentSpent() }],
+  ["the account's month", async (db) => db.insert("modelSpend", { account: "ada", month: "2026-11", costUsd: 20, calls: 1, updatedAt: 1 }), { own: limits.spendRefusal.overLimit(20, NOV_16), outage: limits.spendRefusal.overLimit(20, NOV_16) }],
+  ["the account's own share of the day", async (db) => db.insert("accountSpendDays", { account: "ada", day: "2026-11-16", ownUsd: 2.5, ownHeldUsd: 0, intakeUsd: 0, intakeHeldUsd: 0, calls: 1, updatedAt: 1 }), { own: limits.spendRefusal.accountDaySpent(2.5), outage: limits.spendRefusal.accountDaySpent(2.5) }],
+  ["its customers' share of the day", async (db) => db.insert("accountSpendDays", { account: "ada", day: "2026-11-16", ownUsd: 0, ownHeldUsd: 0, intakeUsd: 1, intakeHeldUsd: 0, calls: 1, updatedAt: 1 }), { intake: limits.spendRefusal.accountIntakeSpent(1) }],
+  ["the project's customer-report day", async (db) => db.insert("intakeDays", { appId: "apps:ada-0", day: "2026-11-16", costUsd: 0.5, calls: 1, casesOpened: 0, updatedAt: 1 }), { intake: limits.spendRefusal.intakeSpent(0.5) }],
+  ["all but the part kept for outages", async (db) => db.insert("deploymentTotals", { name: "model_usd_day", window: "2026-11-16", value: 15, updatedAt: 1 }), { own: limits.spendRefusal.reserveKept(), intake: limits.spendRefusal.reserveKept() }],
+  ["the outage part, for an account past $0.50 today", async (db) => {
+    await db.insert("deploymentTotals", { name: "model_usd_day", window: "2026-11-16", value: 15, updatedAt: 1 });
+    await db.insert("accountSpendDays", { account: "ada", day: "2026-11-16", ownUsd: 0.6, ownHeldUsd: 0, intakeUsd: 0, intakeHeldUsd: 0, calls: 1, updatedAt: 1 });
+  }, { outage: limits.spendRefusal.reserveUsed(0.5), own: limits.spendRefusal.reserveKept(), intake: limits.spendRefusal.reserveKept() }],
+];
+const CALL_KINDS = [
+  ["investigating or planning an outage the monitor found (and its council)", { caseId: "cases:ada-0" }, "outage"],
+  ["examining broader causes, the case chat, voice, code questions, reading a repository", { caseId: "cases:ada-0" }, undefined],
+  ["triaging a customer's report, or reading a case customers raised", { appId: "apps:ada-0" }, "intake"],
+];
+const plain = (sentence) => {
+  assert.doesNotMatch(sentence, /[A-Z]{2,}_[A-Z_]+|apps:|cases:|_id|undefined|NaN|null/, sentence);
+  assert.match(sentence, /no model was asked/);
+};
+
+test("ATTACK: whichever ceiling is reached, every kind of model call is refused with a plain sentence and nothing is sent", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: NOV_16 });
+  await withEnv(ACCOUNTS, async () => {
+    for (const [ceiling, reach, expected] of CEILINGS) {
+      for (const [kind, scope, allowance] of CALL_KINDS) {
+        const db = world({ ada: 1 });
+        await reach(db);
+        const ctx = actions(db);
+        const opened = await gates.gateFor(ctx, scope, allowance).open("openai", "send", 0.05);
+        const wanted = expected[allowance ?? "own"];
+        if (wanted === undefined) {
+          assert.equal(opened.ok, true, `${ceiling} leaves ${kind} alone`);
+          continue;
+        }
+        assert.deepEqual(opened, { ok: false, reason: wanted }, `${ceiling}: ${kind}`);
+        plain(wanted);
+        assert.deepEqual(db.rows("accountSpendDays").map((row) => row.ownHeldUsd + row.intakeHeldUsd).filter(Boolean), [], "a refused call is not held");
+      }
+    }
+  });
+});
+
+test("each model helper hands the refusal back for its caller's rule-based fallback, and sends nothing", async (t) => {
+  t.mock.method(globalThis, "fetch", async (input) => assert.fail(`sent ${input}`));
+  const refusing = (reason) => ({ blocked: async () => reason, open: async () => ({ ok: false, reason }), spent: async () => assert.fail("spent"), threadStarted: async () => {} });
+  const { askJson } = load("convex/fixOptions.ts");
+  const { callModel } = load("convex/routing/models.ts");
+  const { respond } = load("convex/codeNetwork/openai.ts");
+  const voice = load("convex/voice/openai.ts");
+  await withEnv({ ...ACCOUNTS, OPENAI_API_KEY: "sk-test-stand-in" }, async () => {
+    for (const reason of new Set(CEILINGS.flatMap(([, , expected]) => Object.values(expected)))) {
+      // Fix options, triage, a customer case's reading, the case chat: askJson's reason is what they record and show.
+      assert.deepEqual(await askJson(refusing(reason), "system", { a: 1 }), { ok: false, reason });
+      // Diagnosis and the council: a refusal is an infrastructure failure marked blocked, never handed up to a stronger model.
+      const answer = await callModel(refusing(reason), { ref: { provider: "openai", model: "gpt-6.1-sol" }, system: "s", user: "u", timeoutMs: 1000, maxOutputTokens: 100 });
+      assert.deepEqual([answer.ok, answer.infra, answer.blocked, answer.reason], [false, true, true, reason]);
+      // The code questions and repository readings: Refused, whose message is the reason as a sentence.
+      await assert.rejects(respond(refusing(reason), { instructions: "i", input: "q", maxOutputTokens: 10 }), (error) => error.name === "Refused" && error.message === `${reason.startsWith("turtl") ? reason : reason[0].toUpperCase() + reason.slice(1)}.`);
+      const heard = await voice.transcribe(refusing(reason), new ArrayBuffer(8), "audio/m4a", "prompt");
+      assert.deepEqual(heard, { ok: false, reason });
+    }
+  });
+});
+
+test("the case screen says why no model was asked once, in the gate's own words", async () => {
+  const { mapCaseDetail } = await import("../data/live/caseMapping.ts");
+  for (const reason of [limits.spendRefusal.deploymentSpent(), limits.spendRefusal.accountDaySpent(2.5), limits.spendRefusal.reserveUsed(0.5)]) {
+    // As convex/runner/handlers/investigate.ts records it on the outage's diagnosis.
+    const diagnosis = { source: "rules", cause: "Booking waited for recommendations.", noModelReason: `No model answered: ${reason}.` };
+    const detail = mapCaseDetail({
+      case: { _id: "case-1", _creationTime: 1, appId: "app-1", title: "Booking failed", impact: "A test booking failed.", kind: "outage", raisedBy: "monitor", status: "waiting_for_owner" },
+      journey: null, executeAttempts: [], evidence: [], proposal: null, action: null, verifications: [], agentRuns: [],
+      steps: [{ _id: "step-1", _creationTime: 2, caseId: "case-1", key: "investigate", title: "Investigate", dependsOn: [], kind: "agent", purpose: "investigate", status: "done",
+        currentAttempt: { _id: "attempt-1", _creationTime: 3, stepId: "step-1", caseId: "case-1", attempt: 1, status: "done", startedAt: 3, finishedAt: 4, summary: "s", output: { diagnosis } } }],
+    }, null, null, [], 3);
+    const text = detail.overview.filter((block) => block.kind === "paragraph").flatMap((block) => block.spans.map((span) => span.text)).join("\n");
+    assert.match(text, /Rule-based reading, not a model diagnosis: Booking waited for recommendations\./);
+    assert.equal(text.match(/No model answered/g).length, 1, text);
+    assert.ok(text.includes(`No model answered: ${reason}.`), text);
+  }
+});
+
 test("the shares are settings with sensible defaults, and nonsense falls back to them", async () => {
   await withEnv({ ACCOUNT_MODEL_SPEND_PER_DAY_USD: undefined, ACCOUNT_INTAKE_SPEND_PER_DAY_USD: undefined }, () => {
     assert.deepEqual([limits.accountModelSpendPerDayUsd(), limits.accountIntakeSpendPerDayUsd()], [2.5, 1]);

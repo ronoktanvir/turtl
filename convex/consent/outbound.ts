@@ -8,7 +8,8 @@ import { serviceName, serviceOfHost, type Outbound } from "./services";
 export class Refused extends Error {
   readonly reason: string;
   constructor(reason: string) {
-    super(`${reason.charAt(0).toUpperCase()}${reason.slice(1)}.`);
+    // turtl's name stays lower case at the start of a sentence, as everywhere else it is written.
+    super(`${/^turtl\b/.test(reason) ? reason.charAt(0) : reason.charAt(0).toUpperCase()}${reason.slice(1)}.`);
     this.name = "Refused";
     this.reason = reason;
   }
