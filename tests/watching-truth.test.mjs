@@ -68,3 +68,13 @@ test("a broken practice app is not said to have users affected", async () => {
   assert.match(read("app/project/[projectId]/index.tsx"), /<HealthWord health=\{shown\} practice=\{!!project\.practice\}/);
   assert.match(read("components/fix/CasePage.tsx"), /<HealthWord health=\{c\.health\} practice=\{practice\}/);
 });
+
+test("an empty repository picker fits both a person who can choose more and one who can only read", () => {
+  const { emptyPicker } = createLoader({
+    react: {}, "react-native": {}, "react/jsx-runtime": { jsx: () => null, jsxs: () => null, Fragment: "Fragment" },
+    "data/github": {}, "data/github/index": {}, theme: {}, "components/ui": {}, "components/github/open": {},
+  })("components/github/ConnectGithub.tsx");
+  assert.equal(emptyPicker(2), "turtl can't add any of your repositories yet. Below is why for each one, and what would change it.");
+  assert.match(emptyPicker(0), /If you can change their settings on GitHub, choose some there, then come back\. If not, ask whoever can\.$/);
+  assert.doesNotMatch(emptyPicker(2), /Choose some on GitHub/);
+});
