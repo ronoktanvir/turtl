@@ -7,7 +7,7 @@ import { liveOrigin } from "../protectedApp/address";
 import { watchNotice } from "../protectedApp/watching";
 import { seal, sealingKey } from "./seal";
 import { clearSlot, contextOf, projectSecret } from "./store";
-import { DEMO_KEEPS_CONTROL_TOKEN, NO_SEALING_KEY, NOT_A_CONTROL_TOKEN, sendable } from "./words";
+import { DEMO_KEEPS_CONTROL_TOKEN, MANAGED_TOKEN, NO_SEALING_KEY, NOT_A_CONTROL_TOKEN, sendable } from "./words";
 
 // A project's control token: the bearer token its app's protected routes (journey checks, flags, recovery hooks)
 // answer to. With accounts on (AUTH_REQUIRED=true) each project has its own, entered by its owner in the app, and
@@ -22,6 +22,8 @@ const vStatus = v.object({
   sendsTo: v.optional(v.string()),
   /** Why the monitor is not running this project's checks, or runs only some of them. */
   notWatched: v.optional(v.string()),
+  /** A practice app's token: turtl made it and keeps it (managed.ts), and the owner cannot replace or remove it. */
+  managed: v.optional(v.boolean()),
 });
 
 // Whether the project has a token and when it was set. Never the token.
@@ -43,6 +45,7 @@ export const controlToken = query({
       ...(row && { setAt: row.setAt }),
       ...(origin && { sendsTo: origin }),
       ...(notice && { notWatched: notice }),
+      ...(app.practice && { managed: true }),
     };
   },
 });
@@ -71,6 +74,7 @@ export const removeControlToken = mutation({
     await guardApp(ctx, projectId);
     if (!accessEnforced()) throw new ConvexError(DEMO_KEEPS_CONTROL_TOKEN);
     const appId = ctx.db.normalizeId("apps", projectId);
+    if (appId && (await ctx.db.get(appId))?.practice) throw new ConvexError(MANAGED_TOKEN);
     if (appId) await clearSlot(ctx, "control_token", { appId });
     return null;
   },

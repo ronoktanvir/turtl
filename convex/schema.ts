@@ -7,6 +7,7 @@ import { codeNetworkTables } from "./codeNetwork/schema";
 import { consentTables } from "./consent/schema";
 import { councilTables } from "./council/schema";
 import { onboardingTables } from "./onboarding/schema";
+import { practiceTables } from "./practice/schema";
 import { vPullRequestRow } from "./prTracking/validators";
 import {
   vAttemptStatus,
@@ -52,6 +53,8 @@ export default defineSchema({
     revision: v.optional(v.string()),
     ownerId: v.optional(v.string()),
     isSample: v.optional(v.boolean()),
+    // A practice project: its live app is a practice app turtl runs for its owner (convex/practice), and it has no repository.
+    practice: v.optional(v.boolean()),
   })
     .index("by_owner", ["ownerId"])
     .index("by_name", ["name"])
@@ -232,4 +235,5 @@ export default defineSchema({
   ...accountDeletionTables,
   ...secretTables,
   ...watchingTables,
+  ...practiceTables,
 });

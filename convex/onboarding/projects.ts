@@ -68,9 +68,10 @@ export const add = mutation({
   handler: async (ctx, { repoUrl, liveUrl, folders, passcode }) => {
     const account = await requireAccount(ctx);
     await requireOwnerPasscode(ctx, passcode);
-    // Each project brings its own limits (customer-report keys and allowance), so an account has at most so many.
+    // Each project brings its own limits (customer-report keys and allowance), so an account has at most so many. Its one
+    // practice project (convex/practice) does not take a place.
     const cap = projectsPerAccount();
-    if (accessEnforced() && (await ctx.db.query("apps").withIndex("by_owner", (q) => q.eq("ownerId", account)).take(cap)).length >= cap) {
+    if (accessEnforced() && (await ctx.db.query("apps").withIndex("by_owner", (q) => q.eq("ownerId", account)).take(cap + 1)).filter((app) => !app.practice).length >= cap) {
       throw new ConvexError(ceilingRefusal.projects(cap));
     }
     const parsed = parseGithubUrl(repoUrl);

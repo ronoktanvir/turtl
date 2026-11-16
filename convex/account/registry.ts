@@ -125,6 +125,9 @@ export const projectErasers: Eraser[] = [
   // The project's own control token, sealed (convex/secrets), and the monitor's note of why it last skipped the project.
   projectRows("secrets", "by_app_and_kind"),
   projectRows("watchedProjects", "by_app"),
+  // A practice project's practice app: its switches, its token's hash, and any test booking its check left behind.
+  projectRows("practiceApps", "by_app"),
+  projectRows("practiceBookings", "by_app_and_fixture"),
 ];
 
 /** The account's own rows, removed after its projects. The sign-in records go last. */
