@@ -410,14 +410,12 @@ export const pastCaseNotes = internalQuery({
       if (notes.length === PAST_CASE_NOTES) break;
     }
     if (notes.length) return { notes, fromSearch: true };
-    const recent = (
-      await ctx.db
-        .query("cases")
-        .withIndex("by_app_and_signature", (q) => q.eq("appId", current.appId))
-        .collect()
-    )
-      .sort((a, b) => b._creationTime - a._creationTime)
-      .slice(0, RECENT_CASES_SCANNED);
+    // The project's newest cases, read as such: a project's cases grow with the monitor and customers' reports.
+    const recent = await ctx.db
+      .query("cases")
+      .withIndex("by_app", (q) => q.eq("appId", current.appId))
+      .order("desc")
+      .take(RECENT_CASES_SCANNED);
     for (const row of recent) {
       const found = await noteOf(row);
       if (found) notes.push(found);
