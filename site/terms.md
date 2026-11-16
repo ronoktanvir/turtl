@@ -16,7 +16,7 @@ You must be at least 18. You must own the app and the repository you connect, or
 
 ## 2. What turtl does
 
-turtl checks the live app you connect, opens a case when a check fails or a customer reports a problem, and uses AI services to work out a likely cause and to propose fixes. It acts only when you approve, or within a permission you have given it in advance and can withdraw at any time. How much AI it uses for your account is limited each day and each month; when a limit is reached, turtl says so and works with its own rules until the limit resets.
+turtl checks the live app you connect, opens a case when a check fails or a customer reports a problem, and uses AI services to work out a likely cause and to propose fixes. It acts only when you approve, or within a permission you have given it in advance and can withdraw at any time. How much AI it uses for your account is limited each day and each month, and turtl as a whole stops using AI for the day once it reaches the most it spends; when a limit is reached, turtl says so and works with its own rules until the limit resets.
 
 ## 3. What turtl cannot promise
 

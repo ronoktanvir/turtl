@@ -37,7 +37,7 @@ turtl opens a case when one of your app's checks runs and fails, or when a custo
 
 ### How do I reset my password?
 
-On Log in, tap Forgot your password? and enter your address. turtl emails you a link and a code. Tap the link on the phone where you asked, or paste the code; some mail apps do not open turtl's link, and pasting always works.
+On Log in, tap Forgot your password? and enter your address. turtl emails you a link and a code; the first reset email of the day is always sent, even on a busy day. Tap the link on the phone where you asked, or paste the code; some mail apps do not open turtl's link, and pasting always works.
 
 ### Can turtl change my app without asking?
 
