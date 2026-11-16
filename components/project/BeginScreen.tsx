@@ -44,12 +44,17 @@ export default function BeginScreen({ type }: { type: CaseType }) {
   const [list, setList] = useState({ y: 0, viewport: 0, content: 0 });
   const arrowSize = height < 650 ? 64 : 84;
 
-  // The list starts afresh each time it is shown, so coming back from an issue finds the arrow, not the green.
+  // The list starts afresh each time it is shown, so coming back from an issue finds the arrow, not the green: on
+  // focus, and also just after the issue has covered it, so a back swipe on a phone never uncovers a green list.
   useFocusEffect(useCallback(() => {
-    drop.stopAnimation();
-    drop.setValue(0);
-    pulled.current = 0;
-    opening.current = false;
+    const reset = () => {
+      drop.stopAnimation();
+      drop.setValue(0);
+      pulled.current = 0;
+      opening.current = false;
+    };
+    reset();
+    return () => { setTimeout(reset, 450); };
   }, [drop]));
 
   const begin = () => {
