@@ -199,9 +199,11 @@ for (const path of ["../app/live.tsx", "../app/case/[id].tsx"]) {
 
 // --- Home keeps Ronok's design, and a new account starts on the first-run screen (TUR-72, RC-01) ---
 
-test("Home's header turtle is always the green one, with no health line under the title", () => {
+test("Home's header shows the turtl logo, always the green one, with no health line under the title", () => {
   const home = source("../app/projects.tsx");
-  assert.ok(home.includes('<Turtle health="clear" size={48} label="turtl" />'));
+  // Ronok asked for the small logo with the name in it here, in place of the turtle on its own (2026-11-16).
+  assert.match(home, /<Logo health="clear" width=\{[^}]+\} \/>/);
+  assert.ok(!home.includes('<Turtle health="clear"'), "the lone header turtle is gone");
   assert.ok(!home.includes("home-health"));
   assert.ok(home.includes("<ProfileButton />"), "the profile picture is the accounts slice's: today's photo in the demo, the signed-in person's otherwise");
   assert.ok(!home.includes("ronok-avatar"), "Home itself no longer names the compiled-in photo");
