@@ -11,7 +11,7 @@
 - **Auth:** Convex Auth (`@convex-dev/auth` 0.0.98): email and password (with the address confirmed by an emailed code), Sign in with Apple, and GitHub, whenever `AUTH_REQUIRED` is set to anything but empty or `false`. Unset, empty or `false`, the deployment is the single-owner demo: nobody signs in, and it refuses to run if it holds any account
 - **AI models:** gpt-5.4-mini (Quick look diagnosis, and by default fix proposals, case chat, report triage and preference reading; `DIAGNOSIS_MODEL` and `FIXES_MODEL` override it), gpt-6.1-sol (Careful review diagnosis and council consolidation), gpt-5.5 and gpt-6.1-terra (council members), gpt-5.4 (broader-cause examination, `STRUCTURAL_MODEL` overrides it), gpt-6-luna (assistant chat, code network and onboarding inspection, `OPENAI_MODEL` overrides it), gpt-4o-mini-transcribe and gpt-4o-mini-tts (voice); claude-sonnet-4-5 and gemini-2.5-pro join the council only when `ANTHROPIC_API_KEY` or `GEMINI_API_KEY` is set. All are called through each provider's API, not the Convex AI Gateway
 - **Started:** 2026-11-15T20:37:34Z
-- **Last updated:** 2026-11-16T15:00:00Z
+- **Last updated:** 2026-11-16T16:00:00Z
 
 ## Log
 
@@ -347,3 +347,9 @@ Made sure an owner's own outage is always diagnosed: each account has $1.25 a da
 
 ### 2026-11-16 - 9d5bb95
 Put a hard stop on what the deployment spends on AI in a day (`DEPLOYMENT_MODEL_HARD_STOP_PER_DAY_USD`, twice the daily ceiling unless set, $50 with the defaults), the shared day and every account's floor together, so a month costs at most $1,550.
+
+### 2026-11-16 - b173a40
+Documented the outage floor, the hard stop, the first reset of the day and the stricter own-address rule, and pinned the App Store pack's audit to `9d5bb95`.
+
+### 2026-11-16 - fb2a04b
+Made a failed model call give its hold back: a call the AI service refuses with an error status releases its hold at once, and one that times out keeps it for ten minutes and is then counted at its hold, settled by a sweep each minute (`modelCallHolds`). No hold lasts until midnight any more.
