@@ -10,7 +10,6 @@ export const PRACTICE_PROJECT_ID = "practice";
 export const practiceProject: ProjectSeed = {
   id: PRACTICE_PROJECT_ID,
   name: "Practice booking app",
-  summary: "A small booking app turtl runs for you, to break on purpose and watch turtl fix.",
   approvals: "you",
   practice: true,
 };

@@ -34,7 +34,7 @@ export default function PracticeTile({ projectId, short, padding }: { projectId:
         onPress={() => setOpen(true)}
         style={({ pressed }) => ({ flex: 1, minHeight: 0, justifyContent: "center", borderRadius: 20, borderWidth: 1, borderColor: broken ? colors.statusAffected : colors.border, backgroundColor: pressed ? colors.surfaceRaised : colors.bg, padding, overflow: "hidden" })}
       >
-        <View pointerEvents="none" style={{ position: "absolute", right: 18, top: 10, opacity: 0.14, transform: [{ rotate: "12deg" }] }}><Icon name="Zap" size={96} color="brandDeep" strokeWidth={1} /></View>
+        <View pointerEvents="none" style={{ position: "absolute", right: 6, top: -4, opacity: 0.14, transform: [{ rotate: "12deg" }] }}><Icon name="Zap" size={84} color="brandDeep" strokeWidth={1} /></View>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
           <Icon name="Zap" size={20} color={broken ? "statusAffected" : "brandDeep"} />
           <T variant="title">{broken ? "Broken" : "Break it"}</T>

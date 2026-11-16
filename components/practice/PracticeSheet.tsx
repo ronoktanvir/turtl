@@ -133,15 +133,15 @@ export default function PracticeSheet({ visible, onClose, project }: { visible: 
       <Button label={busy ? "Breaking it…" : "Break it"} kind="danger" icon="Zap" disabled={busy || out} onPress={() => void run(() => breakPractice(project.projectId, failure))} testID="practice-break-confirm" />
       <Button label="Keep it working" kind="plain" disabled={busy} onPress={onClose} testID="practice-break-cancel" />
     </View>}>
-      <T>Choose what goes wrong. Only your practice app breaks: no real customer and no other app is affected.</T>
-      <View accessibilityRole="radiogroup" style={{ gap: 10 }}>
+      <T>Only your practice app breaks. No real customer and no other app is affected.</T>
+      <View accessibilityRole="radiogroup" accessibilityLabel="What goes wrong" style={{ gap: 10 }}>
         {ORDER.map((option) => <Choice key={option} failure={option} selected={failure === option} onPress={() => setFailure(option)} />)}
       </View>
       <View style={{ gap: 12 }}>
         <T variant="heading">What happens next</T>
         <Step index={1} text="Your practice app fails at once, the way you chose." />
-        <Step index={2} text="Within a minute or two, turtl's regular check fails and turtl opens an issue under Fix." />
-        <Step index={3} text="turtl works out why and offers a fix. Nothing changes until you approve it, and then turtl runs the booking check again to show it works." />
+        <Step index={2} text="Within a minute or two, turtl notices and opens an issue under Fix." />
+        <Step index={3} text="turtl offers a fix and changes nothing until you approve it. Then it runs the booking check again." />
       </View>
       {project.note && <View style={{ flexDirection: "row", gap: 10, padding: 14, borderRadius: 16, backgroundColor: colors.surfaceRaised }}>
         <Icon name="Info" size={18} color="textMuted" />

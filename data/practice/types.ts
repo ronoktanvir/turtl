@@ -27,10 +27,10 @@ export type Practice = {
 export const FAILURE_WORDS: Record<PracticeFailure, { title: string; what: string }> = {
   recommendations: {
     title: "Recommendations time out",
-    what: "The practice app's service suggestions stop answering, and booking waits for them, so no booking is saved.",
+    what: "Booking waits for service suggestions that never come, so no booking is saved.",
   },
   booking_store: {
     title: "Bookings fail to save",
-    what: "The practice app's booking store stops taking bookings, so every booking fails at the last step.",
+    what: "The booking store stops taking bookings, so every booking fails at the last step.",
   },
 };

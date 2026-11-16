@@ -52,6 +52,13 @@ function snapshot(): Practice {
   };
 }
 
+/** What turtl watches on the example practice app: its booking check, passing unless it is broken. */
+export function practiceWatch(): { failing: boolean; lastPassedAt: number } | null {
+  if (!made) return null;
+  const failing = snapshot().project?.failure != null;
+  return { failing, lastPassedAt: failing && brokenAt !== undefined ? brokenAt - 30_000 : Date.now() - 45_000 };
+}
+
 export function usePractice(): Practice | undefined {
   const version = useSyncExternalStore(store.subscribe, store.getVersion, store.getVersion);
   return useMemo(snapshot, [version]);
