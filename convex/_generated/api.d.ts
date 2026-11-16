@@ -11,6 +11,7 @@
 import type * as access from "../access.js";
 import type * as account_deletion from "../account/deletion.js";
 import type * as account_erasers from "../account/erasers.js";
+import type * as account_localProof from "../account/localProof.js";
 import type * as account_registry from "../account/registry.js";
 import type * as account_vendors from "../account/vendors.js";
 import type * as auth from "../auth.js";
@@ -172,6 +173,7 @@ declare const fullApi: ApiFromModules<{
   access: typeof access;
   "account/deletion": typeof account_deletion;
   "account/erasers": typeof account_erasers;
+  "account/localProof": typeof account_localProof;
   "account/registry": typeof account_registry;
   "account/vendors": typeof account_vendors;
   auth: typeof auth;
