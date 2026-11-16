@@ -16,8 +16,9 @@ const state: Record<WatchedCheck["state"], { glyph: "CircleCheck" | "CircleX" | 
   waiting: { glyph: "CircleDashed", color: "textMuted" },
 };
 
-function when(check: WatchedCheck, now: number): string {
-  if (check.state === "failing") return "Not passing";
+/** The line under a check's name, and the end of its accessible label. */
+export function checkLine(check: WatchedCheck, now: number): string {
+  if (check.state === "failing") return check.notAnswering ? "Not answering" : "Not passing";
   if (check.lastPassedAt === undefined) return "Not checked yet";
   return "Passed " + ago(check.lastPassedAt, now);
 }
@@ -58,11 +59,11 @@ export default function Watching({ projectId, rows = 4, brief = false, testID = 
         </View>
       </View>
       {shown.map((check, index) => (
-        <View key={check.id} testID={testID + "-check-" + index} accessible accessibilityLabel={check.name + ". " + when(check, now)} style={{ ...row, alignItems: "flex-start", paddingVertical: 10 }}>
+        <View key={check.id} testID={testID + "-check-" + index} accessible accessibilityLabel={check.name + ". " + checkLine(check, now)} style={{ ...row, alignItems: "flex-start", paddingVertical: 10 }}>
           <View style={{ paddingTop: 2 }}><Glyph name={state[check.state].glyph} size={17} color={state[check.state].color} /></View>
           <View style={{ flex: 1 }}>
             <T variant="small" numberOfLines={2}>{check.name}</T>
-            <T variant="small" color={check.state === "failing" ? "statusAffected" : "textMuted"}>{when(check, now)}</T>
+            <T variant="small" color={check.state === "failing" ? "statusAffected" : "textMuted"}>{checkLine(check, now)}</T>
           </View>
         </View>
       ))}

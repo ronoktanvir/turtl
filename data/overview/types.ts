@@ -8,6 +8,8 @@ export type WatchedCheck = {
   state: "passing" | "failing" | "waiting"; // waiting: registered, not checked yet
   lastPassedAt?: number;
   closedAs?: "declined" | "unresolved"; // failing with no issue open: how its last issue ended
+  // Its last `tries` tries in a row, the first at `since`, got no usable answer from the app; its state is then failing.
+  notAnswering?: { since: number; tries: number };
 };
 
 export type Overview = {
