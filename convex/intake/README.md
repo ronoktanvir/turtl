@@ -46,7 +46,7 @@ A triage that fails three times is kept as `ignored` with that reason. A stuck l
 
 ### agentRuns
 
-Each model triage writes an `agentRuns` row (`triage_customer_report`) on the `detect_or_receive` step of the case it lands on: for a new case when that step runs, for a match at once. A report judged noise lands on no case, and `agentRuns` requires a case, step and attempt, so its model call is recorded only on its `reportTriage` row (`modelId`, `durationMs`, `modelError`).
+Each model triage writes an `agentRuns` row (`triage_customer_report`) on the `detect_or_receive` step of the case it lands on: for a new case when that step runs, for a match at once. A report judged noise lands on no case, so its row carries the report's `appId` and no `caseId`, step or attempt.
 
 ## Customer text is untrusted
 

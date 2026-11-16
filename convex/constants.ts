@@ -506,7 +506,8 @@ export const vAgentEvaluation = v.object({
 });
 export const vAgentRun = v.object({
   stepId: v.optional(v.id("steps")),
-  caseId: v.id("cases"),
+  caseId: v.optional(v.id("cases")),
+  appId: v.optional(v.id("apps")),
   stepAttemptId: v.optional(v.id("stepAttempts")),
   taskType: v.string(),
   config: v.object({

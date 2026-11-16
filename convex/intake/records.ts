@@ -205,29 +205,34 @@ async function recordRuns(ctx: MutationCtx, caseId: Id<"cases">) {
   const pending = (await ctx.db.query("reportTriage").withIndex("by_case", (q) => q.eq("caseId", caseId)).collect()).filter(
     (t) => t.modelId && !t.agentRunId,
   );
-  for (const triage of pending) {
-    const agentRunId = await ctx.db.insert("agentRuns", {
-      caseId,
-      stepId: step._id,
-      stepAttemptId: step.currentAttemptId,
-      taskType: "triage_customer_report",
-      config: { modelId: triage.modelId!, harnessVersion: HARNESS_VERSION, promptVersion: TRIAGE_PROMPT_VERSION, credentialRef: "OPENAI_API_KEY" },
-      taskCharacteristics: {
-        complexity: "one customer message against the app's open customer cases",
-        risk: "untrusted customer text",
-        framework: "Expo and Convex",
-        repositoryArea: "not inspected",
-      },
-      contextRefs: [],
-      routingReason: "Fixed: the only triage configuration. No routing between configurations yet.",
-      status: triage.modelError ? "failed" : "completed",
-      ...(triage.modelError && { error: `No model answered: ${triage.modelError}. Rule-based triage was used instead.` }),
-      ...(triage.durationMs !== undefined && { durationMs: triage.durationMs }),
-      corrections: [],
-    });
-    await ctx.db.patch(triage._id, { agentRunId });
-  }
+  for (const triage of pending) await insertTriageRun(ctx, triage, { caseId, stepId: step._id, stepAttemptId: step.currentAttemptId });
   return pending.length;
+}
+
+// A triage that lands on no case still made a model call, so its row names the app instead of a case.
+async function insertTriageRun(
+  ctx: MutationCtx,
+  triage: Doc<"reportTriage">,
+  owner: { caseId: Id<"cases">; stepId: Id<"steps">; stepAttemptId: Id<"stepAttempts"> } | { appId: Id<"apps"> },
+) {
+  const agentRunId = await ctx.db.insert("agentRuns", {
+    ...owner,
+    taskType: "triage_customer_report",
+    config: { modelId: triage.modelId!, harnessVersion: HARNESS_VERSION, promptVersion: TRIAGE_PROMPT_VERSION, credentialRef: "OPENAI_API_KEY" },
+    taskCharacteristics: {
+      complexity: "one customer message against the app's open customer cases",
+      risk: "untrusted customer text",
+      framework: "Expo and Convex",
+      repositoryArea: "not inspected",
+    },
+    contextRefs: [],
+    routingReason: "Fixed: the only triage configuration. No routing between configurations yet.",
+    status: triage.modelError ? "failed" : "completed",
+    ...(triage.modelError && { error: `No model answered: ${triage.modelError}. Rule-based triage was used instead.` }),
+    ...(triage.durationMs !== undefined && { durationMs: triage.durationMs }),
+    corrections: [],
+  });
+  await ctx.db.patch(triage._id, { agentRunId });
 }
 
 export const recordTriageRuns = internalMutation({
@@ -275,6 +280,7 @@ export const land = internalMutation({
     }
     if (args.verdict === "noise" || !args.open) {
       await ctx.db.patch(triage._id, { ...fields, outcome: "ignored" });
+      if (args.modelId) await insertTriageRun(ctx, (await ctx.db.get(triage._id))!, { appId: report.appId });
       return { outcome: "ignored", caseId: null };
     }
     const app = (await ctx.db.get(report.appId))!;
