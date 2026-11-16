@@ -1,233 +1,33 @@
 import assert from "node:assert/strict";
-import { createHmac, generateKeyPairSync, randomUUID, verify } from "node:crypto";
+import { createHmac, randomUUID, verify } from "node:crypto";
 import { readFileSync, readdirSync } from "node:fs";
-import { createRequire } from "node:module";
-import { dirname, resolve } from "node:path";
+import { resolve } from "node:path";
 import { test } from "node:test";
-import { fileURLToPath } from "node:url";
-import { runInThisContext } from "node:vm";
-import ts from "typescript";
-import { PLACEHOLDER_SITE, readManifest, registrationUrl, withSite } from "../scripts/github-app/link.mjs";
-import { startGithubStub } from "../scripts/github-app/stub.mjs";
+import { PLACEHOLDER_SITE, registrationUrl, withSite } from "../scripts/github-app/link.mjs";
+import {
+  APP_ID,
+  changed,
+  created,
+  createLoader,
+  installation,
+  keys,
+  LEGACY_TOKEN,
+  lifecycle,
+  manifest,
+  MINUTE,
+  otherKeys,
+  PKCS1,
+  PKCS8,
+  PUBLIC,
+  repositories,
+  root,
+  START,
+  WEBHOOK_SECRET,
+  world,
+} from "./github-harness.mjs";
 
-// These tests run convex/github's real functions against scripts/github-app/stub.mjs, a stand-in for GitHub's API
-// served over HTTP in this process, and against an in-memory copy of its four tables. Nothing here talks to GitHub.
-
-const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const nodeRequire = createRequire(import.meta.url);
-const APP_ID = "424242";
-const WEBHOOK_SECRET = "stub-webhook-secret";
-const LEGACY_TOKEN = "deployment-wide-token";
-const START = Date.parse("2026-11-15T12:00:00Z");
-const MINUTE = 60_000;
-const VARIABLES = ["GITHUB_API_URL", "GITHUB_APP_ID", "GITHUB_APP_SLUG", "GITHUB_APP_PRIVATE_KEY", "GITHUB_APP_WEBHOOK_SECRET", "GITHUB_TOKEN", "AUTH_GITHUB_ID", "AUTH_GITHUB_SECRET", "SUPERMEMORY_API_KEY", "OPENAI_API_KEY"];
-
-const keys = generateKeyPairSync("rsa", { modulusLength: 2048 });
-const otherKeys = generateKeyPairSync("rsa", { modulusLength: 2048 });
-const PKCS1 = keys.privateKey.export({ type: "pkcs1", format: "pem" });
-const PKCS8 = keys.privateKey.export({ type: "pkcs8", format: "pem" });
-const PUBLIC = keys.publicKey.export({ type: "spki", format: "pem" });
-const manifest = readManifest();
-
-const ref = (path) => new Proxy({ path }, { get: (target, key) => (key === "path" ? target.path : ref(path + "." + String(key))) });
-const registered = (kind) => (definition) => ({ kind, ...definition });
-const generated = {
-  "convex/_generated/api": { api: ref("api"), internal: ref("internal") },
-  "convex/_generated/server": {
-    query: registered("query"),
-    mutation: registered("mutation"),
-    action: registered("action"),
-    internalQuery: registered("query"),
-    internalMutation: registered("mutation"),
-    internalAction: registered("action"),
-    httpAction: (handler) => handler,
-  },
-};
-
-// Loads a TypeScript module from the repository the way tests/voice.test.mjs does, following its relative
-// imports to the real files unless a mock is given for that path.
-function createLoader(mocks = {}) {
-  const loaded = new Map();
-  const load = (file) => {
-    if (file.endsWith(".json")) return JSON.parse(readFileSync(file, "utf8"));
-    if (loaded.has(file)) return loaded.get(file).exports;
-    const module = { exports: {} };
-    loaded.set(file, module);
-    const { outputText } = ts.transpileModule(readFileSync(file, "utf8"), {
-      compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true },
-    });
-    const require = (name) => {
-      if (!name.startsWith(".")) return nodeRequire(name);
-      const target = resolve(dirname(file), name);
-      const key = target.slice(root.length + 1);
-      if (key in mocks) return mocks[key];
-      if (key in generated) return generated[key];
-      return load(target.endsWith(".json") ? target : target + ".ts");
-    };
-    runInThisContext("(function(require, exports, module) { " + outputText + "\n})", { filename: file })(require, module.exports, module);
-    return module.exports;
-  };
-  return (path) => load(resolve(root, path));
-}
-
-// An in-memory copy of the module's tables with the parts of Convex's database, scheduler and function calls the
-// module uses. An index can only be read by its own fields, in order, and a row can only hold fields the schema names.
-function createBackend(load, overrides = {}) {
-  const schema = load("convex/github/schema.ts").githubTables;
-  const tables = new Map(Object.keys(schema).map((name) => [name, []]));
-  const scheduled = [];
-  let counter = 0;
-  const rowsOf = (table) => {
-    assert.ok(tables.has(table), "Unknown table " + table);
-    return tables.get(table);
-  };
-  const locate = (id) => {
-    for (const [table, rows] of tables) {
-      const index = rows.findIndex((row) => row._id === id);
-      if (index !== -1) return { table, rows, index };
-    }
-    throw new Error("No document " + id);
-  };
-  const checked = (table, fields) => {
-    for (const [name, value] of Object.entries(fields)) {
-      assert.ok(name in schema[table].validator.fields, table + " has no field " + name);
-      assert.notEqual(value, null, table + "." + name + " is null");
-    }
-    return Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== undefined));
-  };
-  const db = {
-    insert: async (table, fields) => {
-      const row = { _id: table + ":" + ++counter, _creationTime: Date.now(), ...checked(table, structuredClone(fields)) };
-      rowsOf(table).push(row);
-      return row._id;
-    },
-    patch: async (id, fields) => {
-      const { table, rows, index } = locate(id);
-      rows[index] = { ...rows[index], ...checked(table, structuredClone(fields)) };
-    },
-    delete: async (id) => {
-      const { rows, index } = locate(id);
-      rows.splice(index, 1);
-    },
-    query: (table) => ({
-      withIndex: (name, build) => {
-        const fields = schema[table].export().indexes.find((index) => index.indexDescriptor === name)?.fields;
-        assert.ok(fields, table + " has no index " + name);
-        const conditions = [];
-        const range = {
-          eq: (field, value) => (conditions.push(["eq", field, value]), range),
-          lt: (field, value) => (conditions.push(["lt", field, value]), range),
-        };
-        build(range);
-        conditions.forEach(([, field], position) => assert.equal(field, fields[position], table + "." + name + " cannot be read by " + field + " here"));
-        const matched = () =>
-          structuredClone(rowsOf(table).filter((row) => conditions.every(([operator, field, value]) => (operator === "eq" ? row[field] === value : row[field] < value))));
-        return {
-          collect: async () => matched(),
-          first: async () => matched()[0] ?? null,
-          take: async (count) => matched().slice(0, count),
-          unique: async () => {
-            const rows = matched();
-            assert.ok(rows.length <= 1, table + "." + name + ": unique() matched " + rows.length + " rows");
-            return rows[0] ?? null;
-          },
-        };
-      },
-    }),
-  };
-  const scheduler = { runAfter: async (_delay, fn, args) => void scheduled.push({ path: fn.path, args: structuredClone(args) }) };
-  const calls = [];
-  async function run(path, args = {}, kind) {
-    calls.push(path);
-    if (path in overrides) return structuredClone((await overrides[path](args)) ?? null);
-    const segments = path.split(".").slice(1);
-    const name = segments.pop();
-    const fn = load("convex/" + segments.join("/") + ".ts")[name];
-    assert.ok(fn?.handler, "No function " + path);
-    if (kind) assert.equal(fn.kind, kind, path + " is not a " + kind);
-    const result = await fn.handler(fn.kind === "action" ? ctx : { db, scheduler }, structuredClone(args));
-    return structuredClone(result ?? null);
-  }
-  const ctx = {
-    runQuery: (fn, args) => run(fn.path, args, "query"),
-    runMutation: (fn, args) => run(fn.path, args, "mutation"),
-    runAction: (fn, args) => run(fn.path, args, "action"),
-    scheduler,
-  };
-  return {
-    ctx,
-    run,
-    calls,
-    scheduled,
-    rows: (table) => structuredClone(rowsOf(table)),
-    snapshot: () => JSON.stringify([...tables]),
-    // Runs what the module scheduled, as Convex would after the mutation commits.
-    async drain() {
-      while (scheduled.length) {
-        const { path, args } = scheduled.shift();
-        await run(path, args);
-      }
-    },
-  };
-}
-
-// One isolated world per test: fresh module instances, empty tables, a stub GitHub, and only the variables the test sets.
-async function world(t, { app = true, mocks, overrides, now } = {}) {
-  const saved = Object.fromEntries(VARIABLES.map((name) => [name, process.env[name]]));
-  for (const name of VARIABLES) delete process.env[name];
-  if (now !== undefined) t.mock.timers.enable({ apis: ["Date"], now });
-  const stub = await startGithubStub({ appId: APP_ID, publicKey: PUBLIC, permissions: manifest.default_permissions, events: manifest.default_events });
-  t.after(async () => {
-    await stub.close();
-    for (const name of VARIABLES) {
-      if (saved[name] === undefined) delete process.env[name];
-      else process.env[name] = saved[name];
-    }
-  });
-  process.env.GITHUB_API_URL = stub.url;
-  if (app) Object.assign(process.env, { GITHUB_APP_ID: APP_ID, GITHUB_APP_SLUG: "turtl-on-call", GITHUB_APP_PRIVATE_KEY: PKCS1, GITHUB_APP_WEBHOOK_SECRET: WEBHOOK_SECRET });
-  const load = createLoader(mocks);
-  const backend = createBackend(load, overrides);
-  const { repositoryAccess } = load("convex/github/access.ts");
-  const { receiveWebhook } = load("convex/github/http.ts");
-  const mints = () => stub.requests.filter((request) => request.method === "POST" && request.path.endsWith("/access_tokens"));
-  const deliver = async (event, payload, { secret = WEBHOOK_SECRET, deliveryId = randomUUID(), signature, body = JSON.stringify(payload), headers = {} } = {}) => {
-    const response = await receiveWebhook(
-      backend.ctx,
-      new Request("http://turtl.test/github/webhook", {
-        method: "POST",
-        body,
-        headers: {
-          "Content-Type": "application/json",
-          "X-GitHub-Event": event,
-          ...(deliveryId && { "X-GitHub-Delivery": deliveryId }),
-          ...(signature !== null && { "X-Hub-Signature-256": signature ?? "sha256=" + createHmac("sha256", secret).update(body).digest("hex") }),
-          ...headers,
-        },
-      }),
-    );
-    return { status: response.status, body: await response.json() };
-  };
-  return { stub, load, backend, mints, deliver, access: (repo) => repositoryAccess(backend.ctx, repo) };
-}
-
-const installation = (id, login, { selection = "selected", suspended = false } = {}) => ({
-  id,
-  account: { login, type: "User", id: id + 1 },
-  repository_selection: selection,
-  suspended_at: suspended ? "2026-11-15T12:00:00Z" : null,
-});
-const repositories = (...names) => names.map((full_name, index) => ({ id: index + 1, name: full_name.split("/")[1], full_name, private: true }));
-const created = (id, login, ...names) => ({ action: "created", installation: installation(id, login), repositories: repositories(...names), sender: { login } });
-const lifecycle = (action, id, login, at) => ({ action, installation: { ...installation(id, login, { suspended: action === "suspend" }), updated_at: at }, sender: { login } });
-const changed = (action, id, login, { added = [], removed = [], selection = "selected" } = {}) => ({
-  action,
-  installation: installation(id, login, { selection }),
-  repository_selection: selection,
-  repositories_added: repositories(...added),
-  repositories_removed: repositories(...removed),
-  sender: { login },
-});
+// convex/github's real functions against the stand-in GitHub in scripts/github-app/stub.mjs; the harness is in
+// tests/github-harness.mjs. Nothing here talks to GitHub. The Connect GitHub flow is in tests/github-connect.test.mjs.
 
 test("the app's JWT is RS256, names the app, lasts under ten minutes, and verifies with the app's public key", async () => {
   const { signAppJwt } = createLoader()("convex/github/jwt.ts");
@@ -287,7 +87,7 @@ test("a JWT signed with the wrong key is refused, and nothing is cached", async 
   assert.deepEqual(backend.rows("githubInstallations"), []);
 });
 
-test("a token is stored in one table that only github/tokens.ts reads, and no function in the module is public", async (t) => {
+test("a token is stored in one table that only github/tokens.ts reads, and only connect.ts has public functions", async (t) => {
   const sources = (directory) =>
     readdirSync(resolve(root, directory), { withFileTypes: true, recursive: true })
       .filter((entry) => entry.isFile() && /\.tsx?$/.test(entry.name))
@@ -298,8 +98,16 @@ test("a token is stored in one table that only github/tokens.ts reads, and no fu
   for (const path of sources("convex/github")) {
     const imported = /import \{([^}]+)\} from "\.\.\/_generated\/server"/.exec(readFileSync(resolve(root, path), "utf8"))?.[1] ?? "";
     const names = imported.split(",").map((name) => name.replace(/\btype\b/, "").trim()).filter(Boolean);
-    assert.deepEqual(names.filter((name) => ["query", "mutation", "action"].includes(name)), [], path + " registers a public function");
+    const publicKinds = names.filter((name) => ["query", "mutation", "action"].includes(name));
+    if (path === "convex/github/connect.ts") assert.deepEqual(publicKinds, ["action", "mutation", "query"]);
+    else assert.deepEqual(publicKinds, [], path + " registers a public function");
   }
+  // The app's six functions, each asking convex/access.ts who is calling, and nothing else public.
+  const connect = createLoader()("convex/github/connect.ts");
+  const publicNames = Object.entries(connect).filter(([, fn]) => fn?.visibility === "public").map(([name]) => name);
+  assert.deepEqual(publicNames.sort(), ["begin", "disconnect", "finish", "refresh", "repositories", "status"]);
+  for (const name of ["status", "repositories"]) assert.match(connect[name].handler.toString(), /currentAccount\)?\(ctx\)/, name);
+  for (const name of ["begin", "finish", "refresh", "disconnect"]) assert.match(connect[name].handler.toString(), /requireAccount\)?\(ctx\)/, name);
 
   const { stub, backend, load, access } = await world(t);
   stub.install({ id: 7001, login: "octo", repositories: ["octo/app"] });
@@ -338,7 +146,7 @@ test("a webhook with GitHub's signature is applied; a wrong, missing, or malform
     assert.equal(refused.body.error.code, "INVALID_SIGNATURE", name);
   }
   assert.deepEqual(backend.calls, [], "a refused delivery never reaches the database");
-  assert.equal(backend.snapshot(), JSON.stringify([["githubInstallations", []], ["githubInstallationRepositories", []], ["githubInstallationTokens", []], ["githubWebhookDeliveries", []]]));
+  assert.ok(JSON.parse(backend.snapshot()).every(([, rows]) => rows.length === 0), "no table holds a row");
 
   assert.deepEqual(await deliver("installation", payload, { signature: good }), { status: 200, body: { ok: true, outcome: "applied" } });
   assert.deepEqual(backend.rows("githubInstallations").map(({ installationId, accountLogin, repositorySelection, status }) => ({ installationId, accountLogin, repositorySelection, status })), [
@@ -599,6 +407,8 @@ test("the check reports what is configured and whether GitHub accepts it, with n
   const report = await backend.run("internal.github.access.check", { repo: "octo/app" });
   assert.deepEqual(report, {
     app: "ready",
+    connect: { missing: ["AUTH_GITHUB_ID", "AUTH_GITHUB_SECRET", "CONVEX_SITE_URL"] },
+    accounts: false,
     variables: { GITHUB_APP_ID: "set", GITHUB_APP_SLUG: "set", GITHUB_APP_PRIVATE_KEY: "set", GITHUB_APP_WEBHOOK_SECRET: "set", AUTH_GITHUB_ID: "not set", AUTH_GITHUB_SECRET: "not set", GITHUB_TOKEN: "set" },
     github: { ok: true, slug: "turtl-on-call", slugMatches: true, permissions: manifest.default_permissions, permissionsMatch: true, events: [] },
     repository: { ok: true, source: "installation", installationId: 7001 },
@@ -673,7 +483,35 @@ test("pull request tracking asks that one place: the installation's token when c
     assert.match(result.message, /not installed on octo\/app/);
     assert.deepEqual(seen, []);
   });
+  const ownedCase = async (w, ownerId) => {
+    const appId = await w.backend.insert("apps", { name: "app", ownerId });
+    row.caseId = await w.backend.insert("cases", { appId });
+  };
+  await scenario("accounts on, installed and connected by the case's owner", { accounts: true }, async (w) => {
+    await ownedCase(w, "alice-account");
+    w.stub.install({ id: 7001, login: "octo", repositories: ["octo/app"] });
+    await linkAccount(w, "alice-account", 7001);
+  }, (result, seen) => {
+    assert.equal(result.outcome, "synced");
+    assert.deepEqual(seen, [{ token: "ghs_stub_1", repo: "octo/app", number: 12 }]);
+  });
+  await scenario("accounts on, installed but connected only by another account", { accounts: true }, async (w) => {
+    await ownedCase(w, "alice-account");
+    w.stub.install({ id: 7001, login: "octo", repositories: ["octo/app"] });
+    await linkAccount(w, "bob-account", 7001);
+  }, (result, seen, w) => {
+    assert.equal(result.outcome, "failed");
+    assert.match(result.message, /octo\/app is not one of the repositories this project's owner connected/);
+    assert.deepEqual(seen, []);
+    assert.equal(w.mints().length, 0, "no token is minted for an account the installation is not linked to");
+  });
 });
+
+// An active link written straight into the records, for the call sites' tests. The Connect flow writes these in
+// the tests further down.
+async function linkAccount(w, account, installationId, { login = "octo", repositories } = {}) {
+  await w.backend.insert("githubInstallationLinks", { account, installationId, attemptId: "githubConnectAttempts:0", active: true, githubUserId: 1, githubLogin: login, ...(repositories && { repositories }), confirmedAt: Date.now() });
+}
 
 test("the code network build asks that one place too", async (t) => {
   const mocks = {
@@ -715,6 +553,21 @@ test("the code network build asks that one place too", async (t) => {
     assert.equal(result.outcome, "failed");
     assert.match(result.reason, /not installed on octo\/app/);
     assert.deepEqual(seen, [], "nothing is read from GitHub without an installation");
+  });
+  await scenario("accounts on, the project's owner connected the installation", { accounts: true }, async (w) => {
+    assert.equal(await w.backend.insert("apps", { name: "app", ownerId: "alice-account" }), "apps:1");
+    w.stub.install({ id: 7001, login: "octo", repositories: ["octo/app"] });
+    await linkAccount(w, "alice-account", 7001);
+  }, (result, seen) => {
+    assert.deepEqual(seen, [{ url: "https://api.github.com/repos/octo/app/commits/HEAD", authorization: "Bearer ghs_stub_1" }]);
+  });
+  await scenario("accounts on, a project with no owner reaches nothing", { accounts: true }, (w) => {
+    process.env.GITHUB_TOKEN = LEGACY_TOKEN;
+    w.stub.install({ id: 7001, login: "octo", repositories: ["octo/app"] });
+  }, (result, seen) => {
+    assert.equal(result.outcome, "failed");
+    assert.match(result.reason, /does not know who owns this project/);
+    assert.deepEqual(seen, []);
   });
 });
 
