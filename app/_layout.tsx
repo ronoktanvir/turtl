@@ -14,6 +14,8 @@ import OwnerPasscodePrompt from "../components/ui/OwnerPasscodePrompt";
 
 void SplashScreen.preventAutoHideAsync().catch(() => {});
 
+export { ScreenError as ErrorBoundary } from "../components/ui/ScreenError";
+
 function Screens() {
   const { colors, scheme } = useTheme();
   const reduced = useReducedMotion();
