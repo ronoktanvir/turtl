@@ -1,6 +1,8 @@
 import { internal } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
 import { CRITERIA, DONE_MEANS, ENVIRONMENT } from "../../protectedApp/client";
+import type { ProposalOption } from "../../constants";
+import { planFixes } from "../../fixOptions";
 import type { StepHandler } from "../contract";
 import { factsOf, loadJourneyContext } from "./journey";
 
@@ -11,7 +13,7 @@ type Diagnosis = {
   supportingEvidenceIds: Id<"evidence">[];
 };
 
-// Writes proposal version 1. Its options come only from the app's action catalog.
+// Writes proposal version 1: the catalog option, plus up to three code changes a model proposes (fixOptions.ts).
 export const handler: StepHandler = {
   timeoutMs: 60_000,
   run: async (ctx, input) => {
@@ -122,14 +124,7 @@ export const handler: StepHandler = {
       ]),
     ];
 
-    const proposalId: Id<"proposals"> = await ctx.runMutation(
-      internal.protectedApp.records.writeProposal,
-      {
-        caseId: input.case._id,
-        stepId: input.step._id,
-        doneMeans: DONE_MEANS,
-        options: [
-          {
+    const catalogOption: ProposalOption = {
             key: "turn_off_recommendations",
             title: remembered
               ? `Use the recovery that worked before: ${entry.name}`
@@ -162,17 +157,40 @@ export const handler: StepHandler = {
             confidence: remembered
               ? remembered.option.confidence
               : diagnosis!.confidence,
-          },
-        ],
+    };
+    const planned = await planFixes({
+      base: catalogOption,
+      baseRecommended: recommended,
+      remembered: !!remembered,
+      catalog,
+      basis: {
+        journey,
+        doneMeans: DONE_MEANS,
+        evidenceIds,
+        usersCantNow,
+      },
+      appName: loaded.context.app?.name ?? "the app",
+      caseRow: loaded.context.case,
+      facts,
+      cause: diagnosis?.cause ?? null,
+      evidence,
+    });
+    const proposalId: Id<"proposals"> = await ctx.runMutation(
+      internal.protectedApp.records.writeProposal,
+      {
+        caseId: input.case._id,
+        stepId: input.step._id,
+        doneMeans: DONE_MEANS,
+        options: planned.options,
       },
     );
     return {
       status: "done",
-      summary: remembered
+      summary: `${remembered
         ? `Offered recovery memory ${remembered.memory._id} directly. ${history}`
         : recommended
           ? "Proposed turning off recommendations to restore booking. Waiting for the owner's decision."
-          : "Proposed turning off recommendations, but the facts don't point to recommendations, so it is not recommended.",
+          : "Proposed turning off recommendations, but the facts don't point to recommendations, so it is not recommended."} ${planned.note}`,
       handoff: {
         note: "Proposal version 1 is ready for the owner.",
         refs: [{ kind: "proposal", id: proposalId, label: "v1" }],

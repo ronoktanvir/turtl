@@ -289,6 +289,10 @@ export const vOptionKind = v.union(
   v.literal("prevention"),
   v.literal("change"),
 );
+// A run of plain words; `cite` names an evidence id the words rest on.
+export const vSpan = v.object({ text: v.string(), cite: v.optional(v.string()) });
+// How an approved option reaches the app: a catalog action run by turtl, or a pull request the owner merges.
+export const vDelivery = v.union(v.literal("action"), v.literal("pull_request"));
 export const vProposalOption = v.object({
   key: v.string(),
   title: v.string(),
@@ -306,6 +310,10 @@ export const vProposalOption = v.object({
   evidenceIds: v.array(v.id("evidence")),
   recommended: v.boolean(),
   confidence: v.number(),
+  why: v.optional(v.array(vSpan)),
+  delivery: v.optional(vDelivery),
+  codeIds: v.optional(v.array(v.string())),
+  proposedInChat: v.optional(v.boolean()),
 });
 
 export const vDecisionStatus = v.union(
@@ -541,6 +549,8 @@ export type ActionCatalogEntry = Infer<typeof vActionCatalogEntry>;
 export type Report = Infer<typeof vReport>;
 export type Evidence = Infer<typeof vEvidence>;
 export type ProposalOption = Infer<typeof vProposalOption>;
+export type Span = Infer<typeof vSpan>;
+export type Delivery = Infer<typeof vDelivery>;
 export type OptionKind = Infer<typeof vOptionKind>;
 export type DecisionStatus = Infer<typeof vDecisionStatus>;
 export type Proposal = Infer<typeof vProposal>;
