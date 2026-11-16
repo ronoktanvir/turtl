@@ -4,11 +4,21 @@ import type { Id } from "../_generated/dataModel";
 import { internalMutation, internalQuery, type ActionCtx, type QueryCtx } from "../_generated/server";
 import { accessEnforced, demoHoldsAccounts, SOLO_ACCOUNT, UNAVAILABLE } from "../access";
 import { deploymentSpendToday } from "../spend/ceilings";
-import { accountDay, holdModelCall, intakeSpendToday, monthSpend, threadsToday, type AccountDay, type Share } from "../spend/ledger";
+import {
+  accountDay,
+  deploymentDay,
+  holdModelCall,
+  intakeSpendToday,
+  monthSpend,
+  threadsToday,
+  type AccountDay,
+  type Share,
+} from "../spend/ledger";
 import {
   accountIntakeSpendPerDayUsd,
   accountModelSpendPerDayUsd,
   codingThreadsPerDay,
+  deploymentModelHardStopPerDayUsd,
   deploymentModelSpendPerDayUsd,
   intakeSpendPerDayUsd,
   MAX_CALL_HOLD_USD,
@@ -111,8 +121,9 @@ type Decision = { answer: Answer; hold: Share | null };
 const isModelCall = (service: string, purpose: Purpose) => purpose === "send" && (MODEL_SERVICES as readonly string[]).includes(service);
 
 // The answer for one call. `hold` names the account's day share a model call it lets through counts against until its
-// cost comes back: admit holds it, check (which only asks) does not.
-async function decide(ctx: Pick<QueryCtx, "db">, { scope, service, purpose, allowance = "account" }: Args): Promise<Decision> {
+// cost comes back: admit holds it, check (which only asks) does not. `holdUsd`: what the call is (or would be) held at,
+// which must fit under the hard stop.
+async function decide(ctx: Pick<QueryCtx, "db">, { scope, service, purpose, allowance = "account" }: Args, holdUsd = 0): Promise<Decision> {
   const no = (reason: string): Decision => ({ answer: { ok: false, reason }, hold: null });
   // The demo says yes, unless the deployment holds accounts: then it is no demo, and nothing leaves (convex/access.ts).
   if (!accessEnforced()) return (await demoHoldsAccounts(ctx)) ? no(UNAVAILABLE) : { answer: { ok: true, account: SOLO_ACCOUNT }, hold: null };
@@ -126,13 +137,21 @@ async function decide(ctx: Pick<QueryCtx, "db">, { scope, service, purpose, allo
   const now = Date.now();
   let hold: Decision["hold"] = null;
   if (isModelCall(service, purpose)) {
+    // The hard stop comes first: everything the deployment spends on models today, the shared day and every account's
+    // floor together, with the calls still out at their holds. A call is let through only if its hold fits under it,
+    // so a burst stops at it and the day passes it only by what a call costs beyond its hold.
+    const total = await deploymentSpendToday(ctx, now);
+    const out = await deploymentDay(ctx, now);
+    const all = total + out.floorUsd + out.heldUsd;
+    const stop = deploymentModelHardStopPerDayUsd();
+    if (all >= stop || all + holdUsd > stop) return no(spendRefusal.hardStop());
     const day = await accountDay(ctx, account, now);
-    const shared = await sharedDay(ctx, { account, appId, allowance, practice, raisedByMonitor, passingForMs, day, now });
+    const shared = await sharedDay(ctx, { account, appId, allowance, practice, raisedByMonitor, passingForMs, day, total, now });
     if ("hold" in shared) hold = shared.hold;
     else if (allowance === "outage" && raisedByMonitor && !practice) {
       // The floor (fourth review, finding 23): an outage turtl's checks found on the owner's own real project is
       // diagnosed whatever every other account has spent, however new the owner, up to outageFloorPerDayUsd() a day
-      // outside the shared day. Only the owner's own month bounds it.
+      // outside the shared day, until the hard stop above. The owner's own month bounds it too.
       const limit = modelSpendLimitUsd();
       if ((await monthSpend(ctx, account, now)) >= limit) return no(spendRefusal.overLimit(limit, now));
       const floor = outageFloorPerDayUsd();
@@ -161,14 +180,15 @@ type SharedDayArgs = {
   raisedByMonitor: boolean;
   passingForMs: number;
   day: AccountDay;
+  /** What the shared day has cost so far (deploymentSpendToday). */
+  total: number;
   now: number;
 };
 
 // Whether a model call fits in the shared day, and which of the account's day shares it counts against, or why not.
-async function sharedDay(ctx: Pick<QueryCtx, "db">, { account, appId, allowance, practice, raisedByMonitor, passingForMs, day, now }: SharedDayArgs): Promise<{ hold: Share } | { refusal: string }> {
-  // The deployment's own daily ceiling comes first: however many accounts there are, the day's total is bounded.
+async function sharedDay(ctx: Pick<QueryCtx, "db">, { account, appId, allowance, practice, raisedByMonitor, passingForMs, day, total, now }: SharedDayArgs): Promise<{ hold: Share } | { refusal: string }> {
+  // The deployment's own daily ceiling comes first: however many accounts there are, the shared day is bounded.
   const ceiling = deploymentModelSpendPerDayUsd();
-  const total = await deploymentSpendToday(ctx, now);
   if (total >= ceiling) return { refusal: spendRefusal.deploymentSpent() };
   // Then the account's share of that day, so one account (its own calls, or its customers' reports) cannot reach the
   // ceiling alone and stop every other owner's diagnosis (finding 12). Calls still running count at their hold. A
@@ -229,11 +249,13 @@ const vAnswer = v.union(
   v.object({ ok: v.literal(false), reason: v.string() }),
 );
 
-// Asks without counting anything: for `blocked`, which only wants to know.
+// Asks without counting anything: for `blocked`, which only wants to know. It answers as admit would for a call of the
+// estimate given, or of the flat hold when none is, so `blocked` says no once an ordinary call no longer fits under the
+// hard stop.
 export const check = internalQuery({
   args: vArgs,
   returns: vAnswer,
-  handler: async (ctx, args): Promise<Answer> => (await decide(ctx, args)).answer,
+  handler: async (ctx, args): Promise<Answer> => (await decide(ctx, args, isModelCall(args.service, args.purpose) ? holdFor(args.estimateUsd) : 0)).answer,
 });
 
 // Asks and, on a yes for a model call, counts the call at its estimate against the account's day in the same
@@ -243,9 +265,9 @@ export const admit = internalMutation({
   args: vArgs,
   returns: vAnswer,
   handler: async (ctx, args): Promise<Answer> => {
-    const { answer, hold } = await decide(ctx, args);
-    if (!answer.ok || !hold) return answer;
     const held = holdFor(args.estimateUsd);
+    const { answer, hold } = await decide(ctx, args, isModelCall(args.service, args.purpose) ? held : 0);
+    if (!answer.ok || !hold) return answer;
     await holdModelCall(ctx, answer.account, hold, held);
     return { ...answer, held };
   },

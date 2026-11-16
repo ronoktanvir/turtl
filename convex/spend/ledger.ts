@@ -113,7 +113,8 @@ async function addToAccountDay(ctx: MutationCtx, account: string, add: AccountDa
   await ctx.db.insert("accountSpendDays", { account, day, ...fields });
 }
 
-/** Counts a model call the gate just let through at MODEL_CALL_HOLD_USD until its cost comes back (addModelSpend). */
+/** Counts a model call the gate just let through at MODEL_CALL_HOLD_USD until its cost comes back (addModelSpend):
+ * against the account's share it spends, and against the deployment's hard stop. */
 export async function holdModelCall(ctx: MutationCtx, account: string, share: Share, holdUsd: number) {
   const held: Record<Share, Partial<AccountDay>> = {
     own: { ownHeldUsd: holdUsd },
@@ -122,6 +123,39 @@ export async function holdModelCall(ctx: MutationCtx, account: string, share: Sh
     floor: { floorHeldUsd: holdUsd },
   };
   await addToAccountDay(ctx, account, held[share]);
+  await addToDeploymentDay(ctx, { heldUsd: holdUsd });
+}
+
+export type DeploymentDay = { floorUsd: number; heldUsd: number };
+
+const deploymentDayRow = (ctx: Reader, day: string) =>
+  ctx.db.query("deploymentModelDays").withIndex("by_day", (q) => q.eq("day", day)).unique();
+
+/** What every account's floor cost today (UTC) and what every call still out is held at. With the shared day's cost
+ * (deploymentSpendToday) it is everything the hard stop counts. */
+export async function deploymentDay(ctx: Reader, at: number): Promise<DeploymentDay> {
+  const row = await deploymentDayRow(ctx, dayKey(at));
+  return { floorUsd: row?.floorUsd ?? 0, heldUsd: row?.heldUsd ?? 0 };
+}
+
+/** Adds to the deployment's totals for today, starting the day's row (and dropping older ones) if needed. */
+async function addToDeploymentDay(ctx: MutationCtx, add: { floorUsd?: number; heldUsd?: number }) {
+  const now = Date.now();
+  const day = dayKey(now);
+  const row = await deploymentDayRow(ctx, day);
+  const fields = {
+    floorUsd: cents((row?.floorUsd ?? 0) + (add.floorUsd ?? 0)),
+    heldUsd: cents((row?.heldUsd ?? 0) + (add.heldUsd ?? 0)),
+    updatedAt: now,
+  };
+  if (row) {
+    await ctx.db.patch(row._id, fields);
+    return;
+  }
+  for (const old of await ctx.db.query("deploymentModelDays").withIndex("by_day", (q) => q.lt("day", day)).take(PRUNE_DAYS)) {
+    await ctx.db.delete(old._id);
+  }
+  await ctx.db.insert("deploymentModelDays", { day, ...fields });
 }
 
 /** Which of the account's day shares a model call counts against. */
@@ -168,6 +202,9 @@ export const addModelSpend = internalMutation({
               ? { practiceUsd: cost, practiceHeldUsd: -release, calls }
               : { ownUsd: cost, ownHeldUsd: -release, calls },
       );
+      // The hard stop counts the call at its cost in place of its hold; a floor's cost is counted here, the rest in
+      // the shared day below.
+      await addToDeploymentDay(ctx, { heldUsd: -release, ...(floor && !appId && { floorUsd: cost }) });
     }
     if (cost === 0) return null;
     costUsd = cost;

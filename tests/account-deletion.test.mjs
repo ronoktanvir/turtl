@@ -37,6 +37,7 @@ const EXEMPT = {
   authCounts: "Running counts of sign-ups, confirmations and emails per hour and day, for the whole deployment or under a SHA-256 hash of an email domain. They name no account and no address, and the hourly sweep deletes every day before today.",
   authEmailCodes: "One row per code emailed in the last day, filed under a SHA-256 hash of the address and holding only the code's hash. It names no account, and must outlive one: it is what stops deleting an account and signing up again from mailing an address more than five times a day. The hourly sweep deletes each row a day after it was sent.",
   deploymentTotals: "Deployment-wide running totals (new accounts per hour and day, every account's model spend per day). They count everyone and name no account.",
+  deploymentModelDays: "The deployment's hard stop on model spend: per day, what every account's floor cost and what every call still out is held at, together. It counts everyone and names no account; older days are deleted as a new one starts.",
   monitorCursor: "How far the monitor has looked through the checks added to every project: one deployment-wide row holding points in time. It names no account and no project.",
   accountDeletions: "The record that a deletion happened. Once the job is done it holds a hash of the account id, the times and counts, and nothing else.",
 };

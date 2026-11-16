@@ -124,6 +124,15 @@ export const confirmedSignUpsPerDay = () => positive(process.env.CONFIRMED_SIGNU
 /** Estimated model spend of every account together in one calendar day (UTC), in US dollars. */
 export const deploymentModelSpendPerDayUsd = () => positive(process.env.DEPLOYMENT_MODEL_SPEND_PER_DAY_USD, DEFAULT_DEPLOYMENT_MODEL_SPEND_PER_DAY_USD, false);
 
+/**
+ * The hard stop: everything the deployment spends on models in one calendar day (UTC), the shared day and every
+ * account's floor together, with the calls still out at their holds. Past it no model is asked for anyone, outages
+ * included. Unset, it is twice the ceiling and follows it ($50 with the defaults: the shared $25 and room for twenty
+ * owners' floors); a number sets it outright.
+ */
+export const DEFAULT_HARD_STOP_TIMES_CEILING = 2;
+export const deploymentModelHardStopPerDayUsd = () =>
+  positive(process.env.DEPLOYMENT_MODEL_HARD_STOP_PER_DAY_USD, DEFAULT_HARD_STOP_TIMES_CEILING * deploymentModelSpendPerDayUsd(), false);
 /** Estimated model spend of one account's own calls in one calendar day (UTC): its share of the deployment's day. */
 export const accountModelSpendPerDayUsd = () => positive(process.env.ACCOUNT_MODEL_SPEND_PER_DAY_USD, DEFAULT_ACCOUNT_MODEL_SPEND_PER_DAY_USD, false);
 
@@ -236,6 +245,7 @@ export const spendRefusal = {
     `this account has used the ${dollars(floorUsd)} turtl keeps for it each day for finding the cause of its own outages, and no other AI is left for it today, so no model was asked; it starts again tomorrow`,
   practiceSpent: (limitUsd: number) =>
     `this account has used today's ${dollars(limitUsd)} of AI for its practice app, so no model was asked; it starts again tomorrow`,
+  hardStop: () => "turtl has reached the most it can spend on AI in one day, outages included, so no model was asked; it starts again tomorrow",
 };
 
 /** What a person reads when a deployment-wide ceiling or a cap refuses them. Shown as written, so whole sentences. */

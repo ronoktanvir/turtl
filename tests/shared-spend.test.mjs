@@ -182,12 +182,19 @@ async function diagnoseOutage(ctx, caseId, outage = REAL_OUTAGE) {
 
 const floorOf = (day) => day.floorUsd + day.floorHeldUsd;
 
+/** Everything the hard stop counts today: the shared day, every account's floor, and every call still out at its hold. */
+async function hardTotal(db) {
+  const out = await ledger.deploymentDay({ db }, Date.now());
+  return (await ceilings.deploymentSpendToday({ db }, Date.now())) + out.floorUsd + out.heldUsd;
+}
+
 /**
  * Accounts acting together, each doing everything it may in a day: finding the cause of an outage on one of its real
  * projects (its own share, then the reserve while it may, then its own floor), breaking its practice app, and its
  * customers' reports on every project, in bursts. Then Alice's outage on her real project, in full (REAL_OUTAGE). Day by
- * day: how many accounts it took to use up the general part (Alice's case chat refused) and the whole day, what Alice's
- * chat was told, how her outage went and on what, and what the shared day and the floors came to.
+ * day: how many accounts it took to use up the general part (Alice's case chat refused), the whole shared day, and the
+ * hard stop (Alice's outage refused), what Alice's chat and outage were told, and what the shared day, the floors and
+ * everything together came to.
  * `newAccounts`: the attackers were made an hour ago. `steady: false`: their real projects' checks had only just started
  * passing before they failed. `aliceMadeAgo`: how long ago Alice made her account (a day by default).
  */
@@ -200,18 +207,25 @@ async function attack(t, env, { days = 1, count = 10, newAccounts = true, steady
     if (!steady) for (const name of attackers) await db.patch(`cases:${name}-0`, { passingForMs: 60_000 });
     const ctx = actions(db);
     const aliceChat = () => gates.check.handler({ db }, { scope: { caseId: "cases:alice-0" }, service: "openai", purpose: "send" });
+    // Whether her outage's next diagnosis would be let through now.
+    const aliceOutage = () =>
+      gates.check.handler({ db }, { scope: { caseId: "cases:alice-0" }, service: "openai", purpose: "send", allowance: "outage", estimateUsd: DIAGNOSIS.estimate });
     const shared = () => ceilings.deploymentSpendToday({ db }, Date.now());
     const results = [];
     for (let day = 0; day < days; day++) {
       t.mock.timers.setTime(NOV_16 + day * DAY);
       let general = null;
       let whole = null;
+      let stopped = null;
+      let stopReason = null;
       for (const [n, name] of attackers.entries()) {
         await spendAll(ctx, { caseId: `cases:${name}-0` }, DIAGNOSIS, 20);
         await spendAll(ctx, { caseId: `cases:${name}-10` }, DIAGNOSIS, 20);
         for (let p = 0; p <= 10; p++) await spendAll(ctx, { appId: `apps:${name}-${p}` }, TRIAGE, 20);
         if (general === null && !(await aliceChat()).ok) general = n + 1;
         if (whole === null && (await shared()) >= limits.deploymentModelSpendPerDayUsd()) whole = n + 1;
+        const outage = await aliceOutage();
+        if (stopped === null && !outage.ok) [stopped, stopReason] = [n + 1, outage.reason];
       }
       const chat = await aliceChat();
       const before = await shared();
@@ -221,6 +235,9 @@ async function attack(t, env, { days = 1, count = 10, newAccounts = true, steady
       results.push({
         general,
         whole,
+        stopped,
+        stopReason,
+        all: await hardTotal(db),
         chat: chat.ok ? null : chat.reason,
         outage,
         aliceFloor: floorOf(alice),
@@ -335,24 +352,92 @@ test("ATTACK (finding 23): it takes five fresh accounts to use up the general pa
   console.log(`fresh accounts to use up the general part: ${kept.general} with the reserve, ${none.general} without; Alice's outage cost her floor $${kept.outage.cost.toFixed(3)}`);
 });
 
-// The reserve, with the floor beside it: accounts a month old whose projects had passed for a day still drain it (it
-// takes about twenty), and then an established owner's outage goes on on the floor too.
-test("ATTACK (finding 12, 19, 23): established accounts drain the reserve and still cannot stop another owner's outage, new or established", async (t) => {
+// The reserve, with the floor beside it: accounts a month old whose projects had passed for a day draw on it, and on
+// their floors once it will not have them, so they reach the hard stop before they drain it.
+test("ATTACK (finding 12, 19, 23): established accounts reach the hard stop before they drain the reserve; until then another owner's outage is diagnosed, new or established", async (t) => {
+  // An established owner two days running, then a day-old one.
   const [first, second] = await attack(t, {}, { days: 2, count: 30, newAccounts: false, aliceMadeAgo: 30 * DAY });
-  for (const day of [first, second]) {
-    assert.equal(day.chat, limits.spendRefusal.deploymentSpent(), JSON.stringify(day));
-    assert.ok(day.whole >= 20, JSON.stringify(day));
-    assert.deepEqual(day.outage.refusals, [], JSON.stringify(day));
-    assert.ok(Math.abs(day.aliceFloor - day.outage.cost) < 1e-4, "the reserve was drained, so it ran on her floor");
-  }
-  // A day-old owner, the same.
   const fresh = await attack(t, {}, { count: 30, newAccounts: false });
-  assert.deepEqual([fresh.chat, fresh.outage.refusals], [limits.spendRefusal.deploymentSpent(), []], JSON.stringify(fresh));
+  for (const day of [first, second, fresh]) {
+    const which = JSON.stringify({ ...day, outage: day.outage.refusals });
+    // Her outage's next diagnosis was let through after each of the first twenty accounts, then refused at the stop.
+    assert.ok(day.stopped >= 20 && day.stopped <= 22, which);
+    assert.equal(day.stopReason, limits.spendRefusal.hardStop(), which);
+    assert.equal(day.whole, null, `the reserve was not drained first: ${which}`);
+    assert.ok(day.all <= 50 + 1e-9, which);
+    assert.ok(day.outage.refusals.length > 0 && day.outage.refusals.every((reason) => reason === limits.spendRefusal.hardStop()), which);
+  }
   // Accounts whose projects' checks had only just started passing never reach the reserve; the general part still stops.
   const unsteady = await attack(t, {}, { count: 12, newAccounts: false, steady: false });
   assert.equal(unsteady.whole, null, JSON.stringify(unsteady));
   assert.deepEqual(unsteady.outage.refusals, []);
-  console.log(`aged accounts with established projects to drain the reserve: day 1 ${first.whole}, day 2 ${second.whole}`);
+  console.log(`established accounts with real, failing projects to reach the hard stop: ${first.stopped}, ${second.stopped} the next day`);
+});
+
+// Fourth review, finding 23 follow-up: with the floors outside the ceiling nothing bounded the day. The hard stop
+// (DEPLOYMENT_MODEL_HARD_STOP_PER_DAY_USD, twice the ceiling by default) counts the shared day, every floor and every
+// call still out at its hold, and lets a call through only if its hold fits under it.
+test("ATTACK: with enough accounts drawing their floors, the deployment's day stops at the hard stop and not a cent later; an owner's outage is diagnosed until then and refused in plain words after it", async (t) => {
+  const stop = limits.spendRefusal.hardStop();
+  // Fresh accounts with real projects whose checks failed: about $15.50 into the shared day (the reserve will not have
+  // them), then their floors, $1.25 and one call each.
+  const kept = await attack(t, {}, { count: 40 });
+  // With no reserve they fill the whole shared $25 first, and twenty floors do the rest.
+  const none = await attack(t, { OUTAGE_RESERVE_PERCENT: "0" }, { count: 30 });
+  for (const day of [kept, none]) {
+    const which = JSON.stringify({ ...day, outage: day.outage.refusals });
+    assert.equal(day.stopReason, stop, which);
+    assert.ok(day.all <= 50 + 1e-9 && day.all > 50 - DIAGNOSIS.estimate, which);
+    assert.ok(day.outage.refusals.length > 0 && day.outage.refusals.every((reason) => reason === stop), which);
+  }
+  assert.ok(kept.stopped >= 26 && kept.stopped <= 28, JSON.stringify(kept));
+  assert.equal(none.stopped, 20, JSON.stringify(none));
+  plain(stop);
+  assert.equal(stop, "turtl has reached the most it can spend on AI in one day, outages included, so no model was asked; it starts again tomorrow");
+  console.log(`accounts with real, failing projects to reach the hard stop: ${none.stopped} with no reserve, ${kept.stopped} fresh ones with it`);
+});
+
+test("ATTACK: a burst of 1,200 outage diagnoses on sixty owners' floors stops at the hard stop, and the day ends under it", async (t) => {
+  t.mock.timers.reset();
+  t.mock.timers.enable({ apis: ["Date"], now: NOV_16 });
+  const stop = limits.spendRefusal.hardStop();
+  await withEnv(ACCOUNTS, async () => {
+    const names = Array.from({ length: 60 }, (_, n) => `owner${n}`);
+    const db = world(Object.fromEntries(names.map((name) => [name, 1])), { newAccounts: names });
+    // The shared day is used up, so every diagnosis goes on its owner's floor.
+    await db.insert("deploymentTotals", { name: "model_usd_day", window: "2026-11-16", value: 25, updatedAt: 1 });
+    const ctx = actions(db);
+    // Twenty diagnoses on each owner's outage, all let through or refused before any cost comes back.
+    const opening = names.flatMap((name) => Array.from({ length: 20 }, () => gates.gateFor(ctx, { caseId: `cases:${name}-0` }, "outage")));
+    const opened = await Promise.all(opening.map((gate) => gate.open("openai", "send", DIAGNOSIS.estimate)));
+    const peak = await hardTotal(db);
+    assert.ok(peak <= 50 + 1e-9 && peak > 50 - DIAGNOSIS.estimate, `$${peak} at the peak of the burst`);
+    assert.ok(opened.some((answer) => !answer.ok && answer.reason === stop));
+    // Each costs the most it can, what it was held at.
+    await Promise.all(opening.map((gate, n) => opened[n].ok && gate.spent(DIAGNOSIS.estimate)));
+    // And they keep asking, a burst at a time, until nothing passes.
+    const most = { ...DIAGNOSIS, cost: DIAGNOSIS.estimate };
+    for (let round = 0; round < 100; round++) {
+      const results = await Promise.all(names.map((name) => modelCall(ctx, { caseId: `cases:${name}-0` }, most)));
+      if (!results.some((result) => result.ok)) break;
+    }
+    const end = await hardTotal(db);
+    assert.ok(end <= 50 + 1e-9 && end > 50 - DIAGNOSIS.estimate, `$${end} at the end of the day`);
+    assert.equal((await ledger.deploymentDay({ db }, Date.now())).heldUsd, 0, "every call came back");
+    // Now everything waits, with the same sentence: an outage, the case chat, a customer report.
+    assert.equal((await modelCall(ctx, { caseId: "cases:owner59-0" }, DIAGNOSIS)).reason, stop);
+    assert.equal((await modelCall(ctx, { caseId: "cases:owner59-0" }, CHAT)).reason, stop);
+    assert.equal((await modelCall(ctx, { appId: "apps:owner59-0" }, TRIAGE)).reason, stop);
+    assert.equal(await hardTotal(db), end, "a refused call is not held");
+  });
+});
+
+test("the hard stop is a setting: twice the ceiling unless set, following it when the ceiling moves", async () => {
+  const hard = (env) => withEnv({ DEPLOYMENT_MODEL_HARD_STOP_PER_DAY_USD: undefined, DEPLOYMENT_MODEL_SPEND_PER_DAY_USD: undefined, ...env }, () => limits.deploymentModelHardStopPerDayUsd());
+  assert.equal(await hard({}), 50);
+  assert.equal(await hard({ DEPLOYMENT_MODEL_SPEND_PER_DAY_USD: "40" }), 80);
+  assert.equal(await hard({ DEPLOYMENT_MODEL_SPEND_PER_DAY_USD: "40", DEPLOYMENT_MODEL_HARD_STOP_PER_DAY_USD: "35" }), 35);
+  for (const nonsense of ["", "0", "-5", "lots"]) assert.equal(await hard({ DEPLOYMENT_MODEL_HARD_STOP_PER_DAY_USD: nonsense }), 50, nonsense);
 });
 
 test("one real outage with the default models fits the floor, the most one can cost included; a smaller floor would cut the last one short", async (t) => {
@@ -418,20 +503,20 @@ test("ATTACK (finding 23): the floor is only for an outage turtl's checks found 
   });
 });
 
-// Statement 2: what the guarantee costs the operator. Floor spend is outside the shared day, so the worst day is the
-// ceiling plus the floors actually used; each account's month (MODEL_SPEND_LIMIT_USD) counts its floor spend too.
-test("the operator's worst case is the ceiling plus the floors used, and no account's floor passes its month", async (t) => {
+// What the guarantee costs the operator. Floor spend is outside the shared day but inside the hard stop, so the worst
+// day is the hard stop; each account's month (MODEL_SPEND_LIMIT_USD) counts its floor spend too.
+test("the operator's worst day is the hard stop and the worst month the hard stop times its days; no account's floor passes its month", async (t) => {
   // Forty fresh accounts doing everything they may, then Alice's outage.
   const day = await attack(t, {}, { count: 40 });
-  // Each drew its whole floor, and no more than one call past it.
+  // No floor passed its $1.25 by more than one call, and the floors are not in the shared day: that is exactly what the
+  // accounts spent within their shares.
   assert.ok(day.maxFloor <= 1.25 + DIAGNOSIS.estimate, JSON.stringify(day));
-  assert.ok(day.floors >= 40 * 1.25 && day.floors <= 40 * (1.25 + DIAGNOSIS.estimate), JSON.stringify(day));
-  // None of it is in the shared day: that is exactly what the accounts spent within their shares.
   assert.ok(Math.abs(day.sharedAfter - day.accountsShared) < 1e-3, JSON.stringify(day));
+  // Everything together is the most the hard stop allows, and no more.
   const operator = day.sharedAfter + day.floors + day.aliceFloor;
-  const bound = limits.deploymentModelSpendPerDayUsd() + 41 * (1.25 + DIAGNOSIS.estimate);
-  assert.ok(operator <= bound, `$${operator.toFixed(2)} of at most $${bound.toFixed(2)}`);
-  console.log(`forty fresh accounts and Alice: shared day $${day.sharedAfter.toFixed(2)}, floors $${(day.floors + day.aliceFloor).toFixed(2)}`);
+  assert.ok(Math.abs(operator - day.all) < 1e-3, JSON.stringify(day));
+  assert.ok(operator <= limits.deploymentModelHardStopPerDayUsd() + 1e-9, `$${operator.toFixed(2)}`);
+  console.log(`forty fresh accounts and Alice: shared day $${day.sharedAfter.toFixed(2)}, floors $${(day.floors + day.aliceFloor).toFixed(2)}, all $${operator.toFixed(2)}`);
 
   // One account drawing its whole floor every day: its month stops it at $20, within sixteen days ($1.25 a day, and
   // each day up to one call past it).
@@ -458,13 +543,15 @@ test("the operator's worst case is the ceiling plus the floors used, and no acco
     assert.ok(refusals.slice(over).every((reason) => reason === overLimit), "and then nothing for the rest of the month");
   });
 
-  // The arithmetic in convex/spend/README.md, from the settings' defaults: in a day, at most the 200 accounts the
-  // sign-up limits let in that day (100 through Apple or GitHub, 100 confirmed password accounts) plus the accounts
-  // already there can draw a floor; in a month, each at most its $20.
-  const signUpsPerDay = limits.DEFAULT_NEW_ACCOUNTS_PER_DAY + limits.DEFAULT_CONFIRMED_SIGNUPS_PER_DAY;
-  assert.equal(signUpsPerDay, 200);
-  assert.equal(limits.DEFAULT_DEPLOYMENT_MODEL_SPEND_PER_DAY_USD + limits.DEFAULT_OUTAGE_FLOOR_PER_DAY_USD * signUpsPerDay, 275);
-  assert.equal(30 * limits.DEFAULT_DEPLOYMENT_MODEL_SPEND_PER_DAY_USD + Math.min(30 * limits.DEFAULT_OUTAGE_FLOOR_PER_DAY_USD, limits.DEFAULT_MODEL_SPEND_LIMIT_USD) * 30 * signUpsPerDay, 120_750);
+  // The arithmetic in convex/spend/README.md, from the settings' defaults: a day costs at most the hard stop, twice the
+  // ceiling, which is the shared $25 and room for twenty owners' whole floors; a month at most the hard stop times its
+  // days, whatever the number of accounts.
+  await withEnv({ DEPLOYMENT_MODEL_HARD_STOP_PER_DAY_USD: undefined, DEPLOYMENT_MODEL_SPEND_PER_DAY_USD: undefined }, () => {
+    const hard = limits.deploymentModelHardStopPerDayUsd();
+    assert.equal(hard, 50);
+    assert.equal((hard - limits.DEFAULT_DEPLOYMENT_MODEL_SPEND_PER_DAY_USD) / limits.DEFAULT_OUTAGE_FLOOR_PER_DAY_USD, 20);
+    assert.deepEqual([30 * hard, 31 * hard], [1_500, 1_550]);
+  });
 });
 
 // What finding the cause of one practice-app break costs, call by call, with the default models: a quick diagnosis, a
@@ -673,6 +760,10 @@ const CEILINGS = [
     await db.insert("accountSpendDays", daySpent({ floorUsd: 1.25 }));
   }, { own: limits.spendRefusal.deploymentSpent(), outage: limits.spendRefusal.floorUsed(1.25), intake: limits.spendRefusal.deploymentSpent() }],
   ["the account's own share and its floor", async (db) => db.insert("accountSpendDays", daySpent({ ownUsd: 2.5, floorUsd: 1.25 })), { own: limits.spendRefusal.accountDaySpent(2.5), outage: limits.spendRefusal.floorUsed(1.25) }],
+  ["the deployment's hard stop: the shared day and every floor together", async (db) => {
+    await db.insert("deploymentTotals", { name: "model_usd_day", window: "2026-11-16", value: 25, updatedAt: 1 });
+    await db.insert("deploymentModelDays", { day: "2026-11-16", floorUsd: 24.98, heldUsd: 0, updatedAt: 1 });
+  }, { own: limits.spendRefusal.hardStop(), outage: limits.spendRefusal.hardStop(), intake: limits.spendRefusal.hardStop() }],
 ];
 const CALL_KINDS = [
   ["investigating or planning an outage the monitor found (and its council)", { caseId: "cases:ada-0" }, "outage"],
@@ -702,6 +793,7 @@ test("ATTACK: whichever ceiling is reached, every kind of model call is refused 
         plain(wanted);
         const held = (row) => row.ownHeldUsd + row.intakeHeldUsd + (row.practiceHeldUsd ?? 0) + (row.floorHeldUsd ?? 0);
         assert.deepEqual(db.rows("accountSpendDays").map(held).filter(Boolean), [], "a refused call is not held");
+        assert.deepEqual(db.rows("deploymentModelDays").map((row) => row.heldUsd).filter(Boolean), [], "nor against the hard stop");
       }
     }
   });
@@ -731,7 +823,7 @@ test("each model helper hands the refusal back for its caller's rule-based fallb
 
 test("the case screen says why no model was asked once, in the gate's own words", async () => {
   const { mapCaseDetail } = await import("../data/live/caseMapping.ts");
-  for (const reason of [limits.spendRefusal.deploymentSpent(), limits.spendRefusal.accountDaySpent(2.5), limits.spendRefusal.floorUsed(1.25)]) {
+  for (const reason of [limits.spendRefusal.deploymentSpent(), limits.spendRefusal.accountDaySpent(2.5), limits.spendRefusal.floorUsed(1.25), limits.spendRefusal.hardStop()]) {
     // As convex/runner/handlers/investigate.ts records it on the outage's diagnosis.
     const diagnosis = { source: "rules", cause: "Booking waited for recommendations.", noModelReason: `No model answered: ${reason}.` };
     const detail = mapCaseDetail({
@@ -816,8 +908,8 @@ test("the account's day starts again at midnight UTC, and older days are dropped
   });
 });
 
-test("the single-owner demo has no shares: nothing is read or written for them", async () => {
-  await withEnv({ AUTH_REQUIRED: undefined }, async () => {
+test("the single-owner demo has no shares and no hard stop: nothing is read or written for them", async () => {
+  await withEnv({ AUTH_REQUIRED: undefined, DEPLOYMENT_MODEL_HARD_STOP_PER_DAY_USD: "0.01" }, async () => {
     // The demo's one question is whether the deployment holds accounts (review finding 20, convex/access.ts), asked
     // through the gate's check: never an admission, a hold or a share.
     const asked = [];
@@ -826,5 +918,13 @@ test("the single-owner demo has no shares: nothing is read or written for them",
     assert.equal((await gate.open("openai", "send", 1)).ok, true);
     assert.deepEqual(asked, ["internal.consent.gate.check"]);
     await gate.spent(1);
+    // And the check itself reads only whether the deployment holds accounts, however low the hard stop is set.
+    const read = [];
+    const chain = { withIndex: () => chain, order: () => chain, first: async () => null, unique: async () => null, take: async () => [] };
+    const db = { query: (table) => (read.push(table), chain), get: async () => null, normalizeId: () => null, insert: () => assert.fail("wrote"), patch: () => assert.fail("wrote") };
+    for (const fn of [gates.check, gates.admit]) {
+      assert.deepEqual(await fn.handler({ db }, { scope: { caseId: "cases:1" }, service: "openai", purpose: "send", allowance: "outage", estimateUsd: 1 }), { ok: true, account: "solo-owner" });
+    }
+    assert.deepEqual([...new Set(read)].sort(), ["apps", "authAccounts", "users"]);
   });
 });
