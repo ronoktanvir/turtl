@@ -71,7 +71,7 @@ export const CONFIGURATIONS: Record<ConfigKey, Configuration> = {
     summary: "A small, fast model with light reasoning, for a failure that reproduces and points at one place.",
     model: { provider: "openai", model: "gpt-5.4-mini", reasoning: "low" },
     harnessVersion: "turtl-diagnosis-v2",
-    promptVersion: "diagnosis-quick-v2",
+    promptVersion: "diagnosis-quick-v3",
     instructions: [
       ...SHARED_INSTRUCTIONS,
       "This is a quick look. Name a cause only when the observations show both what failed and why the journey breaks because of it, at the level the owner can act on: at least one observation beyond the failing check and the error counts (such as a flag or setting, a health reading, or a revision change) must explain why this failure stops the journey, and its fact key must be in supportingFactKeys. You need not explain why an outside provider is slow or down. When only the failure's own symptoms are there, say what is missing and keep confidence below 0.5, so a more careful review takes over.",
@@ -89,7 +89,7 @@ export const CONFIGURATIONS: Record<ConfigKey, Configuration> = {
     summary: "A stronger model with high reasoning and the full evidence, for unclear, repeated-but-different, or sensitive cases.",
     model: { provider: "openai", model: "gpt-6.1-sol", reasoning: "high" },
     harnessVersion: "turtl-diagnosis-v2",
-    promptVersion: "diagnosis-careful-v2",
+    promptVersion: "diagnosis-careful-v3",
     instructions: [
       ...SHARED_INSTRUCTIONS,
       "This is a careful review. Before answering, consider at least two explanations that fit the observations and say which observation tells them apart.",
