@@ -1,7 +1,7 @@
 turtl is an on-call assistant for people who run a live app without an operations team. It watches the owner's app, opens a case when a check fails or a customer reports a problem, explains the likely cause, and proposes fixes. Nothing changes in the owner's app until the owner approves it.
 
 SIGNING IN
-Use the review account in the sign-in fields of this submission. It is an email and password account. New accounts can also be created with Sign in with Apple or GitHub.
+Use the review account in the sign-in fields of this submission: on the first screen tap Log in and enter its email and password. The first screen also offers Sign in with Apple and GitHub, and Sign up makes a new email and password account. Each way makes its own account.
 
 WHAT THE REVIEW ACCOUNT CONTAINS
 A new account starts empty and needs a GitHub repository and a live app. The review account skips that: it opens on one project that is connected to a small demo app we run only for testing and review, with a case already open.
@@ -12,18 +12,23 @@ A new account starts empty and needs a GitHub repository and a live app. The rev
 You can repeat this as often as you like. It only ever touches the demo app.
 
 THIRD-PARTY AI (5.1.2)
-turtl sends parts of the owner's source code, case details, messages, and voice recordings to third-party AI services: OpenAI, Supermemory, Capy, and Keiki. Before anything is sent, the app shows a screen that names each service and what it receives, and asks for permission. Permission can be withdrawn in Settings. The privacy policy lists the same services.
+turtl sends parts of the owner's source code, case details, messages, and voice recordings to third-party AI services. After sign-in, before anything is sent, a screen titled "Before turtl uses AI" names each service (OpenAI, Supermemory, Capy, and Keiki), says what each receives, links to its privacy policy, and asks with Allow and Not now. The backend refuses every call to a service the owner has not allowed. After Not now, turtl still watches the app and runs its checks with its own rules. The list can be read again and permission taken back in Settings (the gear on a project), under AI services. The privacy policy lists the same services.
 
 MICROPHONE (2.5.14)
 Used only after the user taps Talk on a case, and the app shows that it is listening. A recording is at most 30 seconds. It is sent to OpenAI to be turned into text and is not stored. Typing does the same job if the user declines.
 
+NOTIFICATIONS (4.5.4)
+Optional. The app asks only after the user taps Turn on notifications. A notification is sent only when a case needs the owner's decision or a fix the owner allowed has run, and is never promotional.
+
 ACCOUNT DELETION (5.1.1(v))
-Project page, gear, Account, Delete account. This deletes the account and its data, including the copies held by our search provider.
+On Projects, tap the profile picture at the top right, then Delete account, Continue, and Yes, delete my account. It is also at the bottom of a project's Settings (the gear), under Account. This deletes the account and everything turtl holds for it, including the copies held by our search provider, turtl's access to GitHub, and, for Sign in with Apple, the Apple token, which is revoked.
+Please try it on a throwaway account you create with Sign up, not on the review account: deleting the review account would end the review.
 
 PURCHASES (3.1)
-turtl is free. It has no in-app purchases, subscriptions, or advertising, and no links to buy anything.
+turtl is free. It has no in-app purchases, subscriptions, or advertising, and no links to buy anything. Code changes are written by Capy, a separate coding service the owner connects with their own key in Settings.
 
 OTHER
-- Code changes are written on our servers and arrive as a pull request on GitHub. The app does not download or run code.
+- Code changes arrive as a pull request on GitHub, which the owner reviews and merges. The app does not download or run code.
+- Sign in with GitHub and connecting repositories open GitHub's own pages in a browser sheet.
 - People who use turtl cannot message each other, and nothing they write is shown to other users.
 - The app needs a network connection. Our backend is running for the review.
