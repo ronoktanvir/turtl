@@ -2,6 +2,7 @@ import { useRouter, type Href } from "expo-router";
 import { Pressable, ScrollView, View, useWindowDimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import ProfileButton from "../components/account/ProfileButton";
+import { nameSize } from "../components/project/nameSize";
 import ProjectIcon from "../components/project/ProjectIcon";
 import FirstRun from "../components/project/FirstRun";
 import { Card, HealthWord, Icon, Reveal, Screen, T, Turtle } from "../components/ui";
@@ -17,7 +18,10 @@ export default function Projects() {
   const projects = useProjects();
   const { errors } = useDataStatus();
   // Below 360 wide the icon and turtle give up a little room, so a name such as "Superprediction" is not broken mid-word.
-  const narrow = useWindowDimensions().width < 360;
+  const width = useWindowDimensions().width;
+  const narrow = width < 360;
+  // The name's column: the screen less the page and card padding, the icon, the turtle and the gaps (156 at 320 wide).
+  const nameColumn = width - (narrow ? 164 : 190);
   const sorted = projects && [...projects].sort((a, b) => Number(b.needsApprovalCount > 0) - Number(a.needsApprovalCount > 0) || healthOrder.indexOf(a.health) - healthOrder.indexOf(b.health));
   return (
     <Screen testID="home">
@@ -40,7 +44,7 @@ export default function Projects() {
                   <View style={{ flexDirection: "row", alignItems: "center", gap: narrow ? 8 : 12 }}>
                     <ProjectIcon project={p} size={narrow ? 36 : 44} />
                     <View style={{ flex: 1, gap: 3 }}>
-                      <T variant="heading" numberOfLines={2}>{p.name}</T>
+                      <T variant="heading" numberOfLines={2} style={{ fontSize: nameSize(p.name, nameColumn), lineHeight: nameSize(p.name, nameColumn) + 6 }} testID={`project-name-${p.id}`}>{p.name}</T>
                       <HealthWord health={p.health} />
                     </View>
                     <Turtle health={p.health} size={narrow ? 30 : 38} outlined={urgent} />
