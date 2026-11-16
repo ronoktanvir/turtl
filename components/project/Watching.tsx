@@ -51,7 +51,7 @@ export default function Watching({ projectId, rows = 4, brief = false, testID = 
   return (
     <View testID={testID} style={{ borderRadius: 20, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, overflow: "hidden" }}>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 16, paddingVertical: 12 }}>
-        <Icon name="ShieldCheck" size={18} color="brandDeep" />
+        {checks.some((check) => check.state === "failing") ? <Icon name="TriangleAlert" size={18} color="statusAffected" /> : <Icon name="ShieldCheck" size={18} color="brandDeep" />}
         <View style={{ flex: 1 }}>
           <T variant="heading" accessibilityRole="header">What turtl is watching</T>
           {checks.length > 0 && <T variant="small" color="textMuted" testID={testID + "-summary"}>{watchingSummary(checks)}</T>}
