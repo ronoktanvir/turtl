@@ -135,7 +135,7 @@ export default function Prepare() {
             </View>
           </Reveal>
 
-          {error && !approving && !merging && <T color="statusAffected" accessibilityRole="alert" testID="prepare-error">{error}</T>}
+          {error && !approving && !merging && <T font="text" color="statusAffected" accessibilityRole="alert" testID="prepare-error">{error}</T>}
 
           <ReadinessReport onboarding={o} />
 
@@ -165,7 +165,7 @@ export default function Prepare() {
           {refused && (
             <View style={{ flexDirection: "row", gap: 10, padding: 16, backgroundColor: colors.surface, borderRadius: 16 }}>
               <Icon name="TriangleAlert" color="statusNeedsYou" />
-              <T color="statusNeedsYou" accessibilityRole="alert" style={{ flex: 1 }} testID="prepare-merge-refused">{refused}</T>
+              <T font="text" color="statusNeedsYou" accessibilityRole="alert" style={{ flex: 1 }} testID="prepare-merge-refused">{refused}</T>
             </View>
           )}
 
@@ -185,7 +185,7 @@ export default function Prepare() {
           ))}
         </View>
         <T color="textMuted">Nothing changes in your live app until you merge it.</T>
-        {error && <T color="statusAffected" accessibilityRole="alert" testID="prepare-approve-error">{error}</T>}
+        {error && <T font="text" color="statusAffected" accessibilityRole="alert" testID="prepare-approve-error">{error}</T>}
         <View style={{ gap: 10 }}>
           <Button label={busy === "approve" ? "Opening…" : "Open the pull request"} disabled={busy !== null} onPress={() => void approve()} testID="prepare-approve-confirm" />
           <Button label="Cancel" kind="plain" disabled={busy === "approve"} onPress={() => setApproving(false)} testID="prepare-approve-cancel" />

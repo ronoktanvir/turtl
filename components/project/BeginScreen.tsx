@@ -67,7 +67,7 @@ export default function BeginScreen({ type }: { type: CaseType }) {
           <View {...pan.panHandlers} style={{ flex: 1, justifyContent: "flex-end", alignItems: "center", paddingBottom: insets.bottom + 24, paddingTop: 16 }}>
             <Pressable onPress={openFirst} accessibilityRole="button" accessibilityLabel="Swipe up to review" testID="begin-review" style={({ pressed }) => ({ alignItems: "center", gap: 8, opacity: pressed ? 0.6 : 1 })}>
               <View style={{ opacity: 0.45 }}><Icon name="ArrowUp" size={height < 650 ? 64 : 84} color="text" strokeWidth={1.15} /></View>
-              <T variant="heading" font="text">Swipe up to review</T>
+              <T variant="heading">Swipe up to review</T>
             </Pressable>
           </View>
         </>
