@@ -72,11 +72,12 @@ export const allows = internalQuery({
   handler: async (ctx, { account, installationId, repo }) => await allowed(ctx, account, installationId, repo),
 });
 
-// Every installation the account has a link to, in use or waiting for the app to finish an attempt.
+// Every installation the account uses. An inactive link (an attempt nobody finished) does not count: it may hold
+// someone else's installation, confirmed by GitHub for whoever opened the link, and it is only ever deleted.
 export const installationsOf = internalQuery({
   args: { account: v.string() },
   returns: v.array(v.number()),
-  handler: async (ctx, { account }) => [...new Set((await linksOf(ctx, account)).map((link) => link.installationId))],
+  handler: async (ctx, { account }) => [...new Set((await linksOf(ctx, account)).filter((link) => link.active).map((link) => link.installationId))],
 });
 
 // How many other accounts use an installation. When none does, disconnecting uninstalls it.

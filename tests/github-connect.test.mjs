@@ -160,6 +160,11 @@ test("an install link someone else started cannot connect your repositories to t
   assert.deepEqual((await w.status("mallory-account")).connections, []);
   assert.equal((await w.access("alice/app", { appId: mallory.appId })).reason, "not_connected");
   assert.equal(w.backend.rows("githubInstallationLinks").every((link) => !link.active), true);
+  // Nor can mallory have turtl uninstall alice's installation: disconnecting only forgets her unfinished attempt.
+  assert.deepEqual(await w.backend.call("github.connect.disconnect", {}, "mallory-account"), { ok: true, disconnected: 0, failed: [] });
+  assert.deepEqual(w.stub.uninstalled, []);
+  assert.deepEqual(w.backend.rows("githubInstallationLinks"), []);
+  assert.deepEqual(w.backend.rows("githubInstallations").map((row) => row.status), ["active"]);
 });
 
 test("a state is used once and lasts 15 minutes, and a ticket lasts 10", async (t) => {
