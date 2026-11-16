@@ -26,9 +26,13 @@ export default function Investigate() {
     <Screen testID="investigate-screen">
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
         <Header title="Investigate" fallback={back} right={<Icon name="Network" color="brandDeep" />} />
-        {network === undefined || project === undefined ? (
+        {project === null ? (
+          <View style={{ flex: 1, padding: 28, justifyContent: "center", alignItems: "center", gap: 20 }}>
+            <T style={{ textAlign: "center" }} testID="investigate-not-found">This project is no longer available.</T>
+          </View>
+        ) : network === undefined || project === undefined ? (
           <View style={{ padding: 20 }}>{errors.length === 0 && <T color="textMuted">Loading code network…</T>}</View>
-        ) : !network || !project || network.nodes.length === 0 ? (
+        ) : !network || network.nodes.length === 0 ? (
           <View style={{ flex: 1, padding: 28, justifyContent: "center", alignItems: "center", gap: 20 }}>
             <Turtle health="clear" size={72} />
             <T style={{ textAlign: "center" }}>turtl has not mapped this project's code yet.</T>

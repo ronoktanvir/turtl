@@ -1,4 +1,4 @@
-import { useLocalSearchParams } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { useRef, useState } from "react";
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -19,6 +19,7 @@ export default function Prepare() {
   const project = useProject(projectId);
   const onboarding = useOnboarding(projectId);
   const { errors } = useDataStatus();
+  const router = useRouter();
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
   const [draft, setDraft] = useState<NeverBreakAnswer[] | null>(null);
@@ -30,6 +31,19 @@ export default function Prepare() {
   const [refused, setRefused] = useState<string | null>(null);
   const title = (project?.name ?? "") + ": Preparation";
   const back = ("/project/" + projectId) as never;
+
+  // A project that is not this account's, or no longer exists, reads as not found, like the project home.
+  if (project === null) {
+    return (
+      <Screen testID="prepare">
+        <Header title="Project not found" fallback="/projects" />
+        <View style={{ padding: 20, gap: 16 }}>
+          <T testID="prepare-not-found">This project is no longer available.</T>
+          <Button label="Back to projects" onPress={() => router.replace("/projects")} testID="prepare-not-found-back" />
+        </View>
+      </Screen>
+    );
+  }
 
   if (!onboarding) {
     return (
