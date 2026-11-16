@@ -506,10 +506,19 @@ test("a not-answering case closed because turtl stopped checking says why, once,
   assert.deepEqual(detail.quiet, { since: 2000, closedAt: 422_000, answered: false });
   assert.deepEqual(paragraphs(detail), [
     `When this case opened, ${SAW_AFTER}`,
-    "If turtl checks this project again and the app still gives no answer, turtl opens a new case and tells you.",
+    "If the app gives turtl no answer again, turtl opens a new case and tells you.",
   ]);
   assert.ok(!paragraphs(detail).some((line) => line.includes("could not reach your app")), "not the refused-send paragraph");
   assert.ok(!paragraphs(detail).some((line) => line.includes(stopped)), "the reason is the summary, said once");
+  // The other way it closes without an answer: turtl still checks, but can no longer read the replies. Nothing on the
+  // page may say turtl stopped checking then.
+  const unreadable = "turtl closed this case because it can no longer tell whether the app answers: its checks no longer get a reply turtl can read.";
+  const blind = map(cards({ case: quietRow({ status: "unresolved" }), steps: [closedStep(unreadable, false)] }));
+  assert.equal(blind.summary, unreadable);
+  assert.deepEqual(paragraphs(blind), [`When this case opened, ${SAW_AFTER}`, "If the app gives turtl no answer again, turtl opens a new case and tells you."]);
+  assert.ok(![blind.summary, ...paragraphs(blind)].some((line) => /stopped checking/.test(line)), "turtl did not stop checking");
+  // With nothing recorded on its step, the page still claims no reason it does not know.
+  assert.equal(map(cards({ case: quietRow({ status: "unresolved", impact: "" }), steps: [] })).summary, "turtl closed this case without knowing whether the app answers again.");
 });
 
 test("a not-answering case with nothing recorded on its step still reads, from when it opened", () => {
