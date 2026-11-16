@@ -1648,3 +1648,22 @@ test("W3, H3: a verify step's pass observed before the case opened leaves it ope
   assert.equal(notAnswering(w)[0].status, "resolved");
   assert.deepEqual(pushes(w), ["not_answering", "answering_again"]);
 });
+
+test("W3: a verify step's pass observed after the case opened, but older than its check's latest quiet try, closes the case without saying all passed", async (t) => {
+  const w = world(t);
+  network(t, (host) => (host === "shop.example" ? BAD_GATEWAY : null));
+  const ada = await w.db.insert("users", { email: "ada@example.com" });
+  const appId = await project(w, ada, "shop.example");
+  // Quiet from minute 0: the case opens at minute 3, and the check is quiet again at minute 7.
+  await minutes(t, w, 0, 8);
+  const [opened] = notAnswering(w);
+  const [journey] = w.rows("journeys").filter((row) => row.appId === appId);
+  assert.equal(journey.unanswered.at, at(7));
+  // A pass from minute 5 lands now: after the case opened, before the latest quiet try.
+  t.mock.timers.setTime(at(8));
+  await w.run("internal.monitor.recordPass", { journeyId: journey._id, observedAt: at(5) });
+  const closing = closingOf(w, opened._id);
+  assert.equal(notAnswering(w)[0].status, "resolved");
+  assert.equal(closing.output.allPassed, false, "the check has been quiet since");
+  assert.ok(counts(w, appId)[0] >= 4, "and keeps the count of its newer quiet tries");
+});

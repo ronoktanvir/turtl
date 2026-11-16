@@ -181,19 +181,18 @@ function impactOf(quiet: Doc<"journeys">[]): string {
 /**
  * How the checks stand now that the app gave a result, from every try the round sent: the ones that fail, and the ones
  * still quiet, in words; and allPassed, true only when one passed, none failed and none was quiet. An unreadable reply
- * (a 404, a health check's 405) neither passes nor spoils it, and is not named. Called only after a result, so when no
- * check fails or is quiet, one passed.
+ * (a 404, a health check's 405) neither passes nor spoils it, and is not named. Called only after a result (W3), so when
+ * no check failed one passed: allPassed needs only that none failed and none was quiet.
  */
 function nowWords(journeys: Doc<"journeys">[], sent: Try[]): { tail: string; allPassed: boolean } {
   const names = (kind: (got: Try["got"]) => boolean) =>
     sent.filter((tried) => kind(tried.got)).flatMap((tried) => journeys.filter((journey) => journey._id === tried.journeyId).map((journey) => journey.name));
   const failing = names((got) => got.kind === "failed");
   const quiet = names(isQuiet);
-  const anyPassed = sent.some((tried) => tried.got.kind === "passed");
   const parts = [];
   if (failing.length) parts.push(`${quoted(failing)} ${failing.length === 1 ? "fails" : "fail"} now, which turtl handles as a separate issue.`);
   if (quiet.length) parts.push(`${quoted(quiet)} got no answer this time.`);
-  const allPassed = anyPassed && !sent.some((tried) => tried.got.kind === "failed" || isQuiet(tried.got));
+  const allPassed = !sent.some((tried) => tried.got.kind === "failed" || isQuiet(tried.got));
   return { tail: parts.length ? parts.join(" ") : "Its checks pass now.", allPassed };
 }
 
