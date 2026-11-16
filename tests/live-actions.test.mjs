@@ -129,7 +129,8 @@ test("Merge forwards exactly the head shown to the owner for every backend outco
   for (const [result, expected] of [
     [{ outcome: "merged", pullRequest: { headSha: "backend-head" } }, { ok: true }],
     [{ outcome: "refused", reason: "New commits arrived. Look again before merging." }, { ok: false, reason: "New commits arrived. Look again before merging." }],
-    [{ outcome: "not_configured", missing: ["GITHUB_TOKEN", "MERGE_ENABLED"] }, { ok: false, reason: "Merging is not configured on the backend: GITHUB_TOKEN, MERGE_ENABLED." }],
+    [{ outcome: "not_configured", missing: ["GITHUB_TOKEN", "MERGE_ENABLED"] }, { ok: false, reason: "Merging from turtl is not set up yet. You can still merge it on GitHub." }],
+    [{ outcome: "not_configured", missing: ["your coding agent's key (Settings, Coding agent)"] }, { ok: false, reason: "turtl needs your coding agent's key (Settings, Coding agent) before it can merge this. You can still merge it on GitHub." }],
     [{ outcome: "failed", message: "GitHub could not complete the merge." }, { ok: false, reason: "GitHub could not complete the merge." }],
   ]) {
     const a = actions();
