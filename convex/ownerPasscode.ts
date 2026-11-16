@@ -1,5 +1,12 @@
 import { ConvexError, v } from "convex/values";
 import { internalMutation, internalQuery, mutation, query, type QueryCtx } from "./_generated/server";
+import { accessEnforced, requireAccount } from "./access";
+
+// The single-owner demo's shared owner passcode. With accounts on (AUTH_REQUIRED=true, convex/access.ts) the account
+// replaces it: an owner decision is authorised by being the signed-in owner of the project, which the decision
+// checks itself, and no passcode is asked for, accepted, or set.
+
+export const PASSCODE_REPLACED = "This deployment protects owner decisions with your account, so there is no owner passcode to set.";
 
 async function digest(passcode: string) {
   return new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(passcode)));
@@ -17,6 +24,11 @@ async function verify(passcode: string | undefined, expected: string) {
 }
 
 export async function requireOwnerPasscode(ctx: QueryCtx, passcode?: string, requireConfigured = false) {
+  // Accounts: the caller has checked that the project is theirs. A passcode sent anyway is ignored; it never stands in for the account.
+  if (accessEnforced()) {
+    await requireAccount(ctx);
+    return null;
+  }
   const config = await ctx.db.query("ownerPasscodeConfig").unique();
   if (!config) {
     if (requireConfigured) {
@@ -28,16 +40,21 @@ export async function requireOwnerPasscode(ctx: QueryCtx, passcode?: string, req
   return null;
 }
 
+// accounts is present only with accounts on: the client then runs owner decisions without a prompt and hides the passcode settings.
 export const status = query({
   args: {},
-  returns: v.object({ configured: v.boolean() }),
-  handler: async (ctx) => ({ configured: (await ctx.db.query("ownerPasscodeConfig").unique()) !== null }),
+  returns: v.object({ configured: v.boolean(), accounts: v.optional(v.literal(true)) }),
+  handler: async (ctx) =>
+    accessEnforced()
+      ? { configured: false, accounts: true as const }
+      : { configured: (await ctx.db.query("ownerPasscodeConfig").unique()) !== null },
 });
 
 export const set = mutation({
   args: { passcode: v.string(), currentPasscode: v.optional(v.string()) },
   returns: v.null(),
   handler: async (ctx, { passcode, currentPasscode }) => {
+    if (accessEnforced()) throw new ConvexError(PASSCODE_REPLACED);
     const config = await ctx.db.query("ownerPasscodeConfig").unique();
     if (config) await verify(currentPasscode, config.passcodeDigest);
     if (passcode.length < 8 || passcode.length > 256) {
