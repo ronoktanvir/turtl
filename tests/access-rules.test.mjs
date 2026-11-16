@@ -166,9 +166,24 @@ function createBackend(load) {
       found.rows.splice(found.index, 1);
     },
     query: (table) => builder(table, null, [], "asc"),
-    system: { query: () => ({ collect: async () => [] }) },
+    // The scheduled jobs, readable one at a time by id; a read of the whole table is recorded, so a test can say none happened.
+    system: {
+      get: async (id) => structuredClone(scheduled.find((job) => job.id === id)?.job ?? null),
+      query: (table) => (systemReads.push(table), { collect: async () => [] }),
+    },
   };
-  const scheduler = { runAfter: async (_delay, fn, args) => void scheduled.push({ path: fn.path, args }), cancel: async () => {} };
+  const systemReads = [];
+  const scheduler = {
+    runAfter: async (_delay, fn, args) => {
+      const id = "_scheduled_functions:" + ++counter;
+      scheduled.push({ id, path: fn.path, args, job: { _id: id, name: fn.path, args: [args], state: { kind: "pending" } } });
+      return id;
+    },
+    cancel: async (id) => {
+      const found = scheduled.find((job) => job.id === id);
+      if (found) found.job.state = { kind: "canceled" };
+    },
+  };
   const runs = [];
   const contextFor = (identity) => {
     const auth = { getUserIdentity: async () => identity };
@@ -190,7 +205,7 @@ function createBackend(load) {
     };
     return { db, auth, scheduler, actionCtx };
   };
-  return { db, rows: (table) => structuredClone(rowsOf(table)), scheduled, runs, contextFor };
+  return { db, rows: (table) => structuredClone(rowsOf(table)), scheduled, systemReads, runs, contextFor };
 }
 
 // One isolated world per test: fresh modules, empty tables, and only the variables the test sets.
@@ -455,4 +470,38 @@ test("the booking demo's customer API: open in the demo, closed with accounts on
     const w = world(t, { AUTH_REQUIRED: "true", PROTECTED_APP_CONTROL_SECRET_SHA256: digest("control-fixture") });
     assert.ok((await w.as(null)("bookingDemo/booking", "getCatalog")).services.length > 0);
   }
+});
+
+// Finding 4: Stop cancels the jobs kept on the case's own attempts, by id, and never reads the whole table of
+// scheduled jobs, which every account's work grows until such a read fails for everyone.
+test("Stop cancels the case's own scheduled jobs by id and reads no one else's", async (t) => {
+  const w = world(t, { AUTH_REQUIRED: "true" });
+  const { alice, bob } = await seed(w);
+  const { db } = w.backend;
+  const scheduler = w.ctxFor("alice").scheduler;
+  const running = async (caseId, proposalId) => {
+    const stepId = await db.insert("steps", { caseId, key: "execute", title: "Execute", dependsOn: ["plan"], kind: "approval", purpose: "authorize_and_execute", status: "running" });
+    const jobs = [
+      await scheduler.runAfter(0, { path: "internal.runner.run.execute" }, { attemptId: "pending" }),
+      await scheduler.runAfter(60_000, { path: "internal.runner.run.checkTimeout" }, { attemptId: "pending", limitMs: 60_000 }),
+    ];
+    const attemptId = await db.insert("stepAttempts", { stepId, caseId, attempt: 1, status: "running", startedAt: 1, scheduledJobs: jobs });
+    await db.patch(stepId, { currentAttemptId: attemptId });
+    await db.patch(caseId, { status: "executing" });
+    await db.insert("actions", {
+      caseId, proposalId, approvedProposalVersion: 1, optionKey: "recover", type: "set_feature_flag", requestedBy: "owner",
+      actor: { kind: "owner", identity: "x" }, environment: "production", revision: { app: "r1" },
+      executionPayload: { actionCatalogId: "actionCatalog:1", type: "set_feature_flag", target: { environment: "production", resourceRef: "flags#x" }, parameters: [], config: { kind: "http", url: "https://x.test/flags", method: "POST" }, acceptanceCriteria: [], checkRefs: [] },
+      status: "pending", idempotencyKey: `${proposalId}:v1:recover`, requestedAt: 1,
+    });
+    return jobs;
+  };
+  const alicesJobs = await running(alice.caseId, alice.proposalId);
+  const bobsJobs = await running(bob.caseId, bob.proposalId);
+  const stopped = await w.as("alice")("decisions", "stop", { caseId: alice.caseId });
+  assert.equal(stopped.stopped, true);
+  const state = (id) => w.backend.scheduled.find((job) => job.id === id).job.state.kind;
+  assert.deepEqual(alicesJobs.map(state), ["canceled", "canceled"], "the run and its time limit are cancelled");
+  assert.deepEqual(bobsJobs.map(state), ["pending", "pending"], "nobody else's job is touched");
+  assert.deepEqual(w.backend.systemReads, [], "no read of the whole _scheduled_functions table");
 });
