@@ -208,10 +208,23 @@ const vChecked = v.object({
   reason: v.optional(v.string()),
 });
 
+/**
+ * What every check of a project failed with, when none passed: one short signature, the same each time the project
+ * fails the same way (watching.ts spaces its checks out then). Null when a check passed or none ran.
+ */
+export function failureOf(checked: Checked[]): string | null {
+  if (!checked.length || checked.some((check) => check.outcome === "passed")) return null;
+  const text = checked.map((check) => `${check.journeyId} ${check.outcome} ${check.detail}`).sort().join("\n");
+  let hash = 5381;
+  for (let i = 0; i < text.length; i++) hash = ((hash * 33) ^ text.charCodeAt(i)) >>> 0;
+  return `${checked.length}:${hash.toString(16)}`;
+}
+
 export const checkProject = internalAction({
   args: { appId: v.id("apps") },
   returns: v.object({ checked: v.array(vChecked) }),
   handler: async (ctx, { appId }): Promise<{ checked: Checked[] }> => {
+    let failure: string | null | undefined;
     try {
       const plan: { base: string; journeys: Runnable[] } | null = await ctx.runQuery(internal.protectedApp.watching.plan, { appId });
       if (!plan) return { checked: [] };
@@ -221,9 +234,10 @@ export const checkProject = internalAction({
         const turn = plan.journeys.slice(start, start + CONCURRENT_CHECKS);
         checked.push(...(await Promise.all(turn.map((journey) => checkJourney(ctx, journey, plan.base, app)))));
       }
+      failure = failureOf(checked);
       return { checked };
     } finally {
-      await ctx.runMutation(internal.protectedApp.watching.finish, { appId, checkedAt: Date.now() });
+      await ctx.runMutation(internal.protectedApp.watching.finish, { appId, checkedAt: Date.now(), ...(failure !== undefined && { failure }) });
     }
   },
 });

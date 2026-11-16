@@ -13,14 +13,20 @@ import { liveAddressProblem } from "./address";
 // claims the due rows through the by_next_check index, oldest first, CLAIM_BATCH at a time, so a project is checked on
 // its own schedule however many other projects exist (second review, finding 15: before, every project took a turn in
 // creation order, empty ones too). A project that can be checked gets its own action (monitor:checkProject), so one slow
-// app never holds up another, and every check's time is bounded (protectedApp/client.ts). A project that cannot be checked (its owner deleted their account, it has no usable live
+// app never holds up another, and every check's time is bounded (protectedApp/client.ts). A project that keeps failing
+// the same way is checked less often, down to once every FAILING_FLOOR_MS, and is back to every minute when it passes or
+// its owner taps Check again. A project that cannot be checked (its owner deleted their account, it has no usable live
 // address, or its checks need a control token it does not have) is not checked at all: its reason is recorded once,
 // shown to its owner, and read again every SKIPPED_EVERY_MS, with nothing sent.
 
-/** How often a project is checked. */
+/** How often a project that passes, or has just started failing, is checked. */
 export const CHECK_EVERY_MS = 60_000;
 /** Taken off each next-check time, so a check finishing a moment after its tick is due again at the next one. */
 const TICK_SLACK_MS = 10_000;
+/** How long a project failing the same way waits before its next check, by how many checks in a row failed so. */
+export const FAILING_STEPS_MS = [60_000, 2 * 60_000, 4 * 60_000, 8 * 60_000, 15 * 60_000];
+/** The longest a project that keeps failing the same way waits between checks. */
+export const FAILING_FLOOR_MS = FAILING_STEPS_MS[FAILING_STEPS_MS.length - 1];
 /** How often the monitor reads again why it cannot check a project. Setting a control token makes it due at once. */
 export const SKIPPED_EVERY_MS = 10 * 60_000;
 /** How often a row whose project no longer has checks is read again. */
@@ -33,6 +39,11 @@ const DISCOVER_BATCH = 200;
 export const MAX_JOURNEYS = 25;
 /** A check still running after this long is taken to have stopped, and the project gets its turn again. */
 export const LEASE_MS = 5 * 60_000;
+
+/** How long after a check began the next one is due: every minute, or longer while it keeps failing the same way. */
+export function intervalAfter(streak: number): number {
+  return streak <= 1 ? CHECK_EVERY_MS : FAILING_STEPS_MS[Math.min(streak, FAILING_STEPS_MS.length) - 1];
+}
 
 export const WATCH_WORDS = {
   noOwner: "turtl does not know whose project this is, so it does not watch it.",
@@ -179,14 +190,15 @@ export async function takeTurn(
 }
 
 /**
- * Makes a project with checks due at the next tick: its checks were just registered, or its owner set the control
- * token its checks were waiting for. A project without checks gets no row. Nothing in the single-owner demo.
+ * Makes a project with checks due at the next tick, at the ordinary pace: its checks were just registered, its owner
+ * tapped Check again, or set the control token its checks were waiting for. A project without checks gets no row.
+ * Nothing in the single-owner demo.
  */
 export async function checkSoon(ctx: Pick<MutationCtx, "db">, appId: Id<"apps">) {
   if (!accessEnforced()) return;
   const row = await stateOf(ctx, appId);
   if (row) {
-    await ctx.db.patch(row._id, { nextCheckAt: Math.min(row.nextCheckAt ?? 0, Date.now()) });
+    await ctx.db.patch(row._id, { nextCheckAt: Math.min(row.nextCheckAt ?? 0, Date.now()), failure: undefined });
     return;
   }
   if (await ctx.db.query("journeys").withIndex("by_app", (q) => q.eq("appId", appId)).first()) await ctx.db.insert("watchedProjects", { appId });
@@ -215,15 +227,24 @@ export const plan = internalQuery({
   },
 });
 
-// A check hands its turn back: the project is due again a minute after this check began.
+// A check hands its turn back and says how it went. failure: what every check of the project failed with, when none
+// passed (monitor.ts, failureOf); null when one passed; left out when nothing ran. The same failure as last time
+// spaces the next check out (intervalAfter); a pass, or anything new, puts it back to every minute.
 export const finish = internalMutation({
-  args: { appId: v.id("apps"), checkedAt: v.number() },
+  args: { appId: v.id("apps"), checkedAt: v.number(), failure: v.optional(v.union(v.string(), v.null())) },
   returns: v.null(),
-  handler: async (ctx, { appId, checkedAt }) => {
+  handler: async (ctx, { appId, checkedAt, failure }) => {
     const row = await stateOf(ctx, appId);
     if (!row) return null;
+    const same = failure && row.failure?.signature === failure;
+    const next = failure ? { signature: failure, streak: same ? row.failure!.streak + 1 : 1, since: same ? row.failure!.since : checkedAt } : undefined;
     const began = row.runningSince ?? checkedAt;
-    await ctx.db.patch(row._id, { runningSince: undefined, lastCheckedAt: checkedAt, nextCheckAt: Math.max(checkedAt, began + CHECK_EVERY_MS - TICK_SLACK_MS) });
+    await ctx.db.patch(row._id, {
+      runningSince: undefined,
+      lastCheckedAt: checkedAt,
+      failure: next,
+      nextCheckAt: Math.max(checkedAt, began + intervalAfter(next?.streak ?? 0) - TICK_SLACK_MS),
+    });
     return null;
   },
 });

@@ -117,3 +117,80 @@ test("with accounts off, the demo's monitor is unchanged and reads no turn order
   assert.deepEqual(await w.run("internal.monitor.tick", {}), { skipped: "PROTECTED_APP_URL is not set on this deployment, so no journey was checked." });
   assert.equal(w.reads.filter(([table]) => table === "watchedProjects" || table === "monitorCursor").length, 0);
 });
+
+// ---- Statement 6: an app that keeps failing the same way, and an address that is not the owner's ----
+
+/** Runs the monitor minute by minute, every check to completion, and returns the minutes at which `host` was asked. */
+async function minutesAsked(t, w, sent, host, from, to) {
+  for (let minute = from; minute < to; minute++) {
+    t.mock.timers.setTime(at(minute));
+    await w.run("internal.monitor.tick", {});
+    await w.drain(["internal.monitor.checkProject"]);
+  }
+  return [...new Set(sent.filter((request) => request.host === host && request.at >= at(from) && request.at < at(to)).map((request) => (request.at - START) / MINUTE))];
+}
+
+test("ATTACK (finding 15): an account points its live app at someone else's site; turtl's checks there slow to once every 15 minutes", async (t) => {
+  const w = world(t);
+  // The other site answers turtl's check with its own page: no verdict, the same failure every time.
+  let site = () => new Response("<html>Someone else's shop</html>", { status: 200, headers: { "Content-Type": "text/html" } });
+  const sent = network(t, { "victim.example": (...args) => site(...args) });
+  const mallory = await w.db.insert("users", { email: "mallory@example.com" });
+  const appId = await project(w, mallory, "victim.example", 25);
+
+  const day = await minutesAsked(t, w, sent, "victim.example", 0, 24 * 60);
+  assert.deepEqual(day.slice(0, 8), [0, 1, 3, 7, 15, 30, 45, 60], "every minute, then 2, 4, 8 and 15 minutes apart");
+  assert.ok(day.every((minute, i) => i === 0 || minute - day[i - 1] <= 15), "never more than 15 minutes apart");
+  const requests = sent.filter((request) => request.host === "victim.example").length;
+  assert.equal(day.length, 99, "99 checks in a day instead of 1,440");
+  assert.equal(requests, 99 * 25, "each check asks its 25 addresses once");
+  console.log(`one project aimed at another site: ${day.length} checks and ${requests} requests a day (was 1,440 checks and ${1440 * 25})`);
+
+  // The owner taps Check again: the next tick checks it, and the pace starts over from every minute.
+  await w.db.insert("onboardingPreparations", { appId, neverBreak: [], mergedAt: at(0), settledAt: at(0), repo: "mallory/victim", registration: { status: "registered", checks: [] } });
+  t.mock.timers.setTime(at(24 * 60) + 5_000);
+  await w.run("api.onboarding.projects.checkAgain", { projectId: appId }, mallory);
+  assert.deepEqual(await minutesAsked(t, w, sent, "victim.example", 24 * 60 + 1, 24 * 60 + 9), [24 * 60 + 1, 24 * 60 + 2, 24 * 60 + 4, 24 * 60 + 8]);
+  // Check again is itself limited to once every two minutes.
+  t.mock.timers.setTime(at(24 * 60 + 10));
+  await w.run("api.onboarding.projects.checkAgain", { projectId: appId }, mallory);
+  t.mock.timers.setTime(at(24 * 60 + 11));
+  await assert.rejects(w.run("api.onboarding.projects.checkAgain", { projectId: appId }, mallory), /less than 2 minutes ago/);
+
+  // A pass puts it back to every minute at once.
+  site = () => json(passed);
+  const after = await minutesAsked(t, w, sent, "victim.example", 24 * 60 + 11, 24 * 60 + 20);
+  assert.deepEqual(after.slice(-5), [24 * 60 + 15, 24 * 60 + 16, 24 * 60 + 17, 24 * 60 + 18, 24 * 60 + 19]);
+  assert.equal(w.rows("watchedProjects")[0].failure, undefined);
+});
+
+test("an owner's own app that keeps failing slows the same way, a new failure is checked at once, and a pass restores the pace", async (t) => {
+  const w = world(t);
+  let answer = () => json(failed);
+  const sent = network(t, { "shop.example": (...args) => answer(...args) });
+  const ada = await w.db.insert("users", { email: "ada@example.com" });
+  const appId = await project(w, ada, "shop.example");
+  assert.deepEqual(await minutesAsked(t, w, sent, "shop.example", 0, 16), [0, 1, 3, 7, 15]);
+  assert.equal(w.rows("cases").length, 1, "the failure opened one case, and the slower checks open no more");
+  // Failing another way is news: the very next check is a minute later.
+  answer = () => json({ ...failed, failedStep: "confirm_booking", error: { code: "TIMEOUT", message: "." } });
+  assert.deepEqual(await minutesAsked(t, w, sent, "shop.example", 16, 33), [30, 31]);
+  answer = () => json(passed);
+  assert.deepEqual(await minutesAsked(t, w, sent, "shop.example", 33, 38), [33, 34, 35, 36, 37]);
+  assert.equal(w.rows("watchedProjects").find((row) => row.appId === appId).failure, undefined);
+});
+
+test("a practice app is still checked at once when made or broken, whatever pace its project was at", async (t) => {
+  const w = world(t);
+  const sent = network(t, { "practice.example": () => json(failed) });
+  const ada = await w.db.insert("users", { email: "ada@example.com" });
+  const appId = await project(w, ada, "practice.example");
+  await w.db.patch(appId, { practice: true });
+  await minutesAsked(t, w, sent, "practice.example", 0, 8);
+  const row = w.rows("watchedProjects")[0];
+  assert.ok(row.nextCheckAt > at(8), "it was spaced out");
+  // What convex/practice/projects.ts runs after making the practice app, and after each break.
+  t.mock.timers.setTime(at(8) + 1_000);
+  await w.run("internal.practice.projects.firstCheck", { appId });
+  assert.deepEqual(w.scheduled.filter((job) => job.path === "internal.monitor.checkProject").map((job) => job.args.appId), [appId], "its check started at once");
+});

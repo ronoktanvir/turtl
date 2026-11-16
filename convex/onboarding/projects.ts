@@ -9,6 +9,7 @@ import { repositoryAccess } from "../github/access";
 import { mergePullRequest, readPullRequest } from "../prTracking/github";
 import { pullRequestOf } from "../prTracking/validators";
 import { liveAddressProblem } from "../protectedApp/address";
+import { checkSoon } from "../protectedApp/watching";
 import { accountSecret } from "../secrets/store";
 import { CONNECT_CODING_AGENT } from "../secrets/words";
 import { normalizeFolders, parseGithubUrl, READINESS_ITEMS } from "./detect";
@@ -249,6 +250,9 @@ export const checkAgain = mutation({
     }
     await ctx.db.patch(preparation._id, { registration: { ...(preparation.registration ?? { checks: [] }), status: "checking", ...(accessEnforced() && { requestedAt: now }) } });
     await ctx.scheduler.runAfter(0, internal.onboarding.prepare.register, { preparationId: preparation._id });
+    // The owner asked: the monitor checks the project at its next tick and every minute after, even if it had spaced
+    // its checks out while the app kept failing the same way.
+    await checkSoon(ctx, preparation.appId);
     return null;
   },
 });
