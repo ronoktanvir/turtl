@@ -201,7 +201,7 @@ test("staged fixtures and the known booking-demo route remain explicitly labelle
     cards({ steps: [step({ staged: { fail: 1 } })] }),
     cards({ journey: { check: { kind: "http", config: { url: "https://app.test/booking-demo/journey-check" } } } }),
     cards({ steps: [step({ currentAttempt: attempt({ summary: "Staged fixture; not an actual protected-app run." }) })] }),
-  ]) assert.match(content(map(sample)), /Staged\/demo case/);
+  ]) assert.match(content(map(sample)), /came from a staged practice failure on the demo app/);
 });
 
 test("enactment uses the approved action and actual workflow statuses, not a synthetic repair plan", () => {
@@ -243,7 +243,7 @@ test("done requires current-action verification, and placeholders or an older pa
 
 test("action output is shown without exposing its frozen private execution payload", () => {
   const result = map(cards({ action: action({ result: "The application confirmed the flag is off.", completedAt: 1800, executionPayload: { config: { credentialRef: "secret-reference", token: "private-token" } } }) }));
-  assert.match(content(result), /Action \(completed\): The application confirmed/);
+  assert.match(content(result), /Change an app setting \(completed\): The application confirmed/);
   assert.equal(result.logs.find((line) => line.id === "action:action-1").at, 1800);
   assert.doesNotMatch(JSON.stringify(result), /secret-reference|private-token/);
 });
@@ -285,4 +285,32 @@ test("automatic recovery shows its recorded scoped permission use without invent
     assert.match(result, /usage count not available/);
     assert.doesNotMatch(result, /use \d of/);
   }
+});
+
+test("raw step ids, evidence kinds and action types reach the owner as plain names", () => {
+  const collect = step({ _id: "step-collect", key: "collect_app_state", purpose: "collect_app_state", title: "Read app health, flags and revision",
+    currentAttempt: attempt({ _id: "attempt-collect", summary: "Read the app's health.", handoff: "Sample handoff from collect_app_state." }) });
+  const gather = step({ _id: "step-gather", key: "gather_context", purpose: "gather_context", title: "Gather context", dependsOn: ["collect_app_state"],
+    currentAttempt: attempt({ _id: "attempt-gather", summary: "Joined what collect_app_state found." }) });
+  const result = map(cards({
+    steps: [collect, gather], evidence: [evidence()],
+    action: action({ result: "The flag is off." }),
+    verifications: [verification({ criterionResults: [{ criterionId: "booking_saved", status: "passed", summary: "A test booking was saved.", evidenceIds: [] }] })],
+    agentRuns: [{ _id: "run-1", _creationTime: 1300, status: "completed", taskType: "propose_fixes", config: { modelId: "gpt-test" } }],
+  }));
+  const everything = content(result) + "\n" + result.logs.map((line) => line.source + "\n" + line.text).join("\n");
+  assert.doesNotMatch(everything, /collect_app_state|gather_context|journey_check|set_feature_flag|propose_fixes|booking_saved|protected-app/);
+  assert.match(everything, /Sample handoff from “Read app health, flags and revision”\./);
+  assert.match(everything, /Joined what “Read app health, flags and revision” found\./);
+  assert.match(everything, /Evidence · Journey check/);
+  assert.match(everything, /Action · Change an app setting/);
+  assert.match(everything, /Agent run · fix ideas/);
+  assert.match(everything, /Passed — booking saved: A test booking was saved\./);
+});
+
+test("a missing model key reads as no model connected, and customer cases are marked for the Approve sheet", () => {
+  const diagnosing = step({ currentAttempt: attempt({ output: { diagnosis: { source: "rules", cause: "Booking waited.", noModelReason: "OPENAI_API_KEY is not set on this deployment, so no model was asked" } } }) });
+  assert.match(content(map(cards({ steps: [diagnosing] }))), /No model answered: turtl has no model connected yet/);
+  assert.equal(map(cards({ case: row({ raisedBy: "customer" }) })).raisedByCustomers, true);
+  assert.equal("raisedByCustomers" in map(cards()), false);
 });

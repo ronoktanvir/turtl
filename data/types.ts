@@ -103,7 +103,13 @@ export type FixOption = {
   delivery?: "action" | "pull_request"; // pull_request: approving opens a pull request instead of changing the live app (added in 1.1)
   preferences?: { id: string; statement: string }[]; // owner preferences that shaped this fix; shown apart from evidence
   pastDecisions?: string; // one plain sentence on how the owner decided similar cases before
+  sends?: FixSends; // what approving sends, word for word as turtl stored it (TUR-68)
 };
+
+// The coding agent's full instructions for a code change, or the catalog action with its exact target and values.
+export type FixSends =
+  | { kind: "instructions"; text: string }
+  | { kind: "action"; name: string; description?: string; target: string; values: { name: string; value: string }[] };
 
 export type PlanStep = {
   key: string;
@@ -148,6 +154,7 @@ export type CaseDetail = CaseSummary & {
   enactment?: Enactment;
   learned?: string; // "What turtl learned"
   structural?: StructuralFinding; // a deeper cause across several cases, when turtl recorded one
+  raisedByCustomers?: boolean; // customers' own words started this case; the Approve sheet opens the full instructions
 };
 
 export type ChatScope =
