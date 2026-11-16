@@ -53,7 +53,16 @@ async function addToIntakeDay(ctx: MutationCtx, appId: Id<"apps">, add: { costUs
   await ctx.db.insert("intakeDays", { appId, day, ...add, updatedAt: now });
 }
 
-export type AccountDay = { ownUsd: number; ownHeldUsd: number; intakeUsd: number; intakeHeldUsd: number; practiceUsd: number; practiceHeldUsd: number };
+export type AccountDay = {
+  ownUsd: number;
+  ownHeldUsd: number;
+  intakeUsd: number;
+  intakeHeldUsd: number;
+  practiceUsd: number;
+  practiceHeldUsd: number;
+  floorUsd: number;
+  floorHeldUsd: number;
+};
 type AccountDayAdd = Partial<AccountDay> & { calls?: number };
 
 const accountDayRow = (ctx: Reader, account: string, day: string) =>
@@ -69,6 +78,8 @@ export async function accountDay(ctx: Reader, account: string, at: number): Prom
     intakeHeldUsd: row?.intakeHeldUsd ?? 0,
     practiceUsd: row?.practiceUsd ?? 0,
     practiceHeldUsd: row?.practiceHeldUsd ?? 0,
+    floorUsd: row?.floorUsd ?? 0,
+    floorHeldUsd: row?.floorHeldUsd ?? 0,
   };
 }
 
@@ -87,6 +98,8 @@ async function addToAccountDay(ctx: MutationCtx, account: string, add: AccountDa
     intakeHeldUsd: next("intakeHeldUsd"),
     practiceUsd: next("practiceUsd"),
     practiceHeldUsd: next("practiceHeldUsd"),
+    floorUsd: next("floorUsd"),
+    floorHeldUsd: next("floorHeldUsd"),
     calls: (row?.calls ?? 0) + (add.calls ?? 0),
     updatedAt: now,
   };
@@ -102,11 +115,17 @@ async function addToAccountDay(ctx: MutationCtx, account: string, add: AccountDa
 
 /** Counts a model call the gate just let through at MODEL_CALL_HOLD_USD until its cost comes back (addModelSpend). */
 export async function holdModelCall(ctx: MutationCtx, account: string, share: Share, holdUsd: number) {
-  await addToAccountDay(ctx, account, share === "own" ? { ownHeldUsd: holdUsd } : share === "practice" ? { practiceHeldUsd: holdUsd } : { intakeHeldUsd: holdUsd });
+  const held: Record<Share, Partial<AccountDay>> = {
+    own: { ownHeldUsd: holdUsd },
+    intake: { intakeHeldUsd: holdUsd },
+    practice: { practiceHeldUsd: holdUsd },
+    floor: { floorHeldUsd: holdUsd },
+  };
+  await addToAccountDay(ctx, account, held[share]);
 }
 
 /** Which of the account's day shares a model call counts against. */
-export type Share = "own" | "intake" | "practice";
+export type Share = "own" | "intake" | "practice" | "floor";
 
 /** Counts a case opened from customer reports today, or says no when the project's daily cap is reached. */
 export async function openIntakeCase(ctx: MutationCtx, appId: Id<"apps">): Promise<boolean> {
@@ -121,10 +140,19 @@ export async function openIntakeCase(ctx: MutationCtx, appId: Id<"apps">): Promi
 // the hold (`held`) the gate counted it at when it let the call through.
 // `practice`: the call was for the account's practice app: it counts against the day's practice allowance instead of
 // the account's own share, and against the month as an own call does.
+// `floor`: the call found the cause of the account's own outage past the shared day: it counts against the account's
+// floor and its month, and not against the deployment's day, which it is outside of.
 export const addModelSpend = internalMutation({
-  args: { account: v.string(), costUsd: v.number(), appId: v.optional(v.id("apps")), held: v.optional(v.number()), practice: v.optional(v.boolean()) },
+  args: {
+    account: v.string(),
+    costUsd: v.number(),
+    appId: v.optional(v.id("apps")),
+    held: v.optional(v.number()),
+    practice: v.optional(v.boolean()),
+    floor: v.optional(v.boolean()),
+  },
   returns: v.null(),
-  handler: async (ctx, { account, costUsd, appId, held, practice }) => {
+  handler: async (ctx, { account, costUsd, appId, held, practice, floor }) => {
     const cost = Number.isFinite(costUsd) && costUsd > 0 ? costUsd : 0;
     const release = held !== undefined && Number.isFinite(held) && held > 0 ? held : 0;
     if (cost > 0 || release > 0) {
@@ -134,15 +162,17 @@ export const addModelSpend = internalMutation({
         account,
         appId
           ? { intakeUsd: cost, intakeHeldUsd: -release, calls }
-          : practice
-            ? { practiceUsd: cost, practiceHeldUsd: -release, calls }
-            : { ownUsd: cost, ownHeldUsd: -release, calls },
+          : floor
+            ? { floorUsd: cost, floorHeldUsd: -release, calls }
+            : practice
+              ? { practiceUsd: cost, practiceHeldUsd: -release, calls }
+              : { ownUsd: cost, ownHeldUsd: -release, calls },
       );
     }
     if (cost === 0) return null;
     costUsd = cost;
-    // Every call counts toward the deployment's day too, whichever allowance it spent.
-    await addDeploymentSpend(ctx, costUsd);
+    // Every call counts toward the deployment's day too, whichever allowance it spent, except one on the floor.
+    if (!floor) await addDeploymentSpend(ctx, costUsd);
     if (appId) {
       await addToIntakeDay(ctx, appId, { costUsd, calls: 1, casesOpened: 0 });
       return null;

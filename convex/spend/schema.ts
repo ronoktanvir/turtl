@@ -47,6 +47,10 @@ export const spendTables = {
     // Missing on a row from before it was kept: nothing yet.
     practiceUsd: v.optional(v.number()),
     practiceHeldUsd: v.optional(v.number()),
+    // What its own outages cost past the shared day, on the floor no other account can use up (OUTAGE_FLOOR_PER_DAY_USD).
+    // Not in the deployment's day: the operator's worst day is the ceiling plus the floors used. Missing: nothing yet.
+    floorUsd: v.optional(v.number()),
+    floorHeldUsd: v.optional(v.number()),
     calls: v.number(),
     updatedAt: v.number(),
   }).index("by_account_and_day", ["account", "day"]),
