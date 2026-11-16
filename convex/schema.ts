@@ -45,7 +45,7 @@ export default defineSchema({
     revision: v.optional(v.string()),
     ownerId: v.optional(v.string()),
     isSample: v.optional(v.boolean()),
-  }),
+  }).index("by_owner", ["ownerId"]),
   // Mutations must enforce app ownership and same-app journey/memory links; restored service is not a completed permanent repair.
   cases: defineTable({
     appId: v.id("apps"),

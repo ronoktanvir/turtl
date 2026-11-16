@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as access from "../access.js";
 import type * as assistant from "../assistant.js";
 import type * as bookingDemo_booking from "../bookingDemo/booking.js";
 import type * as bookingDemo_catalog from "../bookingDemo/catalog.js";
@@ -136,6 +137,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  access: typeof access;
   assistant: typeof assistant;
   "bookingDemo/booking": typeof bookingDemo_booking;
   "bookingDemo/catalog": typeof bookingDemo_catalog;
