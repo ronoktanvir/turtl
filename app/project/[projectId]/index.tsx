@@ -25,10 +25,10 @@ export default function ProjectHome() {
   const onboarding = useOnboarding(projectId);
   const overview = useOverview(projectId);
   const fixApprovals = fixes?.filter((item) => item.status === "needs_approval" || item.status === "ready_to_merge").length ?? 0;
-  // Every bug on the list is about the app not answering turtl's checks (still open, or closed because turtl stopped
-  // checking): nothing to review, so the tile says what is wrong instead.
+  // Every bug on the list is about the app not answering turtl's checks (still open, or closed without an answer because
+  // turtl stopped checking or can no longer read the replies): nothing to review, so the tile says what is wrong instead.
   const onlyQuiet = !!fixes?.length && fixes.every((item) => item.notAnswering);
-  const quietLine = fixes?.some((item) => item.status === "not_answering") ? "Your app is not answering turtl's checks." : "turtl stopped checking your app.";
+  const quietLine = fixes?.some((item) => item.status === "not_answering") ? "Your app is not answering turtl's checks." : "turtl does not know whether your app is answering.";
   const featureApprovals = features?.filter((item) => item.status === "needs_approval" || item.status === "ready_to_merge").length ?? 0;
   const router = useRouter();
   const insets = useSafeAreaInsets();

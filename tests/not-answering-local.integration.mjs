@@ -61,17 +61,19 @@ const passed = { runId: "proof", verdict: "passed", failedStep: null, error: nul
 /**
  * The owner's app: every journey check passes while it runs, and its health route answers 200 with no check result,
  * as a real app's does. stop() closes it, so a check gets no response at all. routesGone: the app is up, but every
- * journey route answers 404 (the owner renamed them), which is an answer, not silence.
+ * journey route answers 404 (the owner renamed them), a reply turtl cannot read. journeysDown: the journey routes drop
+ * the connection (the app behind a proxy is down) while the health route still answers 200, as a proxy's own would.
  */
 function standInApp() {
   const requests = [];
   let server = null;
-  const state = { routesGone: false };
+  const state = { routesGone: false, journeysDown: false };
   const handler = (request, response) => {
     const path = new URL(request.url, "http://stand-in").pathname;
     requests.push({ path, at: Date.now() });
     request.resume();
     request.on("end", () => {
+      if (state.journeysDown && path.endsWith("/journey-check")) return request.socket.destroy();
       const gone = state.routesGone && path.endsWith("/journey-check");
       response.writeHead(gone ? 404 : 200, { "Content-Type": "application/json", Connection: "close" });
       response.end(JSON.stringify(gone ? { error: "Not Found" } : path.endsWith("/journey-check") ? passed : { ok: true, service: "proof" }));
@@ -192,7 +194,8 @@ test("cases for an app that stops answering, on a local Convex backend", { timeo
     assert.ok((await overview()).every((check) => check.state === "passing" && !check.notAnswering));
     say(`accounts: 6 rounds with the app up and its health route answering 200 with no check result: tries in a row ${JSON.stringify(counts(up))}, not-answering cases ${notAnsweringCases(up).length}`);
 
-    // The app is up, but both journey routes answer 404 (renamed in turtl.json): an answer, not silence. Nothing opens.
+    // The app is up, but both journey routes answer 404 (renamed in turtl.json): a reply turtl cannot read, which counts
+    // for nothing either way. Nothing opens.
     app.state.routesGone = true;
     const gone = [];
     for (let n = 0; n < 5; n++) gone.push((await round()).checked.map((check) => check.outcome));
@@ -204,8 +207,9 @@ test("cases for an app that stops answering, on a local Convex backend", { timeo
     app.state.routesGone = false;
     await round();
 
-    await app.stop();
-    say("accounts: the stand-in app stopped");
+    // The app behind the stand-in goes down: its journey routes give no response, its health route still answers 200.
+    app.state.journeysDown = true;
+    say("accounts: the stand-in's journey routes stopped answering; its health route still answers 200");
     const before = await overview();
     assert.ok(before.every((check) => check.state === "passing" && !check.notAnswering));
     const opened = await untilOpened(async () => {
@@ -240,8 +244,8 @@ test("cases for an app that stops answering, on a local Convex backend", { timeo
     await round();
     assert.equal(notAnsweringCases(await read()).length, 1);
 
-    await app.start();
-    say("accounts: the stand-in app started again");
+    app.state.journeysDown = false;
+    say("accounts: the stand-in's journey routes answer again");
     await round();
     const closed = await until(read, (s) => notAnsweringCases(s)[0].status === "resolved" && notAnsweringCases(s)[0].pushes.some((push) => push.event === "answering_again" && push.outcome === "sent"), "Ada's case closed");
     const done = notAnsweringCases(closed)[0];

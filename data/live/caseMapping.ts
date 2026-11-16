@@ -308,7 +308,9 @@ const QUIET_OPEN = [
   "turtl keeps checking, less often the longer the app stays quiet, until it checks every 15 minutes. When the app answers, turtl closes this case itself and tells you.",
 ];
 const QUIET_ANSWERED = "turtl closed this case itself when the app answered. It changed nothing on your app.";
-const QUIET_STOPPED = "If turtl checks this project again and the app still gives no answer, turtl opens a new case and tells you.";
+// A case closed without an answer: turtl stopped checking the project, or it still checks but can no longer read the
+// replies (convex/protectedApp/notAnswering.ts). The step's own summary says which; this line is true of both.
+const QUIET_STOPPED = "If the app gives turtl no answer again, turtl opens a new case and tells you.";
 const WAIT_STEP_KEY = "wait_for_answer";
 // "At least three tries…" continues a sentence after "When this case opened, ".
 const continuing = (text: string) => (/^[A-Z][a-z]/.test(text) ? text.charAt(0).toLowerCase() + text.slice(1) : text);
@@ -324,7 +326,7 @@ function notAnsweringDetail(cards: CaseCards, number: number | undefined): CaseD
   const closedAt = typeof output.closedAt === "number" ? output.closedAt : attempt?.finishedAt;
   const ending = closed && step?.status === "done" ? attempt?.summary : undefined;
   const summary = !closed ? row.impact || row.title
-    : ending || (answered ? "The app answered turtl's checks again." : "turtl stopped checking this project, so it closed this case.");
+    : ending || (answered ? "The app answered turtl's checks again." : "turtl closed this case without knowing whether the app answers again.");
   const texts = !closed ? QUIET_OPEN : [...(row.impact ? [`When this case opened, ${continuing(row.impact)}`] : []), answered ? QUIET_ANSWERED : QUIET_STOPPED];
   const base = mapCaseSummary(row, number ?? 0);
   // Answered again is all clear only when the case recorded that every check that ran then passed; a check that fails
