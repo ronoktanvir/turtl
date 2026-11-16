@@ -3,9 +3,10 @@ import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import { action, internalAction, mutation, query, type ActionCtx } from "./_generated/server";
 import { SOLO_OWNER } from "./decisions";
+import { repositoryAccess } from "./github/access";
 import { capyConfig, findPullRequestNumber } from "./prTracking/capy";
 import { registerCodeChangeAction } from "./prTracking/catalog";
-import { githubToken, mergePullRequest, parsePullRequestUrl, readPullRequest } from "./prTracking/github";
+import { mergePullRequest, parsePullRequestUrl, readPullRequest } from "./prTracking/github";
 import { latestForCase, toPullRequest } from "./prTracking/records";
 import { pullRequestOf, type PullRequest } from "./prTracking/validators";
 import { readRevision } from "./protectedApp/client";
@@ -20,6 +21,13 @@ export type RefreshResult = { outcome: "synced"; pullRequest: PullRequest } | { 
 export type MergeResult = { outcome: "merged"; pullRequest: PullRequest } | { outcome: "refused"; reason: string } | NotConfigured | Failed;
 
 const NO_GITHUB_TOKEN: NotConfigured = { outcome: "not_configured", missing: ["GITHUB_TOKEN"] };
+
+// The credential for one repository: a GitHub App installation token, or GITHUB_TOKEN while the app is not configured.
+async function githubAccess(ctx: ActionCtx, repo: string): Promise<{ token: string } | NotConfigured | Failed> {
+  const access = await repositoryAccess(ctx, repo);
+  if (!access.ok) return { outcome: "failed", message: access.message };
+  return access.token ? { token: access.token } : NO_GITHUB_TOKEN;
+}
 
 const requireDevTools = () => {
   if (process.env.DEV_TOOLS_ENABLED !== "true") throw new Error("Dev tools are disabled on this deployment.");
@@ -53,9 +61,9 @@ async function sync(ctx: ActionCtx, row: Doc<"pullRequests">): Promise<RefreshRe
     number = found.body.number;
     await ctx.runMutation(internal.prTracking.records.setNumber, { id: row._id, number });
   }
-  const token = githubToken();
-  if (!token) return NO_GITHUB_TOKEN;
-  const read = await readPullRequest(token, row.repo, number);
+  const access = await githubAccess(ctx, row.repo);
+  if ("outcome" in access) return access;
+  const read = await readPullRequest(access.token, row.repo, number);
   if (!read.ok) {
     await ctx.runMutation(internal.prTracking.records.recordSyncError, { id: row._id, error: read.message });
     return { outcome: "failed", message: read.message };
@@ -116,8 +124,9 @@ export const merge = action({
     const row: Doc<"pullRequests"> | null = await ctx.runQuery(internal.prTracking.records.forCase, { caseId });
     if (!row || row.number === undefined) return { outcome: "refused", reason: "This case has no pull request yet." };
     if (row.settledAt !== undefined) return { outcome: "refused", reason: row.openError ?? "turtl is no longer following this pull request." };
-    const token = githubToken();
-    if (!token) return NO_GITHUB_TOKEN;
+    const access = await githubAccess(ctx, row.repo);
+    if ("outcome" in access) return access;
+    const { token } = access;
     const read = await readPullRequest(token, row.repo, row.number);
     if (!read.ok) return { outcome: "failed", message: read.message };
     await ctx.runMutation(internal.prTracking.records.applySnapshot, { id: row._id, ...read.body });
@@ -166,9 +175,9 @@ export const attachByUrl = action({
     requireDevTools();
     const parsed = parsePullRequestUrl(url);
     if (!parsed) return { outcome: "failed", message: "Expected a pull request URL like https://github.com/owner/name/pull/123." };
-    const token = githubToken();
-    if (!token) return NO_GITHUB_TOKEN;
-    const read = await readPullRequest(token, parsed.repo, parsed.number);
+    const access = await githubAccess(ctx, parsed.repo);
+    if ("outcome" in access) return access;
+    const read = await readPullRequest(access.token, parsed.repo, parsed.number);
     if (!read.ok) return { outcome: "failed", message: read.message };
     await ctx.runMutation(internal.prTracking.records.attach, {
       caseId,

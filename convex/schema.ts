@@ -26,6 +26,7 @@ import {
   vContextSource,
   vOwnerNotice,
 } from "./constants";
+import { githubTables } from "./github/schema";
 import { intakeTables } from "./intake/schema";
 import { revylTables } from "./revyl/schema";
 import { voiceTables } from "./voice/schema";
@@ -187,4 +188,5 @@ export default defineSchema({
   ...codeNetworkTables,
   ...voiceTables,
   ...intakeTables,
+  ...githubTables,
 });

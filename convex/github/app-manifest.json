@@ -1,0 +1,24 @@
+{
+  "name": "turtl on-call",
+  "url": "https://github.com/ronoktanvir/turtl",
+  "description": "turtl watches your live app, explains what broke in plain words, and prepares the fix as a pull request. It reads the repositories you choose and merges a pull request only when you tap Merge in turtl.",
+  "public": true,
+  "hook_attributes": {
+    "url": "https://YOUR-DEPLOYMENT.convex.site/github/webhook",
+    "active": true
+  },
+  "callback_urls": [
+    "https://YOUR-DEPLOYMENT.convex.site/api/auth/callback/github",
+    "https://YOUR-DEPLOYMENT.convex.site/github/callback"
+  ],
+  "setup_url": "https://YOUR-DEPLOYMENT.convex.site/github/setup",
+  "setup_on_update": true,
+  "request_oauth_on_install": false,
+  "default_permissions": {
+    "contents": "write",
+    "checks": "read",
+    "statuses": "read",
+    "metadata": "read"
+  },
+  "default_events": []
+}
