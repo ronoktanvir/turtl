@@ -21,7 +21,7 @@ import {
 } from "./workflow";
 import { approveCase, declineCase, startCaseRun } from "./runner/run";
 import { checkJourneys, type MonitorResult } from "./monitor";
-import { CREDENTIAL_REF, call, controlBase, describeFailure, runJourneyCheck } from "./protectedApp/client";
+import { CREDENTIAL_REF, DEMO_APP, call, controlBase, describeFailure, runJourneyCheck } from "./protectedApp/client";
 import { latestProposal } from "./protectedApp/records";
 import { BOOKING_APP_NAME, registerBookingApp } from "./protectedApp/registry";
 
@@ -343,6 +343,7 @@ export const stageOutage = action({
     const base = controlBase();
     if (!base) throw new Error("PROTECTED_APP_URL is not set on this deployment.");
     const response = await call(`${base}/staged-failure`, {
+      app: DEMO_APP,
       method: "POST",
       body: { providerTimeout: on },
       credentialRef: CREDENTIAL_REF,
@@ -361,6 +362,7 @@ export const stageStoreFailure = action({
     const base = controlBase();
     if (!base) throw new Error("PROTECTED_APP_URL is not set on this deployment.");
     const response = await call(`${base}/staged-failure`, {
+      app: DEMO_APP,
       method: "POST",
       body: { bookingStoreFailure: on },
       credentialRef: CREDENTIAL_REF,
@@ -376,7 +378,7 @@ export const recommendationsOn = action({
     requireDevTools();
     const base = controlBase();
     if (!base) throw new Error("PROTECTED_APP_URL is not set on this deployment.");
-    const response = await call(`${base}/flags`, { method: "POST", body: { recommendationsEnabled: true }, credentialRef: CREDENTIAL_REF });
+    const response = await call(`${base}/flags`, { app: DEMO_APP, method: "POST", body: { recommendationsEnabled: true }, credentialRef: CREDENTIAL_REF });
     if (response.kind !== "response" || response.status !== 200 || (response.body as { recommendationsEnabled?: unknown } | null)?.recommendationsEnabled !== true) throw new Error(`The owner could not confirm recommendations are on: ${describeFailure(response)}.`);
     return { recommendationsEnabled: true, summary: "The owner turned recommendations back on. turtl did not run a recovery. Staged switches and incident history were not changed." };
   },
@@ -395,7 +397,7 @@ export const resetBooking = action({
         ["/staged-failure", { bookingStoreFailure: false }],
         ["/flags", { recommendationsEnabled: true }],
       ] as const) {
-        const response = await call(`${scope.base}${path}`, { method: "POST", body, credentialRef: CREDENTIAL_REF });
+        const response = await call(`${scope.base}${path}`, { app: DEMO_APP, method: "POST", body, credentialRef: CREDENTIAL_REF });
         const [field, expected] = Object.entries(body)[0];
         if (response.kind !== "response" || response.status !== 200 || (response.body as Record<string, unknown> | null)?.[field] !== expected) throw new Error(`${path} did not confirm ${field}=${expected} (${describeFailure(response)}); that change is not confirmed`);
         completed.push(`${field}=${expected} was confirmed`);
@@ -404,7 +406,7 @@ export const resetBooking = action({
       for (const journey of scope.journeys) {
         if (journey.check.kind !== "http") throw new Error("This journey needs a non-HTTP check");
         const observedAt = Date.now();
-        const outcome = await runJourneyCheck(journey.check.config);
+        const outcome = await runJourneyCheck(journey.check.config, DEMO_APP);
         if (!outcome.ok || outcome.result.verdict !== "passed") throw new Error("The fresh booking journey did not pass");
         passedJourneys.push({ journeyId: journey._id, observedAt });
       }
