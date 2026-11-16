@@ -120,7 +120,9 @@ The table's source is `backend-env.mjs`. After changing it, run `node release/ch
 
 The six GitHub App values are one app: `convex/github/` reads its id, private key, slug, and webhook secret, and Sign in with GitHub and Connect GitHub read its client id and secret. `convex/github/README.md` says where each comes from. A variable the code reads that has no row is reported by the check below as unlisted.
 
-Size `PASSWORD_SIGNUPS_PER_DAY` to the email plan. Every password sign-up gets a confirmation email, and one address gets at most five emails of each kind (confirmation, reset) a day, but nothing caps the deployment's emails as a whole: a day of password sign-ups (200 by default) times those five can exceed a small plan. Resend's free plan allows 100 emails a day.
+Set `EMAILS_PER_DAY` to your email plan's daily allowance (Resend's free plan sends 100 a day). It bounds every email turtl sends; sign-ups may use at most two thirds of it, so a day of sign-ups cannot take an owner's password reset. When the day's emails run out, a reset or a confirmation says so, and codes already sent still work.
+
+If accounts together use up the day's AI (`DEPLOYMENT_MODEL_SPEND_PER_DAY_USD`), these are the levers, all in the table above: keep a larger part of the day for outages (`OUTAGE_RESERVE_PERCENT`), let each account draw less of it (`OUTAGE_RESERVE_ACCOUNT_USD`), make accounts older before they may draw on it (`OUTAGE_RESERVE_ACCOUNT_AGE_DAYS`), require a project's check to have passed longer before an outage counts (`OUTAGE_RESERVE_STEADY_HOURS`), raise the whole day, or shrink each account's shares (`ACCOUNT_MODEL_SPEND_PER_DAY_USD`, `PRACTICE_AI_PER_DAY_USD`, `ACCOUNT_INTAKE_SPEND_PER_DAY_USD`). None of them closes the gap entirely: about two dozen accounts over two weeks old, each with a real project whose check has passed for a day, can still use up a day together, and do it again the next.
 
 ## 3. Check the names
 
@@ -150,7 +152,7 @@ CONVEX_DEPLOY_KEY='the production deploy key' npx convex deploy
 Two checks on a deployment that is not new:
 
 - On a deployment that kept Sign in with Apple tokens before they were sealed, run `npx convex run auth/appleTokens:sealKept` once after deploying (with `SECRETS_ENCRYPTION_KEY` set), and again while it answers `more: true`. It seals each token kept in the clear.
-- Before deploying to the single-owner demo, check in its dashboard that its `authAccounts` table is empty. The demo refuses every call while it holds any account.
+- Before deploying to the single-owner demo, check in its dashboard that it holds no sign-in row (`authAccounts`), no user row (`users`), and no project (`apps`) owned by anyone but the demo's single owner, `solo-owner` (a project with no owner is fine). Otherwise the demo is closed after this deploys: every call is refused, and nothing is checked, sent or run.
 
 ## 5. Go back
 
