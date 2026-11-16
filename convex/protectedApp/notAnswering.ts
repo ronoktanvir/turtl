@@ -6,7 +6,7 @@ import { accessEnforced } from "../access";
 import { CLOSED_CASE_STATUSES, notAnsweringSignature, type Unanswered, type UnansweredTry } from "../constants";
 import { createCaseFromTemplate, finishAttempt, setCaseStatus, startAttempt, waitOnAttempt } from "../workflow";
 import { turtlReachable } from "./client";
-import { MAX_JOURNEYS } from "./watching";
+import { canStopAnswering, MAX_JOURNEYS } from "./watching";
 
 // Cases for an app that stops answering turtl's checks.
 //
@@ -15,6 +15,11 @@ import { MAX_JOURNEYS } from "./watching";
 // counts: the app was not asked. Only the monitor's own rounds count (monitor.ts calls settleRound at the end of a
 // round); a case's steps check the app too, and those tries count for nothing here. Any usable reply, a pass or a
 // failure, clears the count, and so does a pass a case's verify step records (monitor.ts, recordPass).
+//
+// Only a check that has answered before can stop answering (watching.ts, canStopAnswering): a journey-contract check
+// that has passed at least once. The health and readiness endpoints onboarding registers as journeys never return a
+// check result to the monitor, and a check that has never passed (a wrong address) has not answered yet; their tries
+// keep no count, open or hold open no case, and are left out before the round's end, which then reads nothing.
 //
 // At UNANSWERED_AFTER in a row a check is not answering. After a round in which a check that ran is not answering, one
 // case opens for the whole project (signature not_answering:<appId>), however many of its checks stopped answering:
@@ -95,7 +100,9 @@ export type Try = Infer<typeof vTry>;
 /** Whether a try counts: the request went out and nothing usable came back. */
 export const counts = (got: Try["got"]): got is UnansweredTry => got.kind === "no_response" || got.kind === "no_result";
 /** Whether a check is not answering now. */
-export const isNotAnswering = (journey: { unanswered?: Unanswered }) => (journey.unanswered?.count ?? 0) >= UNANSWERED_AFTER;
+/** Whether a check is not answering now. Only a check that can stop answering ever is (watching.ts, canStopAnswering). */
+export const isNotAnswering = (journey: Pick<Doc<"journeys">, "check" | "lastPassedAt"> & { unanswered?: Unanswered }) =>
+  canStopAnswering(journey) && (journey.unanswered?.count ?? 0) >= UNANSWERED_AFTER;
 
 const journeysOf = (ctx: Pick<MutationCtx, "db">, appId: Id<"apps">) =>
   ctx.db.query("journeys").withIndex("by_app", (q) => q.eq("appId", appId)).take(MAX_JOURNEYS);
@@ -245,7 +252,9 @@ export const settle = internalMutation({
     const journeys = await journeysOf(ctx, appId);
     const fresh: Try[] = [];
     for (const journey of journeys) {
-      const one = tried.get(journey._id);
+      // A check that cannot stop answering (a health or readiness journey, or one that has never passed) is settled as
+      // if not tried: it keeps no count. The monitor leaves its tries out before this; this holds whoever calls.
+      const one = canStopAnswering(journey) ? tried.get(journey._id) : undefined;
       if (one && older(journey, one)) continue;
       if (one) fresh.push(one);
       const next = one ? after(journey.unanswered, one) : undefined;

@@ -9,7 +9,7 @@ import { CLOSED_CASE_STATUSES } from "./constants";
 import { controlBase, readErrors, runJourneyCheck, type JourneyOutcome, type WatchedApp } from "./protectedApp/client";
 import { counts, passedOutsideRound, PRACTICE_QUIET, settleRound, type Try } from "./protectedApp/notAnswering";
 import { watchedApp } from "./protectedApp/watched";
-import { MAX_JOURNEYS, WATCH_WORDS, type Runnable } from "./protectedApp/watching";
+import { canStopAnswering, MAX_JOURNEYS, WATCH_WORDS, type Runnable } from "./protectedApp/watching";
 import { startCaseRun } from "./runner/run";
 
 // The monitor. In the single-owner demo it checks every registered journey of the one demo app named by
@@ -230,6 +230,16 @@ async function checkJourney(ctx: ActionCtx, journey: Runnable, base: string, app
  */
 const toSettle = (unanswered: boolean, tries: Try[]) => unanswered || tries.some((tried) => counts(tried.got));
 
+/**
+ * The tries the end of a round may count: those of checks that can stop answering (watching.ts, canStopAnswering).
+ * A health or readiness journey, or a check that has never passed, is left out here, so a round whose only tries with
+ * no answer are theirs settles nothing: no mutation, no read.
+ */
+const countable = (journeys: Runnable[], tries: Try[]) => {
+  const can = new Set<string>(journeys.filter((journey) => journey.countable).map((journey) => journey.journeyId));
+  return tries.filter((tried) => can.has(tried.journeyId));
+};
+
 // The single-owner demo's monitor, as before: every journey, one after another. Its project's not-answering case
 // follows the same rules as with accounts on, each project's checks being one round.
 export async function checkJourneys(ctx: ActionCtx): Promise<MonitorResult> {
@@ -249,7 +259,7 @@ export async function checkJourneys(ctx: ActionCtx): Promise<MonitorResult> {
   for (const [appId, group] of projects) {
     const app = group[0].app;
     const unanswered = group.some(({ journey }) => journey.unanswered !== undefined);
-    const runnable = group.flatMap(({ journey }) => (journey.check.kind === "http" ? [{ journeyId: journey._id, url: journey.check.config.url, ...(journey.check.config.credentialRef && { credentialRef: journey.check.config.credentialRef }) }] : []));
+    const runnable: Runnable[] = group.flatMap(({ journey }) => (journey.check.kind === "http" ? [{ journeyId: journey._id, url: journey.check.config.url, ...(journey.check.config.credentialRef && { credentialRef: journey.check.config.credentialRef }), countable: canStopAnswering(journey) }] : []));
     if (!app.productionUrl || runnable.length === 0) {
       // Not checked: its checks' counts go, and an open case closes with why.
       if (unanswered) await ctx.runMutation(internal.protectedApp.notAnswering.stopped, { appId, reason: app.productionUrl ? WATCH_WORDS.noChecks : WATCH_WORDS.noAddress });
@@ -262,7 +272,8 @@ export async function checkJourneys(ctx: ActionCtx): Promise<MonitorResult> {
       checked.push(one.checked);
       tries.push(one.tried);
     }
-    if (toSettle(unanswered, tries)) await settleRound(ctx, appId, tries);
+    const counted = countable(runnable, tries);
+    if (toSettle(unanswered, counted)) await settleRound(ctx, appId, counted);
   }
   return { checked };
 }
@@ -315,7 +326,7 @@ export const checkProject = internalAction({
       answered = checked.some((check) => check.outcome !== "check_error");
       // A practice project's app is turtl's own: a check of it with no usable reply is turtl's trouble, for the
       // operator's log, once a round. Its tries count for nothing (only counts left from before are settled away).
-      const counted = plan.practice ? [] : tries;
+      const counted = plan.practice ? [] : countable(plan.journeys, tries);
       if (plan.practice && tries.some((tried) => counts(tried.got))) console.warn(PRACTICE_QUIET);
       if (toSettle(plan.unanswered, counted)) await settleRound(ctx, appId, counted);
       return { checked };

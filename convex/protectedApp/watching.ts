@@ -58,7 +58,18 @@ export const WATCH_WORDS = {
 
 type Read = Pick<QueryCtx, "db">;
 type Http = Extract<Doc<"journeys">["check"], { kind: "http" }>;
-export type Runnable = { journeyId: Id<"journeys">; url: string; credentialRef?: string };
+/** countable: the check can stop answering (canStopAnswering), so its tries with no answer count. */
+export type Runnable = { journeyId: Id<"journeys">; url: string; credentialRef?: string; countable: boolean };
+
+/**
+ * Whether a check can stop answering (convex/protectedApp/notAnswering.ts): only one that has answered before. That is
+ * a journey-contract check, the only kind the monitor runs (it POSTs every check as a journey check), that has passed at
+ * least once. A project's health and readiness endpoints are registered as journeys beside its real checks, as GET
+ * checks, passed at registration from their 200 (convex/onboarding/prepare.ts, checkLive); they never return a check
+ * result to the monitor, so they never count. Nor does a check that has never passed, such as one at a wrong address.
+ */
+export const canStopAnswering = (journey: Pick<Doc<"journeys">, "check" | "lastPassedAt">) =>
+  journey.check?.kind === "http" && journey.check.config.method === "POST" && journey.lastPassedAt !== undefined;
 /** unanswered: some check of the project has tries with no usable answer on record (convex/protectedApp/notAnswering.ts). */
 type Plan = { unanswered: boolean } & ({ kind: "none" } | { kind: "skip"; reason: string } | { kind: "run"; base: string; journeys: Runnable[]; partial: string | null });
 
@@ -67,7 +78,7 @@ export async function planFor(ctx: Read, app: Doc<"apps">): Promise<Plan> {
   if (app.isSample) return { kind: "none", unanswered: false };
   const rows = await ctx.db.query("journeys").withIndex("by_app", (q) => q.eq("appId", app._id)).take(MAX_JOURNEYS);
   const unanswered = rows.some((journey) => journey.unanswered !== undefined);
-  const journeys = rows.flatMap((journey) => (journey.check.kind === "http" ? [{ journeyId: journey._id, ...pick(journey.check) }] : []));
+  const journeys = rows.flatMap((journey) => (journey.check.kind === "http" ? [{ journeyId: journey._id, ...pick(journey.check), countable: canStopAnswering(journey) }] : []));
   if (journeys.length === 0) return { kind: "none", unanswered };
   const skip = (reason: string): Plan => ({ kind: "skip", reason, unanswered });
   if (!app.ownerId) return skip(WATCH_WORDS.noOwner);
@@ -82,7 +93,7 @@ export async function planFor(ctx: Read, app: Doc<"apps">): Promise<Plan> {
   return { kind: "run", base: app.productionUrl.replace(/\/+$/, ""), journeys: runnable, partial: runnable.length < journeys.length ? WATCH_WORDS.someNeedToken : null, unanswered };
 }
 
-const pick = (check: Http): Omit<Runnable, "journeyId"> => ({ url: check.config.url, ...(check.config.credentialRef && { credentialRef: check.config.credentialRef }) });
+const pick = (check: Http): Omit<Runnable, "journeyId" | "countable"> => ({ url: check.config.url, ...(check.config.credentialRef && { credentialRef: check.config.credentialRef }) });
 
 const stateOf = (ctx: Read, appId: Id<"apps">) => ctx.db.query("watchedProjects").withIndex("by_app", (q) => q.eq("appId", appId)).first();
 
@@ -231,7 +242,7 @@ export const plan = internalQuery({
     v.null(),
     v.object({
       base: v.string(),
-      journeys: v.array(v.object({ journeyId: v.id("journeys"), url: v.string(), credentialRef: v.optional(v.string()) })),
+      journeys: v.array(v.object({ journeyId: v.id("journeys"), url: v.string(), credentialRef: v.optional(v.string()), countable: v.boolean() })),
       unanswered: v.boolean(),
       practice: v.boolean(),
     }),
