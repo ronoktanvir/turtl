@@ -42,7 +42,7 @@ export default function AccountSection({ heading = true }: { heading?: boolean }
           <T variant="small" color="textMuted" testID="account-methods">{viewer ? signedInWith(viewer.methods) : "Signed in"}</T>
         </View>
       </View>
-      {error && <T color="statusAffected" accessibilityRole="alert" testID="account-sign-out-error">{error}</T>}
+      {error && <T font="text" color="statusAffected" accessibilityRole="alert" testID="account-sign-out-error">{error}</T>}
       <Button label={busy ? "Signing out…" : "Sign out"} kind="plain" disabled={busy} onPress={() => void leave()} testID="account-sign-out" />
       {/*
         Delete account goes here (checklist RC-23), built by a later slice: a "Delete account" Button with

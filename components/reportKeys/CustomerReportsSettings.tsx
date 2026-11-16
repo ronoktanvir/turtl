@@ -84,7 +84,7 @@ export default function CustomerReportsSettings({ projectId }: { projectId: stri
         <T color="link" style={{ flex: 1 }}>How to add the report form to your app</T>
       </Pressable>
       {message && (
-        <T color={message.problem ? "statusAffected" : "text"} accessibilityRole={message.problem ? "alert" : undefined} testID="customer-reports-message">
+        <T font="text" color={message.problem ? "statusAffected" : "text"} accessibilityRole={message.problem ? "alert" : undefined} testID="customer-reports-message">
           {message.text}
         </T>
       )}

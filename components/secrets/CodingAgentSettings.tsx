@@ -67,7 +67,7 @@ export default function CodingAgentSettings() {
         </View>
       )}
       {message && (
-        <T color={message.problem ? "statusAffected" : "text"} accessibilityRole={message.problem ? "alert" : undefined} testID="coding-agent-message">
+        <T font="text" color={message.problem ? "statusAffected" : "text"} accessibilityRole={message.problem ? "alert" : undefined} testID="coding-agent-message">
           {message.text}
         </T>
       )}

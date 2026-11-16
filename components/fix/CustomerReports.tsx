@@ -63,12 +63,12 @@ export function CustomerReportsControl({ caseId, id }: { caseId: string; id: (na
         {confirming ? (
           <View style={{ gap: 16 }}>
             <View style={{ borderLeftWidth: 2, borderLeftColor: colors.border, paddingLeft: 12 }}>
-              <T>{'"' + confirming.text + '"'}</T>
+              <T font="text">{'"' + confirming.text + '"'}</T>
             </View>
             <T color="textMuted">
               turtl deletes these words, its search copy of them, and their quotes in this case. The case's counts go down by one. This cannot be undone. The case itself stays.
             </T>
-            {error && <T color="statusAffected" accessibilityRole="alert" testID={id("customer-report-delete-error")}>{error}</T>}
+            {error && <T font="text" color="statusAffected" accessibilityRole="alert" testID={id("customer-report-delete-error")}>{error}</T>}
             <View style={{ gap: 10 }}>
               <Button kind="danger" label={busy ? "Deleting…" : "Delete report"} disabled={busy} onPress={() => remove(confirming)} testID={id("customer-report-delete-confirm")} />
               <Button kind="plain" label="Keep it" disabled={busy} onPress={() => { setConfirming(null); setError(null); }} testID={id("customer-report-delete-cancel")} />
@@ -82,7 +82,7 @@ export function CustomerReportsControl({ caseId, id }: { caseId: string; id: (na
             {done && <T variant="small" color="textMuted" accessibilityRole="alert">{done}</T>}
             {reports.map((report, i) => (
               <View key={report.id} style={{ gap: 8, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 14 }} testID={id("customer-report-" + i)}>
-                <T numberOfLines={4}>{'"' + report.text + '"'}</T>
+                <T font="text" numberOfLines={4}>{'"' + report.text + '"'}</T>
                 <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
                   <T variant="small" color="textMuted">{"Sent " + ago(report.receivedAt)}</T>
                   <Button

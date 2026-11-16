@@ -48,7 +48,7 @@ export default function ControlTokenSettings({ projectId, testID = "control-toke
       {status.notWatched && (
         <View style={{ flexDirection: "row", gap: 10, padding: 14, borderRadius: 16, backgroundColor: colors.surfaceRaised }}>
           <Icon name="TriangleAlert" size={18} color="statusNeedsYou" />
-          <T style={{ flex: 1 }} testID={testID + "-not-watched"}>{status.notWatched}</T>
+          <T font="text" style={{ flex: 1 }} testID={testID + "-not-watched"}>{status.notWatched}</T>
         </View>
       )}
       {showInput ? (
@@ -71,7 +71,7 @@ export default function ControlTokenSettings({ projectId, testID = "control-toke
         </View>
       )}
       {message && (
-        <T color={message.problem ? "statusAffected" : "text"} accessibilityRole={message.problem ? "alert" : undefined} testID={testID + "-message"}>
+        <T font="text" color={message.problem ? "statusAffected" : "text"} accessibilityRole={message.problem ? "alert" : undefined} testID={testID + "-message"}>
           {message.text}
         </T>
       )}

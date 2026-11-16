@@ -66,7 +66,7 @@ export default function ResetPassword() {
         <>
           <T color="textMuted">Enter the email address you signed up with. turtl will email you a code.</T>
           <Field label="Email" testID="reset-email" value={email} onChangeText={setEmail} keyboardType="email-address" textContentType="username" autoComplete="email" editable={!busy} returnKeyType="send" onSubmitEditing={send} />
-          {error && <T color="statusAffected" accessibilityRole="alert" testID="reset-error">{error}</T>}
+          {error && <T font="text" color="statusAffected" accessibilityRole="alert" testID="reset-error">{error}</T>}
           <Button label={busy ? "Sending…" : "Email me a code"} disabled={busy || !email} onPress={send} testID="reset-send" />
         </>
       ) : (
@@ -74,7 +74,7 @@ export default function ResetPassword() {
           <T testID="reset-sent">If there's an account for {sentTo}, a code is on its way. It works for 15 minutes.</T>
           <Field label="Code from the email" testID="reset-code" value={code} onChangeText={setCode} keyboardType="number-pad" textContentType="oneTimeCode" autoComplete="one-time-code" editable={!busy} />
           <Field label="New password" testID="reset-new-password" hint={`At least ${MIN_PASSWORD_LENGTH} characters.`} value={password} onChangeText={setPassword} secureTextEntry textContentType="newPassword" autoComplete="new-password" editable={!busy} returnKeyType="go" onSubmitEditing={change} />
-          {error && <T color="statusAffected" accessibilityRole="alert" testID="reset-error">{error}</T>}
+          {error && <T font="text" color="statusAffected" accessibilityRole="alert" testID="reset-error">{error}</T>}
           <Button label={busy ? "Saving…" : "Set new password"} disabled={busy || !code || !password} onPress={change} testID="reset-submit" />
           <FormLink label="Send a new code" onPress={() => { setCode(""); setError(null); setSentTo(null); }} testID="reset-again" />
         </>
