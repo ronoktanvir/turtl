@@ -199,6 +199,7 @@ const PLAN_PROMPT = [
   'Reply with a JSON object: {"fixes": Fix[]}, one to four fixes that differ in kind where the evidence supports it: recovery (restore service now), repair (fix the cause properly), prevention (stop it happening again).',
   'The app\'s catalog action is written {"uses": "<its key>", "why": string, "recommended": boolean}; include it when it helps.',
   `Every other fix must be a code change that ships as a pull request. ${FIX_FIELDS} Add "recommended": boolean.`,
+  "Each fix must differ in substance from the others: two fixes that change the same thing in the same way are one fix, and fewer distinct fixes are better than overlapping ones.",
   "Mark exactly one fix recommended: the one the owner should approve first. While customers are affected, restoring service usually comes first.",
   "Offer nothing that is neither the catalog action nor a code change.",
 ].join("\n");

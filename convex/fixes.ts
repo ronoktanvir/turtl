@@ -202,7 +202,7 @@ const CHAT_PROMPT = [
   "You are turtl, talking with the owner of an app about one case on its Investigate further screen. The owner is not an engineer.",
   "Use only the case, facts, diagnosis and current fixes you are given. If you do not know, say so. Never claim that a fix was applied: the owner approves fixes separately.",
   'Reply with a JSON object: {"reply": string, "fix": object | null}. reply: at most four plain sentences.',
-  `Set fix only to propose a new fix that differs from the current ones. A new fix is a code change that ships as a pull request. ${FIX_FIELDS}`,
+  `Set fix only to propose a new fix that differs in substance from every current fix; never restate a current fix in other words. If no different sensible fix exists, set fix to null and say so. A new fix is a code change that ships as a pull request. ${FIX_FIELDS}`,
 ].join("\n");
 
 // Investigate further: answers the owner's message about a case, and may add a new fix to the list as a
@@ -238,6 +238,7 @@ export const investigate = action({
           title: o.title,
           kind: o.kind,
           recommended: o.recommended,
+          why: (o.why ?? []).map((s) => s.text).join(""),
           whatChanges: o.whatChanges,
           whatMightBeLost: o.whatMightBeLost,
         })),
@@ -254,10 +255,11 @@ export const investigate = action({
         : "turtl had no answer to that."
       : `turtl can't answer right now: ${answer.reason}.`;
     let added: { proposalId: Id<"proposals">; optionKey: string } | null = null;
-    if (answer.ok && answer.json.fix && proposal) {
+    if (answer.ok && blocked && (newFix || answer.json.fix)) {
+      reply = `${reply} No fix was added: ${blocked}.`;
+    } else if (answer.ok && answer.json.fix && proposal) {
       const draft = readDraft(answer.json.fix);
-      if (blocked) reply = `${reply} The fix was not added: ${blocked}.`;
-      else if (!draft) reply = `${reply} The fix turtl described was incomplete, so it was not added to the list.`;
+      if (!draft) reply = `${reply} The fix turtl described was incomplete, so it was not added to the list.`;
       else {
         const result = await ctx.runMutation(internal.fixes.appendChatFix, { caseId, proposalId: proposal._id, draft });
         if (result.ok) added = { proposalId: result.proposalId, optionKey: result.optionKey };
