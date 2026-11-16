@@ -50,6 +50,8 @@ This is every variable the backend reads, taken from the code. "Required" stops 
 | `CAPY_PROJECT_ID` | Optional | Capy project those threads start in. Default: the project that holds the repository. |
 | `CAPY_MODEL_ID` | Optional | Model for those Capy threads. Default: the Capy project's model. |
 | `CAPY_REASONING` | Optional | Reasoning level for those Capy threads. Used only with CAPY_MODEL_ID. |
+| `MODEL_SPEND_LIMIT_USD` | Optional | With accounts on, the estimated model spend in US dollars one account may reach in a calendar month (UTC); past it turtl asks no model for that account and says so on the case. Default 20. No limit in the single-owner demo. |
+| `CODING_THREADS_PER_DAY` | Optional | With accounts on, how many Capy threads (code changes) one account may start in a calendar day (UTC), since every thread is billed to CAPY_API_KEY. Default 5. No limit in the single-owner demo. |
 | `REVYL_API_KEY` (secret) | Optional | Runs a fix's device check on a Revyl cloud phone. Without it a device check reports that it is not set up. |
 | `REVYL_BASE_URL` | Optional | Revyl API address. Default https://backend.revyl.ai. |
 | `KEIKI_API_KEY` (secret) | Optional | Keiki key for owner alerts by text. Does nothing without KEIKI_AGENT_ID and KEIKI_OWNER_CONTACT. |
