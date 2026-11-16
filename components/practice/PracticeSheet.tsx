@@ -97,7 +97,7 @@ export default function PracticeSheet({ visible, onClose, project }: { visible: 
 
   // Broken, and no issue is open: turtl has not noticed yet, or its fixes were declined.
   if (project.failure) {
-    const recent = project.brokenAt !== undefined && Date.now() - project.brokenAt < NOTICE_MS;
+    const recent = !project.stalled && project.brokenAt !== undefined && Date.now() - project.brokenAt < NOTICE_MS;
     const id = project.projectId;
     return (
       <Sheet visible={visible} onClose={onClose} title={mending ? "Put it back?" : "Your practice app is broken"} testID="practice-sheet" footer={<View style={{ gap: 10 }}>
@@ -118,7 +118,7 @@ export default function PracticeSheet({ visible, onClose, project }: { visible: 
         ) : (
           <>
             <T>{FAILURE_WORDS[project.failure].what}</T>
-            <T color="textMuted">{recent ? "turtl's regular check notices within a minute or two and opens an issue under Fix." : "No issue is open on it: turtl's fixes were declined, or the issue ended without one. You can put it back yourself."}</T>
+            <T color="textMuted">{recent ? "turtl's regular check notices within a minute or two and opens an issue under Fix." : "No issue is open on it: turtl's fixes were declined, or the issue ended without a fix. turtl opens no new issue until it works again, so put it back yourself."}</T>
           </>
         )}
         {problem}

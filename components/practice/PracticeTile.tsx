@@ -19,7 +19,9 @@ export default function PracticeTile({ projectId, short, padding }: { projectId:
       ? "This practice app is not available."
       : project.caseId
         ? "turtl is working on it. Follow it under Fix."
-        : project.failure
+        : project.failure && project.stalled
+          ? "Still broken, with no issue open. Open this to put it back."
+          : project.failure
           ? FAILURE_WORDS[project.failure].title + ". Waiting for turtl to notice."
           : "Break it on purpose and watch turtl fix it.";
   const broken = !!project?.failure;

@@ -10,6 +10,8 @@ export type PracticeProject = {
   brokenAt?: number;
   /** The open issue on it, if any. */
   caseId?: string;
+  /** Still broken after an issue on this break closed unfixed (its fixes declined): turtl opens no new one until it works. */
+  stalled?: boolean;
   /** How many more times the owner may break it today. */
   breaksLeft: number;
   /** What an earlier fix left switched, for a practice app that works again. */

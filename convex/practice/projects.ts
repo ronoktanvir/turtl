@@ -58,10 +58,11 @@ async function practiceOf(ctx: Read, account: string): Promise<{ row: Doc<"pract
   return row && app && app.ownerId === account && app.practice ? { row, app } : null;
 }
 
+const recentCases = (ctx: Read, appId: Id<"apps">) => ctx.db.query("cases").withIndex("by_app", (q) => q.eq("appId", appId)).order("desc").take(20);
+
 /** The newest case on the practice project that is still open. */
 async function openCase(ctx: Read, appId: Id<"apps">): Promise<Doc<"cases"> | null> {
-  const recent = await ctx.db.query("cases").withIndex("by_app", (q) => q.eq("appId", appId)).order("desc").take(20);
-  return recent.find((row) => !NOT_OPEN.includes(row.status)) ?? null;
+  return (await recentCases(ctx, appId)).find((row) => !NOT_OPEN.includes(row.status)) ?? null;
 }
 
 const vView = v.object({
@@ -72,6 +73,9 @@ const vView = v.object({
   brokenAt: v.optional(v.number()),
   /** The open case on it, if any. */
   caseId: v.optional(v.string()),
+  /** Still broken after a case on this break closed unfixed (its fixes declined, or it ended unresolved): turtl opens
+   * no new case until the app has passed a check again, so the owner can put it back. */
+  stalled: v.optional(v.boolean()),
   breaksLeft: v.number(),
   /** What an earlier fix left switched, for a practice app that works again. */
   note: v.optional(v.string()),
@@ -90,7 +94,10 @@ export const status = query({
     const { row, app } = found;
     const switches = switchesOf(row);
     const failure = failureOf(switches);
-    const open = await openCase(ctx, app._id);
+    const recent = await recentCases(ctx, app._id);
+    const open = recent.find((row) => !NOT_OPEN.includes(row.status)) ?? null;
+    const closed: readonly string[] = CLOSED_CASE_STATUSES;
+    const stalled = !!failure && !open && !!row.broken && recent.some((row2) => row2._creationTime >= row.broken!.at && closed.includes(row2.status));
     const note = noteOf(switches);
     return {
       available: true,
@@ -101,6 +108,7 @@ export const status = query({
         failure,
         ...(failure && row.broken && { brokenAt: row.broken.at }),
         ...(open && { caseId: open._id as string }),
+        ...(stalled && { stalled: true }),
         breaksLeft: allowance(row.breaks, Date.now(), breaksPerDay).left,
         ...(note && { note }),
       },

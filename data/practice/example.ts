@@ -46,6 +46,7 @@ function snapshot(): Practice {
       failure: now,
       ...(now && brokenAt !== undefined && { brokenAt }),
       ...(open && caseId && { caseId }),
+      ...(now && status === "declined" && { stalled: true }),
       breaksLeft: BREAKS_PER_DAY - breaks,
       ...(note && { note }),
     },

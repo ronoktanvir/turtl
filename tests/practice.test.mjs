@@ -138,10 +138,14 @@ test("a practice app breaks only while it works with no open case, and at most s
     await breakApp.handler(w.as("alice"), { projectId: alice, failure: "booking_store" });
     await assert.rejects(breakApp.handler(w.as("alice"), { projectId: alice, failure: "recommendations" }), (error) => /already broken/.test(message(error)));
     // An open case on it: no break and no put-back until it is decided.
-    const caseId = await w.db.insert("cases", { appId: alice, title: "Booking is failing", impact: "", kind: "outage", raisedBy: "monitor", status: "waiting_for_owner" });
+    const caseId = await w.db.insert("cases", { appId: alice, title: "Booking is failing", impact: "", kind: "outage", raisedBy: "monitor", status: "waiting_for_owner", _creationTime: Date.now() });
     assert.equal((await status.handler(w.as("alice"), {})).project.caseId, caseId);
+    assert.equal((await status.handler(w.as("alice"), {})).project.stalled, undefined);
     await assert.rejects(mend.handler(w.as("alice"), { projectId: alice }), (error) => /Decline its fixes under Fix first/.test(message(error)));
     await w.db.patch(caseId, { status: "declined" });
+    // Declined and still broken: turtl opens no new case until it passes, and the app says the owner can put it back.
+    const stalled = (await status.handler(w.as("alice"), {})).project;
+    assert.deepEqual([stalled.failure, stalled.caseId, stalled.stalled], ["booking_store", undefined, true]);
     await mend.handler(w.as("alice"), { projectId: alice });
     assert.equal((await status.handler(w.as("alice"), {})).project.failure, null);
     await breakApp.handler(w.as("alice"), { projectId: alice, failure: "recommendations" });
