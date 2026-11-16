@@ -39,6 +39,7 @@ export async function changeableNow(
 ): Promise<{ ok: true; login: string | null; can: (repo: string) => boolean } | { ok: false; message: string }> {
   const answers = new Map<string, boolean>();
   const can = (repo: string) => answers.get(repo.toLowerCase()) === true;
+  if (repos.length === 0) return { ok: true, login: null, can };
   const user = await readUserById(token, githubUserId);
   // 404: the GitHub account no longer exists, so nobody can act as it.
   if (!user.ok) return user.status === 404 ? { ok: true, login: null, can } : { ok: false, message: user.message };

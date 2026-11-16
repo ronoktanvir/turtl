@@ -66,6 +66,7 @@ import type * as github_http from "../github/http.js";
 import type * as github_installations from "../github/installations.js";
 import type * as github_jwt from "../github/jwt.js";
 import type * as github_links from "../github/links.js";
+import type * as github_permission from "../github/permission.js";
 import type * as github_secrets from "../github/secrets.js";
 import type * as github_shapes from "../github/shapes.js";
 import type * as github_sync from "../github/sync.js";
@@ -240,6 +241,7 @@ declare const fullApi: ApiFromModules<{
   "github/installations": typeof github_installations;
   "github/jwt": typeof github_jwt;
   "github/links": typeof github_links;
+  "github/permission": typeof github_permission;
   "github/secrets": typeof github_secrets;
   "github/shapes": typeof github_shapes;
   "github/sync": typeof github_sync;
