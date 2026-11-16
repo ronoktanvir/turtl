@@ -1,5 +1,5 @@
 {
-  "auditedCommit": "fb2a04b0b543b18af74e1fd3d765a14b4773a2a0",
+  "auditedCommit": "c38bf0e89e498e67386f313784f1b47d0954e4f5",
   "auditedOn": "2026-11-16",
   "scope": [
     "app",
@@ -273,7 +273,7 @@
     "AUTH_REQUIRED": "Unset, empty or false: the single-owner demo, which makes no accounts and refuses to run on a backend that holds any. Any other value: accounts mode, with sign-in, one owner per project, the AI permission and the limits",
     "SITE_URL": "turtl's web address, where GitHub sign-in may return",
     "CONVEX_CLOUD_URL": "The backend's own address, set by Convex. Used to tell a local backend from a hosted one",
-    "CONVEX_SITE_URL": "The backend's own web address, set by Convex. Sign-in tokens name it, and GitHub sends the owner back to it",
+    "CONVEX_SITE_URL": "The backend's own web address, set by Convex. Sign-in tokens name it, GitHub sends the owner back to it, and the monitor asks it, with no token and no body, whether turtl's own requests get out before a not-answering case opens",
     "AUTH_STAND_IN_URL": "Points sign-in at a stand-in for Apple, GitHub and Resend in tests. With accounts on it is honoured only on a local backend",
     "SECRETS_ENCRYPTION_KEY": "Encrypts each project's control token and each account's coding agent key. Never sent anywhere",
     "INTAKE_CONTACT_KEY": "The key for the hash a customer's contact on the report form becomes. The contact itself is not kept",
@@ -314,8 +314,8 @@
   "libraries": {
     "@auth/core": "Sign in with GitHub, used only in the backend",
     "@convex-dev/auth": "Sign-in and sessions, in turtl's own backend",
-    "@expo-google-fonts/capriola": "The font, shipped inside the app. No request to Google",
-    "@expo-google-fonts/righteous": "The second font, shipped inside the app. No request to Google",
+    "@expo-google-fonts/capriola": "The font's package. The app ships its own copy from assets/fonts. No request to Google",
+    "@expo-google-fonts/righteous": "The second font's package. The app ships its own copy from assets/fonts. No request to Google",
     "@expo/metro-runtime": "Build tooling",
     "convex": "The client for turtl's own backend",
     "expo": "The app framework",
