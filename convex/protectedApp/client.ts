@@ -9,6 +9,8 @@ export const CREDENTIAL_REF = "PROTECTED_APP_CONTROL_SECRET";
 // The only settings turtl will send to a watched app as its bearer token. A check's or an action's
 // `credentialRef` is data: it is stored on a row and can come from a project's turtl.json. It must never choose
 // which of this deployment's secrets leaves, so any other name is refused before a request is made.
+// With accounts on, this one name means "the project's own control token" (convex/secrets) and never the
+// deployment's variable of that name.
 export const SENDABLE_CREDENTIAL_REFS: readonly string[] = [CREDENTIAL_REF];
 export const ENVIRONMENT = "protected-app";
 export const CHECK_VERSION = "journey-check-v1";
@@ -47,25 +49,58 @@ export type CallResult =
   | { kind: "not_sent"; reason: string }
   | { kind: "no_response"; reason: string; durationMs: number };
 
-// One HTTP call. The bearer secret is read from the named environment variable and never returned.
-export async function call(
-  url: string,
-  options: {
-    method?: "GET" | "POST";
-    body?: unknown;
-    credentialRef?: string;
-    timeoutMs?: number;
-  } = {},
-): Promise<CallResult> {
-  const { method = "GET", body, credentialRef, timeoutMs = REQUEST_TIMEOUT_MS } = options;
+export type TokenRead = { ok: true; token: string } | { ok: false; reason: string };
+
+/**
+ * The project a request is for, which decides where it may go and which token it carries. Every caller passes one:
+ * build it with watchedApp (convex/protectedApp/watched.ts), which hands back DEMO_APP in the single-owner demo and,
+ * with accounts on, the project's own rules: its live origin only, its own token only, no redirect followed.
+ */
+export interface WatchedApp {
+  /** Why turtl will not send a request to this address for this project, as a fragment, or null when it may. */
+  refuse(url: string): string | null;
+  /** The bearer token behind credentialRef (already one of SENDABLE_CREDENTIAL_REFS), read in the action that sends it. */
+  token(credentialRef: string): Promise<TokenRead>;
+  /** False: a redirect is answered as it is, never followed, so a token never travels to another address. */
+  followRedirects: boolean;
+}
+
+/**
+ * The single-owner demo's one app, as before projects had tokens: any address, and the deployment's variable named by
+ * credentialRef. Used only with accounts off (watchedApp) and by the demo's dev tools, which are closed with accounts on.
+ */
+export const DEMO_APP: WatchedApp = {
+  refuse: () => null,
+  token: async (credentialRef) => {
+    const secret = process.env[credentialRef];
+    return secret ? { ok: true, token: secret } : { ok: false, reason: `${credentialRef} is not set on this deployment` };
+  },
+  followRedirects: true,
+};
+
+export type CallOptions = {
+  app: WatchedApp;
+  method?: "GET" | "POST";
+  body?: unknown;
+  credentialRef?: string;
+  timeoutMs?: number;
+};
+
+const isRedirect = (response: Response) => response.type === "opaqueredirect" || (response.status >= 300 && response.status < 400);
+
+// One HTTP call for one project. The bearer token is read for that project and never returned.
+export async function call(url: string, options: CallOptions = { app: DEMO_APP }): Promise<CallResult> {
+  const { app = DEMO_APP, method = "GET", body, credentialRef, timeoutMs = REQUEST_TIMEOUT_MS } = options;
+  const refused = app.refuse(url);
+  if (refused) return { kind: "not_sent", reason: refused };
   const headers: Record<string, string> = {};
   if (credentialRef) {
     if (!SENDABLE_CREDENTIAL_REFS.includes(credentialRef)) {
       return { kind: "not_sent", reason: `turtl does not send the setting named ${credentialRef} to a watched app` };
     }
-    const secret = process.env[credentialRef];
-    if (!secret) return { kind: "not_sent", reason: `${credentialRef} is not set on this deployment` };
-    headers.Authorization = `Bearer ${secret}`;
+    const read = await app.token(credentialRef);
+    if (!read.ok) return { kind: "not_sent", reason: read.reason };
+    headers.Authorization = `Bearer ${read.token}`;
   }
   if (body !== undefined) headers["Content-Type"] = "application/json";
   const started = Date.now();
@@ -77,7 +112,11 @@ export async function call(
       headers,
       body: body === undefined ? undefined : JSON.stringify(body),
       signal: controller.signal,
+      ...(!app.followRedirects && { redirect: "manual" as const }),
     });
+    if (!app.followRedirects && isRedirect(response)) {
+      return { kind: "response", status: response.status || 302, body: null, durationMs: Date.now() - started };
+    }
     const text = await response.text();
     let parsed: unknown = null;
     try {
@@ -101,7 +140,11 @@ export async function call(
 }
 
 export const describeFailure = (result: CallResult) =>
-  result.kind === "response" ? `HTTP ${result.status}` : result.reason;
+  result.kind !== "response"
+    ? result.reason
+    : result.status >= 300 && result.status < 400
+      ? `a redirect (HTTP ${result.status}), which turtl does not follow`
+      : `HTTP ${result.status}`;
 
 export type JourneyStep = { step: string; verdict: "passed" | "failed" | "skipped"; detail: string };
 
@@ -123,11 +166,9 @@ export type JourneyOutcome =
   | { ok: false; reason: string };
 
 // POST /journey-check: 200 means passed, 503 means failed; both carry the result.
-export async function runJourneyCheck(config: {
-  url: string;
-  credentialRef?: string;
-}): Promise<JourneyOutcome> {
+export async function runJourneyCheck(config: { url: string; credentialRef?: string }, app: WatchedApp): Promise<JourneyOutcome> {
   const response = await call(config.url, {
+    app,
     method: "POST",
     credentialRef: config.credentialRef,
     timeoutMs: 30_000,
@@ -192,16 +233,16 @@ export function topErrorCode(body: ErrorsBody) {
   return top;
 }
 
-export async function readErrors(base: string) {
-  const response = await call(`${base}/errors`, { credentialRef: CREDENTIAL_REF });
+export async function readErrors(base: string, app: WatchedApp) {
+  const response = await call(`${base}/errors`, { app, credentialRef: CREDENTIAL_REF });
   if (response.kind !== "response" || response.status !== 200) {
     return { ok: false as const, reason: describeFailure(response) };
   }
   return { ok: true as const, body: response.body as ErrorsBody };
 }
 
-export async function readRevision(base: string) {
-  const response = await call(`${base}/revision`);
+export async function readRevision(base: string, app: WatchedApp) {
+  const response = await call(`${base}/revision`, { app });
   if (response.kind !== "response" || response.status !== 200) return null;
   const revision = (response.body as { revision?: unknown } | null)?.revision;
   return typeof revision === "string" ? revision : null;

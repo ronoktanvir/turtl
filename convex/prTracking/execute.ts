@@ -3,7 +3,8 @@ import type { Doc } from "../_generated/dataModel";
 import type { ActionCtx } from "../_generated/server";
 import { gateFor } from "../consent/gate";
 import type { HandlerInput, HandlerResult } from "../runner/contract";
-import { capyConfig, instructionsToSend, startCapyThread } from "./capy";
+import { instructionsToSend, notConfigured, startCapyThread } from "./capy";
+import { codingAgentFor } from "./codingAgent";
 import { repoFromUrl } from "./github";
 
 const textParameter = (action: Doc<"actions">, name: string) => {
@@ -49,9 +50,11 @@ export async function runCodeChange(ctx: ActionCtx, input: HandlerInput, action:
   const message = instructionsToSend(action.executionPayload.parameters, action.executionPayload.target);
   if (!repo) return fail(`"${config.repoUrl}" is not a GitHub repository; nothing was sent to Capy.`);
   if (!title || !message) return fail("The approved fix has no title or change to make; nothing was sent to Capy.");
-  const capy = capyConfig();
+  // With accounts on, the project owner's own coding agent, on a repository the owner connected to turtl
+  // (codingAgent.ts); in the single-owner demo, the deployment's.
+  const capy = await codingAgentFor(ctx, { appId: input.case.appId }, repo);
   if (!capy.ok) {
-    return fail(`Not configured: set ${capy.missing.join(" and ")} on the Convex deployment so Capy can write this change. Nothing was sent.`);
+    return fail(capy.reason ? notConfigured(capy, "write this change") : `Not configured: set ${capy.missing.join(" and ")} on the Convex deployment so Capy can write this change. Nothing was sent.`);
   }
 
   const started = await startCapyThread(gateFor(ctx, { appId: input.case.appId }), capy, {

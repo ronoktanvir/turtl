@@ -10,6 +10,11 @@ export const BOOKING_WORKFLOW_VAR = "REVYL_BOOKING_WORKFLOW_ID";
 const DEFAULT_BASE_URL = "https://backend.revyl.ai";
 const REQUEST_TIMEOUT_MS = 20_000;
 
+// The only settings turtl will send to Revyl as its key. A check's `credentialRef` is data stored on a row, so like
+// SENDABLE_CREDENTIAL_REFS in convex/protectedApp/client.ts it must never choose which of the deployment's secrets
+// leaves: any other name is refused before anything is read or sent.
+export const SENDABLE_REVYL_KEY_VARS: readonly string[] = [API_KEY_VAR];
+
 export type RevylConfig = { baseUrl: string; apiKey: string; workflowId: string };
 
 // A check names its workflow and key variable (vCheck kind "revyl"); without one, the booking journey's workflow is
@@ -18,8 +23,11 @@ export type RevylConfig = { baseUrl: string; apiKey: string; workflowId: string 
 export function revylConfig(check?: {
   workflowId?: string;
   credentialRef?: string;
-}): { ok: true; config: RevylConfig } | { ok: false; missing: string[] } {
+}): { ok: true; config: RevylConfig } | { ok: false; missing: string[]; refused?: string } {
   const keyVar = check?.credentialRef ?? API_KEY_VAR;
+  if (!SENDABLE_REVYL_KEY_VARS.includes(keyVar)) {
+    return { ok: false, missing: [], refused: `turtl does not send the setting named ${keyVar} to Revyl` };
+  }
   const apiKey = process.env[keyVar];
   const workflowId = check?.workflowId ?? demoOnly(process.env[BOOKING_WORKFLOW_VAR]);
   if (!apiKey || !workflowId) {

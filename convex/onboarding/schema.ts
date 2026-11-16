@@ -80,6 +80,9 @@ export const onboardingTables = {
     syncedAt: v.optional(v.number()),
     syncError: v.optional(v.string()),
     openError: v.optional(v.string()),
+    // Why turtl handed an approval back without starting anything (no coding agent, or the repository is not
+    // connected), so the owner can fix it and approve again.
+    blocked: v.optional(v.string()),
     mergeRequestedAt: v.optional(v.number()),
     mergedAt: v.optional(v.number()),
     mergedBy: v.optional(v.union(v.literal("owner"), v.literal("github"))),
@@ -90,11 +93,15 @@ export const onboardingTables = {
         status: v.union(v.literal("checking"), v.literal("done"), v.literal("failed")),
         ref: v.optional(v.string()),
         error: v.optional(v.string()),
+        // What turtl left out of turtl.json, such as entries past MAX_MANIFEST_ENTRIES.
+        note: v.optional(v.string()),
         checks: v.array(vLiveCheck),
         checkedAt: v.optional(v.number()),
+        // When the owner last asked turtl to check again; with accounts on it limits how often they can.
+        requestedAt: v.optional(v.number()),
       }),
     ),
   })
     .index("by_app", ["appId"])
-    .index("by_settled", ["settledAt"]),
+    .index("by_settled_and_approved", ["settledAt", "approvedAt"]),
 };

@@ -88,6 +88,7 @@ export type Onboarding = {
   problem?: string; // why the pull request could not be opened, synced or merged
   checks: LiveCheck[];
   checksError?: string;
+  checksNote?: string; // what turtl left out of turtl.json, such as entries past its limit of 20 per list
   checkedAt?: number;
 };
 

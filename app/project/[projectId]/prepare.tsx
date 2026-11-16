@@ -7,6 +7,8 @@ import { PullRequestPanel } from "../../../components/onboarding/PullRequestPane
 import { ReadinessReport } from "../../../components/onboarding/ReadinessReport";
 import { WorksNow } from "../../../components/onboarding/WorksNow";
 import { editableStages, inspectableStages, rulesNote, stageLine } from "../../../components/onboarding/stage";
+import { CodingAgentNotice, useCodingAgentMissing } from "../../../components/secrets/CodingAgentNotice";
+import ControlTokenSettings from "../../../components/secrets/ControlTokenSettings";
 import { Button, Header, Icon, Reveal, Screen, Sheet, T, Turtle } from "../../../components/ui";
 import { approvePreparation, checkLiveAgain, inspectAgain, mergePreparation, refreshPreparation, saveNeverBreak, useDataStatus, useOnboarding, useProject } from "../../../data";
 import type { NeverBreakAnswer } from "../../../data/onboarding/types";
@@ -29,6 +31,7 @@ export default function Prepare() {
   const [approving, setApproving] = useState(false);
   const [merging, setMerging] = useState<{ title: string; headSha: string } | null>(null);
   const [refused, setRefused] = useState<string | null>(null);
+  const agentMissing = useCodingAgentMissing();
   const title = (project?.name ?? "") + ": Preparation";
   const back = ("/project/" + projectId) as never;
 
@@ -154,7 +157,8 @@ export default function Prepare() {
 
           {o.stage === "ready" && (
             <View style={{ gap: 10 }}>
-              <Button label="Prepare my app" icon="Sparkles" disabled={unsaved || busy !== null} onPress={() => { setError(null); setApproving(true); }} testID="prepare-approve" />
+              <CodingAgentNotice testID="prepare-coding-agent" />
+              <Button label="Prepare my app" icon="Sparkles" disabled={unsaved || busy !== null || agentMissing} onPress={() => { setError(null); setApproving(true); }} testID="prepare-approve" />
               {unsaved && <T variant="small" color="textMuted" style={{ textAlign: "center" }}>Save your answers first.</T>}
             </View>
           )}
@@ -167,6 +171,10 @@ export default function Prepare() {
               <Icon name="TriangleAlert" color="statusNeedsYou" />
               <T font="text" color="statusNeedsYou" accessibilityRole="alert" style={{ flex: 1 }} testID="prepare-merge-refused">{refused}</T>
             </View>
+          )}
+
+          {(o.stage === "opening" || o.stage === "pr_open" || o.stage === "registering" || o.stage === "registered") && (
+            <ControlTokenSettings projectId={o.projectId} testID="prepare-control-token" />
           )}
 
           {(o.stage === "registering" || o.stage === "registered") && (

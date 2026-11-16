@@ -30,7 +30,6 @@ const define = (definition) => definition;
 const server = { query: define, mutation: define, action: define, internalQuery: define, internalMutation: define };
 const anything = new Proxy({}, { get: (_, name) => (name === "then" ? undefined : anything) });
 
-const capy = load("../convex/prTracking/capy.ts", {});
 // The single-owner demo's gate: every answer is yes. tests/consent-gate.test.mjs covers the refusals.
 const consentGate = { gateFor: () => ({ blocked: async () => null, open: async () => ({ ok: true, fetch: globalThis.fetch }), spent: async () => {}, threadStarted: async () => {} }) };
 // The real access rule. With AUTH_REQUIRED unset, as here, its checks do nothing.
@@ -39,6 +38,9 @@ const access = load("../convex/access.ts", {
   "./_generated/api": { internal: anything },
   "./_generated/server": server,
 });
+const demoSettings = load("../convex/demoSettings.ts", { "./access": access });
+const capy = load("../convex/prTracking/capy.ts", { "../demoSettings": demoSettings });
+const githubConfig = load("../convex/github/config.ts", { "../demoSettings": demoSettings, "./secrets": {} });
 const decisions = load("../convex/decisions.ts", {
   "convex/values": values,
   "./_generated/server": server,
@@ -128,8 +130,10 @@ async function sendToCodingAgent(action) {
   const execute = load("../convex/prTracking/execute.ts", {
     "../_generated/api": { internal: anything },
     "../consent/gate": consentGate,
-    "./capy": { ...capy, capyConfig: () => ({ ok: true, apiKey: "stand-in" }), startCapyThread: async (_gate, _config, thread) => { sent.push(thread); return { ok: true, body: { threadId: "thread-1" } }; } },
-    "./github": load("../convex/prTracking/github.ts", { "../demoSettings": load("../convex/demoSettings.ts", { "./access": access }) }),
+    "./capy": { ...capy, startCapyThread: async (_gate, _config, thread) => { sent.push(thread); return { ok: true, body: { threadId: "thread-1" } }; } },
+    // Which coding agent starts the thread is tests/project-secrets.test.mjs's subject; here it is always ready.
+    "./codingAgent": { codingAgentFor: async () => ({ ok: true, apiKey: "stand-in" }) },
+    "./github": load("../convex/prTracking/github.ts", { "../demoSettings": demoSettings, "../github/config": githubConfig }),
   });
   const ctx = { runQuery: async () => null, runMutation: async () => "pull-request-1" };
   const result = await execute.runCodeChange(ctx, { attempt: { _id: "attempt-1" }, case: { title: "Customers can't complete bookings" } }, action);

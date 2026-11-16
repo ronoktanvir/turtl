@@ -5,6 +5,7 @@ import { approveFix, declineFixes, useCase } from "../../data";
 import type { FixKind, FixOption, FixSends } from "../../data/types";
 import { useTheme } from "../../theme";
 import { Button, Icon, Sheet, T } from "../ui";
+import { CodingAgentNotice } from "../secrets/CodingAgentNotice";
 import { SpanText, type Sources } from "./Evidence";
 
 export const kindLabel: Record<FixKind, string> = {
@@ -69,6 +70,7 @@ export function FixCard({
         <View style={{ gap: 20, paddingLeft: 26 }}>
           <T>{fix.whatChanges}</T>
           {fix.delivery === "pull_request" && <View style={{ flexDirection: "row", gap: 10, borderLeftWidth: 2, borderLeftColor: colors.brandDeep, paddingLeft: 12 }}><Icon name="GitPullRequest" size={18} color="brandDeep" /><T color="textMuted" style={{ flex: 1 }}>{pullRequestNote}</T></View>}
+          {fix.delivery === "pull_request" && <CodingAgentNotice testID={prefix + "-coding-agent-" + fix.key} />}
           <View style={{ gap: 4 }}>
             <T variant="strong">Why</T>
             <SpanText spans={fix.why} sources={sources} prefix={prefix + "-" + fix.key} />
@@ -156,6 +158,7 @@ export function ApproveSheet({
         <>
           <T>{fix.whatChanges}</T>
           {fix.delivery === "pull_request" && <T testID="approve-pull-request-note">{pullRequestNote}</T>}
+          {fix.delivery === "pull_request" && <CodingAgentNotice testID="approve-coding-agent" />}
           <T color="textMuted">{fix.whatMightBeLost}</T>
           {fix.sends && <WhatGetsSent key={caseId + ":" + fix.key + ":" + fromCustomers} sends={fix.sends} fromCustomers={fromCustomers} />}
           {!fix.recommended && <NoteInput label="Why this one? (optional)" placeholder="Anything turtl should remember" value={note} onChangeText={setNote} editable={!busy} testID="approve-note" />}
