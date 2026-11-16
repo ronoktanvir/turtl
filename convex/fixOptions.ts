@@ -1,6 +1,6 @@
 import type { Doc, Id } from "./_generated/dataModel";
 import type { Gate } from "./consent/gate";
-import type { Criterion, Delivery, OptionKind, ProposalOption, Span } from "./constants";
+import { NO_MODEL_REASON, type Criterion, type Delivery, type OptionKind, type ProposalOption, type Span } from "./constants";
 import { checkParameters } from "./decisions";
 import { modelId as diagnosisModelId } from "./diagnosis";
 import { fingerprint, pastDecisionLine, recommend, type TurnedDown } from "./learning/rules";
@@ -197,7 +197,7 @@ export async function askJson(
   user: unknown,
 ): Promise<{ ok: true; json: Record<string, unknown> } | { ok: false; reason: string }> {
   const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) return { ok: false, reason: "OPENAI_API_KEY is not set on this deployment, so no model was asked" };
+  if (!apiKey) return { ok: false, reason: NO_MODEL_REASON };
   const opened = await gate.open("openai");
   if (!opened.ok) return { ok: false, reason: opened.reason };
   const model = fixesModelId();

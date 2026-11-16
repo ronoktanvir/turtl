@@ -7,7 +7,7 @@ import {
 } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
 import { gateFor } from "../consent/gate";
-import { vParameterValue, type Stage } from "../constants";
+import { NO_SUPERMEMORY, vParameterValue, type Stage } from "../constants";
 import { latestAction, latestProposal } from "../protectedApp/records";
 import type { Facts } from "../runner/handlers/journey";
 import { addMemory, searchChunks, searchMemories } from "../supermemory";
@@ -60,7 +60,7 @@ export async function learnCase(
   });
   let supermemoryWritten = false;
   let indexing =
-    "Supermemory was not written because SUPERMEMORY_API_KEY is not configured.";
+    `Supermemory was not written because ${NO_SUPERMEMORY}.`;
   const gate = gateFor(ctx, { caseId });
   const refused = process.env.SUPERMEMORY_API_KEY && memory ? await gate.blocked("supermemory") : null;
   if (refused) indexing = `Supermemory was not written because ${refused}; the Convex recovery record is saved.`;
@@ -153,7 +153,7 @@ export const recall = internalAction({
     let texts: string[] = [];
     let supermemorySearched = false;
     let summary =
-      "Supermemory was not searched because SUPERMEMORY_API_KEY is not configured; Convex signature candidates were rechecked.";
+      `Supermemory was not searched because ${NO_SUPERMEMORY}; the cases turtl keeps itself were rechecked.`;
     const gate = gateFor(ctx, { appId });
     const refused = process.env.SUPERMEMORY_API_KEY ? await gate.blocked("supermemory") : null;
     if (refused) summary = `Supermemory was not searched because ${refused}; Convex signature candidates were rechecked.`;
@@ -357,7 +357,7 @@ export async function writeCaseNote(
   ].join("\n");
 
   let indexing =
-    "it was not indexed in Supermemory because SUPERMEMORY_API_KEY is not configured";
+    `it was not indexed in Supermemory because ${NO_SUPERMEMORY}`;
   const gate = gateFor(ctx, { appId: row.appId });
   const refused = process.env.SUPERMEMORY_API_KEY ? await gate.blocked("supermemory") : null;
   if (refused) indexing = `it was not indexed in Supermemory because ${refused}`;
@@ -477,7 +477,7 @@ export async function readPastCaseNotes(
         ? `${read}: none are saved yet.`
         : found.fromSearch
           ? `${read}, found by Supermemory search, as background for the model.`
-          : `${read} from the most recent learn notes in Convex (${refused ? `Supermemory was not searched because ${refused}` : searchFailed ? "Supermemory search failed" : process.env.SUPERMEMORY_API_KEY ? "Supermemory search linked to none" : "SUPERMEMORY_API_KEY is not configured"}), as background for the model.`,
+          : `${read} from the most recent learn notes in Convex (${refused ? `Supermemory was not searched because ${refused}` : searchFailed ? "Supermemory search failed" : process.env.SUPERMEMORY_API_KEY ? "Supermemory search linked to none" : NO_SUPERMEMORY}), as background for the model.`,
     };
   } catch {
     return {

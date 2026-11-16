@@ -8,7 +8,7 @@ import {
   internalQuery,
   type MutationCtx,
 } from "../_generated/server";
-import { CLOSED_CASE_STATUSES } from "../constants";
+import { CLOSED_CASE_STATUSES, UNEXPECTED_STOP } from "../constants";
 import type { CaseStatus, Stage } from "../constants";
 import {
   MAX_ATTEMPTS,
@@ -220,10 +220,10 @@ export const execute = internalAction({
           approval: approvedAt === undefined ? null : { approvedAt },
         });
       } catch (error) {
-        result = {
-          status: "failed",
-          error: error instanceof Error ? error.message : String(error),
-        };
+        // A handler reports the failures it expects in its result; a thrown error is a defect, and its message can
+        // carry code names and stack detail. The owner reads the step's error, so the detail goes to the log.
+        console.error(`step ${step.key} threw`, error);
+        result = { status: "failed", error: UNEXPECTED_STOP };
       }
     }
     await ctx.runMutation(internal.runner.run.recordResult, { attemptId, result });

@@ -1,3 +1,4 @@
+import { NO_SUPERMEMORY } from "./constants";
 import { Supermemory } from "supermemory";
 import type { Gate } from "./consent/gate";
 import { Refused, VendorError } from "./consent/outbound";
@@ -20,9 +21,7 @@ const scoped = (namespace: string) => `${process.env.SUPERMEMORY_NAMESPACE_PREFI
 async function client(gate: Gate, namespace: string, purpose: "send" | "erase" = "send"): Promise<Supermemory> {
   const apiKey = process.env.SUPERMEMORY_API_KEY;
   if (!apiKey) {
-    throw new Error(
-      "SUPERMEMORY_API_KEY is not set. Set it with: npx convex env set SUPERMEMORY_API_KEY <value>",
-    );
+    throw new Error(`${NO_SUPERMEMORY}.`);
   }
   if (!NAMESPACE_PATTERN.test(scoped(namespace))) {
     throw new Error(

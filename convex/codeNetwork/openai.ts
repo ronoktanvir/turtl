@@ -1,3 +1,4 @@
+import { NO_MODEL_REASON } from "../constants";
 import type { Gate } from "../consent/gate";
 import { Refused, VendorError, vendorFailure } from "../consent/outbound";
 import { modelCost } from "../spend/limits";
@@ -5,6 +6,8 @@ import { modelCost } from "../spend/limits";
 declare const process: { env: Record<string, string | undefined> };
 
 export const DEFAULT_MODEL = "gpt-6-luna";
+
+const capitalize = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
 
 export type ModelUsage = { inputTokens: number; outputTokens: number };
 
@@ -26,7 +29,7 @@ export async function respond(
   },
 ): Promise<{ text: string; usage: ModelUsage }> {
   const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) throw new Error("OPENAI_API_KEY is not set. Set it with: npx convex env set OPENAI_API_KEY <value>");
+  if (!apiKey) throw new Error(`${capitalize(NO_MODEL_REASON)}.`);
   const opened = await gate.open("openai");
   if (!opened.ok) throw new Refused(opened.reason);
   const model = process.env.OPENAI_MODEL || DEFAULT_MODEL;

@@ -1,3 +1,4 @@
+import { NO_MODEL_REASON } from "../constants";
 import type { Gate } from "../consent/gate";
 import { VOICE_CALL_ESTIMATE_USD } from "../spend/limits";
 import { clipExtension } from "./rules";
@@ -15,7 +16,7 @@ const SPEECH_STYLE = "Calm, clear and unhurried, like a colleague on call talkin
 
 async function call(gate: Gate, path: string, init: RequestInit): Promise<{ ok: true; response: Response } | { ok: false; reason: string }> {
   const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) return { ok: false, reason: "OPENAI_API_KEY is not set on this deployment, so no model was asked" };
+  if (!apiKey) return { ok: false, reason: NO_MODEL_REASON };
   const opened = await gate.open("openai");
   if (!opened.ok) return { ok: false, reason: opened.reason };
   const controller = new AbortController();
