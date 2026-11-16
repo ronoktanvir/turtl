@@ -176,6 +176,25 @@ export function Constellation({ network, selection, onSelect }: { network: CodeN
       }
     });
   }
+  if (selection?.kind === "node" && !labelBoxes.has(selection.id)) {
+    const node = network.nodes.find((item) => item.id === selection.id);
+    const point = layout.nodes.get(selection.id);
+    if (node && point) {
+      const screen = projected(point);
+      const width = Math.min(Math.max(160, node.label.length * 7.5 + 20), 240, Math.max(1, size.width - 16));
+      const charactersPerLine = Math.max(1, Math.floor((width - 20) / 7.5));
+      const height = Math.min(64, 14 + Math.ceil(node.label.length / charactersPerLine) * 17);
+      const radius = (14 + (node.weight ?? 1) * 5) * camera.scale;
+      const preferredY = screen.y + radius + 8 + height <= size.height - 62 ? screen.y + radius + 8 : screen.y - radius - height - 8;
+      labelBoxes.clear();
+      labelBoxes.set(node.id, {
+        x: Math.max(8, Math.min(screen.x - width / 2, size.width - width - 8)),
+        y: Math.max(8, Math.min(preferredY, size.height - height - 62)),
+        width,
+        height,
+      });
+    }
+  }
 
   return (
     <View style={{ flex: 1, minHeight: 0 }} testID="network-scroll-x">

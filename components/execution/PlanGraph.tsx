@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Pressable, View } from "react-native";
 import type { PlanStep, PullRequest } from "../../data/types";
 import { useTheme, type TokenName } from "../../theme";
-import { Icon, T, type IconName } from "../ui";
+import { Icon, Reveal, T, type IconName } from "../ui";
 
 const status: Record<PlanStep["status"], { label: string; color: TokenName; icon: IconName }> = {
   pending: { label: "Waiting", color: "textMuted", icon: "GitBranch" },
@@ -30,6 +30,7 @@ export function PlanGraph({ steps, pullRequest }: { steps: PlanStep[]; pullReque
                 <Icon name="ArrowDown" size={16} color="textMuted" />
               </View>
             )}
+            <Reveal replayKey={step.status}>
             <Pressable
               onPress={() => setExpanded(open ? null : step.key)}
               accessibilityRole="button"
@@ -62,6 +63,7 @@ export function PlanGraph({ steps, pullRequest }: { steps: PlanStep[]; pullReque
                 </View>
               )}
             </Pressable>
+            </Reveal>
             {!!checks?.length && (
               <View testID="plan-check-lanes">
                 <View style={{ width: 1, height: 16, alignSelf: "center", backgroundColor: colors.border }} />
@@ -72,7 +74,7 @@ export function PlanGraph({ steps, pullRequest }: { steps: PlanStep[]; pullReque
                     const tone = run.status === "passed" ? "statusClear" : run.status === "failed" ? "statusAffected" : "textMuted";
                     const checkOpen = openCheck === run.name;
                     return (
-                      <View key={run.name} style={{ flex: 1 }}>
+                      <Reveal key={run.name} replayKey={run.status} style={{ flex: 1 }}>
                         <Pressable
                           onPress={() => setOpenCheck(checkOpen ? null : run.name)}
                           testID={"plan-check-" + run.name.toLowerCase().replace(/[^a-z]+/g, "-")}
@@ -88,7 +90,7 @@ export function PlanGraph({ steps, pullRequest }: { steps: PlanStep[]; pullReque
                           <T variant="small" color={tone}>{run.status === "passed" ? "Passed" : run.status === "failed" ? "Failed" : "Pending"}</T>
                           {checkOpen && <T variant="small" color="textMuted">{run.status === "passed" ? "Passed on commit " : run.status === "failed" ? "Failed on commit " : "Awaiting a result for commit "}{pullRequest?.headSha.slice(0, 7)}</T>}
                         </Pressable>
-                      </View>
+                      </Reveal>
                     );
                   })}
                 </View>
@@ -96,7 +98,7 @@ export function PlanGraph({ steps, pullRequest }: { steps: PlanStep[]; pullReque
                   const checkOpen = openCheck === run.name;
                   const tone = run.status === "passed" ? "statusClear" : run.status === "failed" ? "statusAffected" : "textMuted";
                   return (
-                    <View key={run.name}>
+                    <Reveal key={run.name} replayKey={run.status}>
                       <Pressable
                         onPress={() => setOpenCheck(checkOpen ? null : run.name)}
                         testID={"plan-check-" + run.name.toLowerCase().replace(/[^a-z]+/g, "-")}
@@ -112,7 +114,7 @@ export function PlanGraph({ steps, pullRequest }: { steps: PlanStep[]; pullReque
                         <T variant="small" color={tone}>{run.status === "passed" ? "Passed" : run.status === "failed" ? "Failed" : "Pending"}</T>
                         {checkOpen && <T variant="small" color="textMuted">{"Evidence for commit " + pullRequest?.headSha.slice(0, 7) + ". This check runs alongside Typecheck and Tests."}</T>}
                       </Pressable>
-                    </View>
+                    </Reveal>
                   );
                 })}
                 </View>

@@ -82,7 +82,8 @@ export function SpanText({ spans, sources, prefix }: { spans: Span[]; sources: S
       <T>
         {spans.map((span, i) => {
           const cite = span.cite;
-          if (!cite) return span.text;
+          if (!cite) return spans[i - 1]?.cite ? span.text.replace(/^[.,;:!?]+/, "") : span.text;
+          const punctuation = !spans[i + 1]?.cite ? spans[i + 1]?.text.match(/^[.,;:!?]+/)?.[0] ?? "" : "";
           return (
             <Text
               key={i}
@@ -96,7 +97,7 @@ export function SpanText({ spans, sources, prefix }: { spans: Span[]; sources: S
                 fontWeight: "400",
               }}
             >
-              {span.text}
+              {span.text + punctuation}
             </Text>
           );
         })}

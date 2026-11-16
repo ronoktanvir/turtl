@@ -17,18 +17,18 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { Health } from "../../data/types";
 import { healthToken, healthWord, useTheme, type TokenName } from "../../theme";
 import { Icon, type IconName } from "./Icon";
-import { Reveal } from "./motion";
+import { Reveal, ZoomPressable } from "./motion";
 export { Icon, type IconName } from "./Icon";
-export { Reveal, useReducedMotion } from "./motion";
+export { Reveal, ZoomPressable, useReducedMotion } from "./motion";
 export { BrandIcon } from "./BrandIcon";
 
 export const devToolsOn =
   !!process.env.EXPO_PUBLIC_CONVEX_URL && (__DEV__ || process.env.EXPO_PUBLIC_DEV_TOOLS === "1");
 
 const turtles: Record<Health, number> = {
-  affected: require("../../assets/turtle/affected.png"),
+  affected: require("../../assets/turtle/affected-laptop.png"),
   needs_you: require("../../assets/turtle/needs_you.png"),
-  working: require("../../assets/turtle/working.png"),
+  working: require("../../assets/turtle/working-laptop.png"),
   clear: require("../../assets/turtle/clear.png"),
 };
 
@@ -68,7 +68,7 @@ export function Screen({ children, testID }: { children: ReactNode; testID?: str
   const insets = useSafeAreaInsets();
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg, paddingTop: insets.top }} testID={testID}>
-      <Reveal style={{ flex: 1 }}>{children}</Reveal>
+      <Reveal style={{ flex: 1 }} progress>{children}</Reveal>
     </View>
   );
 }
@@ -223,14 +223,14 @@ export function Card({
     );
   }
   return (
-    <Pressable
+    <ZoomPressable
       onPress={onPress}
       accessibilityRole="button"
       testID={testID}
       style={({ pressed }) => [base, pressed && { backgroundColor: colors.surfaceRaised }, style]}
     >
       {children}
-    </Pressable>
+    </ZoomPressable>
   );
 }
 
@@ -244,11 +244,11 @@ export function Turtle({ health, size = 40, outlined, label }: { health: Health;
       accessibilityLabel={label ?? "turtl: " + healthWord[health]}
     />
   );
-  if (!outlined) return image;
+  if (!outlined) return <Reveal replayKey={health}>{image}</Reveal>;
   return (
-    <View style={{ borderWidth: 2, borderColor: colors[healthToken[health]], borderRadius: size, padding: 6 }}>
+    <Reveal replayKey={health}><View style={{ borderWidth: 2, borderColor: colors[healthToken[health]], borderRadius: size, padding: 6 }}>
       {image}
-    </View>
+    </View></Reveal>
   );
 }
 

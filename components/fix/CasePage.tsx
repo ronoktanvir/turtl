@@ -167,9 +167,10 @@ export function CasePage({ caseId, current }: { caseId: string; current: boolean
           }}
           testID={id("fixes-section")}
         >
-          <T variant="title" accessibilityRole="header">
-            {feature ? "Options" : "Fixes"}
-          </T>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 20 }}>
+            {!feature && <Reveal><Image source={require("../../assets/turtle/detective.png")} style={{ width: 76, height: 76 }} accessibilityLabel="turtl investigating possible fixes" /></Reveal>}
+            <T variant="title" accessibilityRole="header">{feature ? "Options" : "Fixes"}</T>
+          </View>
           {active && e && (
             <Card style={{ gap: 10, borderColor: colors.statusWorking }} testID={id("fixes-enacting")}>
               <T variant="strong">
