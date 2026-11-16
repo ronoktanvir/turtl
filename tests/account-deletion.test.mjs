@@ -707,3 +707,51 @@ test("an ended session signs nobody in, though its token has not expired; demo a
     else process.env.AUTH_REQUIRED = saved;
   }
 });
+
+// ---------------------------------------------------------------------------------------------- the screen
+
+test("Delete account sits under Sign out for a signed-in account only, says what goes, and asks once more", () => {
+  const read = (path) => readFileSync(join(root, path), "utf8");
+  const section = read("components/account/AccountSection.tsx");
+  assert.match(section, /if \(status !== "signedIn"\) return null;/, "nothing in the demo or the example build, where nobody is signed in");
+  assert.ok(section.indexOf('testID="account-sign-out"') < section.indexOf("<DeleteAccount />"), "under Sign out");
+  // The account sheet behind Home's profile picture shows the same section.
+  assert.match(read("components/account/ProfileButton.tsx"), /<AccountSection heading=\{false\} \/>/);
+
+  const screen = read("components/account/DeleteAccount.tsx");
+  const DELETED = [.../export const DELETED = \[([\s\S]*?)\] as const;/.exec(screen)[1].matchAll(/"([^"]+)"/g)].map((match) => match[1]);
+  const said = DELETED.join(" | ");
+  const items = { projects: /projects/, cases: /case/, "the map of the code": /map of your code/, screenshots: /Screenshots/, "customers' reports": /reports your customers sent/, "GitHub access": /access to your GitHub/, "this phone's notifications": /Notifications on this phone/, memory: /remembers/ };
+  for (const [what, pattern] of Object.entries(items)) assert.match(said, pattern, `the list says ${what} goes`);
+  assert.match(screen, /This can't be undone\./);
+  // Two taps: Continue, then Yes. Each control has a testID; Button gives each the button role.
+  assert.ok(screen.indexOf('testID="account-delete-continue"') < screen.indexOf('testID="account-delete-confirm"'));
+  for (const id of ["account-delete", "account-delete-continue", "account-delete-cancel", "account-delete-confirm", "account-delete-keep"]) assert.match(screen, new RegExp(`testID="${id}"`));
+  assert.deepEqual([...screen.matchAll(/font="(\w+)"/g)].map((match) => match[1]), ["text"], "only the error, which may arrive without a full stop, sets its face by hand");
+
+  // The type rule: the list's items are labels (Righteous); the sentences around them are Capriola.
+  const { faceFor } = createLoader()("components/ui/typeface.ts");
+  for (const item of DELETED) assert.equal(faceFor(item), "title", item);
+  const sentences = ["Deleting your account removes all of this from turtl, and from the services turtl uses to keep it.", "This can't be undone.", "Delete your account and everything in it now? You won't be able to get any of it back."];
+  for (const sentence of sentences) {
+    assert.ok(screen.includes(sentence), sentence);
+    assert.equal(faceFor(sentence), "text", sentence);
+  }
+});
+
+test("deleting asks the backend first, then signs out to Login, which shows one line saying the account is being deleted", () => {
+  const read = (path) => readFileSync(join(root, path), "utf8");
+  const live = read("data/account/live.ts");
+  const action = live.slice(live.indexOf("deleteAccount: async () => {"));
+  assert.ok(action.indexOf("api.account.deletion.request") < action.indexOf("setSignedOutNotice(notices.deleting)"));
+  assert.ok(action.indexOf("setSignedOutNotice(notices.deleting)") < action.indexOf("await signOut();"));
+  assert.match(read("data/account/example.ts"), /deleteAccount: nothing/, "the example build deletes nothing");
+  assert.match(live, /authorizationCode: credential\.authorizationCode/, "Sign in with Apple hands the backend the code it trades for the token to revoke");
+  const { words } = createLoader()("data/account/notice.ts");
+  assert.equal(words.deleting, "Your account is being deleted. turtl is removing everything it kept for it.");
+  const { faceFor } = createLoader()("components/ui/typeface.ts");
+  assert.equal(faceFor(words.deleting), "text");
+  const login = read("app/index.tsx");
+  assert.ok(login.indexOf("<DeleteAccountNotice />") < login.indexOf('testID="login-enter"'), "above Login's buttons");
+  assert.match(read("components/account/DeleteAccountNotice.tsx"), /if \(!notice\) return null;/);
+});

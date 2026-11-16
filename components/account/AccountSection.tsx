@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { View } from "react-native";
 import { useAccount, useAccountActions, type SignInMethod } from "../../data/account";
 import { Button, T } from "../ui";
+import DeleteAccount from "./DeleteAccount";
 import ProfilePicture from "./ProfilePicture";
 
 const methodWords: Record<SignInMethod, string> = { password: "email and password", apple: "Apple", github: "GitHub" };
@@ -12,7 +13,8 @@ export function signedInWith(methods: SignInMethod[]): string {
   return `Signed in with ${named.length === 1 ? named[0] : `${named.slice(0, -1).join(", ")} or ${named[named.length - 1]}`}`;
 }
 
-/** The gear sheet's account section: who is signed in, how, and Sign out. Nothing without accounts. */
+/** The gear sheet's account section, also in the account sheet behind Home's profile picture: who is signed in, how,
+ * Sign out and Delete account. Nothing without accounts. */
 export default function AccountSection({ heading = true }: { heading?: boolean }) {
   const { status, viewer } = useAccount();
   const { signOut } = useAccountActions();
@@ -44,11 +46,8 @@ export default function AccountSection({ heading = true }: { heading?: boolean }
       </View>
       {error && <T font="text" color="statusAffected" accessibilityRole="alert" testID="account-sign-out-error">{error}</T>}
       <Button label={busy ? "Signing out…" : "Sign out"} kind="plain" disabled={busy} onPress={() => void leave()} testID="account-sign-out" />
-      {/*
-        Delete account goes here (checklist RC-23), built by a later slice: a "Delete account" Button with
-        kind="danger" and testID "account-delete", which says what will be deleted before it asks to confirm.
-        Sign out above shows how to end the session: useAccountActions().signOut().
-      */}
+      {/* Delete account (checklist RC-23): says what goes, asks once more, then signs out to Login. */}
+      <DeleteAccount />
     </View>
   );
 }

@@ -9,6 +9,7 @@ import { Platform } from "react-native";
 import { api } from "../../convex/_generated/api";
 import { words } from "../../convex/auth/rules";
 import { liveClient } from "../live/client";
+import { setSignedOutNotice, words as notices } from "./notice";
 import { isStoreBuild } from "../source";
 import { accountStatus, signInMessage } from "./status";
 import type { Account, AccountActions, AccountMode } from "./types";
@@ -142,7 +143,9 @@ async function signInWithApple(signIn: SignIn): Promise<string | null> {
   }
   if (!credential.identityToken) return words.appleRefused;
   const name = credential.fullName ? AppleAuthentication.formatFullName(credential.fullName).trim() : "";
-  await signIn("apple", { identityToken: credential.identityToken, nonce, ...(name ? { name } : {}) });
+  // Apple's one-time code lets the backend keep Apple's refresh token, so deleting the account can revoke it.
+  const code: Record<string, string> = credential.authorizationCode ? { authorizationCode: credential.authorizationCode } : {};
+  await signIn("apple", { identityToken: credential.identityToken, nonce, ...(name ? { name } : {}), ...code });
   return null;
 }
 
@@ -178,6 +181,17 @@ export function useAccountActions(): AccountActions {
       signOut: async () => {
         // Ending the session on the server needs the connection; signing out offline would leave it open there.
         if (browserOffline() || !(await connected())) return words.offline;
+        await Promise.allSettled([...signOutListeners].map(async (listener) => await listener()));
+        await signOut();
+        return null;
+      },
+      deleteAccount: async () => {
+        // The backend ends every session of the account as it accepts, so what follows only tidies up this phone.
+        const refused = await attempt(async () => {
+          await liveClient?.mutation(api.account.deletion.request, {});
+        });
+        if (refused) return refused === words.unknown ? notices.deleteFailed : refused;
+        setSignedOutNotice(notices.deleting);
         await Promise.allSettled([...signOutListeners].map(async (listener) => await listener()));
         await signOut();
         return null;
