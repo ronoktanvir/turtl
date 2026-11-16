@@ -26,7 +26,7 @@ Each item quotes the words of Apple's that it answers. A ticked line is true of 
 
 - [ ] The privacy, terms, and support addresses in `store.config.json` load. Today they return "not found" because GitHub Pages is not switched on for the repository. **Ronok**
 - [ ] `node store/check.mjs --release` passes: no blank left in `site/_data/operator.json`, the "to confirm before launch" notes are switched off, and the code has not drifted from the audit. **Ronok**, then **TUR-66**
-- [ ] The store build cannot show example data. Example data appears whenever the build has no backend address or sets `EXPO_PUBLIC_DATA_SOURCE=example` ([data/source.ts:5](https://github.com/ronoktanvir/turtl/blob/3d01f6404fede6e87f619bfd6cb5ae521b12b64a/data/source.ts#L5 "EXPO_PUBLIC_DATA_SOURCE")). **TUR-59**
+- [ ] The store build cannot show example data. Example data appears whenever the build has no backend address or sets `EXPO_PUBLIC_DATA_SOURCE=example` ([data/source.ts:18](https://github.com/ronoktanvir/turtl/blob/2f99bfebc3a7eae0379704a36a19dcbf687526fa/data/source.ts#L18 "EXPO_PUBLIC_DATA_SOURCE")). **TUR-59**
 - [ ] A new account with no projects sees a first-run screen, not an empty list. **TUR-65**
 
 ### RC-02 · Guideline 2.1(a) · A review account and a backend that is switched on
@@ -52,9 +52,9 @@ Each item quotes the words of Apple's that it answers. A ticked line is true of 
 
 > "Demos, betas, and trial versions of your app don't belong on the App Store – use TestFlight instead."
 
-- [ ] The Login button signs someone in. Today all four buttons on the first screen go straight into the app ([app/index.tsx:11](https://github.com/ronoktanvir/turtl/blob/3d01f6404fede6e87f619bfd6cb5ae521b12b64a/app/index.tsx#L11 "router.replace")). **TUR-57**
+- [ ] The Login button signs someone in. Today all four buttons on the first screen go straight into the app ([app/index.tsx:29](https://github.com/ronoktanvir/turtl/blob/2f99bfebc3a7eae0379704a36a19dcbf687526fa/app/index.tsx#L29 "router.replace")). **TUR-57**
 - [ ] The Google button is removed, or it works. Google is not one of the planned sign-in methods ([app/index.tsx:22](https://github.com/ronoktanvir/turtl/blob/3d01f6404fede6e87f619bfd6cb5ae521b12b64a/app/index.tsx#L22 "Login with Google")). **TUR-57**
-- [ ] The store build cannot show the developer tools: its profile does not set `EXPO_PUBLIC_DEV_TOOLS` ([components/ui/index.tsx:26](https://github.com/ronoktanvir/turtl/blob/3d01f6404fede6e87f619bfd6cb5ae521b12b64a/components/ui/index.tsx#L26 "EXPO_PUBLIC_DEV_TOOLS")), and the production backend does not set `DEV_TOOLS_ENABLED` ([convex/dev.ts:66](https://github.com/ronoktanvir/turtl/blob/3d01f6404fede6e87f619bfd6cb5ae521b12b64a/convex/dev.ts#L66 "DEV_TOOLS_ENABLED")). **TUR-59**
+- [ ] The store build cannot show the developer tools: its profile does not set `EXPO_PUBLIC_DEV_TOOLS` ([components/ui/index.tsx:26](https://github.com/ronoktanvir/turtl/blob/3d01f6404fede6e87f619bfd6cb5ae521b12b64a/components/ui/index.tsx#L26 "EXPO_PUBLIC_DEV_TOOLS")), and the production backend does not set `DEV_TOOLS_ENABLED` ([convex/dev.ts:28](https://github.com/ronoktanvir/turtl/blob/2f99bfebc3a7eae0379704a36a19dcbf687526fa/convex/dev.ts#L28 "DEV_TOOLS_ENABLED")). **TUR-59**
 - [ ] The store build refuses to run with sign-in or access checks switched off. **TUR-59** with **TUR-61**
 - [ ] The profile picture is the signed-in person's own, or a neutral placeholder. Today a photo of Ronok is compiled into the app ([app/projects.tsx:26](https://github.com/ronoktanvir/turtl/blob/3d01f6404fede6e87f619bfd6cb5ae521b12b64a/app/projects.tsx#L26 "ronok-avatar.png")). **TUR-57**
 
@@ -64,25 +64,25 @@ Each item quotes the words of Apple's that it answers. A ticked line is true of 
 
 > "Apps should be self-contained in their bundles, and may not … download, install, or execute code which introduces or changes features or functionality of the app."
 
-- [x] The app downloads and runs no code, and has no over-the-air update library ([package.json:13](https://github.com/ronoktanvir/turtl/blob/3d01f6404fede6e87f619bfd6cb5ae521b12b64a/package.json#L13 "dependencies") to [package.json:34](https://github.com/ronoktanvir/turtl/blob/3d01f6404fede6e87f619bfd6cb5ae521b12b64a/package.json#L34 "supermemory")).
+- [x] The app downloads and runs no code, and has no over-the-air update library ([package.json:14](https://github.com/ronoktanvir/turtl/blob/2f99bfebc3a7eae0379704a36a19dcbf687526fa/package.json#L14 "dependencies") to [package.json:45](https://github.com/ronoktanvir/turtl/blob/2f99bfebc3a7eae0379704a36a19dcbf687526fa/package.json#L45 "supermemory")).
 - [ ] The first release ships without over-the-air updates, as planned. **TUR-59**
-- [ ] The old case list at `/live`, and the old case screen it opens, are removed from the store build. Today any build opens the list at `turtl://live`, and it shows every case in the backend ([app/live.tsx:9](https://github.com/ronoktanvir/turtl/blob/3d01f6404fede6e87f619bfd6cb5ae521b12b64a/app/live.tsx#L9 "api.cases.listWithSteps"), [components/feed/CaseRow.tsx:27](https://github.com/ronoktanvir/turtl/blob/3d01f6404fede6e87f619bfd6cb5ae521b12b64a/components/feed/CaseRow.tsx#L27 "/case/[id]")). **TUR-65**
+- [ ] The old case list at `/live`, and the old case screen it opens, are removed from the store build. Today any build opens the list at `turtl://live`, and it shows every case in the backend ([app/live.tsx:16](https://github.com/ronoktanvir/turtl/blob/2f99bfebc3a7eae0379704a36a19dcbf687526fa/app/live.tsx#L16 "api.cases.listWithSteps"), [components/feed/CaseRow.tsx:27](https://github.com/ronoktanvir/turtl/blob/2f99bfebc3a7eae0379704a36a19dcbf687526fa/components/feed/CaseRow.tsx#L27 "/case/[id]")). **TUR-65**
 - [ ] The unused assistant function is deleted, or stays switched off in production ([convex/assistant.ts:39](https://github.com/ronoktanvir/turtl/blob/3d01f6404fede6e87f619bfd6cb5ae521b12b64a/convex/assistant.ts#L39 "ASSISTANT_ENABLED")). **TUR-61**
-- [ ] Every feature the listing describes is switched on in the production backend, or the listing stops describing it: talking ([convex/voice/rules.ts:27](https://github.com/ronoktanvir/turtl/blob/3d01f6404fede6e87f619bfd6cb5ae521b12b64a/convex/voice/rules.ts#L27 "VOICE_ENABLED")) and questions about the code ([convex/codeNetwork/ask.ts:95](https://github.com/ronoktanvir/turtl/blob/3d01f6404fede6e87f619bfd6cb5ae521b12b64a/convex/codeNetwork/ask.ts#L95 "CODE_NETWORK_CHAT_ENABLED")). **TUR-59**
+- [ ] Every feature the listing describes is switched on in the production backend, or the listing stops describing it: talking ([convex/voice/rules.ts:27](https://github.com/ronoktanvir/turtl/blob/2f99bfebc3a7eae0379704a36a19dcbf687526fa/convex/voice/rules.ts#L27 "VOICE_ENABLED")) and questions about the code ([convex/codeNetwork/ask.ts:98](https://github.com/ronoktanvir/turtl/blob/2f99bfebc3a7eae0379704a36a19dcbf687526fa/convex/codeNetwork/ask.ts#L98 "CODE_NETWORK_CHAT_ENABLED")). **TUR-59**
 
 ### RC-06 · Guideline 4.2 · Enough of an app
 
 > "Your app should include features, content, and UI that elevate it beyond a repackaged website. If your app is not particularly useful, unique, or 'app-like,' it doesn't belong on the App Store."
 
-- [x] Every screen is native. The app has no web view library ([package.json:13](https://github.com/ronoktanvir/turtl/blob/3d01f6404fede6e87f619bfd6cb5ae521b12b64a/package.json#L13 "dependencies") to [package.json:34](https://github.com/ronoktanvir/turtl/blob/3d01f6404fede6e87f619bfd6cb5ae521b12b64a/package.json#L34 "supermemory")).
-- [ ] Someone who installs turtl from the store can get from sign-up to a watched app on their own. Today the repository token and the watched app are settings of the whole backend, so only its operator can connect anything ([convex/prTracking/github.ts:25](https://github.com/ronoktanvir/turtl/blob/3d01f6404fede6e87f619bfd6cb5ae521b12b64a/convex/prTracking/github.ts#L25 "process.env.GITHUB_TOKEN"), [convex/protectedApp/client.ts:39](https://github.com/ronoktanvir/turtl/blob/3d01f6404fede6e87f619bfd6cb5ae521b12b64a/convex/protectedApp/client.ts#L39 "PROTECTED_APP_URL")). **TUR-62** and **TUR-63**
+- [x] Every screen is native. The app has no web view library ([package.json:14](https://github.com/ronoktanvir/turtl/blob/2f99bfebc3a7eae0379704a36a19dcbf687526fa/package.json#L14 "dependencies") to [package.json:45](https://github.com/ronoktanvir/turtl/blob/2f99bfebc3a7eae0379704a36a19dcbf687526fa/package.json#L45 "supermemory")).
+- [ ] Someone who installs turtl from the store can get from sign-up to a watched app on their own. Today the repository token and the watched app are settings of the whole backend, so only its operator can connect anything ([convex/prTracking/github.ts:27](https://github.com/ronoktanvir/turtl/blob/2f99bfebc3a7eae0379704a36a19dcbf687526fa/convex/prTracking/github.ts#L27 "process.env.GITHUB_TOKEN"), [convex/protectedApp/client.ts:45](https://github.com/ronoktanvir/turtl/blob/2f99bfebc3a7eae0379704a36a19dcbf687526fa/convex/protectedApp/client.ts#L45 "PROTECTED_APP_URL")). **TUR-62** and **TUR-63**
 - [ ] The app is useful before the first outage: a new project shows its checks passing and the map of its code, not an empty page. **TUR-65**
 
 ### RC-07 · Guidelines 3.1.1 and 2.1(b) · Payments
 
 > "If you want to unlock features or functionality within your app, (by way of example: subscriptions, in-game currencies, game levels, access to premium content, or unlocking a full version), you must use in-app purchase."
 
-- [x] The app has no payment library and unlocks nothing for money ([package.json:13](https://github.com/ronoktanvir/turtl/blob/3d01f6404fede6e87f619bfd6cb5ae521b12b64a/package.json#L13 "dependencies") to [package.json:34](https://github.com/ronoktanvir/turtl/blob/3d01f6404fede6e87f619bfd6cb5ae521b12b64a/package.json#L34 "supermemory")).
+- [x] The app has no payment library and unlocks nothing for money ([package.json:14](https://github.com/ronoktanvir/turtl/blob/2f99bfebc3a7eae0379704a36a19dcbf687526fa/package.json#L14 "dependencies") to [package.json:45](https://github.com/ronoktanvir/turtl/blob/2f99bfebc3a7eae0379704a36a19dcbf687526fa/package.json#L45 "supermemory")).
 - [x] The listing names no price. `node store/check.mjs` fails if the name, subtitle, promotional text, or keywords mention one.
 - [ ] The price is set to free in every country in App Store Connect. **TUR-66**
 - [ ] Decide before charging for turtl, not after: a paid plan that unlocks anything in the app has to be sold through in-app purchase. **Ronok**
@@ -97,14 +97,14 @@ Each sentence of the description in `store.config.json`, and what makes it true:
 
 | The listing says | Today | What it still needs |
 | --- | --- | --- |
-| "checks your live app about once a minute and opens a case when a check fails" | True for the one app the backend is set up to watch ([convex/crons.ts:7](https://github.com/ronoktanvir/turtl/blob/3d01f6404fede6e87f619bfd6cb5ae521b12b64a/convex/crons.ts#L7 "check registered journeys"), [convex/monitor.ts:110](https://github.com/ronoktanvir/turtl/blob/3d01f6404fede6e87f619bfd6cb5ae521b12b64a/convex/monitor.ts#L110 "Something is wrong with")) | Each account's own app: **TUR-63** |
+| "checks your live app about once a minute and opens a case when a check fails" | True for the one app the backend is set up to watch ([convex/crons.ts:8](https://github.com/ronoktanvir/turtl/blob/2f99bfebc3a7eae0379704a36a19dcbf687526fa/convex/crons.ts#L8 "check registered journeys"), [convex/monitor.ts:129](https://github.com/ronoktanvir/turtl/blob/2f99bfebc3a7eae0379704a36a19dcbf687526fa/convex/monitor.ts#L129 "Something is wrong with")) | Each account's own app: **TUR-63** |
 | "explains the likely cause in plain words, with the evidence behind it" | True | - |
-| "proposes fixes, each with what it does and what it trades off" | True ([components/fix/FixCard.tsx:77](https://github.com/ronoktanvir/turtl/blob/3d01f6404fede6e87f619bfd6cb5ae521b12b64a/components/fix/FixCard.tsx#L77 "Trade-offs")) | - |
+| "proposes fixes, each with what it does and what it trades off" | True ([components/fix/FixCard.tsx:87](https://github.com/ronoktanvir/turtl/blob/2f99bfebc3a7eae0379704a36a19dcbf687526fa/components/fix/FixCard.tsx#L87 "Trade-offs")) | - |
 | "Nothing changes in your app until you approve it" | True, apart from the Auto permission the owner grants | - |
-| "merges only when you tap Merge and its checks pass" | True ([convex/pullRequests.ts:130](https://github.com/ronoktanvir/turtl/blob/3d01f6404fede6e87f619bfd6cb5ae521b12b64a/convex/pullRequests.ts#L130 "snapshot.checks !==")) | - |
+| "merges only when you tap Merge and its checks pass" | True ([convex/pullRequests.ts:142](https://github.com/ronoktanvir/turtl/blob/2f99bfebc3a7eae0379704a36a19dcbf687526fa/convex/pullRequests.ts#L142 "snapshot.checks !==")) | - |
 | "runs your app's key journey again to confirm it works" | True for the demo app | Each account's own app: **TUR-63** |
 | "may repeat one recovery it has already proven, a limited number of times" | True: three uses, after two verified recoveries ([components/project/SettingsSheet.tsx:49](https://github.com/ronoktanvir/turtl/blob/3d01f6404fede6e87f619bfd6cb5ae521b12b64a/components/project/SettingsSheet.tsx#L49 "for at most 3 uses")) | - |
-| "Add turtl's report form to your app" | Half true. The endpoint exists ([convex/intake/http.ts:26](https://github.com/ronoktanvir/turtl/blob/3d01f6404fede6e87f619bfd6cb5ae521b12b64a/convex/intake/http.ts#L26 "path: INTAKE_PATH")), but the only form is inside the demo app ([protected-app/report/ReportForm.tsx:112](https://github.com/ronoktanvir/turtl/blob/3d01f6404fede6e87f619bfd6cb5ae521b12b64a/protected-app/report/ReportForm.tsx#L112 "Email, optional")). Another owner has nothing to add and no instructions | **Unowned** |
+| "Add turtl's report form to your app" | Half true. The endpoint exists ([convex/intake/http.ts:26](https://github.com/ronoktanvir/turtl/blob/2f99bfebc3a7eae0379704a36a19dcbf687526fa/convex/intake/http.ts#L26 "path: INTAKE_PATH")), but the only form is inside the demo app ([protected-app/report/ReportForm.tsx:112](https://github.com/ronoktanvir/turtl/blob/3d01f6404fede6e87f619bfd6cb5ae521b12b64a/protected-app/report/ReportForm.tsx#L112 "Email, optional")). Another owner has nothing to add and no instructions | **Unowned** |
 | "See a map of your code in plain words" | True | Each account's own repository: **TUR-62** |
 | "Ask about a case by typing or by voice" | Typing is true. Talking is off unless the backend switches it on | **TUR-59** (RC-05) |
 | "It asks your permission before it sends them anything" | **False.** Nothing asks | **TUR-65** (RC-26) |
@@ -153,7 +153,7 @@ Each sentence of the description in `store.config.json`, and what makes it true:
 
 - [x] The name is 5 characters, the subtitle 25, and the keywords 99 of 100 bytes, with no brand name among them (checked by `node store/check.mjs`).
 - [ ] The name "turtl" can be used. An app called "Turtl: Private File Sharing" is already on the App Store, from Turtl Development LLC, with the bundle id `com.turtl.turtl`. Apple may refuse the bare name, and that company may hold a trademark. **Ronok**
-- [ ] The bundle id is in a namespace Ronok controls. It is `com.turtl.oncall` today ([app.json:11](https://github.com/ronoktanvir/turtl/blob/3d01f6404fede6e87f619bfd6cb5ae521b12b64a/app.json#L11 "bundleIdentifier")), which reads as belonging to whoever owns turtl.com. It cannot be changed after the first upload. **Ronok**, then **TUR-59**
+- [ ] The bundle id is in a namespace Ronok controls. It is `com.turtl.oncall` today ([app.json:11](https://github.com/ronoktanvir/turtl/blob/2f99bfebc3a7eae0379704a36a19dcbf687526fa/app.json#L11 "bundleIdentifier")), which reads as belonging to whoever owns turtl.com. It cannot be changed after the first upload. **Ronok**, then **TUR-59**
 
 ### RC-14 · Guidelines 2.3.5 and 2.3.6 · Category and age rating
 
@@ -211,16 +211,16 @@ Each sentence of the description in `store.config.json`, and what makes it true:
 
 > "Ensure your purpose strings clearly and completely describe your use of the data."
 
-- [x] The microphone is the only permission the app asks for ([app.config.ts:10](https://github.com/ronoktanvir/turtl/blob/3d01f6404fede6e87f619bfd6cb5ae521b12b64a/app.config.ts#L10 "microphonePermission")).
+- [x] The microphone is the only permission the app asks for ([app.config.ts:16](https://github.com/ronoktanvir/turtl/blob/2f99bfebc3a7eae0379704a36a19dcbf687526fa/app.config.ts#L16 "microphonePermission")).
 - [ ] The words iOS shows say where the recording goes. Today they say recordings "are transcribed and not kept", and do not say they are sent to OpenAI. Suggested: "turtl listens after you tap Talk so you can ask about a case out loud. Your recording is sent to OpenAI to be turned into text, and is not kept." **TUR-59**
 
 ### RC-21 · Guideline 2.5.14 · Recording is asked for and shown
 
 > "Apps must request explicit user consent and provide a clear visual and/or audible indication when recording, logging, or otherwise making a record of user activity."
 
-- [x] Recording starts only after a tap, and iOS asks first ([components/voice/useTalkSession.ts:142](https://github.com/ronoktanvir/turtl/blob/3d01f6404fede6e87f619bfd6cb5ae521b12b64a/components/voice/useTalkSession.ts#L142 "requestRecordingPermissionsAsync")).
-- [x] The screen says it is listening for as long as it is ([components/voice/TalkControl.tsx:9](https://github.com/ronoktanvir/turtl/blob/3d01f6404fede6e87f619bfd6cb5ae521b12b64a/components/voice/TalkControl.tsx#L9 "Listening. Ask about this case")).
-- [x] turtl keeps no audio ([convex/voice/schema.ts:5](https://github.com/ronoktanvir/turtl/blob/3d01f6404fede6e87f619bfd6cb5ae521b12b64a/convex/voice/schema.ts#L5 "No audio and no transcript is kept here")).
+- [x] Recording starts only after a tap, and iOS asks first ([components/voice/useTalkSession.ts:142](https://github.com/ronoktanvir/turtl/blob/2f99bfebc3a7eae0379704a36a19dcbf687526fa/components/voice/useTalkSession.ts#L142 "requestRecordingPermissionsAsync")).
+- [x] The screen says it is listening for as long as it is ([components/voice/TalkControl.tsx:9](https://github.com/ronoktanvir/turtl/blob/2f99bfebc3a7eae0379704a36a19dcbf687526fa/components/voice/TalkControl.tsx#L9 "Listening. Ask about this case")).
+- [x] turtl keeps no audio ([convex/voice/schema.ts:5](https://github.com/ronoktanvir/turtl/blob/2f99bfebc3a7eae0379704a36a19dcbf687526fa/convex/voice/schema.ts#L5 "No audio and no transcript is kept here")).
 - [ ] Declining the microphone leaves typing working, checked on a device. **TUR-66**
 
 ### RC-22 · Guidelines 5.1.1(iii) and 5.1.1(iv) · Only the data the job needs
@@ -236,7 +236,7 @@ Each sentence of the description in `store.config.json`, and what makes it true:
 > "If your app supports account creation, you must also offer account deletion within the app."
 
 - [ ] Account deletion is in the app, reachable without writing to anyone, and says what will be deleted. **TUR-57**
-- [ ] It deletes the account's projects, cases, messages, decisions, the map of the code, screenshots, and customers' reports from turtl's database. Today nothing is ever deleted outside a developer reset ([convex/memory/reset.ts:11](https://github.com/ronoktanvir/turtl/blob/3d01f6404fede6e87f619bfd6cb5ae521b12b64a/convex/memory/reset.ts#L11 "DEV_TOOLS_ENABLED")). **TUR-57**
+- [ ] It deletes the account's projects, cases, messages, decisions, the map of the code, screenshots, and customers' reports from turtl's database. Today nothing is ever deleted outside a developer reset ([convex/memory/reset.ts:11](https://github.com/ronoktanvir/turtl/blob/2f99bfebc3a7eae0379704a36a19dcbf687526fa/convex/memory/reset.ts#L11 "DEV_TOOLS_ENABLED")). **TUR-57**
 - [ ] It deletes the copies in Supermemory. No code calls a delete on Supermemory today. **TUR-57**
 - [ ] An account made with Sign in with Apple has its Apple token revoked on deletion, as Apple requires. **TUR-57**
 - [ ] It removes turtl's access to the owner's GitHub repositories. **TUR-62**
@@ -256,7 +256,7 @@ Each sentence of the description in `store.config.json`, and what makes it true:
 
 turtl's report form collects words and contact details from people who are not turtl's users.
 
-- [x] A customer's contact goes to no outside service ([convex/intake/schema.ts:23](https://github.com/ronoktanvir/turtl/blob/3d01f6404fede6e87f619bfd6cb5ae521b12b64a/convex/intake/schema.ts#L23 "Contact details stay here, never in a prompt")), and alerts never quote a customer ([convex/intake/records.ts:306](https://github.com/ronoktanvir/turtl/blob/3d01f6404fede6e87f619bfd6cb5ae521b12b64a/convex/intake/records.ts#L306 "A customer reported a problem with")).
+- [x] A customer's contact goes to no outside service ([convex/intake/schema.ts:23](https://github.com/ronoktanvir/turtl/blob/3d01f6404fede6e87f619bfd6cb5ae521b12b64a/convex/intake/schema.ts#L23 "Contact details stay here, never in a prompt")), and alerts never quote a customer ([convex/intake/records.ts:324](https://github.com/ronoktanvir/turtl/blob/2f99bfebc3a7eae0379704a36a19dcbf687526fa/convex/intake/records.ts#L324 "A customer reported a problem with")).
 - [x] The terms make the owner responsible for telling their customers, and the policy has a section for it (`site/terms.md`, `site/privacy.md`).
 - [ ] The report form itself tells the customer where their words go, with a link to the policy. **Unowned**
 - [ ] An owner can delete one report, and deleting an account deletes them all. **TUR-57**
@@ -276,7 +276,7 @@ turtl's report form collects words and contact details from people who are not t
 
 > "Your app may not require users to enable system functionalities (such as push notifications, location services, tracking) in order to access functionality, content, use the app"
 
-- [x] turtl does not track. It has no advertising or analytics library, reads no advertising identifier, and needs no App Tracking Transparency prompt ([package.json:13](https://github.com/ronoktanvir/turtl/blob/3d01f6404fede6e87f619bfd6cb5ae521b12b64a/package.json#L13 "dependencies") to [package.json:34](https://github.com/ronoktanvir/turtl/blob/3d01f6404fede6e87f619bfd6cb5ae521b12b64a/package.json#L34 "supermemory")).
+- [x] turtl does not track. It has no advertising or analytics library, reads no advertising identifier, and needs no App Tracking Transparency prompt ([package.json:14](https://github.com/ronoktanvir/turtl/blob/2f99bfebc3a7eae0379704a36a19dcbf687526fa/package.json#L14 "dependencies") to [package.json:45](https://github.com/ronoktanvir/turtl/blob/2f99bfebc3a7eae0379704a36a19dcbf687526fa/package.json#L45 "supermemory")).
 - [x] The microphone is optional. Typing does the same job.
 - [ ] Push notifications are optional. The app works for someone who declines them. **TUR-64**
 
@@ -288,7 +288,7 @@ turtl's report form collects words and contact details from people who are not t
 
 - [ ] A data processing agreement is accepted with each vendor that receives personal data: OpenAI, Supermemory, Capy, Keiki, Revyl, Convex, and GitHub. None is on file. **Ronok**
 - [ ] Each vendor's terms rule out training on turtl's data. OpenAI, Keiki, and Capy say so in public. The pages read for Supermemory and Revyl do not say either way. **Ronok**
-- [ ] Requests to OpenAI's Responses API set `store: false`, so OpenAI does not keep them as application state for 30 days ([convex/codeNetwork/openai.ts:24](https://github.com/ronoktanvir/turtl/blob/3d01f6404fede6e87f619bfd6cb5ae521b12b64a/convex/codeNetwork/openai.ts#L24 "body: JSON.stringify")). **Unowned**
+- [ ] Requests to OpenAI's Responses API set `store: false`, so OpenAI does not keep them as application state for 30 days ([convex/codeNetwork/openai.ts:38](https://github.com/ronoktanvir/turtl/blob/2f99bfebc3a7eae0379704a36a19dcbf687526fa/convex/codeNetwork/openai.ts#L38 "body: JSON.stringify")). **Unowned**
 
 ### RC-29 · Guideline 4.5.4 · Push notifications
 
@@ -301,9 +301,9 @@ turtl's report form collects words and contact details from people who are not t
 
 > "Apps should implement appropriate security measures to ensure proper handling of user information … and prevent its unauthorized use, disclosure, or access by third parties."
 
-- [ ] Every backend function checks who is calling and whether the project is theirs. Today the backend treats every caller as the one owner ([convex/decisions.ts:10](https://github.com/ronoktanvir/turtl/blob/3d01f6404fede6e87f619bfd6cb5ae521b12b64a/convex/decisions.ts#L10 "SOLO_OWNER")), and the app says so itself ([components/project/OwnerPasscodeSettings.tsx:38](https://github.com/ronoktanvir/turtl/blob/3d01f6404fede6e87f619bfd6cb5ae521b12b64a/components/project/OwnerPasscodeSettings.tsx#L38 "Anyone with the backend address can make decisions")). **TUR-61**
-- [ ] The shared owner passcode is replaced by accounts. Its hash has no salt ([convex/ownerPasscode.ts:5](https://github.com/ronoktanvir/turtl/blob/3d01f6404fede6e87f619bfd6cb5ae521b12b64a/convex/ownerPasscode.ts#L5 "SHA-256")). **TUR-61**
-- [ ] The repository token belongs to one owner's installation, not to the whole backend ([convex/prTracking/github.ts:25](https://github.com/ronoktanvir/turtl/blob/3d01f6404fede6e87f619bfd6cb5ae521b12b64a/convex/prTracking/github.ts#L25 "process.env.GITHUB_TOKEN")). **TUR-58**
+- [ ] Every backend function checks who is calling and whether the project is theirs. Today the backend treats every caller as the one owner ([convex/decisions.ts:14](https://github.com/ronoktanvir/turtl/blob/2f99bfebc3a7eae0379704a36a19dcbf687526fa/convex/decisions.ts#L14 "SOLO_OWNER")), and the app says so itself ([components/project/OwnerPasscodeSettings.tsx:42](https://github.com/ronoktanvir/turtl/blob/2f99bfebc3a7eae0379704a36a19dcbf687526fa/components/project/OwnerPasscodeSettings.tsx#L42 "Anyone with the backend address can make decisions")). **TUR-61**
+- [ ] The shared owner passcode is replaced by accounts. Its hash has no salt ([convex/ownerPasscode.ts:12](https://github.com/ronoktanvir/turtl/blob/2f99bfebc3a7eae0379704a36a19dcbf687526fa/convex/ownerPasscode.ts#L12 "SHA-256")). **TUR-61**
+- [ ] The repository token belongs to one owner's installation, not to the whole backend ([convex/prTracking/github.ts:27](https://github.com/ronoktanvir/turtl/blob/2f99bfebc3a7eae0379704a36a19dcbf687526fa/convex/prTracking/github.ts#L27 "process.env.GITHUB_TOKEN")). **TUR-58**
 - [ ] An error from OpenAI is not shown raw. Two functions pass its text through, and it can echo part of what was sent ([convex/assistant.ts:83](https://github.com/ronoktanvir/turtl/blob/3d01f6404fede6e87f619bfd6cb5ae521b12b64a/convex/assistant.ts#L83 "OpenAI request failed")). **Unowned**
 - [ ] The production backend is a separate deployment from the demo, with its own keys. **TUR-59**
 
@@ -327,8 +327,8 @@ turtl's report form collects words and contact details from people who are not t
 
 > "If your app uses, accesses, monetizes access to, or displays content from a third-party service, ensure that you are specifically permitted to do so under the service's terms of use."
 
-- [x] The font is Capriola, under the SIL Open Font License, and ships inside the app ([app/_layout.tsx:9](https://github.com/ronoktanvir/turtl/blob/3d01f6404fede6e87f619bfd6cb5ae521b12b64a/app/_layout.tsx#L9 "@expo-google-fonts/capriola")).
-- [ ] The GitHub mark is used as GitHub's logo rules allow: unaltered, to say "sign in with" or "view on" GitHub ([components/ui/BrandIcon.tsx:5](https://github.com/ronoktanvir/turtl/blob/3d01f6404fede6e87f619bfd6cb5ae521b12b64a/components/ui/BrandIcon.tsx#L5 "github:")). **TUR-57**
+- [x] The font is Capriola, under the SIL Open Font License, and ships inside the app ([app/_layout.tsx:8](https://github.com/ronoktanvir/turtl/blob/2f99bfebc3a7eae0379704a36a19dcbf687526fa/app/_layout.tsx#L8 "@expo-google-fonts/capriola")).
+- [ ] The GitHub mark is used as GitHub's logo rules allow: unaltered, to say "sign in with" or "view on" GitHub ([components/ui/BrandIcon.tsx:7](https://github.com/ronoktanvir/turtl/blob/2f99bfebc3a7eae0379704a36a19dcbf687526fa/components/ui/BrandIcon.tsx#L7 "github:")). **TUR-57**
 - [ ] The Google mark leaves the app with the Google button ([components/ui/BrandIcon.tsx:6](https://github.com/ronoktanvir/turtl/blob/3d01f6404fede6e87f619bfd6cb5ae521b12b64a/components/ui/BrandIcon.tsx#L6 "google:")). **TUR-57**
 - [ ] turtl's use of each vendor's API is within that vendor's terms for a product offered to the public. **Ronok**
 
