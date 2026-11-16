@@ -2,12 +2,11 @@ import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { mutation, type MutationCtx } from "./_generated/server";
 import { CLOSED_CASE_STATUSES, type Actor, type ParameterConstraint, type Parameters } from "./constants";
+import { requireOwnerPasscode } from "./ownerPasscode";
 import { revisionOf } from "./protectedApp/client";
 import { approveCase, declineCase } from "./runner/run";
 import { finishAttempt, loadSteps, setCaseStatus, skipStep } from "./workflow";
 
-// There is no sign-in yet: every decision is recorded as the one solo owner, and anyone who has
-// the deployment URL can call these two mutations.
 export const SOLO_OWNER = { kind: "owner", identity: "solo-owner" } as const satisfies Actor;
 
 async function undecidedProposal(ctx: MutationCtx, proposalId: Id<"proposals">, version: number) {
@@ -112,8 +111,9 @@ export async function freezeAndRecordAction(
 
 // The owner's approval: freezes the proposal, records the action, then resumes the runner.
 export const approve = mutation({
-  args: { proposalId: v.id("proposals"), version: v.number(), optionKey: v.string() },
-  handler: async (ctx, { proposalId, version, optionKey }) => {
+  args: { proposalId: v.id("proposals"), version: v.number(), optionKey: v.string(), passcode: v.optional(v.string()) },
+  handler: async (ctx, { proposalId, version, optionKey, passcode }) => {
+    await requireOwnerPasscode(ctx, passcode);
     const proposal = await undecidedProposal(ctx, proposalId, version);
     const actionId = await freezeAndRecordAction(ctx, proposal, optionKey, {
       actor: SOLO_OWNER,
@@ -125,8 +125,9 @@ export const approve = mutation({
 });
 
 export const decline = mutation({
-  args: { proposalId: v.id("proposals"), version: v.number() },
-  handler: async (ctx, { proposalId, version }) => {
+  args: { proposalId: v.id("proposals"), version: v.number(), passcode: v.optional(v.string()) },
+  handler: async (ctx, { proposalId, version, passcode }) => {
+    await requireOwnerPasscode(ctx, passcode);
     const proposal = await undecidedProposal(ctx, proposalId, version);
     await ctx.db.patch(proposalId, {
       decisionStatus: "declined",
@@ -138,8 +139,9 @@ export const decline = mutation({
 });
 
 export const stop = mutation({
-  args: { caseId: v.id("cases") },
-  handler: async (ctx, { caseId }): Promise<{ stopped: true; summary: string } | { stopped: false; reason: string }> => {
+  args: { caseId: v.id("cases"), passcode: v.optional(v.string()) },
+  handler: async (ctx, { caseId, passcode }): Promise<{ stopped: true; summary: string } | { stopped: false; reason: string }> => {
+    await requireOwnerPasscode(ctx, passcode);
     const row = await ctx.db.get(caseId);
     if (!row) return { stopped: false, reason: "This case no longer exists." };
     const action = await ctx.db.query("actions").withIndex("by_case", (q) => q.eq("caseId", caseId)).order("desc").first();

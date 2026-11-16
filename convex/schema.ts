@@ -29,6 +29,7 @@ import {
 import { revylTables } from "./revyl/schema";
 
 export default defineSchema({
+  ownerPasscodeConfig: defineTable({ passcodeDigest: v.string() }),
   // Mutations must enforce ownerId access; isSample and optional ownership do not grant production access.
   apps: defineTable({
     name: v.string(),

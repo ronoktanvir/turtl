@@ -2,6 +2,7 @@ import { useAction, useMutation } from "convex/react";
 import { useState } from "react";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
+import { getStoredOwnerPasscode } from "../../data/live/ownerPasscode";
 
 type Action =
   | "create"
@@ -81,14 +82,16 @@ export function useDevActions() {
 
   const decide = (decision: "approve" | "decline", proposal: Proposal) =>
     attempt(async () => {
+      const passcode = await getStoredOwnerPasscode();
       if (decision === "approve") {
         await approve({
           proposalId: proposal._id,
           version: proposal.version,
           optionKey: proposal.optionKey,
+          passcode,
         });
       } else {
-        await decline({ proposalId: proposal._id, version: proposal.version });
+        await decline({ proposalId: proposal._id, version: proposal.version, passcode });
       }
     });
 

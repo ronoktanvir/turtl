@@ -7,7 +7,8 @@ import { DevTools } from "../components/dev/DevTools";
 import { ThemeProvider, useTheme } from "../theme";
 import { useReducedMotion } from "../components/ui/motion";
 import { useFonts, Capriola_400Regular } from "@expo-google-fonts/capriola";
-import { backendClient as convex, useDataStatus } from "../data";
+import { backendClient as convex, isLiveData, useDataStatus } from "../data";
+import OwnerPasscodePrompt from "../components/ui/OwnerPasscodePrompt";
 
 void SplashScreen.preventAutoHideAsync().catch(() => {});
 
@@ -19,6 +20,7 @@ function Screens() {
     <>
       <StatusBar barStyle={scheme === "dark" ? "light-content" : "dark-content"} />
       <Stack screenOptions={{ headerShown: false, animation: reduced ? "none" : "slide_from_right", animationDuration: 240, contentStyle: { backgroundColor: colors.bg } }} />
+      {isLiveData && <OwnerPasscodePrompt />}
       {errors.length > 0 && <View testID="data-errors" style={{ maxHeight: 120, paddingHorizontal: 16, paddingVertical: 8, backgroundColor: colors.surface, borderTopWidth: 1, borderTopColor: colors.border }}>
         <ScrollView><Text accessibilityRole="alert" style={{ fontSize: 14, lineHeight: 20, color: colors.statusAffected }}>{[...new Set(errors)].join("\n")}</Text></ScrollView>
       </View>}

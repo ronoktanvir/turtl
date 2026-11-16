@@ -6,6 +6,7 @@ import type { Actor, ParameterConstraint } from "./constants";
 import { checkParameters, freezeAndRecordAction, SOLO_OWNER } from "./decisions";
 import { evaluateCheck } from "./memory/checks";
 import { latestAction, latestProposal } from "./protectedApp/records";
+import { requireOwnerPasscode } from "./ownerPasscode";
 import { loadSteps } from "./workflow";
 
 export const DEFAULT_MAX_ATTEMPTS = 3;
@@ -64,8 +65,9 @@ const factsOf = (steps: Awaited<ReturnType<typeof loadSteps>>) =>
     | undefined)?.facts ?? {};
 
 export const grant = mutation({
-  args: { memoryId: v.id("recoveryMemories") },
-  handler: async (ctx, { memoryId }) => {
+  args: { memoryId: v.id("recoveryMemories"), passcode: v.optional(v.string()) },
+  handler: async (ctx, { memoryId, passcode }) => {
+    await requireOwnerPasscode(ctx, passcode);
     const memory = await ctx.db.get(memoryId);
     if (!memory) throw new Error("Recovery memory not found.");
     if (memory.invalidatedAt !== undefined) throw new Error("This recovery memory has been invalidated.");
@@ -106,8 +108,9 @@ export const grant = mutation({
 });
 
 export const revoke = mutation({
-  args: { permissionId: v.id("permissions") },
-  handler: async (ctx, { permissionId }) => {
+  args: { permissionId: v.id("permissions"), passcode: v.optional(v.string()) },
+  handler: async (ctx, { permissionId, passcode }) => {
+    await requireOwnerPasscode(ctx, passcode);
     const permission = await ctx.db.get(permissionId);
     if (!permission) throw new Error("Permission not found.");
     if (!isActive(permission, Date.now())) throw new Error("This permission has already ended.");
