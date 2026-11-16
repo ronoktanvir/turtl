@@ -103,6 +103,11 @@ export function listProjects(): Project[] {
     .sort((a, b) => HEALTH_ORDER.indexOf(a.health) - HEALTH_ORDER.indexOf(b.health));
 }
 
+export function addProjectSeed(seed: ProjectSeed) {
+  projects.set(seed.id, seed);
+  commit();
+}
+
 export function getProject(projectId: string): Project | null {
   const seed = projects.get(projectId);
   return seed ? projectOf(seed) : null;

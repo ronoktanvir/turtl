@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import { bookingError } from "./bookingDemo/validators";
 import { codeNetworkTables } from "./codeNetwork/schema";
 import { councilTables } from "./council/schema";
+import { onboardingTables } from "./onboarding/schema";
 import { vPullRequestRow } from "./prTracking/validators";
 import {
   vAttemptStatus,
@@ -204,4 +205,5 @@ export default defineSchema({
   ...structuralTables,
   ...councilTables,
   ...learningTables,
+  ...onboardingTables,
 });

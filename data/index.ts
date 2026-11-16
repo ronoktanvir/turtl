@@ -2,6 +2,8 @@ import * as example from "./example/hooks";
 import { useVoice as useExampleVoice } from "./example/voice";
 import * as live from "./live";
 import { useVoice as useLiveVoice } from "./live/voice";
+import * as onboardingExample from "./onboarding/example";
+import * as onboardingLive from "./onboarding/live";
 import { isLiveData } from "./source";
 
 export { isLiveData } from "./source";
@@ -31,6 +33,14 @@ export const setApprovals = isLiveData ? live.setApprovals : example.setApproval
 export const setStarred = isLiveData ? live.setStarred : example.setStarred;
 export const useStructuralFindings = isLiveData ? live.useStructuralFindings : example.useStructuralFindings;
 export const approvePreventionCheck = isLiveData ? live.approvePreventionCheck : example.approvePreventionCheck;
+export const useOnboarding = isLiveData ? onboardingLive.useOnboarding : onboardingExample.useOnboarding;
+export const addProject = isLiveData ? onboardingLive.addProject : onboardingExample.addProject;
+export const saveNeverBreak = isLiveData ? onboardingLive.saveNeverBreak : onboardingExample.saveNeverBreak;
+export const approvePreparation = isLiveData ? onboardingLive.approvePreparation : onboardingExample.approvePreparation;
+export const mergePreparation = isLiveData ? onboardingLive.mergePreparation : onboardingExample.mergePreparation;
+export const refreshPreparation = isLiveData ? onboardingLive.refreshPreparation : onboardingExample.refreshPreparation;
+export const inspectAgain = isLiveData ? onboardingLive.inspectAgain : onboardingExample.inspectAgain;
+export const checkLiveAgain = isLiveData ? onboardingLive.checkLiveAgain : onboardingExample.checkLiveAgain;
 function useExampleApprovalSettings(projectId: string) {
   const project = example.useProject(projectId);
   return {

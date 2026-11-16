@@ -6,7 +6,9 @@ import Svg, { Circle, Path } from "react-native-svg";
 import ProjectIcon from "../../../components/project/ProjectIcon";
 import SettingsSheet from "../../../components/project/SettingsSheet";
 import { BrandIcon, Button, HealthWord, Header, Icon, Reveal, Screen, T, Turtle, ZoomPressable } from "../../../components/ui";
-import { useCases, useDataStatus, useProject, useStructuralFindings } from "../../../data";
+import { Glyph } from "../../../components/onboarding/Glyph";
+import { ownerStages, preparationStatus } from "../../../components/onboarding/stage";
+import { useCases, useDataStatus, useOnboarding, useProject, useStructuralFindings } from "../../../data";
 import { approvalLabel, labels, useTheme } from "../../../theme";
 
 export default function ProjectHome() {
@@ -16,6 +18,7 @@ export default function ProjectHome() {
   const fixes = useCases(projectId, "fix");
   const features = useCases(projectId, "feature");
   const finding = useStructuralFindings(projectId)?.[0];
+  const onboarding = useOnboarding(projectId);
   const fixApprovals = fixes?.filter((item) => item.status === "needs_approval" || item.status === "ready_to_merge").length ?? 0;
   const featureApprovals = features?.filter((item) => item.status === "needs_approval" || item.status === "ready_to_merge").length ?? 0;
   const router = useRouter();
@@ -48,6 +51,12 @@ export default function ProjectHome() {
           {(project.repoUrl || project.productionUrl) && <View style={{ flexDirection: "row", gap: 20, paddingLeft: compact ? 48 : 60 }}>
             {([{ label: "GitHub", id: "project-github", url: project.repoUrl }, { label: "Live app", id: "project-live-app", url: project.productionUrl }] as const).map((link) => link.url && <Pressable key={link.id} testID={link.id} accessibilityRole="link" onPress={() => Linking.openURL(link.url!)} style={{ minHeight: 44, flexDirection: "row", alignItems: "center", gap: 6 }}>{link.id === "project-github" ? <BrandIcon name="github" size={20} /> : <Icon name="ExternalLink" size={15} color="textMuted" />}<T variant="small" color="textMuted">{link.label}</T></Pressable>)}
           </View>}
+          {onboarding && (project.health === "clear" || ownerStages.includes(onboarding.stage)) && <Pressable testID="project-preparation" accessibilityRole="link" onPress={() => router.push(`/project/${project.id}/prepare` as Href)} style={{ minHeight: 40, flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: compact ? 48 : 60 }}>
+            <Glyph name="ClipboardCheck" size={17} color={ownerStages.includes(onboarding.stage) ? "statusNeedsYou" : "brandDeep"} />
+            <T variant="small">Preparation</T>
+            <T variant="small" color={ownerStages.includes(onboarding.stage) ? "statusNeedsYou" : "textMuted"} numberOfLines={1} style={{ flex: 1 }} testID="project-preparation-status">{preparationStatus(onboarding)}</T>
+            <Icon name="ChevronRight" size={16} color="textMuted" />
+          </Pressable>}
         </View>
         {finding && <Pressable testID="project-structural" accessibilityRole="button" onPress={() => router.push(("/review/" + finding.caseId) as Href)} style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 12, minHeight: 48, paddingHorizontal: 14, paddingVertical: 6, borderRadius: 14, borderWidth: 1, borderColor: colors.border, backgroundColor: pressed ? colors.surfaceRaised : colors.surface })}>
           <Icon name="Layers" size={18} color="brandDeep" />

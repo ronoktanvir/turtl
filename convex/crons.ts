@@ -12,4 +12,7 @@ crons.interval("refresh pull requests", { seconds: 30 }, internal.pullRequests.r
 // Fills in agent run outcomes once their cases verify, fail or close; it does nothing when no run is waiting.
 crons.interval("settle agent run outcomes", { minutes: 2 }, internal.routing.log.settlePending, {});
 
+// Keeps onboarding preparation pull requests fresh; it does nothing while there are none.
+crons.interval("refresh onboarding pull requests", { minutes: 1 }, internal.onboarding.prepare.refreshActive, {});
+
 export default crons;
