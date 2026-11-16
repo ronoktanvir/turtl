@@ -33,7 +33,7 @@
     {
       "id": "approvals",
       "name": "Owner approvals",
-      "summary": "Asks you before acting, texts you through Keiki, and applies the fix you approve."
+      "summary": "Asks you before acting, texts you, and carries out the fix you approve, including opening and merging its pull request."
     },
     {
       "id": "memory",
@@ -520,7 +520,7 @@
     "external:github": {
       "clusterId": "code-map",
       "label": "GitHub",
-      "summary": "Where the app's code lives; turtl reads it from there to draw this map."
+      "summary": "Where the app's code lives: turtl reads it to draw this map and to follow and merge pull requests."
     },
     "app.config.ts": {
       "clusterId": "look",
@@ -726,6 +726,56 @@
       "clusterId": "look",
       "label": "Colour palette",
       "summary": "Lists the named colours, including health status colours."
+    },
+    "convex/pullRequests.ts": {
+      "clusterId": "approvals",
+      "label": "Pull request status",
+      "summary": "Keeps a case's code change up to date from GitHub and merges it only when you tap Merge and its checks pass."
+    },
+    "convex/prTracking/capy.ts": {
+      "clusterId": "approvals",
+      "label": "Capy connection",
+      "summary": "Asks Capy to write the code change for an approved fix and finds the pull request it opens."
+    },
+    "convex/prTracking/catalog.ts": {
+      "clusterId": "approvals",
+      "label": "Code-change fix",
+      "summary": "Adds the booking app's code-change fix, which opens a pull request that only your tap merges."
+    },
+    "convex/prTracking/execute.ts": {
+      "clusterId": "approvals",
+      "label": "Carry out code change",
+      "summary": "Runs an approved code-change fix and waits until its pull request is merged or closed."
+    },
+    "convex/prTracking/github.ts": {
+      "clusterId": "approvals",
+      "label": "GitHub connection",
+      "summary": "Reads a pull request and the results of its checks from GitHub."
+    },
+    "convex/prTracking/records.ts": {
+      "clusterId": "approvals",
+      "label": "Pull request records",
+      "summary": "Saves each case's pull request and finishes the waiting fix step once it is merged or closed."
+    },
+    "convex/prTracking/validators.ts": {
+      "clusterId": "approvals",
+      "label": "Pull request format",
+      "summary": "Describes what turtl keeps about a pull request: its state, its checks and whether it can merge."
+    },
+    "table:pullRequests": {
+      "clusterId": "approvals",
+      "label": "Pull requests",
+      "summary": "One record per code change turtl opened for a case, with its checks and whether it merged."
+    },
+    "external:capy": {
+      "clusterId": "approvals",
+      "label": "Capy",
+      "summary": "Outside coding agent that writes an approved code change and opens its pull request."
+    },
+    "external:revyl": {
+      "clusterId": "watching",
+      "label": "Revyl",
+      "summary": "Outside service that runs the booking journey on a real phone and takes screenshots."
     }
   }
 }

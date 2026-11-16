@@ -15,6 +15,8 @@ const EXTERNALS: { id: string; label: string; pattern: RegExp }[] = [
   { id: "external:openai", label: "OpenAI", pattern: /api\.openai\.com/ },
   { id: "external:keiki", label: "Keiki", pattern: /onkeiki\.com/ },
   { id: "external:github", label: "GitHub", pattern: /api\.github\.com/ },
+  { id: "external:capy", label: "Capy", pattern: /api\.capy\.ai/ },
+  { id: "external:revyl", label: "Revyl", pattern: /\.revyl\.ai/ },
 ];
 
 export function isSourcePath(path: string): boolean {
