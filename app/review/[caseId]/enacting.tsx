@@ -167,7 +167,7 @@ export default function Enacting() {
                 {pr.checkRuns.map((run) => (
                   <View key={run.name} style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
                     <Icon name={run.status === "passed" ? "Check" : run.status === "failed" ? "X" : "Terminal"} size={16} color={run.status === "passed" ? "statusClear" : run.status === "failed" ? "statusAffected" : "textMuted"} />
-                    <T variant="small" font="title" style={{ flex: 1 }}>{run.name}</T>
+                    <T variant="small" style={{ flex: 1 }}>{run.name}</T>
                     <T variant="small" color={run.status === "passed" ? "statusClear" : run.status === "failed" ? "statusAffected" : "textMuted"} testID={"enacting-check-" + run.name.toLowerCase().replace(/[^a-z]+/g, "-")}>{run.status === "passed" ? "Passed" : run.status === "failed" ? "Failed" : "Pending"}</T>
                   </View>
                 ))}

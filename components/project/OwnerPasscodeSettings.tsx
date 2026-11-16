@@ -16,7 +16,7 @@ export default function OwnerPasscodeSettings() {
   const [confirm, setConfirm] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const inputStyle = { color: colors.text, backgroundColor: colors.surfaceRaised, borderWidth: 1, borderColor: colors.border, borderRadius: 12, minHeight: 48, paddingHorizontal: 14, fontSize: 16 };
+  const inputStyle = { color: colors.text, backgroundColor: colors.surfaceRaised, borderWidth: 1, borderColor: colors.border, borderRadius: 12, minHeight: 48, paddingHorizontal: 14, fontSize: 16, fontFamily: "Capriola_400Regular", fontWeight: "400" as const };
   const save = async () => {
     if (busy) return;
     if (next !== confirm) { setMessage("The new passcodes do not match."); return; }
