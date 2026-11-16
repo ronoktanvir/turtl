@@ -11,7 +11,7 @@ single-owner demo: the app's Login buttons go straight to Home and nobody signs 
 | Method | How | Files |
 | --- | --- | --- |
 | Email and password | Convex Auth's credentials flow. Passwords are hashed with Scrypt. Reset by an emailed 8-digit code, only when an email service is set up. | `password.ts`, `email.ts`, `rules.ts` |
-| Sign in with Apple | The iPhone's own sheet (`expo-apple-authentication`). The app sends Apple's identity token and a nonce; `apple.ts` checks the token's signature against Apple's published keys, the issuer, the audience (the bundle id), the expiry, and that the token carries the SHA-256 of that nonce. Each nonce works once. | `apple.ts` |
+| Sign in with Apple | The iPhone's own sheet (`expo-apple-authentication`). The app sends Apple's identity token and a nonce; `apple.ts` checks the token's signature against Apple's published keys, the issuer, the audience (the bundle id), the expiry, and that the token carries the SHA-256 of that nonce. Each nonce works once. The app also sends Apple's one-time authorization code, which is traded for Apple's refresh token so it can be revoked when the account is deleted, as Apple requires (`appleTokens.ts`). A failed trade never stops the sign-in. | `apple.ts`, `appleTokens.ts` |
 | Sign in with GitHub | OAuth through the same GitHub App that reaches repositories (its client id and secret). The app opens GitHub in a browser sheet and comes back to `turtl://` with a one-time code. | `../auth.ts` |
 
 Accounts are never merged by email: each method makes its own account. GitHub can hand over an address its user has
@@ -67,7 +67,11 @@ spending for an unverified password account, and its own switch.
 Convex Auth's tables (`schema.ts`): `users` (email, and a name and picture when Apple or GitHub passes one on),
 `authAccounts` (which methods a person uses, Apple's or GitHub's id for them, a password hash), `authSessions`,
 `authRefreshTokens`, `authVerificationCodes` (reset codes, hashed), `authVerifiers`, `authRateLimits`. And turtl's
-`authAppleNonces`: hashes of Apple nonces already used, each deleted once its token has expired.
+`authAppleNonces`: hashes of Apple nonces already used, each deleted once its token has expired; and
+`authAppleTokens`: Apple's refresh token for someone who signed in with Apple, only internal functions read it, and
+it is revoked at Apple and deleted when the account is (`convex/account`). Deleting an account removes every row in
+these tables that points at it, the `users` row last; a token whose session has ended signs nobody in
+(`convex/access.ts`).
 
 On the phone the session is kept in the iOS Keychain (`data/account/storage.ts`).
 
@@ -97,8 +101,12 @@ The variables, and whether production needs them, are in `release/backend-env.mj
 3. `AUTH_GITHUB_ID` and `AUTH_GITHUB_SECRET`: the GitHub App's client id and a client secret. The app's callback
    URL list must include `https://<deployment>.convex.site/api/auth/callback/github`.
 4. Optional, for password reset: `AUTH_RESEND_KEY` and `AUTH_EMAIL_FROM`.
-5. `AUTH_REQUIRED=true`.
-6. Check with `npx convex run auth/settings:check`. It lists what is missing, by name only.
+5. For Sign in with Apple's token revocation: `AUTH_APPLE_TEAM_ID` (the Apple Developer team id), and a Sign in with
+   Apple key made under Certificates, Identifiers & Profiles > Keys: `AUTH_APPLE_KEY_ID` (its id) and
+   `AUTH_APPLE_PRIVATE_KEY` (the contents of its .p8 file; line breaks may be spaces). Without them Sign in with Apple
+   still works, but no token is kept, so deleting such an account cannot revoke it.
+6. `AUTH_REQUIRED=true`.
+7. Check with `npx convex run auth/settings:check`. It lists what is missing, by name only.
 
 The App Review account: `npx convex run auth/review:ensureAccount '{"email":"…","password":"…"}'`. It creates
 the account or sets a new password on it; sessions already open stay open.
@@ -106,7 +114,7 @@ the account or sets a new password on it; sessions already open stay open.
 ## Tests
 
 `tests/accounts.test.mjs` runs these modules against `tests/fixtures/auth-stand-in.mjs`, a stand-in for GitHub's
-OAuth pages, Apple's keys and Resend. `AUTH_STAND_IN_URL` points a deployment at the same stand-in; it must never
+OAuth pages, Apple's keys and token endpoints, and Resend. `AUTH_STAND_IN_URL` points a deployment at the same stand-in; it must never
 be set in production. With `AUTH_REQUIRED=true` the backend honours it only when it runs locally (its own address is
 localhost, `convex/demoSettings.ts`), so a hosted deployment where it was set by mistake still asks Apple, GitHub and
 Resend themselves.

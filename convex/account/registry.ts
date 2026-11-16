@@ -4,6 +4,8 @@ import type { MutationCtx } from "../_generated/server";
 import { codeNamespace } from "../codeNetwork/schema";
 import { eraseIntakeWindows, eraseSignIn, type Progress } from "./erasers";
 
+declare const process: { env: Record<string, string | undefined> };
+
 // What deleting an account removes, module by module (convex/account/README.md). The job in deletion.ts walks these
 // lists in order: for each project the account owns, every case's rows (caseErasers) and then the case; then the
 // project's own rows (projectErasers) and then the project; then the account's rows (accountErasers), the sign-in
@@ -120,6 +122,9 @@ export const projectErasers: Eraser[] = [
   // The map of the code, and the questions asked about it. Its documents at Supermemory go with the code_ namespace.
   projectRows("codeNetworks", "by_project", { field: "projectId", text: true }),
   projectRows("codeChatMessages", "by_project_scope_and_at", { field: "projectId", text: true }),
+  // At integration (wave 2), the secrets engineer's erasers go here, one line each, with the tables they remove:
+  //   call("project", "secrets.project", [<their per-project tables>], internal.secrets.erase.forProject),
+  //   call("project", "protectedApp.watching", [<its tables>], internal.protectedApp.watching.forgetProject),
 ];
 
 /** The account's own rows, removed after its projects. The sign-in records go last. */
@@ -128,10 +133,9 @@ export const accountErasers: Eraser[] = [
   accountRows("aiConsents", "by_account"),
   accountRows("modelSpend", "by_account_and_month"),
   accountRows("codingThreads", "by_account_day_and_request"),
+  // At integration (wave 2): call("account", "secrets.account", [<their per-account tables>], internal.secrets.erase.forAccount),
   inline("auth.signIn", ["authSessions", "authRefreshTokens", "authVerifiers", "authAccounts", "authVerificationCodes", "authPasswordResets", "authRateLimits", "users"], eraseSignIn),
 ];
-
-declare const process: { env: Record<string, string | undefined> };
 
 /** Supermemory namespaces a project's data is written to, by the name the writer passes (convex/supermemory.ts adds
  * SUPERMEMORY_NAMESPACE_PREFIX). Each is deleted whole. A codeNetworks row's own namespace is deleted too. The writers'
