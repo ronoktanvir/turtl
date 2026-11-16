@@ -17,7 +17,7 @@ If you think you have found a security problem, write to the same address and pu
 
 ### What does turtl need from me?
 
-An account (email and password, Sign in with Apple, or GitHub; with an email address, you confirm it with a code turtl emails you), a GitHub repository, and a live app to watch. turtl reads the repositories you choose, checks the app regularly, and opens a case when a check fails or a customer reports a problem. To have turtl write code changes, add your own Capy key in Settings, under Coding agent. To see how it works first, tap Try a practice app on Projects before you add a project, or in Add project: turtl runs a small booking app for you to break on purpose and watch it fix.
+An account (email and password, Sign in with Apple, or GitHub; with an email address, you confirm it with a code turtl emails you), a GitHub repository, and a live app to watch. turtl reads the repositories you choose, checks the app regularly, and opens a case when a check fails, when your app stops answering its checks, or when a customer reports a problem. To have turtl write code changes, add your own Capy key in Settings, under Coding agent. To see how it works first, tap Try a practice app on Projects before you add a project, or in Add project: turtl runs a small booking app for you to break on purpose and watch it fix.
 
 ### Why does turtl ask for my microphone?
 
@@ -33,7 +33,7 @@ Open a project, tap the gear, then under AI services tap Take back. turtl still 
 
 ### Does turtl notice when my app is down?
 
-turtl opens a case when one of your app's checks runs and fails, or when a customer reports a problem. If your app does not answer at all, no case opens and no notification is sent, so look at the project if you have not heard from turtl for a while.
+Yes. turtl opens a case when one of your app's checks runs and fails, or when a customer reports a problem. If your app does not answer turtl's checks at all (no reply within 30 seconds, no connection, or a reply without a check result) three times in a row, about three minutes, turtl opens one case for the project and, if you turned notifications on, sends you one. turtl first makes sure the trouble is not its own: if many of the apps it watches go quiet at the same moment, it may wait about half an hour, or a little more, before telling you. The case says what turtl saw. turtl does not propose a fix for an app it cannot reach, and it uses no AI on that case. It keeps checking, less often the longer your app stays quiet (up to every 15 minutes). When your app answers again, turtl closes the case and notifies you again, up to about 15 minutes after your app is back; open the case to see whether your checks pass. Your practice app never gets such a case: it runs on turtl's own site.
 
 ### How do I reset my password?
 
@@ -57,4 +57,4 @@ In the app, open a project, tap the gear, then Disconnect GitHub. turtl says wha
 
 ### How do I turn notifications on or off?
 
-Open a project and tap the gear. Under Notifications, tap Turn on notifications, or Turn off on this phone. iOS Settings can also turn them off. A notification says only your project's name and that a case needs you, or that a fix you allowed has run.
+Open a project and tap the gear. Under Notifications, tap Turn on notifications, or Turn off on this phone. iOS Settings can also turn them off. A notification says only your project's name and one of these: a case needs you, a fix you allowed has run, your app is not answering turtl's checks, or it is answering them again.

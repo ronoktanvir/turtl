@@ -11,7 +11,7 @@
 - **Auth:** Convex Auth (`@convex-dev/auth` 0.0.98): email and password (with the address confirmed by an emailed code), Sign in with Apple, and GitHub, whenever `AUTH_REQUIRED` is set to anything but empty or `false`. Unset, empty or `false`, the deployment is the single-owner demo: nobody signs in, and it refuses to run if it holds any account
 - **AI models:** gpt-5.4-mini (Quick look diagnosis, and by default fix proposals, case chat, report triage and preference reading; `DIAGNOSIS_MODEL` and `FIXES_MODEL` override it), gpt-6.1-sol (Careful review diagnosis and council consolidation), gpt-5.5 and gpt-6.1-terra (council members), gpt-5.4 (broader-cause examination, `STRUCTURAL_MODEL` overrides it), gpt-6-luna (assistant chat, code network and onboarding inspection, `OPENAI_MODEL` overrides it), gpt-4o-mini-transcribe and gpt-4o-mini-tts (voice); claude-sonnet-4-5 and gemini-2.5-pro join the council only when `ANTHROPIC_API_KEY` or `GEMINI_API_KEY` is set. All are called through each provider's API, not the Convex AI Gateway
 - **Started:** 2026-11-15T20:37:34Z
-- **Last updated:** 2026-11-16T16:00:00Z
+- **Last updated:** 2026-11-16T18:47:12Z
 
 ## Log
 
@@ -353,3 +353,6 @@ Documented the outage floor, the hard stop, the first reset of the day and the s
 
 ### 2026-11-16 - fb2a04b
 Made a failed model call give its hold back: a call the AI service refuses with an error status releases its hold at once, and one that times out keeps it for ten minutes and is then counted at its hold, settled by a sweep each minute (`modelCallHolds`). No hold lasts until midnight any more.
+
+### 2026-11-16 - 1361273
+Opened a case when an owner's app stops answering: three of the monitor's tries in a row of a check with no usable reply (no reply within 30 seconds, a failed connection, or no check result) open one "Not answering" case for the project, at most 10 a day, with a push, and it closes with a second push when the app answers again, or unresolved when turtl stops checking. turtl makes no model call on it and it never reaches the outage floor or reserve. Before it opens, turtl holds it while its own site gives no reply, a 5xx or a 429, or while at least five other projects that answered in the last half hour have all gone quiet; practice projects never get one. Each check keeps a count of unanswered tries and each watched project when it last got a usable reply (`convex/protectedApp/notAnswering.ts`, `convex/monitor.ts`, `convex/push/message.ts`).

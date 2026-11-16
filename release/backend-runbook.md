@@ -186,6 +186,16 @@ App Review signs in with an email-and-password account and expects one project w
 
 After the review account approves a fix, the reviewer can break the practice app again themselves (Break it, on the project page). If a case was declined and left the practice app broken, run step 2 again: it puts the practice app back, checks it, and breaks it again, so a new case opens.
 
+## 7. Watch the backend log
+
+When an owner's app stops answering turtl's checks, turtl opens a "Not answering" case and notifies the owner (`convex/protectedApp/notAnswering.ts`). Before it does, it makes sure the trouble is not its own, and when it cannot, it holds the case and writes one warning to the backend log (the dashboard's **Logs** page). Nothing else is needed from the operator; these lines are the signs worth reading:
+
+- **"A not-answering case was held back: turtl's own site did not answer turtl's request…"** turtl asked its own site address (`CONVEX_SITE_URL`) and got no reply, a 5xx or a 429, so its own requests may not be getting out. The case is tried again at the project's next round and opens once the site answers. Many of these at once mean the deployment itself is in trouble: look at Convex's status and at whether the site address answers.
+- **"A not-answering case was held back: the other projects turtl checked since that project went quiet got no usable reply either…"** With accounts on, at least five other projects that had answered in the last 30 minutes all went quiet too. Either turtl's own requests are failing while its own site still answers, or a host those apps share is down. turtl cannot tell which from the inside, so it holds the case for about half an hour at most (up to about 45 minutes if the app went quiet a little earlier), then opens it if its own site answers. If turtl itself is the trouble, those owners get a false alarm after that half hour.
+- **"turtl's own practice app did not answer turtl's checks…"** Once a round for each practice project whose checks got no usable reply. A practice app runs on turtl's own site, so this is turtl's own site or practice code in trouble, not an owner's app, and no case opens. `/practice/<project id>/health` on the site address shows whether it answers.
+
+Not examined: whether a request from the backend to its own site address leaves Convex's network on a hosted deployment, so the first check may pass while the backend's requests to the outside fail; and the look across projects at real scale.
+
 ## What the production backend does not do yet
 
 These are limits of the product today, not of this runbook. Each is why a row above says "Never set".

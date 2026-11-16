@@ -20,7 +20,7 @@ MICROPHONE (2.5.14)
 Used only after the user taps Talk on a case, while the app shows it is listening, for at most 30 seconds. The recording is sent to OpenAI to be turned into text and is not stored. Typing does the same job.
 
 NOTIFICATIONS (4.5.4)
-Optional. The app asks only after the user taps Turn on notifications. A notification is sent only when a case needs the owner's decision or a fix the owner allowed has run, and is never promotional.
+Optional; asked only after the user taps Turn on notifications. Sent only when a case needs a decision, a fix the owner allowed ran, or the app stops or starts answering turtl's checks. Never promotional.
 
 ACCOUNT DELETION (5.1.1(v))
 On Projects, tap the profile picture at the top right, then Delete account, Continue, and Yes, delete my account. This deletes the account and everything turtl holds for it, including the copies at our search provider and turtl's access to GitHub, and revokes the Apple token of a Sign in with Apple account.

@@ -44,7 +44,7 @@ Only Expo with a Convex backend (the stack of turtl's protected booking app) is 
 
 - Control of a hosting platform (restarts and rollbacks through a host's API). It needs, per host, an API token in turtl's environment, a catalog action kind for that host, and a verification that the restart or rollback took effect. A recovery hook inside a crashed service cannot restart that service.
 - Instrumentation cannot recover logs from before it was installed.
-- The monitor (`convex/monitor.ts`) checks registered journeys with the booking journey contract, so a registered health or readiness journey shows as a check error there rather than opening a case.
+- The monitor (`convex/monitor.ts`) checks registered journeys with the booking journey contract, so a registered health or readiness journey gets no check result there: the monitor counts each try as unanswered, and after three in a row opens a not-answering case for the project (`convex/protectedApp/notAnswering.ts`) rather than an ordinary one.
 - turtl checks the live address's name, not what it resolves to: a public name pointed at a private address is not caught.
 
 ## Environment
