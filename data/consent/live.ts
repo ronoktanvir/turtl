@@ -1,4 +1,4 @@
-import type { FunctionReference, FunctionReturnType } from "convex/server";
+import { getFunctionName, type FunctionReference, type FunctionReturnType } from "convex/server";
 import { useEffect, useState } from "react";
 import { api } from "../../convex/_generated/api";
 import { errorMessage, liveClient, requireLiveClient } from "../live/client";
@@ -8,6 +8,8 @@ import type { AiConsentData, AiPermission, AiSpend } from "./types";
 // deployment) answers with an error, and the app then simply shows nothing, as before.
 function useQuietQuery<Query extends FunctionReference<"query">>(query: Query): FunctionReturnType<Query> | null | undefined {
   const [data, setData] = useState<FunctionReturnType<Query> | null | undefined>(undefined);
+  // The api proxy hands out a new reference on every access, so the subscription is keyed on the function's name.
+  const name = getFunctionName(query);
   useEffect(() => {
     if (!liveClient) {
       setData(null);
@@ -24,7 +26,7 @@ function useQuietQuery<Query extends FunctionReference<"query">>(query: Query): 
     const unsubscribe = watch.onUpdate(read);
     read();
     return unsubscribe;
-  }, [query]);
+  }, [name]);
   return data;
 }
 
