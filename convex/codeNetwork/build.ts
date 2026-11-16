@@ -193,7 +193,7 @@ export const build = internalAction({
     if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) return { outcome: "failed", reason: `repo must be owner/name, got ${repo}.` };
 
     const started = Date.now();
-    const access = await repositoryAccess(ctx, repo);
+    const access = await repositoryAccess(ctx, repo, { appId: projectId });
     if (!access.ok) return { outcome: "failed", reason: access.message };
     const fetched = await fetchRepository(repo, ref ?? "HEAD", access.token);
     if ("reason" in fetched) return { outcome: "failed", reason: fetched.reason };

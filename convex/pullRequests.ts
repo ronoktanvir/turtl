@@ -23,8 +23,9 @@ export type MergeResult = { outcome: "merged"; pullRequest: PullRequest } | { ou
 const NO_GITHUB_TOKEN: NotConfigured = { outcome: "not_configured", missing: ["GITHUB_TOKEN"] };
 
 // The credential for one repository: a GitHub App installation token, or GITHUB_TOKEN while the app is not configured.
-async function githubAccess(ctx: ActionCtx, repo: string): Promise<{ token: string } | NotConfigured | Failed> {
-  const access = await repositoryAccess(ctx, repo);
+// With accounts on, only an installation the case's project owner connected.
+async function githubAccess(ctx: ActionCtx, repo: string, caseId: string): Promise<{ token: string } | NotConfigured | Failed> {
+  const access = await repositoryAccess(ctx, repo, { caseId });
   if (!access.ok) return { outcome: "failed", message: access.message };
   return access.token ? { token: access.token } : NO_GITHUB_TOKEN;
 }
@@ -61,7 +62,7 @@ async function sync(ctx: ActionCtx, row: Doc<"pullRequests">): Promise<RefreshRe
     number = found.body.number;
     await ctx.runMutation(internal.prTracking.records.setNumber, { id: row._id, number });
   }
-  const access = await githubAccess(ctx, row.repo);
+  const access = await githubAccess(ctx, row.repo, row.caseId);
   if ("outcome" in access) return access;
   const read = await readPullRequest(access.token, row.repo, number);
   if (!read.ok) {
@@ -124,7 +125,7 @@ export const merge = action({
     const row: Doc<"pullRequests"> | null = await ctx.runQuery(internal.prTracking.records.forCase, { caseId });
     if (!row || row.number === undefined) return { outcome: "refused", reason: "This case has no pull request yet." };
     if (row.settledAt !== undefined) return { outcome: "refused", reason: row.openError ?? "turtl is no longer following this pull request." };
-    const access = await githubAccess(ctx, row.repo);
+    const access = await githubAccess(ctx, row.repo, caseId);
     if ("outcome" in access) return access;
     const { token } = access;
     const read = await readPullRequest(token, row.repo, row.number);
@@ -175,7 +176,7 @@ export const attachByUrl = action({
     requireDevTools();
     const parsed = parsePullRequestUrl(url);
     if (!parsed) return { outcome: "failed", message: "Expected a pull request URL like https://github.com/owner/name/pull/123." };
-    const access = await githubAccess(ctx, parsed.repo);
+    const access = await githubAccess(ctx, parsed.repo, caseId);
     if ("outcome" in access) return access;
     const read = await readPullRequest(access.token, parsed.repo, parsed.number);
     if (!read.ok) return { outcome: "failed", message: read.message };

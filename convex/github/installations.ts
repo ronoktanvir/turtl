@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import { internalMutation, internalQuery, type MutationCtx, type QueryCtx } from "../_generated/server";
 import { vInstallation, vInstallationStatus, vRepository } from "./schema";
+import { dropLinks } from "./links";
 import type { Installation, Repository } from "./shapes";
 import { clearToken } from "./tokens";
 
@@ -106,6 +107,7 @@ export const receive = internalMutation({
     await clearToken(ctx, installationId);
     if (next === "deleted") {
       await dropBatch(ctx, installationId);
+      await dropLinks(ctx, installationId);
       return "applied";
     }
     await saveRepositories(ctx, installationId, added, now);
@@ -144,6 +146,7 @@ export const markDeleted = internalMutation({
     if (row && row.status !== "deleted") await ctx.db.patch(row._id, { status: "deleted", updatedAt: Date.now() });
     await clearToken(ctx, installationId);
     await dropBatch(ctx, installationId);
+    await dropLinks(ctx, installationId);
   },
 });
 

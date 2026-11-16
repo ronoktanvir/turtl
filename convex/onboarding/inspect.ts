@@ -3,6 +3,7 @@ import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import { internalAction } from "../_generated/server";
 import { DEFAULT_MODEL, respond } from "../codeNetwork/openai";
+import { repositoryAccess } from "../github/access";
 import {
   confirmItems,
   detectStack,
@@ -156,7 +157,8 @@ export const run = internalAction({
     );
     if (!context) return { outcome: "missing" as const };
     const { inspection, appId } = context;
-    const read = await readRepository(inspection.repo);
+    const access = await repositoryAccess(ctx, inspection.repo, { appId });
+    const read = access.ok ? await readRepository(inspection.repo, access.token) : { ok: false as const, reason: access.message };
     if (!read.ok) {
       await ctx.runMutation(internal.onboarding.records.failInspection, { inspectionId, error: read.reason });
       return { outcome: "failed" as const, reason: read.reason };

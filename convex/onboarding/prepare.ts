@@ -2,8 +2,9 @@ import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Doc } from "../_generated/dataModel";
 import { internalAction, type ActionCtx } from "../_generated/server";
+import { repositoryAccess } from "../github/access";
 import { capyConfig, findPullRequestNumber, startCapyThread } from "../prTracking/capy";
-import { githubToken, readPullRequest } from "../prTracking/github";
+import { readPullRequest } from "../prTracking/github";
 import { call, describeFailure, runJourneyCheck } from "../protectedApp/client";
 import { manifestPath, parseManifest, type Item, type ManifestCheck, type ManifestSwitch } from "./detect";
 import { preparationBrief } from "./brief";
@@ -53,8 +54,7 @@ export const start = internalAction({
 });
 
 // GitHub read with the token, or without it when there is none or GitHub rejects it (public repositories).
-async function readPull(repo: string, number: number) {
-  const token = githubToken();
+async function readPull(repo: string, number: number, token: string | undefined) {
   const read = await readPullRequest(token ?? "", repo, number);
   if (!read.ok && read.status === 401 && token) return { read: await readPullRequest("", repo, number), authenticated: false };
   return { read, authenticated: Boolean(token) };
@@ -87,10 +87,16 @@ export async function syncPreparation(ctx: ActionCtx, row: Doc<"onboardingPrepar
     }
     number = found.body.number;
     await ctx.runMutation(internal.onboarding.records.setNumber, { id: row._id, number });
-  } else if (!force && !githubToken() && row.syncedAt !== undefined && Date.now() - row.syncedAt < UNAUTHENTICATED_SYNC_MS) {
+  }
+  const access = await repositoryAccess(ctx, row.repo, { appId: row.appId });
+  if (!access.ok) {
+    await ctx.runMutation(internal.onboarding.records.recordSyncError, { id: row._id, error: access.message });
+    return "failed";
+  }
+  if (row.number !== undefined && !force && !access.token && row.syncedAt !== undefined && Date.now() - row.syncedAt < UNAUTHENTICATED_SYNC_MS) {
     return "waiting";
   }
-  const { read } = await readPull(row.repo, number);
+  const { read } = await readPull(row.repo, number, access.token);
   if (!read.ok) {
     await ctx.runMutation(internal.onboarding.records.recordSyncError, { id: row._id, error: read.message });
     return "failed";
@@ -252,7 +258,9 @@ export const register = internalAction({
     if (!ref || !preparation.repo) return fail("turtl does not know the merged commit yet, so it could not read what the pull request added.");
     if (!app.productionUrl) return fail("No live app URL was given when the project was added, so turtl could not check anything on the live app.");
     const path = manifestPath(inspection?.folders ?? []);
-    const text = await readRaw(preparation.repo, ref, path, githubToken());
+    const access = await repositoryAccess(ctx, preparation.repo, { appId: preparation.appId });
+    if (!access.ok) return fail(`${access.message} Nothing was registered.`);
+    const text = await readRaw(preparation.repo, ref, path, access.token);
     if (text === null) return fail(`turtl could not read ${path} at ${ref.slice(0, 12)}, so nothing was registered.`);
     const manifest = parseManifest(text);
     if (!manifest.ok) return fail(`${manifest.reason} Nothing was registered.`);
