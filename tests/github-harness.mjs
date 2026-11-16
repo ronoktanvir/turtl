@@ -24,7 +24,7 @@ const START = Date.parse("2026-11-15T12:00:00Z");
 const MINUTE = 60_000;
 const SITE = "http://turtl.test";
 const SOLO = "solo-owner";
-const VARIABLES = ["GITHUB_API_URL", "GITHUB_APP_ID", "GITHUB_APP_SLUG", "GITHUB_APP_PRIVATE_KEY", "GITHUB_APP_WEBHOOK_SECRET", "GITHUB_TOKEN", "AUTH_GITHUB_ID", "AUTH_GITHUB_SECRET", "AUTH_REQUIRED", "CONVEX_SITE_URL", "SUPERMEMORY_API_KEY", "OPENAI_API_KEY"];
+const VARIABLES = ["CONVEX_CLOUD_URL", "GITHUB_API_URL", "GITHUB_APP_ID", "GITHUB_APP_SLUG", "GITHUB_APP_PRIVATE_KEY", "GITHUB_APP_WEBHOOK_SECRET", "GITHUB_TOKEN", "AUTH_GITHUB_ID", "AUTH_GITHUB_SECRET", "AUTH_REQUIRED", "CONVEX_SITE_URL", "SUPERMEMORY_API_KEY", "OPENAI_API_KEY"];
 
 // Tables outside convex/github that the module reads: a project's owner (apps.ownerId, through a case) and the demo's
 // owner passcode. Only the fields these tests need.
@@ -223,7 +223,8 @@ async function world(t, { app = true, connect = false, accounts = false, mocks, 
   process.env.GITHUB_API_URL = stub.url;
   if (app) Object.assign(process.env, { GITHUB_APP_ID: APP_ID, GITHUB_APP_SLUG: "turtl-on-call", GITHUB_APP_PRIVATE_KEY: PKCS1, GITHUB_APP_WEBHOOK_SECRET: WEBHOOK_SECRET });
   if (connect) Object.assign(process.env, { AUTH_GITHUB_ID: stub.clientId, AUTH_GITHUB_SECRET: stub.clientSecret, CONVEX_SITE_URL: SITE });
-  if (accounts) process.env.AUTH_REQUIRED = "true";
+  // With accounts on, a stand-in address (GITHUB_API_URL) is honoured only on a local backend (convex/demoSettings.ts).
+  if (accounts) Object.assign(process.env, { AUTH_REQUIRED: "true", CONVEX_CLOUD_URL: "http://127.0.0.1:3210" });
   const load = createLoader(mocks);
   const backend = createBackend(load, overrides);
   const { repositoryAccess } = load("convex/github/access.ts");

@@ -1,3 +1,4 @@
+import { standInOnly } from "../demoSettings";
 import { codeChallenge } from "./secrets";
 
 declare const process: { env: Record<string, string | undefined> };
@@ -22,11 +23,16 @@ export function appConfig(): AppConfig {
 
 export const webhookSecret = () => process.env.GITHUB_APP_WEBHOOK_SECRET || undefined;
 
-// GITHUB_API_URL points the module at a stand-in for GitHub in tests. Leave it unset on a real deployment.
-export const githubApiUrl = () => (process.env.GITHUB_API_URL || "https://api.github.com").replace(/\/+$/, "");
+// GITHUB_API_URL points every GitHub call turtl makes at a stand-in for GitHub in tests: this module's, pull requests'
+// (prTracking/github.ts), the code map's and onboarding's. Leave it unset on a real deployment. With accounts on it is
+// honoured only on a local backend (standInOnly), so a deployment cannot be pointed at another server by it.
+const standIn = () => standInOnly(process.env.GITHUB_API_URL)?.replace(/\/+$/, "") || undefined;
+export const githubApiUrl = () => standIn() ?? "https://api.github.com";
 // GitHub's pages (installing the app, authorizing it) and its token exchange live on github.com, not on the API's
 // host. The stand-in serves both, so GITHUB_API_URL moves both.
-export const githubWebUrl = () => (process.env.GITHUB_API_URL ? githubApiUrl() : "https://github.com");
+export const githubWebUrl = () => standIn() ?? "https://github.com";
+// A file at a commit, as raw.githubusercontent.com serves it ("<repo>/<sha>/<path>"); the stand-in serves it under /raw.
+export const githubRawUrl = () => (standIn() ? `${standIn()}/raw` : "https://raw.githubusercontent.com");
 
 export const SETUP_PATH = "/github/setup";
 export const CALLBACK_PATH = "/github/callback";
