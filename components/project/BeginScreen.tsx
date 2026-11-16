@@ -126,6 +126,7 @@ export default function BeginScreen({ type }: { type: CaseType }) {
                 );
               })}
             </ScrollView>
+            {list.y > 1 && <EdgeFade edge="top" size={20} />}
             {list.y + list.viewport < list.content - 4 && <EdgeFade edge="bottom" size={36} />}
           </View>
         )}
