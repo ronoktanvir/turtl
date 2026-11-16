@@ -488,8 +488,9 @@ test("a project whose token is missing, or whose owner deleted their account, is
   assert.deepEqual(sent.map((request) => [request.url, request.authorization]), [["https://bob.example/health/journey-check", null]]);
   assert.match((await w.run("api.secrets.project.controlToken", { projectId: b.appId }, bob)).notWatched, /runs only the others until you add it/);
 
-  // Adding the token clears the notice on the next turn.
+  // Adding the token clears the notice at once, before the monitor's next turn, and that turn keeps it cleared.
   await w.run("api.secrets.project.setControlToken", { projectId: b.appId, token: TOKENS.bob }, bob);
+  assert.equal((await w.run("api.secrets.project.controlToken", { projectId: b.appId }, bob)).notWatched, undefined, "no stale notice beside the saved token");
   await w.run("internal.monitor.tick", {});
   await w.drain(["internal.monitor.checkProject"]);
   assert.equal((await w.run("api.secrets.project.controlToken", { projectId: b.appId }, bob)).notWatched, undefined);

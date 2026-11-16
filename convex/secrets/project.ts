@@ -4,7 +4,7 @@ import type { Id } from "../_generated/dataModel";
 import { action, mutation, query } from "../_generated/server";
 import { accessEnforced, canSeeApp, guardApp, guardAppInAction } from "../access";
 import { liveOrigin } from "../protectedApp/address";
-import { watchNotice } from "../protectedApp/watching";
+import { WATCH_WORDS, watchNotice } from "../protectedApp/watching";
 import { seal, sealingKey } from "./seal";
 import { clearSlot, contextOf, projectSecret } from "./store";
 import { DEMO_KEEPS_CONTROL_TOKEN, NO_SEALING_KEY, NOT_A_CONTROL_TOKEN, sendable } from "./words";
@@ -36,7 +36,10 @@ export const controlToken = query({
     if (!accessEnforced()) return { accounts: false, set: false };
     const row = await projectSecret(ctx, app._id, "control_token");
     const origin = app.productionUrl ? liveOrigin(app.productionUrl) : null;
-    const notice = await watchNotice(ctx, app._id);
+    // The monitor writes its notice on its own turn. A notice that the token is missing is out of date the moment one
+    // is saved, so it is not shown beside "Saved just now" while the next turn is still to come.
+    const recorded = await watchNotice(ctx, app._id);
+    const notice = row !== null && (recorded === WATCH_WORDS.noToken || recorded === WATCH_WORDS.someNeedToken) ? null : recorded;
     return {
       accounts: true,
       set: row !== null,
