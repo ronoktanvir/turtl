@@ -18,7 +18,7 @@ export function WorksNow({ onboarding, checking, onCheckAgain }: { onboarding: O
         {onboarding.checkedAt && !registering && <T variant="small" color="textMuted">{"Checked " + ago(onboarding.checkedAt)}</T>}
       </View>
       {registering && <T color="textMuted">turtl is calling each new endpoint on your live app and registering the ones that respond.</T>}
-      {onboarding.checksError && <T color="statusNeedsYou" accessibilityRole="alert" testID="prepare-checks-error">{onboarding.checksError}</T>}
+      {onboarding.checksError && <T font="text" color="statusNeedsYou" accessibilityRole="alert" testID="prepare-checks-error">{onboarding.checksError}</T>}
       {onboarding.checks.length > 0 && (
         <View style={{ borderRadius: 20, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, overflow: "hidden" }}>
           {onboarding.checks.map((check, index) => {

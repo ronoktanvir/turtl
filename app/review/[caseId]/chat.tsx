@@ -94,15 +94,15 @@ export default function InvestigateFurther() {
               {m.role === "owner" ? (
                 <View style={{ alignSelf: "flex-end", maxWidth: "90%", backgroundColor: colors.surfaceRaised, borderRadius: 20, borderBottomRightRadius: 6, padding: 16, gap: 4 }}>
                   <T variant="small" color="textMuted">You</T>
-                  <T>{m.text}</T>
+                  <T font="text">{m.text}</T>
                 </View>
               ) : (
                 <View style={{ gap: 10 }}>
                   <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
                     <Turtle health="clear" size={30} />
-                    <T variant="strong" font="title">turtl</T>
+                    <T variant="strong">turtl</T>
                   </View>
-                  <T>{m.text}</T>
+                  <T font="text">{m.text}</T>
                   {m.proposedPreference && c && <PreferenceCard projectId={c.projectId} proposal={m.proposedPreference} />}
                 </View>
               )}
@@ -115,7 +115,7 @@ export default function InvestigateFurther() {
           </View>}
         </ScrollView>
         <View style={{ paddingHorizontal: 20, paddingTop: 12, paddingBottom: insets.bottom + (devToolsOn ? 76 : 16), borderTopWidth: 1, borderTopColor: colors.border, backgroundColor: colors.bg }}>
-          {error && <T color="statusAffected" accessibilityRole="alert" testID="chat-error" style={{ marginBottom: 8 }}>{error}</T>}
+          {error && <T font="text" color="statusAffected" accessibilityRole="alert" testID="chat-error" style={{ marginBottom: 8 }}>{error}</T>}
           <AskBar value={text} onChangeText={setText} onSend={() => void send()} busy={busy} placeholder="Ask about this case…" inputID="chat-input" sendID="chat-send" talk={talk} talkID="chat-talk" />
         </View>
       </KeyboardAvoidingView>
@@ -146,7 +146,7 @@ function PreferenceCard({ projectId, proposal }: { projectId: string; proposal: 
   return (
     <View style={{ gap: 10, padding: 16, borderRadius: 16, borderWidth: 1, borderColor: colors.border, borderLeftWidth: 2, borderLeftColor: colors.brandDeep, backgroundColor: colors.surface }} testID={"chat-preference-" + proposal.id}>
       {proposal.status === "pending" && <T variant="strong">Save this as a preference?</T>}
-      <T>{"“" + proposal.statement + "”"}</T>
+      <T font="text">{"“" + proposal.statement + "”"}</T>
       {proposal.status === "pending" ? (
         <View style={{ flexDirection: "row", gap: 8 }}>
           <Button label="Save" disabled={busy} onPress={() => void settle(() => confirmPreference(projectId, proposal.id))} testID="chat-preference-save" style={{ flex: 1, minHeight: 44 }} />
@@ -155,7 +155,7 @@ function PreferenceCard({ projectId, proposal }: { projectId: string; proposal: 
       ) : (
         <T variant="small" color="textMuted" testID="chat-preference-status">{proposal.status === "saved" ? "Saved to what matters to you." : "Not saved."}</T>
       )}
-      {error && <T color="statusAffected" accessibilityRole="alert">{error}</T>}
+      {error && <T font="text" color="statusAffected" accessibilityRole="alert">{error}</T>}
     </View>
   );
 }
