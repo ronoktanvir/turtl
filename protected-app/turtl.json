@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "credentialRef": "PROTECTED_APP_CONTROL_SECRET",
+  "health": {
+    "name": "Booking server answers",
+    "path": "/health"
+  },
+  "readiness": {
+    "name": "Booking app can take bookings",
+    "path": "/ready",
+    "authenticated": false
+  },
+  "journeys": [
+    {
+      "name": "Book an appointment",
+      "description": "A customer can choose a treatment and time and receive a confirmation for a saved booking. The server makes a test booking, confirms it was saved, then deletes it.",
+      "path": "/journey-check",
+      "authenticated": true
+    },
+    {
+      "name": "See treatments and appointment times",
+      "description": "A customer can see the available treatments and appointment times. The server loads the treatments, times, and screen settings the booking screen needs; it creates no booking.",
+      "path": "/journey-check/catalog",
+      "authenticated": true
+    },
+    {
+      "name": "Book with recommendations off",
+      "description": "When optional recommendations are turned off, a customer can still make a booking. The server makes a test booking with recommendations off for that check only, confirms it was saved, then deletes it; the live setting is not changed.",
+      "path": "/journey-check/recommendations-off",
+      "authenticated": true
+    }
+  ],
+  "flags": [
+    {
+      "name": "Optional recommendations",
+      "description": "Turns the optional treatment suggestions on the booking screen on (true) or off (false) without a deploy.",
+      "field": "recommendationsEnabled",
+      "path": "/flags",
+      "authenticated": true
+    }
+  ],
+  "recoveryHooks": [
+    {
+      "name": "Turn off recommendations",
+      "description": "Set recommendationsEnabled to false so bookings stop waiting for the recommendation provider. This gets past a recommendation failure; it does not fix a booking-store failure. Set it back to true to undo.",
+      "field": "recommendationsEnabled",
+      "path": "/flags",
+      "authenticated": true
+    }
+  ]
+}

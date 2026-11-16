@@ -8,7 +8,9 @@ The weakened boundary is credential isolation: turtl's caller secret (`PROTECTED
 
 - Customer functions are `api.bookingDemo.booking.getCatalog`, `getFlags`, `recommendations`, and `submit`. They require no sign-in and never change control settings.
 - Booking data uses only `bookingDemoSettings`, `bookingDemoBookings`, and `bookingDemoAttempts`. Bare `settings`, `bookings`, and `bookingAttempts` are unused; no migration from or dependency on those accidental empty tables is needed.
-- The unchanged HTTP control contract is mounted at `/booking-demo/health`, `/booking-demo/revision`, `/booking-demo/flags`, `/booking-demo/staged-failure`, `/booking-demo/journey-check`, and `/booking-demo/errors`.
+- The HTTP control contract is mounted at `/booking-demo/health`, `/booking-demo/ready`, `/booking-demo/revision`, `/booking-demo/flags`, `/booking-demo/staged-failure`, `/booking-demo/journey-check`, `/booking-demo/journey-check/catalog`, `/booking-demo/journey-check/recommendations-off`, and `/booking-demo/errors`. `../../protected-app/turtl.json` lists the health, readiness, journey, flag, and recovery routes for turtl.
+- `GET /ready` needs no secret. It answers 200 when a booking can be taken now and 503 naming the failing dependency otherwise: `booking_store` (`BOOKING_STORE_UNAVAILABLE`) when the database does not answer or the staged store failure is on, or `recommendations_provider` (`RECOMMENDATIONS_TIMEOUT`) when recommendations are on and the provider does not answer. It writes nothing.
+- `POST /journey-check/catalog` checks that a customer can see the treatments and appointment times; it creates no booking. `POST /journey-check/recommendations-off` makes a fixture booking with recommendations off for that run only and never changes the live switch, so it shows whether turning recommendations off would restore booking. Both return the `/journey-check` result shape without `configuration`, answer 200 or 503, and log every failure with its code and run id.
 - Set `PROTECTED_APP_URL=https://<deployment>.convex.site/booking-demo` in turtl. Keep the prefix, omit a trailing slash, and use the **site** URL rather than `.convex.cloud`. Existing turtl callers append the remaining paths unchanged.
 - Request/response fields, bearer hash verification, 401/503 responses, fixture cleanup, impact semantics, and revision reporting match the [standalone app's contract](https://github.com/ronoktanvir/turtl/blob/capy/protected-booking-demo/protected-app/README.md). Only the base URL changes.
 
@@ -35,6 +37,8 @@ CONTROL_BASE_URL=http://127.0.0.1:3211/booking-demo \
   node convex/bookingDemo/control.test.mjs
 ```
 
-Export caller-side `PROTECTED_APP_CONTROL_SECRET` in the shell first. The script prints redacted transcripts, checks all eight flag/failure configurations, rejects malformed state changes, verifies hash authentication, and restores all settings. Run it only against an isolated deployment without concurrent customer traffic. Its `.test.mjs` name keeps the Node-only check script out of Convex function deployment.
+Export caller-side `PROTECTED_APP_CONTROL_SECRET` in the shell first. The script prints redacted transcripts, calls every route `turtl.json` lists, checks readiness and all three journeys in all eight flag/failure configurations, rejects malformed state changes, verifies hash authentication, and restores all settings. Run it only against an isolated deployment without concurrent customer traffic. Its `.test.mjs` name keeps the Node-only check script out of Convex function deployment.
+
+`node --test convex/bookingDemo/endpoints.test.mjs` runs the same routes without a server, against an in-memory store and an instant simulated provider, including database, catalog, settings, and cleanup failures that cannot be staged on a deployment.
 
 The Expo booking screens are not included in this backend port. A separate frontend change will use the namespaced customer functions on this deployment. The original standalone branch is retained for local tests until then.
