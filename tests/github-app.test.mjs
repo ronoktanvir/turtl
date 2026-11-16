@@ -94,7 +94,8 @@ test("a token is stored in one table that only github/tokens.ts reads, and only 
       .map((entry) => resolve(entry.parentPath, entry.name).slice(root.length + 1))
       .filter((path) => !path.startsWith("convex/_generated/"));
   const mentions = [...sources("convex"), ...sources("app"), ...sources("components"), ...sources("data")].filter((path) => readFileSync(resolve(root, path), "utf8").includes("githubInstallationTokens"));
-  assert.deepEqual(mentions.sort(), ["convex/github/schema.ts", "convex/github/tokens.ts"]);
+  // convex/account/registry.ts names the table only to say GitHub's disconnect removes it when an account is deleted.
+  assert.deepEqual(mentions.sort(), ["convex/account/registry.ts", "convex/github/schema.ts", "convex/github/tokens.ts"]);
   for (const path of sources("convex/github")) {
     const imported = /import \{([^}]+)\} from "\.\.\/_generated\/server"/.exec(readFileSync(resolve(root, path), "utf8"))?.[1] ?? "";
     const names = imported.split(",").map((name) => name.replace(/\btype\b/, "").trim()).filter(Boolean);

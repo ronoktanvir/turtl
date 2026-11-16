@@ -20,7 +20,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const nodeRequire = createRequire(import.meta.url);
 const realAuth = await import("@convex-dev/auth/server");
 const VARIABLES = [
-  "AUTH_REQUIRED", "AUTH_STAND_IN_URL", "AUTH_RESEND_KEY", "AUTH_EMAIL_FROM", "AUTH_APPLE_BUNDLE_ID", "AUTH_GITHUB_ID", "AUTH_GITHUB_SECRET", "JWT_PRIVATE_KEY", "JWKS", "SITE_URL",
+  "AUTH_REQUIRED", "AUTH_STAND_IN_URL", "AUTH_RESEND_KEY", "AUTH_EMAIL_FROM", "AUTH_APPLE_BUNDLE_ID", "AUTH_APPLE_TEAM_ID", "AUTH_APPLE_KEY_ID", "AUTH_APPLE_PRIVATE_KEY", "AUTH_GITHUB_ID", "AUTH_GITHUB_SECRET", "JWT_PRIVATE_KEY", "JWKS", "SITE_URL",
   "CONVEX_CLOUD_URL", "NEW_ACCOUNTS_PER_HOUR", "NEW_ACCOUNTS_PER_DAY",
 ];
 
@@ -347,6 +347,45 @@ test("Sign in with Apple makes an account once, signs the same person in again, 
   assert.equal(store.rows("authAppleNonces").length, 1);
 });
 
+test("Sign in with Apple keeps Apple's refresh token to revoke later, only for the same Apple user, and never stops the sign-in", async (t) => {
+  const { load, standIn, store, actionCtx } = await world(t);
+  const logged = [];
+  for (const level of ["log", "info", "warn", "error"]) t.mock.method(console, level, (...args) => logged.push(args.join(" ")));
+  const provider = load("convex/auth/apple.ts").apple();
+  const signIn = async (code) => {
+    const raw = nonce();
+    return await provider.authorize({ identityToken: await standIn.signAppleToken({ nonce: sha(raw) }), nonce: raw, authorizationCode: code }, actionCtx);
+  };
+  // Without the team's key turtl cannot trade the code: the sign-in works and the log says what is missing.
+  const first = await signIn(standIn.issueAppleCode());
+  assert.ok(first.userId);
+  assert.deepEqual(store.rows("authAppleTokens"), []);
+  assert.match(logged.at(-1), /AUTH_APPLE_TEAM_ID, AUTH_APPLE_KEY_ID or AUTH_APPLE_PRIVATE_KEY is not set/);
+  Object.assign(process.env, { AUTH_APPLE_TEAM_ID: standIn.appleClient.teamId, AUTH_APPLE_KEY_ID: standIn.appleClient.keyId, AUTH_APPLE_PRIVATE_KEY: standIn.appleClient.privateKey.replace(/\n/g, " ") });
+  const second = await signIn(standIn.issueAppleCode());
+  assert.equal(second.userId, first.userId);
+  const [kept] = store.rows("authAppleTokens");
+  assert.equal(kept.userId, first.userId);
+  assert.ok(standIn.appleRefreshTokens.has(kept.refreshToken), "the token Apple handed out for this code");
+  // A code that belongs to another Apple account is never kept under this one; a used code is refused by Apple. Both still sign in.
+  assert.ok(await signIn(standIn.issueAppleCode("000999.someone-else.0001")));
+  assert.match(logged.at(-1), /no Apple token was kept to revoke later \(the authorization code belongs to another Apple account\)/);
+  const used = standIn.issueAppleCode();
+  await signIn(used);
+  assert.ok(await signIn(used));
+  assert.match(logged.at(-1), /Apple answered with an error \(status 400\)/);
+  assert.equal(store.rows("authAppleTokens").length, 2);
+  // Revoking: Apple accepts the client secret signed with the team's key, and refuses one signed for another key.
+  const { revokeToken } = load("convex/auth/appleTokens.ts");
+  const { appleClient } = load("convex/auth/settings.ts");
+  assert.deepEqual(await revokeToken(appleClient(), kept.refreshToken), { ok: true });
+  assert.deepEqual(standIn.appleRevoked, [{ token: kept.refreshToken, hint: "refresh_token" }]);
+  process.env.AUTH_APPLE_KEY_ID = "ANOTHERKEY";
+  assert.deepEqual(await revokeToken(appleClient(), kept.refreshToken), { ok: false, reason: "Apple answered with an error (status 400)" });
+  const secrets = [kept.refreshToken, standIn.appleClient.privateKey.split("\n")[1], used];
+  assert.ok(logged.every((line) => secrets.every((secret) => !line.includes(secret))), "no token, code or key in any log line");
+});
+
 test("a token for another bundle id is refused unless AUTH_APPLE_BUNDLE_ID names it", async (t) => {
   const { load, standIn, actionCtx } = await world(t, { AUTH_APPLE_BUNDLE_ID: "com.owner.turtl" });
   const provider = load("convex/auth/apple.ts").apple();
@@ -521,9 +560,13 @@ test("users.mode answers before sign-in; users.viewer returns the signed-in pers
   await store.seed("authAccounts", { userId: ada, provider: "github", providerAccountId: "4242" });
   await store.seed("authAccounts", { userId: ada, provider: "password", providerAccountId: "ada@example.com", secret: "x" });
   const plain = await store.seed("users", { email: "plain@example.com", image: "http://insecure.example.com/me.png" });
+  const adaSession = await store.seed("authSessions", { userId: ada, expirationTime: Date.now() + 60_000 });
+  const plainSession = await store.seed("authSessions", { userId: plain, expirationTime: Date.now() + 60_000 });
+  const ended = await store.seed("authSessions", { userId: ada, expirationTime: 0 });
   const as = (subject) => ({ db: store.db, auth: { getUserIdentity: async () => (subject ? { subject } : null) } });
-  assert.deepEqual(await users.viewer.handler(as(`${ada}|authSessions:1`), {}), { id: ada, name: "Ada", email: "ada@example.com", picture: "https://avatars.example.com/ada.png", methods: ["password", "github"] });
-  assert.deepEqual(await users.viewer.handler(as(`${plain}|authSessions:2`), {}), { id: plain, name: null, email: "plain@example.com", picture: null, methods: [] }, "only an https picture is passed on");
+  assert.deepEqual(await users.viewer.handler(as(`${ada}|${adaSession}`), {}), { id: ada, name: "Ada", email: "ada@example.com", picture: "https://avatars.example.com/ada.png", methods: ["password", "github"] });
+  assert.deepEqual(await users.viewer.handler(as(`${plain}|${plainSession}`), {}), { id: plain, name: null, email: "plain@example.com", picture: null, methods: [] }, "only an https picture is passed on");
+  assert.equal(await users.viewer.handler(as(`${ada}|${ended}`), {}), null, "a session that has ended (signed out elsewhere, or the account is being deleted)");
   assert.equal(await users.viewer.handler(as(null), {}), null);
   assert.equal(await users.viewer.handler(as("users:999|authSessions:3"), {}), null, "a deleted user");
   assert.equal(await users.viewer.handler(as("someone-else|x"), {}), null, "an id that is not a user");

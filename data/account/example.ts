@@ -4,7 +4,7 @@ import type { Account, AccountActions } from "./types";
 
 const demo: Account = { status: "demo", mode: undefined, viewer: null };
 const nothing = async () => null;
-const actions: AccountActions = { logIn: nothing, signUp: nothing, apple: nothing, github: nothing, requestReset: nothing, resetPassword: nothing, signOut: nothing };
+const actions: AccountActions = { logIn: nothing, signUp: nothing, apple: nothing, github: nothing, requestReset: nothing, resetPassword: nothing, signOut: nothing, deleteAccount: nothing };
 
 export function useAccount(): Account {
   return demo;

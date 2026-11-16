@@ -369,6 +369,7 @@ const NO_PERMISSION_NEEDED = {
   "convex/consent/outbound.ts": "the gate's own fetch, handed out only after the check",
   "convex/push/expo.ts": "Expo's push service: the owner turns notifications on for each phone, and a push carries only the project's name, a fixed sentence and the case id",
   "convex/auth/email.ts": "the email service that sends a password-reset code the person asked for (it calls fetch through a parameter, so the scan below does not see it; listed so a reader does)",
+  "convex/auth/appleTokens.ts": "Apple's token endpoints: Apple's own sign-in code and refresh token go back to Apple, to keep the token at sign-in and revoke it when the account is deleted",
   "convex/protectedApp/client.ts": "the owner's own app",
   "convex/revyl/api.ts": "Revyl",
   "convex/revyl/runs.ts": "Revyl's screenshots",

@@ -9,8 +9,9 @@ declare const process: { env: Record<string, string | undefined> };
 // - demoOnly: GITHUB_TOKEN (one token every account would act through), KEIKI_OWNER_CONTACT (every account's notices
 //   texted to one number), REVYL_BOOKING_WORKFLOW_ID (every account's verify step running the demo's device
 //   workflow on the operator's credits). With accounts on they read as not set.
-// - standInOnly: AUTH_STAND_IN_URL (that server would decide who is signed in) and EXPO_PUSH_API_URL (every phone's
-//   token sent to that server). Tests and local proofs run with accounts on against stand-ins, so with accounts on
+// - standInOnly: AUTH_STAND_IN_URL (that server would decide who is signed in), EXPO_PUSH_API_URL (every phone's
+//   token sent to that server) and SUPERMEMORY_BASE_URL (every owner's memory, reports and code sent to that server).
+//   Tests and local proofs run with accounts on against stand-ins, so with accounts on
 //   they are honoured only when this backend runs on this machine, and never otherwise.
 
 /** True when this deployment is a local backend (npx convex dev --local), decided by its own address the way

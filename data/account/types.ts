@@ -36,4 +36,5 @@ export type AccountActions = {
   requestReset(email: string): Promise<string | null>;
   resetPassword(email: string, code: string, newPassword: string): Promise<string | null>;
   signOut(): Promise<string | null>; // runs every onSignOut listener, ends the session on the server, forgets it here
+  deleteAccount(): Promise<string | null>; // asks the backend to delete the account, then signs out to Login with a notice
 };

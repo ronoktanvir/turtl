@@ -1,6 +1,7 @@
 import { Supermemory } from "supermemory";
 import type { Gate } from "./consent/gate";
 import { Refused, VendorError } from "./consent/outbound";
+import { standInOnly } from "./demoSettings";
 
 declare const process: { env: Record<string, string | undefined> };
 
@@ -30,7 +31,10 @@ async function client(gate: Gate, namespace: string, purpose: "send" | "erase" =
   }
   const opened = await gate.open("supermemory", purpose);
   if (!opened.ok) throw new Refused(opened.reason);
-  return new Supermemory({ apiKey, fetch: opened.fetch });
+  // SUPERMEMORY_BASE_URL points the client at a stand-in in a local proof. With accounts on it is honoured only on a
+  // local backend (convex/demoSettings.ts); production never sets it.
+  const baseUrl = standInOnly(process.env.SUPERMEMORY_BASE_URL)?.replace(/\/+$/, "") || undefined;
+  return new Supermemory({ apiKey, fetch: opened.fetch, baseUrl });
 }
 
 // Supermemory's errors carry its response body, which can echo what was sent. Logs keep the status alone.
@@ -88,6 +92,22 @@ export async function deleteDocuments(gate: Gate, namespace: string, ids: string
   const supermemory = await client(gate, namespace, "erase");
   await plainly(async () => {
     await supermemory.documents.delete(scoped(namespace), { ids });
+  });
+}
+
+// Deletes a whole namespace and everything in it, for account deletion (convex/account). Like deleteDocuments it sends
+// nothing but the name, so it goes through without permission. True when Supermemory deleted it, false when it had
+// no such namespace (nothing was ever written there, or an earlier try already deleted it).
+export async function deleteNamespace(gate: Gate, namespace: string): Promise<boolean> {
+  const supermemory = await client(gate, namespace, "erase");
+  return await plainly(async () => {
+    try {
+      await supermemory.namespaces.delete(scoped(namespace));
+      return true;
+    } catch (error) {
+      if ((error as { statusCode?: unknown })?.statusCode === 404) return false;
+      throw error;
+    }
   });
 }
 
