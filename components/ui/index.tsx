@@ -1,5 +1,5 @@
 import { useRouter, type Href } from "expo-router";
-import { useEffect, useId, useState, type ReactNode } from "react";
+import { useEffect, useId, useState, type ComponentRef, type ReactNode, type Ref } from "react";
 import {
   Image,
   Modal,
@@ -211,6 +211,7 @@ export function Button({
   testID,
   style,
   icon,
+  ref,
 }: {
   label: string;
   onPress: () => void;
@@ -219,6 +220,8 @@ export function Button({
   testID: string | undefined;
   style?: StyleProp<ViewStyle>;
   icon?: IconName;
+  /** For moving focus to the button, as after a move between pages. */
+  ref?: Ref<ComponentRef<typeof View>>;
 }) {
   const { colors } = useTheme();
   const look: Record<typeof kind, { bg: string; border: string; text: TokenName }> = {
@@ -229,6 +232,7 @@ export function Button({
   };
   return (
     <Pressable
+      ref={ref}
       onPress={onPress}
       disabled={disabled}
       accessibilityRole="button"

@@ -1,11 +1,13 @@
 import { useRouter } from "expo-router";
-import { useEffect, useRef, useState, type ComponentRef } from "react";
-import { Image, Pressable, ScrollView, View } from "react-native";
+import { useEffect, useRef, useState, type ComponentRef, type RefObject } from "react";
+import { AccessibilityInfo, Animated, Easing, Image, Platform, Pressable, ScrollView, StyleSheet, View, type LayoutChangeEvent, type NativeScrollEvent, type NativeSyntheticEvent } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { isLiveData, useCase, useDataStatus, useWorkflow } from "../../data";
 import type { FixOption, Screenshot } from "../../data/types";
 import { useTheme } from "../../theme";
-import { ago, Button, Card, Chip, devToolsOn, HealthWord, Icon, Reveal, T, Turtle } from "../ui";
+import { ago, Button, Card, Chip, devToolsOn, HealthWord, Icon, Reveal, T, Turtle, useReducedMotion } from "../ui";
+import { Droplet, dropBack, fillDrop, nativeDriver, usePull, useWheelPull } from "../ui/pulse";
+import { swipeTravel } from "../ui/swipe";
 import { CaseTabs, type CaseTab } from "./CaseTabs";
 import { CouncilView } from "./CouncilView";
 import { CustomerReportsControl } from "./CustomerReports";
@@ -16,6 +18,43 @@ import { WorkflowGraph } from "../execution/WorkflowGraph";
 
 const phases: Record<Screenshot["phase"], string> = { failure: "When it failed", before: "Before", after: "After" };
 
+// An opened issue is two pages. The first is the issue: the Overview, Logs and Code bar and what it shows. The second
+// is what to do about it: Fixes, or Options for a feature request. Pulling on past the end of the first page, or the
+// button pinned at its foot, spreads turtl's green up from the bottom and Fixes surfaces out of it; pulling down at
+// the top of Fixes, or its "Back to overview", does the same from the top. With reduced motion the pages just switch.
+
+type Part = "case" | "fixes";
+type Metrics = { y: number; viewport: number; content: number };
+const EDGE = 2;
+const atEnd = (m: Metrics) => m.y + m.viewport >= m.content - EDGE;
+const atTop = (m: Metrics) => m.y <= EDGE;
+const BAR = 76; // the pinned button's bar, which the first page's content scrolls clear of
+
+function tracking(metrics: RefObject<Metrics>) {
+  return {
+    scrollEventThrottle: 16,
+    onScroll: (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const { contentOffset, layoutMeasurement, contentSize } = event.nativeEvent;
+      metrics.current = { y: contentOffset.y, viewport: layoutMeasurement.height, content: contentSize.height };
+    },
+    onLayout: (event: LayoutChangeEvent) => {
+      metrics.current = { ...metrics.current, viewport: event.nativeEvent.layout.height };
+    },
+    onContentSizeChange: (_width: number, height: number) => {
+      metrics.current = { ...metrics.current, content: height };
+    },
+  };
+}
+
+type ViewNode = ComponentRef<typeof View>;
+
+/** Puts keyboard and screen reader focus on a view, as after a move between pages. */
+function focus(view: ViewNode | null) {
+  if (!view) return;
+  if (Platform.OS === "web") (view as unknown as HTMLElement).focus?.({ preventScroll: true });
+  else AccessibilityInfo.sendAccessibilityEvent(view, "focus");
+}
+
 export function CasePage({ caseId, current }: { caseId: string; current: boolean }) {
   const c = useCase(caseId);
   const workflow = useWorkflow(caseId);
@@ -23,19 +62,77 @@ export function CasePage({ caseId, current }: { caseId: string; current: boolean
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const scroll = useRef<ComponentRef<typeof ScrollView>>(null);
-  const offset = useRef(0);
+  const reduced = useReducedMotion();
   const [tab, setTab] = useState<CaseTab>("Overview");
-  const [fixesY, setFixesY] = useState(0);
-  const [height, setHeight] = useState(0);
-  const [atFixes, setAtFixes] = useState(false);
+  const [part, setPart] = useState<Part>("case");
+  const [box, setBox] = useState({ width: 0, height: 0 });
+  const drop = useRef(new Animated.Value(0)).current; // the green spreading toward the other page
+  const veil = useRef(new Animated.Value(0)).current; // the green the arriving page surfaces out of
+  const moving = useRef(false);
+  const pulled = useRef(0);
+  const arrived = useRef<Part | null>(null);
+  const caseMetrics = useRef<Metrics>({ y: 0, viewport: 0, content: 0 });
+  const fixesMetrics = useRef<Metrics>({ y: 0, viewport: 0, content: 0 });
+  const fixesScroll = useRef<ComponentRef<typeof ScrollView>>(null);
+  const lookAtFixes = useRef<ViewNode>(null);
+  const backToCase = useRef<ViewNode>(null);
   const [approving, setApproving] = useState<FixOption | null>(null);
   const [declining, setDeclining] = useState(false);
   const id = (name: string) => (current ? name : caseId + "-" + name);
+  const toward: Part = part === "case" ? "fixes" : "case";
 
+  // Focus follows the move, so a keyboard or screen reader user lands on the way back.
   useEffect(() => {
-    setAtFixes(fixesY > 0 && offset.current + height > fixesY + 120);
-  }, [fixesY, height]);
+    if (!arrived.current) return;
+    const landed = arrived.current;
+    arrived.current = null;
+    if (current) focus(landed === "fixes" ? backToCase.current : lookAtFixes.current);
+  }, [part, current]);
+
+  const arrive = (target: Part, refocus: boolean) => {
+    arrived.current = refocus ? target : null;
+    if (target === "fixes") {
+      fixesScroll.current?.scrollTo({ y: 0, animated: false });
+      fixesMetrics.current = { ...fixesMetrics.current, y: 0 };
+    }
+    setPart(target);
+  };
+  /** Moves to the other page. From a button, focus moves with it; after a swipe or a scroll it is left alone. */
+  const go = (target: Part, refocus: boolean) => {
+    if (moving.current || target === part) return;
+    if (reduced) return arrive(target, refocus);
+    moving.current = true;
+    fillDrop(drop, pulled.current, () => {
+      arrive(target, refocus);
+      veil.setValue(1);
+      drop.setValue(0);
+      pulled.current = 0;
+      Animated.timing(veil, { toValue: 0, duration: 380, easing: Easing.out(Easing.cubic), useNativeDriver: nativeDriver }).start(() => {
+        moving.current = false;
+      });
+    });
+  };
+  const follow = (progress: number) => {
+    if (reduced || moving.current) return;
+    pulled.current = progress;
+    drop.setValue(progress);
+  };
+  const release = (complete: boolean) => {
+    if (moving.current) return;
+    if (complete) return go(toward, false);
+    pulled.current = 0;
+    dropBack(drop);
+  };
+  const travel = swipeTravel(box.height);
+  const casePull = usePull({ direction: "up", travel, mouse: false, canStart: () => part === "case" && !moving.current && atEnd(caseMetrics.current), onStart: () => drop.stopAnimation(), onPull: follow, onRelease: release });
+  const fixesPull = usePull({ direction: "down", travel, mouse: false, canStart: () => part === "fixes" && !moving.current && atTop(fixesMetrics.current), onStart: () => drop.stopAnimation(), onPull: follow, onRelease: release });
+  const wheel = useWheelPull({
+    direction: () => (part === "case" ? 1 : -1),
+    atEdge: () => (part === "case" ? atEnd(caseMetrics.current) : atTop(fixesMetrics.current)),
+    busy: () => moving.current,
+    onPull: follow,
+    onRelease: release,
+  });
 
   if (c === undefined) return errors.length === 0 ? <T style={{ padding: 16 }}>Loading…</T> : null;
   if (c === null) return <T style={{ padding: 16 }}>This case could not be found.</T>;
@@ -47,22 +144,22 @@ export function CasePage({ caseId, current }: { caseId: string; current: boolean
   const activeNumber = e ? c.fixes.findIndex((f) => f.key === e.fixKey) + 1 : 0;
   const closed = c.status === "declined" || c.status === "resolved" || c.status === "unresolved";
   const openEnacting = () => router.push(("/review/" + c.id + "/enacting") as never);
+  // The page being left lifts away with the pull; the page arriving settles into place as the green clears.
+  const shift = (away: number, settle: number) => Animated.add(
+    drop.interpolate({ inputRange: [0, 1], outputRange: [0, away], extrapolate: "clamp" }),
+    veil.interpolate({ inputRange: [0, 1], outputRange: [0, settle] }),
+  );
+  const leaving = drop.interpolate({ inputRange: [0, 1], outputRange: [1, 0.55], extrapolate: "clamp" });
 
   return (
-    <View style={{ flex: 1 }} onLayout={(event) => setHeight(event.nativeEvent.layout.height)}>
-      <ScrollView
-        ref={scroll}
-        scrollEventThrottle={32}
-        onScroll={(event) => {
-          offset.current = event.nativeEvent.contentOffset.y;
-          setAtFixes(fixesY > 0 && offset.current + height > fixesY + 120);
-        }}
-        contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}
-        testID={"case-scroll-" + c.id}
+    <View style={{ flex: 1, overflow: "hidden" }} ref={wheel} onLayout={(event) => setBox({ width: event.nativeEvent.layout.width, height: event.nativeEvent.layout.height })}>
+      <Animated.View
+        {...casePull}
+        style={[StyleSheet.absoluteFill, { display: part === "case" ? "flex" : "none", opacity: leaving, transform: [{ translateY: shift(-36, -20) }] }]}
+        testID={id("case-part")}
       >
         <CaseTabs tab={tab} onSelect={setTab} id={id} />
-
-        <View style={{ padding: 20, gap: 20, minHeight: Math.max(0, height - 150) }}>
+        <ScrollView {...tracking(caseMetrics)} contentContainerStyle={{ padding: 20, gap: 20, paddingBottom: BAR + insets.bottom + 24 }} testID={"case-scroll-" + c.id}>
           {tab === "Overview" && (
             <>
               <Reveal>
@@ -143,23 +240,55 @@ export function CasePage({ caseId, current }: { caseId: string; current: boolean
               ))}
             </>
           )}
-        </View>
-
+        </ScrollView>
         <View
-          onLayout={(event) => setFixesY(event.nativeEvent.layout.y)}
           style={{
-            padding: 20,
-            paddingTop: 28,
-            gap: 20,
-            minHeight: height,
+            position: "absolute",
+            left: 0,
+            right: 0,
+            bottom: 0,
+            paddingLeft: 20,
+            paddingTop: 12,
+            backgroundColor: colors.bg,
             borderTopWidth: 1,
             borderTopColor: colors.border,
-            backgroundColor: colors.bg,
+            paddingRight: devToolsOn ? 88 : 20,
+            paddingBottom: insets.bottom + 12,
           }}
+        >
+          <Button
+            ref={lookAtFixes}
+            label={feature ? "Look at options" : "Look at potential fixes"}
+            onPress={() => go("fixes", true)}
+            testID={id("look-at-fixes")}
+          />
+        </View>
+      </Animated.View>
+
+      <Animated.View
+        {...fixesPull}
+        style={[StyleSheet.absoluteFill, { display: part === "fixes" ? "flex" : "none", opacity: leaving, transform: [{ translateY: shift(36, 24) }] }]}
+        testID={id("fixes-part")}
+      >
+        <Pressable
+          ref={backToCase}
+          onPress={() => go("case", true)}
+          accessibilityRole="button"
+          accessibilityLabel="Back to overview"
+          testID={id("fixes-back")}
+          style={({ pressed }) => ({ minHeight: 44, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: pressed ? colors.surface : colors.bg })}
+        >
+          <Icon name="ArrowUp" size={15} color="textMuted" />
+          <T variant="small" color="textMuted" selectable={false}>Back to overview</T>
+        </Pressable>
+        <ScrollView
+          ref={fixesScroll}
+          {...tracking(fixesMetrics)}
+          contentContainerStyle={{ padding: 20, paddingTop: 24, gap: 20, paddingBottom: insets.bottom + (devToolsOn ? 72 : 32) }}
           testID={id("fixes-section")}
         >
           <View style={{ flexDirection: "row", alignItems: "center", gap: 20 }}>
-            {!feature && <Reveal><Image source={require("../../assets/turtle/detective.png")} style={{ width: 76, height: 76 }} accessibilityLabel="turtl investigating possible fixes" /></Reveal>}
+            {!feature && <Reveal replayKey={part}><Image source={require("../../assets/turtle/detective.png")} style={{ width: 76, height: 76 }} accessibilityLabel="turtl investigating possible fixes" /></Reveal>}
             <T variant="title" accessibilityRole="header">{feature ? "Options" : "Fixes"}</T>
           </View>
           {active && e && (
@@ -204,33 +333,11 @@ export function CasePage({ caseId, current }: { caseId: string; current: boolean
             </T>
             <Icon name="ArrowRight" color="textMuted" />
           </Card>
-        </View>
-      </ScrollView>
+        </ScrollView>
+      </Animated.View>
 
-      {!atFixes && (
-        <View
-          pointerEvents="box-none"
-          style={{
-            position: "absolute",
-            left: 0,
-            right: 0,
-            bottom: 0,
-            paddingLeft: 20,
-            paddingTop: 12,
-            backgroundColor: colors.bg,
-            borderTopWidth: 1,
-            borderTopColor: colors.border,
-            paddingRight: devToolsOn ? 88 : 20,
-            paddingBottom: insets.bottom + 12,
-          }}
-        >
-          <Button
-            label={feature ? "Look at options" : "Look at potential fixes"}
-            onPress={() => scroll.current?.scrollTo({ y: fixesY, animated: true })}
-            testID={id("look-at-fixes")}
-          />
-        </View>
-      )}
+      <Droplet value={drop} x={box.width / 2} y={toward === "fixes" ? box.height : 0} reach={Math.hypot(box.width / 2, box.height) + 2} />
+      <Animated.View pointerEvents="none" aria-hidden importantForAccessibility="no-hide-descendants" style={[StyleSheet.absoluteFill, { backgroundColor: colors.brandDeep, opacity: veil }]} />
       <ApproveSheet caseId={c.id} fix={approving} onClose={() => setApproving(null)} />
       <DeclineSheet caseId={c.id} visible={declining} onClose={() => setDeclining(false)} />
     </View>
