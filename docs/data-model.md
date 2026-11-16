@@ -1,15 +1,15 @@
 # Data model and workflow rules
 
-All tables are defined in [`convex/schema.ts`](../convex/schema.ts), which also spreads in the tables of `convex/intake/`, `convex/revyl/`, `convex/voice/` and `convex/codeNetwork/`. The stage list, statuses, kinds, validators, and types are defined once in [`convex/constants.ts`](../convex/constants.ts), which both the Convex functions and the app import. Do not redefine them elsewhere.
+All tables are defined in [`convex/schema.ts`](../convex/schema.ts), which also spreads in the tables each module defines in its own `schema.ts` (listed at the end of this page). The stage list, statuses, kinds, validators, and types are defined once in [`convex/constants.ts`](../convex/constants.ts), which both the Convex functions and the app import. Do not redefine them elsewhere.
 
 `convex/_generated/` is committed; regenerate it with `npx convex dev` when you change the schema or functions.
 
 ## Cases and their steps
 
-- `apps`: `name`, optional `repoUrl`, `productionUrl`, `revision`, `ownerId` (an opaque owner reference until sign-in exists; nothing enforces it yet), `isSample`.
+- `apps`: `name`, optional `repoUrl`, `productionUrl`, `revision`, `ownerId`, `isSample`. With `AUTH_REQUIRED=true`, `ownerId` is the account that owns the project, and [`convex/access.ts`](../convex/access.ts) lets a caller reach only projects whose `ownerId` is their own account; in the single-owner demo every project belongs to the one owner (`solo-owner`).
 - `cases`: `appId`, optional `journeyId` and `matchedMemoryId`, `title`, `impact` (plain language), `kind` (`outage`, `bug_report`, `feature_request`), `raisedBy` (`monitor`, `owner`, `customer`) with optional `raisedByRef` naming the actual user, service, or customer, `status`, optional `signature`, `reportCount`, `distinctRequesterCount`, `resolvedAt`, `isSample`. Statuses: `open`, `investigating`, `waiting_for_owner`, `executing`, `waiting_for_deploy`, `verifying`, `restored`, `resolved`, `unresolved`, `declined`. `restored` means service is back; `resolved` means the permanent repair is finished.
 - `steps`: the stable, logical steps of a case's workflow. `caseId`, `key` (unique within the case), `title`, `dependsOn` (keys of steps in the same case), `kind` (`function`, `agent`, `approval`), `purpose` (a stage id), `status` (`pending`, `running`, `waiting`, `done`, `failed`, `skipped`), optional `skipReason`, `currentAttemptId` and `staged` (dev staging, see the [runner README](../convex/runner/README.md#dev-staging)). A new case gets an initial template of eight steps, one per stage, in a chain.
-- `stepAttempts`: one row per execution of a step. `stepId`, `caseId`, `attempt` (from 1), `status` (`running`, `waiting`, `done`, `failed`), optional `startedAt`, `finishedAt`, `summary`, `handoff`, `error`, `externalRef`, `inputRefs` (the parent attempts it consumed), `output`, `outputRefs` and `lateResultAt`.
+- `stepAttempts`: one row per execution of a step. `stepId`, `caseId`, `attempt` (from 1), `status` (`running`, `waiting`, `done`, `failed`), optional `startedAt`, `finishedAt`, `summary`, `handoff`, `error`, `externalRef`, `inputRefs` (the parent attempts it consumed), `output`, `outputRefs`, `scheduledJobs` (the ids of the scheduled jobs it started, so Stop and account deletion can cancel them by id), `lateResultAt` and `lateResult`.
 
 The eight stages, in order: `detect_or_receive`, `gather_context`, `investigate`, `examine_broader_causes`, `plan`, `authorize_and_execute` (the one `approval` step), `verify`, `learn`.
 
@@ -49,5 +49,17 @@ How the runner drives these helpers (scheduling, approval, retries, timeouts, an
 | `voiceTurns` | One spoken turn about a case (the audio is never stored). |
 | `codeNetworks`, `codeChatMessages` | The code map of a project and the questions asked about it. |
 | `bookingDemoSettings`, `bookingDemoBookings`, `bookingDemoAttempts` | The booking demo app: see [`convex/bookingDemo/README.md`](../convex/bookingDemo/README.md). |
+| `structuralFindings` | A deeper cause the examine-broader-causes step found across cases: [`convex/structural/README.md`](../convex/structural/README.md). |
+| `councilSettings`, `councilReviews` | Which models sit on a project's council, and each council's review of a case: [`convex/council/README.md`](../convex/council/README.md). |
+| `ownerDecisions`, `preferenceSuggestions`, `contextUses` | What the owner decided, preferences waiting for confirmation, and context that helped a fix: [`convex/learning/README.md`](../convex/learning/README.md). |
+| `onboardingInspections`, `onboardingPreparations` | Reading a new project's repository, and the pull request that prepares it: [`convex/onboarding/README.md`](../convex/onboarding/README.md). |
+| `githubInstallations`, `githubInstallationRepositories`, `githubInstallationTokens`, `githubWebhookDeliveries`, `githubConnectAttempts`, `githubInstallationLinks` | The GitHub App: installations, the repositories each covers, cached tokens, webhook deliveries, Connect GitHub attempts, and which account uses which installation: [`convex/github/README.md`](../convex/github/README.md). |
+| `pushTokens`, `pushSends` | The owner's phones and what each push did: [`convex/push/README.md`](../convex/push/README.md). |
+| `users`, `authAccounts`, `authSessions`, `authRefreshTokens`, `authVerificationCodes`, `authVerifiers`, `authRateLimits`, `authAppleNonces`, `authAppleTokens`, `authPasswordResets` | Accounts and sign-in (Convex Auth's tables and turtl's own): [`convex/auth/README.md`](../convex/auth/README.md). |
+| `aiConsents` | Each account's answers on the AI permission screen: [`convex/consent/README.md`](../convex/consent/README.md). |
+| `modelSpend`, `codingThreads`, `intakeDays`, `deploymentTotals` | Spend and use counted against the limits: [`convex/spend/README.md`](../convex/spend/README.md). |
+| `accountDeletions` | The record of an account deletion: [`convex/account/README.md`](../convex/account/README.md). |
+| `secrets` | A project's sealed control token or an account's sealed coding agent key: [`convex/secrets/README.md`](../convex/secrets/README.md). |
+| `watchedProjects`, `monitorCursor` | With accounts on, the monitor's state for each project, and where its sweep over the projects stands (`convex/protectedApp/watching.ts`). |
 
 The validators for most of these rows are in `convex/constants.ts`, and the comment above each table in `convex/schema.ts` states the rules its mutations must keep.
