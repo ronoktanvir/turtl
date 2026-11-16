@@ -2,7 +2,7 @@ import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import { internalMutation, internalQuery, type MutationCtx, type QueryCtx } from "../_generated/server";
-import { vActor } from "../constants";
+import { CLOSED_CASE_STATUSES, vActor } from "../constants";
 import type { Actor } from "../constants";
 import type { HandlerResult } from "../runner/contract";
 import { pullRequestOf, vGithubSnapshot, type PullRequest } from "./validators";
@@ -88,6 +88,7 @@ export const insertForAction = internalMutation({
   handler: async (ctx, { actionId, repo, baseBranch, capyThreadId }) => {
     const action = await ctx.db.get(actionId);
     if (!action) throw new Error("Action not found.");
+    if (action.status === "cancelled") throw new Error("The owner stopped this action. Any Capy work remains external and is not tracked.");
     return await ctx.db.insert("pullRequests", {
       caseId: action.caseId,
       source: "capy",
@@ -106,6 +107,8 @@ export const insertForAction = internalMutation({
 export const waitOn = internalMutation({
   args: { id: v.id("pullRequests"), attemptId: v.id("stepAttempts") },
   handler: async (ctx, { id, attemptId }) => {
+    const row = await ctx.db.get(id);
+    if (!row || row.settledAt !== undefined) return;
     await ctx.db.patch(id, { stepAttemptId: attemptId });
     await holdStepClock(ctx, attemptId);
   },
@@ -174,6 +177,7 @@ export const applySnapshot = internalMutation({
   handler: async (ctx, { id, snapshot, mergeCommitSha }) => {
     const row = await ctx.db.get(id);
     if (!row) throw new Error("Pull request not found.");
+    if (row.actionId && (await ctx.db.get(row.actionId))?.status === "cancelled") return;
     await ctx.db.patch(id, { snapshot, syncedAt: Date.now(), syncError: undefined });
     if (row.settledAt !== undefined || snapshot.state === "open") return;
     const latest = { ...row, snapshot };
@@ -196,7 +200,15 @@ export const applySnapshot = internalMutation({
 
 export const beginMerge = internalMutation({
   args: { id: v.id("pullRequests"), by: vActor },
-  handler: async (ctx, { id, by }) => ctx.db.patch(id, { mergeRequestedBy: by, mergeRequestedAt: Date.now() }),
+  handler: async (ctx, { id, by }) => {
+    const row = await ctx.db.get(id);
+    if (!row || row.settledAt !== undefined) return false;
+    const caseRow = await ctx.db.get(row.caseId);
+    if (!caseRow || (CLOSED_CASE_STATUSES as readonly string[]).includes(caseRow.status)) return false;
+    if (row.actionId && (await ctx.db.get(row.actionId))?.status === "cancelled") return false;
+    await ctx.db.patch(id, { mergeRequestedBy: by, mergeRequestedAt: Date.now() });
+    return true;
+  },
 });
 
 export const clearMergeRequest = internalMutation({

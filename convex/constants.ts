@@ -371,6 +371,8 @@ export const vAction = v.object({
   requestedAt: v.number(),
   startedAt: v.optional(v.number()),
   completedAt: v.optional(v.number()),
+  cancelledBy: v.optional(vActor),
+  cancelledAt: v.optional(v.number()),
 });
 
 export const vVerificationPhase = v.union(

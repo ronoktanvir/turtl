@@ -27,6 +27,7 @@ const requireDevTools = () => {
 // Brings one pull request up to date: finds its number in Capy's reply while it is being opened, then
 // reads GitHub. A merge or close seen here settles the execute step waiting on it.
 async function sync(ctx: ActionCtx, row: Doc<"pullRequests">): Promise<RefreshResult> {
+  if (row.settledAt !== undefined) return { outcome: "none" };
   let number = row.number;
   if (number === undefined) {
     if (!row.capyThreadId) return { outcome: "failed", message: "This pull request has no number and no Capy thread." };
@@ -101,6 +102,7 @@ export const merge = action({
   handler: async (ctx, { caseId, headSha }): Promise<MergeResult> => {
     const row: Doc<"pullRequests"> | null = await ctx.runQuery(internal.prTracking.records.forCase, { caseId });
     if (!row || row.number === undefined) return { outcome: "refused", reason: "This case has no pull request yet." };
+    if (row.settledAt !== undefined) return { outcome: "refused", reason: row.openError ?? "turtl is no longer following this pull request." };
     const token = githubToken();
     if (!token) return NO_GITHUB_TOKEN;
     const read = await readPullRequest(token, row.repo, row.number);
@@ -117,7 +119,8 @@ export const merge = action({
     }
     if (!snapshot.mergeable) return refused(`GitHub can't merge it right now (${snapshot.mergeableState}).`);
 
-    await ctx.runMutation(internal.prTracking.records.beginMerge, { id: row._id, by: SOLO_OWNER });
+    const allowed = await ctx.runMutation(internal.prTracking.records.beginMerge, { id: row._id, by: SOLO_OWNER });
+    if (!allowed) return refused("The owner stopped this action or the pull request already finished. Nothing was merged.");
     const merged = await mergePullRequest(token, row.repo, row.number, headSha);
     if (!merged.ok || !merged.body.merged) {
       if (merged.ok || merged.status !== undefined) {
