@@ -10,6 +10,13 @@
 
 import type * as access from "../access.js";
 import type * as assistant from "../assistant.js";
+import type * as auth from "../auth.js";
+import type * as auth_apple from "../auth/apple.js";
+import type * as auth_email from "../auth/email.js";
+import type * as auth_password from "../auth/password.js";
+import type * as auth_review from "../auth/review.js";
+import type * as auth_rules from "../auth/rules.js";
+import type * as auth_settings from "../auth/settings.js";
 import type * as bookingDemo_booking from "../bookingDemo/booking.js";
 import type * as bookingDemo_catalog from "../bookingDemo/catalog.js";
 import type * as bookingDemo_checks from "../bookingDemo/checks.js";
@@ -123,6 +130,7 @@ import type * as structural_queries from "../structural/queries.js";
 import type * as structural_records from "../structural/records.js";
 import type * as structural_rules from "../structural/rules.js";
 import type * as supermemory from "../supermemory.js";
+import type * as users from "../users.js";
 import type * as voice_openai from "../voice/openai.js";
 import type * as voice_progress from "../voice/progress.js";
 import type * as voice_rules from "../voice/rules.js";
@@ -139,6 +147,13 @@ import type {
 declare const fullApi: ApiFromModules<{
   access: typeof access;
   assistant: typeof assistant;
+  auth: typeof auth;
+  "auth/apple": typeof auth_apple;
+  "auth/email": typeof auth_email;
+  "auth/password": typeof auth_password;
+  "auth/review": typeof auth_review;
+  "auth/rules": typeof auth_rules;
+  "auth/settings": typeof auth_settings;
   "bookingDemo/booking": typeof bookingDemo_booking;
   "bookingDemo/catalog": typeof bookingDemo_catalog;
   "bookingDemo/checks": typeof bookingDemo_checks;
@@ -252,6 +267,7 @@ declare const fullApi: ApiFromModules<{
   "structural/records": typeof structural_records;
   "structural/rules": typeof structural_rules;
   supermemory: typeof supermemory;
+  users: typeof users;
   "voice/openai": typeof voice_openai;
   "voice/progress": typeof voice_progress;
   "voice/rules": typeof voice_rules;
