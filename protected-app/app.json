@@ -1,0 +1,14 @@
+{
+  "expo": {
+    "name": "Still Booking",
+    "slug": "turtl-protected-booking",
+    "scheme": "still-booking",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "plugins": ["expo-router"],
+    "web": { "bundler": "metro", "output": "single" },
+    "ios": { "bundleIdentifier": "com.turtl.protectedbooking" },
+    "android": { "package": "com.turtl.protectedbooking" }
+  }
+}
