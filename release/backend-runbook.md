@@ -44,8 +44,8 @@ This is every variable the backend reads, taken from the code. "Required" stops 
 | `GITHUB_APP_PRIVATE_KEY` (secret) | Required, arrives with turtl#54 | The GitHub App's private key (the .pem file), which signs the request for an installation token. |
 | `GITHUB_APP_SLUG` | Required, arrives with turtl#54 | The GitHub App's name in its public link, used to send an owner to install it. |
 | `GITHUB_APP_WEBHOOK_SECRET` (secret) | Required, arrives with turtl#54 | Proves a webhook delivery came from GitHub. Without it every delivery is answered 503. |
-| `AUTH_GITHUB_ID` | Required, arrives with the accounts pull request | The same GitHub App's client id, for signing in with GitHub. |
-| `AUTH_GITHUB_SECRET` (secret) | Required, arrives with the accounts pull request | The same GitHub App's client secret. |
+| `AUTH_GITHUB_ID` | Required | The same GitHub App's client id. Connect GitHub asks the owner to authorize the app with it, which is how GitHub confirms who connected; signing in with GitHub uses it too. Without it Add project offers only a typed repository address. |
+| `AUTH_GITHUB_SECRET` (secret) | Required | The same GitHub App's client secret. Connect GitHub exchanges the owner's authorization with it for a user token, uses that token to read which installations the owner can reach, then revokes it. Signing in with GitHub uses it too. |
 | `CAPY_API_KEY` (secret) | Optional | Starts the Capy thread that writes a code fix and opens its pull request. Without it a code fix reports that it cannot open a pull request. Every account's fixes are billed to this key's owner. |
 | `CAPY_PROJECT_ID` | Optional | Capy project those threads start in. Default: the project that holds the repository. |
 | `CAPY_MODEL_ID` | Optional | Model for those Capy threads. Default: the Capy project's model. |
