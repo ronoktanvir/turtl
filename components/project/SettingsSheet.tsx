@@ -12,6 +12,9 @@ import AiSettings from "../consent/AiSettings";
 import OwnerPasscodeSettings from "./OwnerPasscodeSettings";
 import PreferencesSettings from "./PreferencesSettings";
 import NotificationsSettings from "../push/NotificationsSettings";
+import ControlTokenSettings from "../secrets/ControlTokenSettings";
+import CodingAgentSettings from "../secrets/CodingAgentSettings";
+import CustomerReportsSettings from "../reportKeys/CustomerReportsSettings";
 
 function Choice({ label, selected, disabled, onPress, testID, icon: Symbol }: { label: string; selected: boolean; disabled?: boolean; onPress: () => void; testID: string; icon: LucideIcon }) {
   const { colors } = useTheme();
@@ -61,10 +64,13 @@ export default function SettingsSheet({ visible, onClose, projectId }: { visible
       {error && <T color="statusAffected" accessibilityRole="alert">{error}</T>}
     </View>
     <PreferencesSettings projectId={projectId} />
+    {visible && <ControlTokenSettings projectId={projectId} />}
+    {visible && <CustomerReportsSettings projectId={projectId} />}
     {visible && <NotificationsSettings />}
     <AiSettings onClose={onClose} />
     {isLiveData && visible && <OwnerPasscodeSettings />}
     {visible && <GithubSettings />}
+    {visible && <CodingAgentSettings />}
     <View style={{ gap: 12, marginTop: 8 }}>
       <T variant="heading">Theme</T>
       <View accessibilityRole="radiogroup" style={{ flexDirection: "row", gap: 4, padding: 4, borderRadius: 16, backgroundColor: colors.surfaceRaised }}>{modes.map((m) => <Choice key={m.mode} label={m.label} icon={m.icon} selected={mode === m.mode} onPress={() => setMode(m.mode)} testID={`theme-${m.mode}`} />)}</View>
