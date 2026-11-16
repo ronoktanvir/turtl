@@ -6,6 +6,7 @@ import { isLiveData, useCase, useDataStatus, useWorkflow } from "../../data";
 import type { FixOption, Screenshot } from "../../data/types";
 import { useTheme } from "../../theme";
 import { ago, Button, Card, Chip, devToolsOn, HealthWord, Icon, Reveal, T, Turtle } from "../ui";
+import { CaseTabs, type CaseTab } from "./CaseTabs";
 import { CouncilView } from "./CouncilView";
 import { CustomerReportsControl } from "./CustomerReports";
 import { CodeBox, LogRow, SpanText, Viz } from "./Evidence";
@@ -13,8 +14,6 @@ import { ApproveSheet, DeclineSheet, FixCard } from "./FixCard";
 import { PreventionCheckCard, StructuralFindingCard } from "./StructuralFinding";
 import { WorkflowGraph } from "../execution/WorkflowGraph";
 
-const tabs = ["Overview", "Logs", "Code"] as const;
-const tabIcons = { Overview: "Layers", Logs: "Terminal", Code: "Code2" } as const;
 const phases: Record<Screenshot["phase"], string> = { failure: "When it failed", before: "Before", after: "After" };
 
 export function CasePage({ caseId, current }: { caseId: string; current: boolean }) {
@@ -26,7 +25,7 @@ export function CasePage({ caseId, current }: { caseId: string; current: boolean
   const router = useRouter();
   const scroll = useRef<ComponentRef<typeof ScrollView>>(null);
   const offset = useRef(0);
-  const [tab, setTab] = useState<(typeof tabs)[number]>("Overview");
+  const [tab, setTab] = useState<CaseTab>("Overview");
   const [fixesY, setFixesY] = useState(0);
   const [height, setHeight] = useState(0);
   const [atFixes, setAtFixes] = useState(false);
@@ -61,31 +60,7 @@ export function CasePage({ caseId, current }: { caseId: string; current: boolean
         contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}
         testID={"case-scroll-" + c.id}
       >
-        <View style={{ flexDirection: "row", borderBottomWidth: 1, borderBottomColor: colors.border, paddingHorizontal: 20, gap: 20 }}>
-          {tabs.map((name) => (
-            <Pressable
-              key={name}
-              onPress={() => setTab(name)}
-              accessibilityRole="tab"
-              aria-selected={tab === name}
-              accessibilityState={{ selected: tab === name }}
-              testID={id("tab-" + name.toLowerCase())}
-              style={{
-                flexDirection: "row",
-                alignItems: "center",
-                gap: 7,
-                paddingVertical: 12,
-                borderBottomWidth: 2,
-                borderBottomColor: tab === name ? colors.brandDeep : "transparent",
-              }}
-            >
-              <Icon name={tabIcons[name]} size={17} color={tab === name ? "brandDeep" : "textMuted"} />
-              <T variant={tab === name ? "strong" : "body"} color={tab === name ? "text" : "textMuted"}>
-                {name}
-              </T>
-            </Pressable>
-          ))}
-        </View>
+        <CaseTabs tab={tab} onSelect={setTab} id={id} />
 
         <View style={{ padding: 20, gap: 20, minHeight: Math.max(0, height - 150) }}>
           {tab === "Overview" && (
