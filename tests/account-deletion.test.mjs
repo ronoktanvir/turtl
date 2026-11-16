@@ -33,6 +33,7 @@ const EXEMPT = {
   bookingDemoAttempts: "The booking demo's own log of booking attempts. No account's data.",
   githubWebhookDeliveries: "GitHub's delivery ids and body digests, kept so a replayed webhook changes nothing. They name an installation number, never a person or an account.",
   authAppleNonces: "SHA-256 hashes of Apple sign-in nonces already used. They name nobody, and each is deleted minutes after its token expires.",
+  authEmailCodes: "One row per code emailed in the last day, filed under a SHA-256 hash of the address and holding only the code's hash. It names no account, and must outlive one: it is what stops deleting an account and signing up again from mailing an address more than five times a day. The hourly sweep deletes each row a day after it was sent.",
   deploymentTotals: "Deployment-wide running totals (new accounts per hour and day, every account's model spend per day). They count everyone and name no account.",
   monitorCursor: "The monitor's place in its round of projects: one deployment-wide row holding a point in time. It names no account and no project.",
   accountDeletions: "The record that a deletion happened. Once the job is done it holds a hash of the account id, the times and counts, and nothing else.",
@@ -410,7 +411,6 @@ async function seedAccount({ backend, registry, apple, memory }, label, installa
   const user = await add("users", { email, name: label });
   const method = await add("authAccounts", { userId: user, provider: "password", providerAccountId: email, secret: "scrypt-hash" });
   await add("authVerificationCodes", { accountId: method, provider: "password-reset", code: "hashed-code", expirationTime: Date.now() + 60_000 });
-  await add("authPasswordResets", { accountId: method, requestedAt: Date.now(), tries: 1 });
   await add("authRateLimits", { identifier: method, lastAttemptTime: Date.now(), attemptsLeft: 9 });
   await add("authRateLimits", { identifier: email, lastAttemptTime: Date.now(), attemptsLeft: 9 });
   const session = await add("authSessions", { userId: user, expirationTime: Date.now() + 86_400_000 });

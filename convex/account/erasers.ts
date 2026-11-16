@@ -102,19 +102,18 @@ async function eraseRateLimits(ctx: MutationCtx, identifiers: (string | undefine
   return removed;
 }
 
-/** Removes the account's ways to sign in (password, Apple, GitHub), with their reset codes, resets under way and rate limits, so
- * nobody can sign in to it again. The users row stays until the end of the job. */
+/** Removes the account's ways to sign in (password, Apple, GitHub), with any codes Convex Auth keeps for them and their
+ * rate limits, so nobody can sign in to it again. The users row stays until the end of the job. turtl's own emailed
+ * codes are filed under the address, not the account (convex/auth/codes.ts), and go a day after each was sent. */
 export async function eraseSignInMethods(ctx: MutationCtx, userId: Id<"users">, budget: number): Promise<Progress> {
   if (budget <= 0) return unfinished;
   let removed = 0;
   const methods = await ctx.db.query("authAccounts").withIndex("userIdAndProvider", (q) => q.eq("userId", userId)).take(20);
   for (const method of methods) {
     if (removed >= budget) return { removed, files: 0, done: false };
-    for (const table of ["authVerificationCodes", "authPasswordResets"] as const) {
-      const rows = await eraseRows(ctx, { table, index: "accountId", field: "accountId" }, method._id, budget - removed);
-      removed += rows.removed;
-      if (!rows.done) return { removed, files: 0, done: false };
-    }
+    const codes = await eraseRows(ctx, { table: "authVerificationCodes", index: "accountId", field: "accountId" }, method._id, budget - removed);
+    removed += codes.removed;
+    if (!codes.done) return { removed, files: 0, done: false };
     removed += await eraseRateLimits(ctx, [method._id, method.provider === "password" ? method.providerAccountId : undefined]);
     await ctx.db.delete(method._id);
     removed++;

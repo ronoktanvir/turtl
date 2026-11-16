@@ -2,7 +2,7 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { action, query } from "./_generated/server";
 import { accessEnforced, signedInAccount } from "./access";
-import { githubConfigured, resetEmail } from "./auth/settings";
+import { emailService, githubConfigured } from "./auth/settings";
 
 // What the app asks about accounts. `mode` answers before anyone signs in; `viewer` says who is signed in.
 
@@ -14,7 +14,7 @@ type Method = (typeof METHODS)[number];
 export const mode = query({
   args: {},
   returns: v.object({ accounts: v.boolean(), github: v.boolean(), passwordReset: v.boolean() }),
-  handler: async () => ({ accounts: accessEnforced(), github: githubConfigured(), passwordReset: resetEmail() !== null }),
+  handler: async () => ({ accounts: accessEnforced(), github: githubConfigured(), passwordReset: emailService() !== null }),
 });
 
 /** The signed-in person, or null. Their picture only when it is an https address (GitHub's avatar). */
