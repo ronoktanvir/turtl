@@ -202,7 +202,7 @@ export const merge = action({
     const row: Doc<"onboardingPreparations"> | null = await ctx.runQuery(internal.onboarding.records.forApp, { projectId });
     if (!row || row.number === undefined || !row.repo) return { ok: false, reason: "This project has no preparation pull request yet." };
     if (row.settledAt !== undefined) return { ok: false, reason: "turtl is no longer following this pull request." };
-    const access = await repositoryAccess(ctx, row.repo, { appId: row.appId });
+    const access = await repositoryAccess(ctx, row.repo, { appId: row.appId }, "change");
     if (!access.ok) return { ok: false, reason: `${access.message} Nothing was merged.` };
     const token = access.token;
     if (!token) return { ok: false, reason: "turtl has no GitHub access that can merge in this repository. Connect it to turtl through GitHub (Add project, Connect GitHub), or merge it on GitHub yourself. Nothing was merged." };

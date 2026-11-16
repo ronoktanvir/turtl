@@ -7,7 +7,9 @@ import { requireOwnerPasscode } from "../ownerPasscode";
 import { deleteInstallation } from "./api";
 import { appConfig, authorizeUrl, connectConfig, githubWebUrl, installationSettingsUrl, returnAddress } from "./config";
 import { signAppJwt, UNREADABLE_KEY } from "./jwt";
-import { activeLinks, linkAllows } from "./links";
+import { activeLinks, linkAllows, mergeLeftOut } from "./links";
+import { recheckIfDue } from "./permission";
+import { vLeftOut } from "./schema";
 import { randomSecret, sha256 } from "./secrets";
 import { refreshInstallation } from "./sync";
 
@@ -22,6 +24,9 @@ import { refreshInstallation } from "./sync";
 // 3. finish (the app, signed in): the ticket works only for the account that started the attempt, so a person who
 //    is sent someone else's install link cannot connect their repositories to that person's turtl.
 // 4. disconnect: uninstalls the app at GitHub when no other account uses the installation, and deletes the records.
+//
+// With accounts on, an installation in someone else's account links only the repositories GitHub says the person can
+// change (push, maintain or admin), and GitHub is asked again before turtl changes anything there (permission.ts).
 
 const ATTEMPT_MS = 15 * 60_000;
 const TICKET_MS = 10 * 60_000;
@@ -179,10 +184,12 @@ export const finish = mutation({
   },
 });
 
-// Reads the caller's installations from GitHub again, so the picker shows what GitHub has now.
+// Reads the caller's installations from GitHub again, so the picker shows what GitHub has now. With accounts on it
+// also asks GitHub again what the caller can change in someone else's account (an organization), drops what they no
+// longer can, and returns what GitHub listed for them that turtl left out, with why, for the app to show.
 export const refresh = action({
   args: {},
-  returns: v.object({ ok: v.boolean(), problems: v.array(v.string()) }),
+  returns: v.object({ ok: v.boolean(), problems: v.array(v.string()), leftOut: v.optional(v.array(v.object({ fullName: v.string(), message: v.string() }))) }),
   handler: async (ctx) => {
     const account = await requireAccount(ctx);
     if (!connectConfig().ok) return { ok: false, problems: [NOT_SET_UP] };
@@ -190,9 +197,11 @@ export const refresh = action({
     const problems: string[] = [];
     for (const installationId of installationIds) {
       const refreshed = await refreshInstallation(ctx, installationId);
-      if (!refreshed.ok) problems.push(refreshed.message);
+      const rechecked = refreshed.ok && accessEnforced() ? await recheckIfDue(ctx, account, installationId) : refreshed;
+      if (!rechecked.ok) problems.push(rechecked.message);
     }
-    return { ok: problems.length === 0, problems };
+    const leftOut: { fullName: string; message: string }[] = await ctx.runQuery(internal.github.links.leftOutOf, { account });
+    return { ok: problems.length === 0, problems, leftOut };
   },
 });
 
@@ -336,14 +345,18 @@ export const confirm = internalMutation({
     ticketHash: v.string(),
     githubUserId: v.number(),
     githubLogin: v.string(),
-    installations: v.array(v.object({ installationId: v.number(), repositories: v.optional(v.array(v.string())) })),
+    // repositories: absent for an installation on the person's own account. checked: GitHub said the person can change
+    // each one listed (accounts on), and leftOut what it listed that they cannot.
+    installations: v.array(
+      v.object({ installationId: v.number(), repositories: v.optional(v.array(v.string())), checked: v.optional(v.boolean()), leftOut: v.optional(v.array(vLeftOut)) }),
+    ),
   },
   returns: v.boolean(),
   handler: async (ctx, { attemptId, ticketHash, githubUserId, githubLogin, installations }) => {
     const attempt = await ctx.db.get(attemptId);
     if (attempt?.status !== "claimed") return false;
     const confirmedAt = Date.now();
-    for (const { installationId, repositories } of installations) {
+    for (const { installationId, repositories, checked, leftOut } of installations) {
       await ctx.db.insert("githubInstallationLinks", {
         account: attempt.account,
         installationId,
@@ -352,6 +365,8 @@ export const confirm = internalMutation({
         githubUserId,
         githubLogin,
         ...(repositories && { repositories: repositories.map((name) => name.toLowerCase()) }),
+        ...(repositories && checked && { checkedAt: confirmedAt }),
+        ...(leftOut?.length && { leftOut: mergeLeftOut([], leftOut) }),
         confirmedAt,
       });
     }

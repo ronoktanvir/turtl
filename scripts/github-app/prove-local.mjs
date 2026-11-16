@@ -220,7 +220,7 @@ try {
     assert.deepEqual(await run("github/connect:finish", { ticket }), { connected: 1, githubLogin: owner });
     await assert.rejects(run("github/connect:finish", { ticket }), /expired or was started on another sign-in/);
     assert.deepEqual((await run("github/connect:status")).connections.map((connection) => connection.installationId), [connectId]);
-    assert.deepEqual(await run("github/connect:refresh"), { ok: true, problems: [] });
+    assert.deepEqual(await run("github/connect:refresh"), { ok: true, problems: [], leftOut: [] });
     assert.deepEqual((await run("github/connect:repositories")).map((repository) => repository.fullName), [owner + "/app", owner + "/site"]);
     assert.deepEqual((await run("github/access:check", { repo: owner + "/app" })).repository, { ok: true, source: "installation", installationId: connectId });
     for (const path of ["github/connect:status", "github/connect:repositories"]) {

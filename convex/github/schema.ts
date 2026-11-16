@@ -11,6 +11,10 @@ export const vInstallation = v.object({
 });
 export const vRepository = v.object({ fullName: v.string(), private: v.optional(v.boolean()) });
 export const vConnectStatus = v.union(v.literal("started"), v.literal("claimed"), v.literal("confirmed"), v.literal("finished"), v.literal("failed"));
+// Why a repository GitHub listed for the person is not in their link: they can only read it, they could change it
+// once and no longer can, or the link already holds as many repositories as one link may.
+export const vLeftOutWhy = v.union(v.literal("read_only"), v.literal("lost"), v.literal("too_many"));
+export const vLeftOut = v.object({ fullName: v.string(), why: vLeftOutWhy });
 
 export const githubTables = {
   // One row per installation of turtl's GitHub App on a GitHub account. A deleted installation keeps its row and never becomes active again.
@@ -69,11 +73,19 @@ export const githubTables = {
     installationId: v.number(),
     attemptId: v.id("githubConnectAttempts"),
     active: v.boolean(),
+    // The GitHub user GitHub confirmed, by the id that never changes; turtl asks GitHub what this user may do now.
     githubUserId: v.number(),
+    // Their login when last seen. Logins can change, so it is only shown, never trusted.
     githubLogin: v.string(),
     // Absent: the installation is on this GitHub user's own account, so every repository it covers is theirs.
-    // Present: the repositories (lowercase owner/name) this GitHub user could reach in it when they connected.
+    // Present: the repositories (lowercase owner/name) in it that this GitHub user could change (push, maintain or
+    // admin) when turtl last asked GitHub. With accounts on, a repository they can only read is never here.
     repositories: v.optional(v.array(v.string())),
+    // When GitHub last confirmed that this user can change every repository listed above. Absent on links made before
+    // turtl asked (they may list repositories the person can only read), which are checked before they are used.
+    checkedAt: v.optional(v.number()),
+    // What GitHub listed for this user but turtl left out, and why, so the app can say why a repository is missing.
+    leftOut: v.optional(v.array(vLeftOut)),
     confirmedAt: v.number(),
   })
     .index("by_account_and_installation", ["account", "installationId"])

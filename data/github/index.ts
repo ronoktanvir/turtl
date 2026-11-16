@@ -2,7 +2,7 @@ import { isLiveData } from "../source";
 import * as example from "./example";
 import * as live from "./live";
 
-export type { GithubConnection, GithubDisconnect, GithubRepository, GithubReturn, GithubStatus } from "./types";
+export type { GithubConnection, GithubDisconnect, GithubLeftOut, GithubRefresh, GithubRepository, GithubReturn, GithubStatus } from "./types";
 
 export const useGithubStatus = isLiveData ? live.useGithubStatus : example.useGithubStatus;
 export const useGithubRepositories = isLiveData ? live.useGithubRepositories : example.useGithubRepositories;

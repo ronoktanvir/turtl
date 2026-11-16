@@ -7,6 +7,7 @@ import { readApp, readRepositoryInstallation } from "./api";
 import manifest from "./app-manifest.json";
 import { appConfig, connectConfig, GITHUB_APP_VARIABLES, REPOSITORY_PATTERN } from "./config";
 import { signAppJwt, UNREADABLE_KEY } from "./jwt";
+import { personMay } from "./permission";
 import { installationToken } from "./tokens";
 
 declare const process: { env: Record<string, string | undefined> };
@@ -15,7 +16,12 @@ export type RepositoryAccess =
   | { ok: true; source: "installation"; token: string; installationId: number }
   // The GitHub App is not configured: the deployment's GITHUB_TOKEN, or no token at all when that is not set either.
   | { ok: true; source: "deployment"; token: string | undefined }
-  | { ok: false; reason: "invalid_repository" | "app_incomplete" | "not_installed" | "not_connected" | "suspended" | "github_error"; message: string };
+  | { ok: false; reason: "invalid_repository" | "app_incomplete" | "not_installed" | "not_connected" | "suspended" | "github_error" | "cannot_push"; message: string };
+
+// What turtl is about to do in the repository. "change" is anything that changes it on the owner's behalf: merging a
+// pull request, or starting a coding agent's work there. With accounts on, GitHub is asked first whether the GitHub
+// user who connected it can still change it themself (permission.ts).
+export type Purpose = "read" | "change";
 
 // Whose repository it is: the project or case turtl acts for (the owner is the project's apps.ownerId, the rule in
 // convex/access.ts), or an account named directly.
@@ -31,8 +37,9 @@ const notConnected = (repo: string): RepositoryAccess => ({
 // With the GitHub App configured, only an installation that covers the repository gives a token, and
 // GITHUB_TOKEN is never used. Without it, every repository gets the deployment's GITHUB_TOKEN, as before.
 // With accounts on (AUTH_REQUIRED=true) the installation must also be linked to the project's owner through
-// Connect GitHub, and allow that repository for them. With accounts off the owner is not asked, as before.
-export async function repositoryAccess(ctx: ActionCtx, repo: string, owner: RepositoryOwner): Promise<RepositoryAccess> {
+// Connect GitHub, and allow that repository for them, and for "change" GitHub must say now that the GitHub user who
+// connected it can change it. With accounts off the owner is not asked, as before.
+export async function repositoryAccess(ctx: ActionCtx, repo: string, owner: RepositoryOwner, purpose: Purpose = "read"): Promise<RepositoryAccess> {
   const app = appConfig();
   if (app.state === "absent") return { ok: true, source: "deployment", token: githubToken() };
   if (app.state === "incomplete") {
@@ -81,6 +88,10 @@ export async function repositoryAccess(ctx: ActionCtx, repo: string, owner: Repo
     return token.status === 404
       ? { ok: false, reason: "not_installed", message: `turtl's GitHub App is no longer installed on ${repo}.` }
       : { ok: false, reason: "github_error", message: token.message };
+  }
+  if (account !== null) {
+    const may = await personMay(ctx, token.body, account, installationId, repo, purpose);
+    if (!may.ok) return may.reason === "not_connected" ? notConnected(repo) : may;
   }
   return { ok: true, source: "installation", token: token.body, installationId };
 }

@@ -1,5 +1,17 @@
 import { githubApiUrl, githubWebUrl } from "./config";
-import { installationAccountId, installationOf, record, repositoriesOf, userOf, type GithubUser, type Installation, type Repository } from "./shapes";
+import {
+  collaboratorPermissionOf,
+  installationAccountId,
+  installationOf,
+  personRepositoriesOf,
+  record,
+  repositoriesOf,
+  userOf,
+  type GithubUser,
+  type Installation,
+  type PersonRepository,
+  type Repository,
+} from "./shapes";
 
 const REQUEST_TIMEOUT_MS = 10_000;
 export const REPOSITORIES_PER_PAGE = 100;
@@ -128,11 +140,28 @@ export async function listUserInstallations(token: string, page: number): Promis
   return { ok: true, body: installations };
 }
 
-export async function listUserRepositories(token: string, installationId: number, page: number): Promise<GithubReply<Repository[]>> {
+// GitHub lists every repository the person can reach, reading included, with their permissions in each.
+export async function listUserRepositories(token: string, installationId: number, page: number): Promise<GithubReply<PersonRepository[]>> {
   const listed = await github(token, `/user/installations/${installationId}/repositories?per_page=${REPOSITORIES_PER_PAGE}&page=${page}`);
   if (!listed.ok) return listed;
-  const repositories = repositoriesOf(record(listed.body)?.repositories);
+  const repositories = personRepositoriesOf(record(listed.body)?.repositories);
   return repositories ? { ok: true, body: repositories } : UNREADABLE;
+}
+
+// As an installation (its token): who a GitHub user is now, by the id that never changes (GET /user/{account_id},
+// no permission needed), and what they may do in one repository the installation covers (Metadata: read).
+export async function readUserById(token: string, userId: number): Promise<GithubReply<GithubUser>> {
+  const read = await github(token, `/user/${userId}`);
+  if (!read.ok) return read;
+  const user = userOf(read.body);
+  return user ? { ok: true, body: user } : UNREADABLE;
+}
+
+export async function readCollaboratorPermission(token: string, repo: string, login: string): Promise<GithubReply<{ canPush: boolean; userId: number | null }>> {
+  const read = await github(token, `/repos/${repo}/collaborators/${encodeURIComponent(login)}/permission`);
+  if (!read.ok) return read;
+  const permission = collaboratorPermissionOf(read.body);
+  return permission ? { ok: true, body: permission } : UNREADABLE;
 }
 
 // Revokes one user access token, with the app's client id and secret as Basic credentials. turtl never keeps the

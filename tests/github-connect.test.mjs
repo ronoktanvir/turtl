@@ -176,7 +176,7 @@ test("a second account cannot list or use the first account's repositories, and 
   const bob = await w.project("bob-account");
   assert.deepEqual((await w.status("bob-account")).connections, []);
   assert.deepEqual(await w.pickable("bob-account"), []);
-  assert.deepEqual(await w.backend.call("github.connect.refresh", {}, "bob-account"), { ok: true, problems: [] });
+  assert.deepEqual(await w.backend.call("github.connect.refresh", {}, "bob-account"), { ok: true, problems: [], leftOut: [] });
   const minted = w.mints().length;
   for (const owner of [{ appId: bob.appId }, { caseId: bob.caseId }]) {
     const refused = await w.access("alice/app", owner);
@@ -192,7 +192,7 @@ test("a second account cannot list or use the first account's repositories, and 
     (await w.status("bob-account")).connections.map(({ installationId, accountLogin, scope, settingsUrl }) => ({ installationId, accountLogin, scope, settingsUrl })),
     [{ installationId: 7300, accountLogin: "acme", scope: "chosen", settingsUrl: w.stub.url + "/organizations/acme/settings/installations/7300" }],
   );
-  assert.deepEqual(await w.backend.call("github.connect.refresh", {}, "bob-account"), { ok: true, problems: [] });
+  assert.deepEqual(await w.backend.call("github.connect.refresh", {}, "bob-account"), { ok: true, problems: [], leftOut: [] });
   assert.equal(w.backend.rows("githubInstallationRepositories").filter((row) => row.installationId === 7300).length, 3, "turtl's own records read all three");
   assert.deepEqual(await w.pickable("bob-account"), ["acme/web"], "bob is shown the one he can reach");
   assert.equal((await w.access("acme/web", { appId: bob.appId })).installationId, 7300);
