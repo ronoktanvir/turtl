@@ -78,9 +78,10 @@ export function password() {
         case "reset": {
           if (!reset) throw refuse(words.resetOff);
           const account = await findPasswordAccount(ctx, email);
-          // The same answer whether or not there is an account, for the same reason, and whether or not a code
-          // went out in the last minute (the one already sent still works).
-          if (account && !(await ctx.runQuery(internal.auth.email.sentRecently, { accountId: account._id }))) {
+          // The same answer whether or not there is an account, for the same reason, and whether or not a code was
+          // sent: none goes out while the last one still works or within a minute of it, so nobody can replace the
+          // code in the owner's inbox (email.ts says why).
+          if (account && (await ctx.runMutation(internal.auth.email.reserveReset, { accountId: account._id }))) {
             await signInViaProvider(ctx, reset, { accountId: account._id, params: { email } });
           }
           return null;
@@ -92,15 +93,21 @@ export function password() {
           const account = await findPasswordAccount(ctx, email);
           const code = typeof params.code === "string" ? params.code.replace(/\s/g, "") : "";
           if (!account || !code) throw refuse(words.wrongCode);
+          // A try is taken from the code before it is checked, so wrong guesses use up that code (the owner can ask for
+          // a new one) and never lock the owner's address.
+          if (!(await ctx.runMutation(internal.auth.email.takeResetTry, { accountId: account._id }))) throw refuse(words.wrongCode);
           let verified: Awaited<ReturnType<typeof signInViaProvider>>;
           try {
-            verified = await signInViaProvider(ctx, reset, { params: { email, code } });
+            // By account, not by address: Convex Auth then matches the code to this account and keeps no count per address.
+            verified = await signInViaProvider(ctx, reset, { accountId: account._id, params: { code } });
           } catch (error) {
             if (/verify code/i.test(reason(error))) throw refuse(words.wrongCode);
             throw error;
           }
           if (!verified || verified.userId !== account.userId) throw refuse(words.wrongCode);
           await modifyAccountCredentials(ctx, { provider: PASSWORD_PROVIDER_ID, account: { id: email, secret: params.newPassword as string } });
+          // The new password works at once, on every device, whatever wrong passwords someone tried before.
+          await ctx.runMutation(internal.auth.email.finishReset, { accountId: account._id });
           // A new password signs out every other device.
           await invalidateSessions(ctx, { userId: verified.userId, except: [verified.sessionId] });
           return { userId: verified.userId, sessionId: verified.sessionId };

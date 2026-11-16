@@ -18,7 +18,14 @@ const nodeRequire = createRequire(import.meta.url);
 // convex/schema.ts spreads Convex Auth's tables. That package publishes only an ES module build, which require()
 // cannot reach, so it is loaded up front and handed out by the loader below.
 const esModules = { "@convex-dev/auth/server": await import("@convex-dev/auth/server") };
-const VARIABLES = ["AUTH_REQUIRED", "DEV_TOOLS_ENABLED", "PROTECTED_APP_CONTROL_SECRET_SHA256", "PROTECTED_APP_URL", "CODE_NETWORK_CHAT_ENABLED", "OPENAI_API_KEY", "SUPERMEMORY_API_KEY"];
+const VARIABLES = [
+  "AUTH_REQUIRED", "DEV_TOOLS_ENABLED", "PROTECTED_APP_CONTROL_SECRET_SHA256", "PROTECTED_APP_URL", "CODE_NETWORK_CHAT_ENABLED", "OPENAI_API_KEY", "SUPERMEMORY_API_KEY",
+  // Demo-only and stand-in variables (finding 8), what they need beside them, and the deployment's own address.
+  "GITHUB_TOKEN", "GITHUB_APP_ID", "GITHUB_APP_PRIVATE_KEY", "GITHUB_APP_SLUG", "GITHUB_APP_WEBHOOK_SECRET", "AUTH_STAND_IN_URL", "AUTH_RESEND_KEY", "AUTH_EMAIL_FROM",
+  "KEIKI_API_KEY", "KEIKI_AGENT_ID", "KEIKI_OWNER_CONTACT", "EXPO_PUSH_API_URL", "REVYL_API_KEY", "REVYL_BOOKING_WORKFLOW_ID", "CONVEX_CLOUD_URL",
+  // Limits (findings 5 and 7).
+  "INTAKE_CASES_PER_DAY", "INTAKE_SPEND_PER_DAY_USD", "PROJECTS_PER_ACCOUNT", "INTAKE_KEYS_PER_PROJECT",
+];
 const PASSCODE = "local-fixture-passcode";
 const SIGN_IN = "Sign in to continue.";
 const NOT_AVAILABLE = "That project is not available on this account.";
@@ -42,7 +49,12 @@ const generated = {
 function standIns(calls) {
   const note = (name) => async (...args) => { calls.push([name, ...args.slice(1)]); return null; };
   return {
-    "convex/runner/run": { approveCase: note("approveCase"), declineCase: note("declineCase"), startCaseRun: note("startCaseRun") },
+    "convex/runner/run": {
+      approveCase: note("approveCase"),
+      declineCase: note("declineCase"),
+      // Files the case as the runner would, without running it.
+      startCaseRun: async (ctx, fields) => (calls.push(["startCaseRun", fields]), await ctx.db.insert("cases", { ...fields, status: "open" })),
+    },
     "convex/learning/feedback": { recordDecision: note("recordDecision") },
     "convex/learning/model": { cleanStatement: (text) => text, preferenceFromNote: async () => ({ ok: false, reason: "stand-in" }) },
     "convex/supermemory": { searchChunks: async () => [], putDocument: async () => "doc", deleteDocuments: async () => {}, searchWithMetadata: async () => [] },
@@ -166,9 +178,24 @@ function createBackend(load) {
       found.rows.splice(found.index, 1);
     },
     query: (table) => builder(table, null, [], "asc"),
-    system: { query: () => ({ collect: async () => [] }) },
+    // The scheduled jobs, readable one at a time by id; a read of the whole table is recorded, so a test can say none happened.
+    system: {
+      get: async (id) => structuredClone(scheduled.find((job) => job.id === id)?.job ?? null),
+      query: (table) => (systemReads.push(table), { collect: async () => [] }),
+    },
   };
-  const scheduler = { runAfter: async (_delay, fn, args) => void scheduled.push({ path: fn.path, args }), cancel: async () => {} };
+  const systemReads = [];
+  const scheduler = {
+    runAfter: async (_delay, fn, args) => {
+      const id = "_scheduled_functions:" + ++counter;
+      scheduled.push({ id, path: fn.path, args, job: { _id: id, name: fn.path, args: [args], state: { kind: "pending" } } });
+      return id;
+    },
+    cancel: async (id) => {
+      const found = scheduled.find((job) => job.id === id);
+      if (found) found.job.state = { kind: "canceled" };
+    },
+  };
   const runs = [];
   const contextFor = (identity) => {
     const auth = { getUserIdentity: async () => identity };
@@ -190,7 +217,7 @@ function createBackend(load) {
     };
     return { db, auth, scheduler, actionCtx };
   };
-  return { db, rows: (table) => structuredClone(rowsOf(table)), scheduled, runs, contextFor };
+  return { db, rows: (table) => structuredClone(rowsOf(table)), scheduled, systemReads, runs, contextFor };
 }
 
 // One isolated world per test: fresh modules, empty tables, and only the variables the test sets.
@@ -455,4 +482,214 @@ test("the booking demo's customer API: open in the demo, closed with accounts on
     const w = world(t, { AUTH_REQUIRED: "true", PROTECTED_APP_CONTROL_SECRET_SHA256: digest("control-fixture") });
     assert.ok((await w.as(null)("bookingDemo/booking", "getCatalog")).services.length > 0);
   }
+});
+
+// Finding 8: variables that belong to the single-owner demo or to tests do damage if set on a production deployment
+// by mistake. With accounts on, each reads as not set; the two stand-in addresses are honoured only on a local
+// backend. One world per variable, with accounts on and that variable set, asserting nothing uses it.
+const HOSTED = { AUTH_REQUIRED: "true", CONVEX_CLOUD_URL: "https://patient-otter-123.convex.cloud" };
+const LOCAL = { AUTH_REQUIRED: "true", CONVEX_CLOUD_URL: "http://127.0.0.1:3210" };
+const recordingFetch = (t) => {
+  const sent = [];
+  t.mock.method(globalThis, "fetch", async (input) => (sent.push(String(input)), new Response(JSON.stringify({ data: [{ status: "ok", id: "r1" }] }), { status: 200 })));
+  return sent;
+};
+
+test("GITHUB_TOKEN: with accounts on, no project reaches GitHub through the deployment's one token", async (t) => {
+  {
+    const w = world(t, { ...HOSTED, GITHUB_TOKEN: "ghp_the_demo_token" });
+    const { alice } = await seed(w);
+    const { repositoryAccess } = w.load("convex/github/access.ts");
+    assert.equal(w.load("convex/prTracking/github.ts").githubToken(), undefined);
+    assert.deepEqual(await repositoryAccess(w.ctxFor("alice").actionCtx, "alice/shop", { appId: alice.appId }), { ok: true, source: "deployment", token: undefined });
+  }
+  {
+    const w = world(t, { GITHUB_TOKEN: "ghp_the_demo_token" });
+    const { repositoryAccess } = w.load("convex/github/access.ts");
+    assert.deepEqual(await repositoryAccess(w.ctxFor(null).actionCtx, "alice/shop", { account: "solo-owner" }), { ok: true, source: "deployment", token: "ghp_the_demo_token" }, "the demo keeps it");
+  }
+});
+
+test("KEIKI_OWNER_CONTACT: with accounts on, no account's notice is texted to the deployment's one number", async (t) => {
+  const keikiEnv = { KEIKI_API_KEY: "keiki-stand-in", KEIKI_AGENT_ID: "agent-1", KEIKI_OWNER_CONTACT: "+15550000000" };
+  const sent = recordingFetch(t);
+  const gate = { open: async () => ({ ok: true, fetch: async (input, init) => (sent.push(String(input) + " " + init.body), new Response(JSON.stringify({ results: [{ outcome: "ran" }] }))) }) };
+  {
+    const w = world(t, { ...HOSTED, ...keikiEnv });
+    assert.deepEqual(await w.load("convex/keiki.ts").sendOwnerNotice(gate, "Alice's shop needs a decision."), { outcome: "not_configured" });
+    assert.deepEqual(sent, [], "nothing was sent");
+  }
+  {
+    const w = world(t, keikiEnv);
+    assert.equal((await w.load("convex/keiki.ts").sendOwnerNotice(gate, "The shop needs a decision.")).outcome, "ran", "the demo keeps it");
+    assert.equal(sent.length, 1);
+  }
+});
+
+test("REVYL_BOOKING_WORKFLOW_ID: with accounts on, no account's verify step runs the demo's device workflow", async (t) => {
+  const sent = recordingFetch(t);
+  {
+    const w = world(t, { ...HOSTED, REVYL_API_KEY: "revyl-stand-in", REVYL_BOOKING_WORKFLOW_ID: "wf-booking-demo" });
+    const { alice } = await seed(w);
+    assert.deepEqual(w.load("convex/revyl/api.ts").revylConfig(), { ok: false, missing: ["REVYL_BOOKING_WORKFLOW_ID"] });
+    const stepId = w.backend.rows("steps").find((row) => row.caseId === alice.caseId)._id;
+    const stepAttemptId = await w.backend.db.insert("stepAttempts", { stepId, caseId: alice.caseId, attempt: 1, status: "running" });
+    const device = await w.load("convex/revyl/device.ts").checkBookingScreen(w.ctxFor(null).actionCtx, { caseId: alice.caseId, stepAttemptId });
+    assert.equal(device.status, "uncovered");
+    assert.deepEqual(sent, [], "Revyl was not asked");
+    assert.deepEqual(w.backend.rows("revylRuns"), []);
+  }
+  {
+    const w = world(t, { REVYL_API_KEY: "revyl-stand-in", REVYL_BOOKING_WORKFLOW_ID: "wf-booking-demo" });
+    assert.equal(w.load("convex/revyl/api.ts").revylConfig().config.workflowId, "wf-booking-demo", "the demo keeps it");
+  }
+});
+
+test("EXPO_PUSH_API_URL: with accounts on, phones' tokens go to Expo unless this backend is a local one", async (t) => {
+  const sent = recordingFetch(t);
+  const message = [{ to: "ExponentPushToken[a]", title: "Shop", body: "A case needs your decision.", data: { caseId: "cases:1" }, sound: "default", priority: "high" }];
+  {
+    const w = world(t, { ...HOSTED, EXPO_PUSH_API_URL: "https://stand-in.example/push" });
+    await w.load("convex/push/expo.ts").sendToExpo(message);
+    assert.deepEqual(sent.map((url) => new URL(url).host), ["exp.host"], "the stand-in address is ignored on a hosted backend");
+  }
+  for (const env of [{ ...LOCAL }, {}]) {
+    const w = world(t, { ...env, EXPO_PUSH_API_URL: "http://127.0.0.1:8213/push" });
+    assert.equal(w.load("convex/push/expo.ts").expoPushApiUrl(), "http://127.0.0.1:8213/push", "a local backend and the demo keep it");
+  }
+});
+
+test("AUTH_STAND_IN_URL: with accounts on, sign-in trusts no stand-in server unless this backend is a local one", async (t) => {
+  const reset = { AUTH_RESEND_KEY: "re_stand_in", AUTH_EMAIL_FROM: "turtl <no-reply@example.com>", AUTH_STAND_IN_URL: "https://stand-in.example" };
+  {
+    const w = world(t, { ...HOSTED, ...reset });
+    const settings = w.load("convex/auth/settings.ts");
+    assert.equal(settings.standInUrl(), undefined);
+    assert.equal(settings.appleKeysUrl(), "https://appleid.apple.com/auth/keys", "Apple's own keys decide an Apple sign-in");
+    assert.equal(settings.resetEmail().endpoint, "https://api.resend.com/emails");
+    assert.equal((await settings.check.handler({}, {})).standIn, false);
+  }
+  {
+    const w = world(t, { ...HOSTED, CONVEX_CLOUD_URL: "not a url", ...reset });
+    assert.equal(w.load("convex/auth/settings.ts").standInUrl(), undefined, "an address that cannot be read is not local");
+  }
+  for (const env of [{ ...LOCAL }, {}]) {
+    const w = world(t, { ...env, ...reset });
+    assert.equal(w.load("convex/auth/settings.ts").appleKeysUrl(), "https://stand-in.example/apple/auth/keys", "a local backend and the demo keep it");
+  }
+});
+
+// Finding 5: customer reports open at most so many new cases on a project a day; past it a report is kept on no case
+// and says why. Each project has its own count, and the demo is unchanged.
+test("customer reports open at most INTAKE_CASES_PER_DAY new cases on a project a day", async (t) => {
+  const report = async (w, appId, n) => {
+    const reportId = await w.backend.db.insert("reports", { appId, channel: "form", fromRef: `form:device:person-${n}`, text: `Problem number ${n} with paying`, provider: "turtl-form", providerEventId: `event-${appId}-${n}`, receivedAt: n });
+    return await w.backend.db.insert("reportTriage", { reportId, appId, fingerprint: `problem ${n}`, status: "pending" });
+  };
+  const land = (w, triageId) => w.as(null)("intake/records", "land", { triageId, verdict: "bug", source: "rules", reason: "Rule-based triage.", open: { title: "Paying fails", impact: "A customer cannot pay." } });
+  {
+    const w = world(t, { AUTH_REQUIRED: "true", INTAKE_CASES_PER_DAY: "2" });
+    const { alice, bob } = await seed(w);
+    const outcomes = [];
+    for (let n = 1; n <= 3; n++) outcomes.push((await land(w, await report(w, alice.appId, n))).outcome);
+    assert.deepEqual(outcomes, ["opened", "opened", "ignored"]);
+    const third = w.backend.rows("reportTriage").filter((row) => row.appId === alice.appId).at(-1);
+    assert.match(third.reason, /^Rule-based triage\. Kept, but no case was opened: customer reports have already opened 2 cases on this project today/);
+    assert.equal(third.caseId, undefined);
+    assert.equal((await land(w, await report(w, bob.appId, 4))).outcome, "opened", "Bob's project has its own count");
+    assert.equal(w.calls.filter(([name]) => name === "startCaseRun").length, 3);
+  }
+  {
+    const w = world(t, { INTAKE_CASES_PER_DAY: "2" });
+    const { alice } = await seed(w);
+    for (let n = 1; n <= 3; n++) assert.equal((await land(w, await report(w, alice.appId, n))).outcome, "opened", "the demo has no cap");
+  }
+});
+
+// Finding 7: each project and each intake key brings its own limits, so an account has at most so many of each.
+test("an account past its project cap, or a project past its key cap, is refused in plain words", async (t) => {
+  {
+    const w = world(t, { AUTH_REQUIRED: "true", PROJECTS_PER_ACCOUNT: "2", INTAKE_KEYS_PER_PROJECT: "2" });
+    const { alice, bob } = await seed(w);
+    const asAlice = w.as("alice");
+    await asAlice("onboarding/projects", "add", { repoUrl: "https://github.com/acme/web" });
+    await refuses(asAlice("onboarding/projects", "add", { repoUrl: "https://github.com/acme/api" }), "This account already has 2 projects, the most one account can have. Contact support if you need more.");
+    assert.equal(w.backend.rows("apps").filter((app) => app.ownerId === "alice").length, 2);
+    assert.ok((await w.as("bob")("onboarding/projects", "add", { repoUrl: "https://github.com/acme/api" })).projectId, "the cap is each account's own");
+    const first = (await asAlice("intake/keys", "issue", { appId: alice.appId })).key;
+    await asAlice("intake/keys", "issue", { appId: alice.appId });
+    await refuses(asAlice("intake/keys", "issue", { appId: alice.appId }), "This project already has 2 report keys in use, the most one project can have. Stop one from taking reports before making another.");
+    await asAlice("intake/keys", "revoke", { key: first });
+    assert.match((await asAlice("intake/keys", "issue", { appId: alice.appId })).key, /^tik_/, "a stopped key makes room");
+    assert.match((await w.as("bob")("intake/keys", "issue", { appId: bob.appId })).key, /^tik_/);
+  }
+  {
+    const w = world(t, { PROJECTS_PER_ACCOUNT: "1", INTAKE_KEYS_PER_PROJECT: "1" });
+    const { alice } = await seed(w);
+    await w.as(null)("onboarding/projects", "add", { repoUrl: "https://github.com/acme/web", passcode: PASSCODE });
+    for (let n = 0; n < 2; n++) await w.as(null)("intake/keys", "issue", { appId: alice.appId, passcode: PASSCODE });
+    assert.equal(w.backend.rows("intakeKeys").length, 2, "the demo has no caps");
+  }
+});
+
+// Finding 9: a project that names another account's repository does not learn the size of that account's code map.
+test("an overview counts only a code map of the caller's own projects with accounts on", async (t) => {
+  const network = (projectId) => ({
+    projectId, repo: "alice/shop", ref: "main", namespace: "code_" + projectId, source: "built", generatedAt: 1,
+    clusters: [{ id: "c1", name: "Checkout", summary: "s" }, { id: "c2", name: "Admin", summary: "s" }],
+    nodes: ["pay", "cart", "admin"].map((id) => ({ id, clusterId: "c1", label: id, kind: "module", summary: "s" })),
+    edges: [],
+  });
+  {
+    const w = world(t, { AUTH_REQUIRED: "true" });
+    const { alice } = await seed(w);
+    const { db } = w.backend;
+    await db.insert("codeNetworks", network(alice.appId));
+    const bobs = await db.insert("apps", { name: "copycat", ownerId: "bob", repoUrl: "https://github.com/alice/shop" });
+    const alices = await db.insert("apps", { name: "shop-staging", ownerId: "alice", repoUrl: "https://github.com/alice/shop" });
+    assert.deepEqual((await w.as("alice")("screens/overview", "forProject", { projectId: alice.appId })).map, { parts: 3, groups: 2 });
+    assert.equal((await w.as("bob")("screens/overview", "forProject", { projectId: bobs })).map, null, "Bob's project names Alice's repository and sees no map");
+    assert.deepEqual((await w.as("alice")("screens/overview", "forProject", { projectId: alices })).map, { parts: 3, groups: 2 }, "Alice's other project may use her own map");
+  }
+  {
+    const w = world(t);
+    const { alice } = await seed(w);
+    await w.backend.db.insert("codeNetworks", network(alice.appId));
+    const other = await w.backend.db.insert("apps", { name: "copycat", ownerId: "solo-owner", repoUrl: "https://github.com/alice/shop" });
+    assert.deepEqual((await w.as(null)("screens/overview", "forProject", { projectId: other })).map, { parts: 3, groups: 2 }, "the demo is unchanged");
+  }
+});
+
+// Finding 4: Stop cancels the jobs kept on the case's own attempts, by id, and never reads the whole table of
+// scheduled jobs, which every account's work grows until such a read fails for everyone.
+test("Stop cancels the case's own scheduled jobs by id and reads no one else's", async (t) => {
+  const w = world(t, { AUTH_REQUIRED: "true" });
+  const { alice, bob } = await seed(w);
+  const { db } = w.backend;
+  const scheduler = w.ctxFor("alice").scheduler;
+  const running = async (caseId, proposalId) => {
+    const stepId = await db.insert("steps", { caseId, key: "execute", title: "Execute", dependsOn: ["plan"], kind: "approval", purpose: "authorize_and_execute", status: "running" });
+    const jobs = [
+      await scheduler.runAfter(0, { path: "internal.runner.run.execute" }, { attemptId: "pending" }),
+      await scheduler.runAfter(60_000, { path: "internal.runner.run.checkTimeout" }, { attemptId: "pending", limitMs: 60_000 }),
+    ];
+    const attemptId = await db.insert("stepAttempts", { stepId, caseId, attempt: 1, status: "running", startedAt: 1, scheduledJobs: jobs });
+    await db.patch(stepId, { currentAttemptId: attemptId });
+    await db.patch(caseId, { status: "executing" });
+    await db.insert("actions", {
+      caseId, proposalId, approvedProposalVersion: 1, optionKey: "recover", type: "set_feature_flag", requestedBy: "owner",
+      actor: { kind: "owner", identity: "x" }, environment: "production", revision: { app: "r1" },
+      executionPayload: { actionCatalogId: "actionCatalog:1", type: "set_feature_flag", target: { environment: "production", resourceRef: "flags#x" }, parameters: [], config: { kind: "http", url: "https://x.test/flags", method: "POST" }, acceptanceCriteria: [], checkRefs: [] },
+      status: "pending", idempotencyKey: `${proposalId}:v1:recover`, requestedAt: 1,
+    });
+    return jobs;
+  };
+  const alicesJobs = await running(alice.caseId, alice.proposalId);
+  const bobsJobs = await running(bob.caseId, bob.proposalId);
+  const stopped = await w.as("alice")("decisions", "stop", { caseId: alice.caseId });
+  assert.equal(stopped.stopped, true);
+  const state = (id) => w.backend.scheduled.find((job) => job.id === id).job.state.kind;
+  assert.deepEqual(alicesJobs.map(state), ["canceled", "canceled"], "the run and its time limit are cancelled");
+  assert.deepEqual(bobsJobs.map(state), ["pending", "pending"], "nobody else's job is touched");
+  assert.deepEqual(w.backend.systemReads, [], "no read of the whole _scheduled_functions table");
 });

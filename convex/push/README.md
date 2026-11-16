@@ -52,8 +52,10 @@ Identity does not travel through the scheduler, so the recipient comes from the 
 | `internal.push.deliver.checkReceipts` | Scheduled 15 minutes after a send, as Expo asks; retried once if Expo cannot answer. |
 
 The public functions ask `convex/access.ts` for the account. With `AUTH_REQUIRED=true` they refuse without sign-in,
-and an account can only read, refresh or remove its own phones. A token registered by another account moves to it,
-since the phone is now signed in there.
+and an account can only read, refresh or remove its own phones. A token that is live on another account is refused by
+`register` and `refresh` ("This phone still gets notifications for another turtl account…"): a token is not a secret,
+so moving it would let anyone who learned one take that owner's notifications. Signing out on the phone removes its
+token first, so the next account to sign in there can register it; a token Expo turned off moves freely.
 
 ## Expo's answers
 

@@ -29,6 +29,8 @@ A customer's words reach turtl through a form in the customer's own app. Each me
 
 The deployment URL is public, so the limits and sizes are the only protection; a sender can change `reporterId` freely, so the per-key limits are the real cap.
 
+What reports cost is bounded apart from those limits (`convex/spend/README.md`). With accounts on, triage and the investigate and plan steps of a case customers opened run on the project's own daily allowance (`INTAKE_SPEND_PER_DAY_USD`), never the owner's monthly one, so a flood of reports cannot stop turtl diagnosing the owner's outages; once it is spent, the rules judge reports until the next day. And reports open at most `INTAKE_CASES_PER_DAY` new cases on a project a day; past that, a report is kept on no case with the reason in its triage row.
+
 ### A customer's contact
 
 The only use of a contact is to count one person once, across reports and devices, and to give them their own per-sender rate limit. Nothing reads the address, nobody can write back to it, and no screen shows it. So turtl keeps the least that serves that use: a reference in the report's `fromRef`. With `INTAKE_CONTACT_KEY` set it is `form:contact-keyed:` and an HMAC-SHA-256 of the lowercased contact under that key (32 hex characters), so someone holding the database cannot check a guessed address without the key. Without the key it is `form:contact:` and the first 24 hex characters of a plain SHA-256, as the demo always did; production must set the key (`release/backend-env.mjs`). Never change the key: returning customers would count as new people.

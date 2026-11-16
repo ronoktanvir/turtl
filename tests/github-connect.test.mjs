@@ -229,6 +229,25 @@ test("a second account cannot list or use the first account's repositories, and 
   assert.deepEqual(await w.pickable("alice-account"), ["alice/app", "alice/site"]);
 });
 
+// Security review finding 3, written before Connect GitHub landed: with accounts on, no caller gets a repository token
+// through an installation that is not linked to the project's owner, and a call that names no owner gets none at all.
+test("an installation linked to one account covers its repository for that account only, and a call with no owner is refused", async (t) => {
+  const w = await connectWorld(t, { accounts: true });
+  const alice = await w.project("alice-account");
+  await w.connected("alice-account", "alice", { id: 7101, repositories: ["alice/app"] });
+  assert.equal((await w.access("alice/app", { account: "alice-account" })).installationId, 7101);
+  assert.equal((await w.access("alice/app", { appId: alice.appId })).installationId, 7101);
+  const minted = w.mints().length;
+  const orphan = await w.project(undefined);
+  for (const owner of [{ account: "bob-account" }, { account: "" }, { appId: orphan.appId }, { caseId: orphan.caseId }, { appId: "apps:999" }, { appId: "not an id" }]) {
+    const refused = await w.access("alice/app", owner);
+    assert.equal(refused.ok, false, JSON.stringify(owner));
+    assert.equal(refused.reason, "not_connected", JSON.stringify(owner));
+    assert.equal(JSON.stringify(refused).includes("ghs_stub_"), false);
+  }
+  assert.equal(w.mints().length, minted, "no token was minted for anyone but alice");
+});
+
 test("disconnecting uninstalls the app at GitHub and leaves no token, repository or link behind", async (t) => {
   const w = await connectWorld(t, { accounts: true });
   const alice = await w.project("alice-account");

@@ -14,6 +14,8 @@ import { accessEnforced, requireCase } from "../access";
 import { requireOwnerPasscode } from "../ownerPasscode";
 import { gateFor } from "../consent/gate";
 import { deleteDocuments } from "../supermemory";
+import { openIntakeCase } from "../spend/ledger";
+import { intakeCasesPerDay, spendRefusal } from "../spend/limits";
 import { CONTACT_REF, contactRef } from "./rules";
 import { reportsNamespace } from "./triage";
 
@@ -293,6 +295,13 @@ export const land = internalMutation({
       return { outcome: "ignored", caseId: null };
     }
     const app = (await ctx.db.get(report.appId))!;
+    // With accounts on, customer reports open at most so many cases on a project a day (finding 5): each new case is
+    // investigated and planned, so an unbounded stream of distinct reports would be an unbounded bill.
+    if (accessEnforced() && !(await openIntakeCase(ctx, app._id))) {
+      await ctx.db.patch(triage._id, { ...fields, outcome: "ignored", reason: `${args.reason} ${spendRefusal.intakeCases(intakeCasesPerDay())}` });
+      if (args.modelId) await insertTriageRun(ctx, (await ctx.db.get(triage._id))!, { appId: report.appId });
+      return { outcome: "ignored", caseId: null };
+    }
     const journey = await ctx.db.query("journeys").withIndex("by_app", (q) => q.eq("appId", app._id)).first();
     const caseId = await startCaseRun(ctx, {
       appId: app._id,

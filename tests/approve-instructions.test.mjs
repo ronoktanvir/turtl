@@ -48,6 +48,7 @@ const decisions = load("../convex/decisions.ts", {
   "./ownerPasscode": { requireOwnerPasscode: async () => {} },
   "./protectedApp/client": { revisionOf: (revision) => ({ deploymentId: revision ?? "unknown" }) },
   "./runner/run": { approveCase: async () => {}, declineCase: async () => {} },
+  "./runner/jobs": { cancelJobs: async () => {} },
   "./workflow": { finishAttempt: async () => {}, loadSteps: async () => [], setCaseStatus: async () => {}, skipStep: async () => {} },
 });
 const fixOptions = load("../convex/fixOptions.ts", {
@@ -128,7 +129,7 @@ async function sendToCodingAgent(action) {
     "../_generated/api": { internal: anything },
     "../consent/gate": consentGate,
     "./capy": { ...capy, capyConfig: () => ({ ok: true, apiKey: "stand-in" }), startCapyThread: async (_gate, _config, thread) => { sent.push(thread); return { ok: true, body: { threadId: "thread-1" } }; } },
-    "./github": load("../convex/prTracking/github.ts", {}),
+    "./github": load("../convex/prTracking/github.ts", { "../demoSettings": load("../convex/demoSettings.ts", { "./access": access }) }),
   });
   const ctx = { runQuery: async () => null, runMutation: async () => "pull-request-1" };
   const result = await execute.runCodeChange(ctx, { attempt: { _id: "attempt-1" }, case: { title: "Customers can't complete bookings" } }, action);

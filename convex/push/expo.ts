@@ -1,3 +1,4 @@
+import { standInOnly } from "../demoSettings";
 import type { ExpoMessage } from "./message";
 
 declare const process: { env: Record<string, string | undefined> };
@@ -5,8 +6,9 @@ declare const process: { env: Record<string, string | undefined> };
 // Expo's push service (https://docs.expo.dev/push-notifications/sending-notifications/). Best effort: these never
 // throw, and a failed request is reported as a status, not retried here.
 
-// EXPO_PUSH_API_URL points the module at a stand-in for Expo in tests. Leave it unset on a real deployment.
-export const expoPushApiUrl = () => (process.env.EXPO_PUSH_API_URL || "https://exp.host/--/api/v2/push").replace(/\/+$/, "");
+// EXPO_PUSH_API_URL points the module at a stand-in for Expo in tests. Leave it unset on a real deployment: with
+// accounts on it is honoured only on a local backend, since every phone's token would go to that server.
+export const expoPushApiUrl = () => (standInOnly(process.env.EXPO_PUSH_API_URL) || "https://exp.host/--/api/v2/push").replace(/\/+$/, "");
 
 const REQUEST_TIMEOUT_MS = 10_000;
 /** Expo takes at most 100 messages and 1000 receipt ids per request. */

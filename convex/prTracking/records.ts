@@ -5,12 +5,12 @@ import { internalMutation, internalQuery, type MutationCtx, type QueryCtx } from
 import { CLOSED_CASE_STATUSES, vActor } from "../constants";
 import type { Actor } from "../constants";
 import type { HandlerResult } from "../runner/contract";
+import { cancelJobs } from "../runner/jobs";
 import { pullRequestOf, vGithubSnapshot, type PullRequest } from "./validators";
 import { BOOKING_APP_NAME } from "../protectedApp/registry";
 import { waitOnAttempt } from "../workflow";
 
 const GITHUB_ACTOR: Actor = { kind: "service", identity: "github" };
-const CLOCK_LOOKBACK_MS = 15 * 60_000;
 
 export const toPullRequest = (row: Doc<"pullRequests">): PullRequest | null =>
   row.number === undefined || !row.snapshot ? null : pullRequestOf(row.repo, row.number, row.snapshot);
@@ -64,16 +64,7 @@ export const active = internalQuery({
 // request waits for the owner's merge, which takes far longer, so the attempt waiting on one drops its
 // pending time-limit check. The merge, or the pull request closing, settles the attempt instead.
 async function holdStepClock(ctx: MutationCtx, attemptId: Id<"stepAttempts">) {
-  const jobs = await ctx.db.system
-    .query("_scheduled_functions")
-    .withIndex("by_creation_time", (q) => q.gt("_creationTime", Date.now() - CLOCK_LOOKBACK_MS))
-    .collect();
-  for (const job of jobs) {
-    const args = job.args[0] as { attemptId?: string } | undefined;
-    if (job.state.kind === "pending" && job.name.endsWith("checkTimeout") && args?.attemptId === attemptId) {
-      await ctx.scheduler.cancel(job._id);
-    }
-  }
+  await cancelJobs(ctx, await ctx.db.get(attemptId), "checkTimeout");
 }
 
 // Finishes the approved action and the execute attempt waiting on this pull request, once.

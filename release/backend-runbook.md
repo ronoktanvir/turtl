@@ -58,7 +58,7 @@ This is every variable the backend reads, taken from the code. "Required" stops 
 | `AUTH_RESEND_KEY` (secret) | Optional | Resend key that emails the code for a password reset. Without it, or without AUTH_EMAIL_FROM, reset is off and the app tells people to contact support. |
 | `AUTH_EMAIL_FROM` | Optional | Sender of the reset email, on a domain verified with Resend, such as "turtl <no-reply@example.com>". Register the same domain with Apple so Hide My Email addresses receive it. |
 | `AUTH_APPLE_BUNDLE_ID` | Optional | The app's bundle id, which Apple names as the audience of a Sign in with Apple token. Default com.turtl.oncall. Change it only together with the app's bundle id. |
-| `AUTH_STAND_IN_URL` | Never set | Points GitHub sign-in, Apple's signing keys and the reset email at a stand-in server in tests. In production it would let that server decide who is signed in. |
+| `AUTH_STAND_IN_URL` | Never set | Points GitHub sign-in, Apple's signing keys and the reset email at a stand-in server in tests. In production it would let that server decide who is signed in, so with AUTH_REQUIRED=true the backend honours it only when it runs locally (convex/demoSettings.ts). |
 | `AUTH_SESSION_TOTAL_DURATION_MS` | Optional | How long a sign-in lasts before the person must sign in again. Default 30 days. |
 | `AUTH_SESSION_INACTIVE_DURATION_MS` | Optional | How long a sign-in lasts unused. Default 30 days. |
 | `AUTH_LOG_LEVEL` | Optional | How much Convex Auth logs: ERROR, WARN, INFO (the default) or DEBUG. DEBUG writes email addresses to the logs; leave it unset in production. |
@@ -70,23 +70,30 @@ This is every variable the backend reads, taken from the code. "Required" stops 
 | `CAPY_REASONING` | Optional | Reasoning level for those Capy threads. Used only with CAPY_MODEL_ID. |
 | `MODEL_SPEND_LIMIT_USD` | Optional | With accounts on, the estimated model spend in US dollars one account may reach in a calendar month (UTC); past it turtl asks no model for that account and says so on the case. Default 20. No limit in the single-owner demo. |
 | `CODING_THREADS_PER_DAY` | Optional | With accounts on, how many Capy threads (code changes) one account may start in a calendar day (UTC), since every thread is billed to CAPY_API_KEY. Default 5. No limit in the single-owner demo. |
+| `DEPLOYMENT_MODEL_SPEND_PER_DAY_USD` | Optional | With accounts on, the estimated model spend in US dollars of every account together in a calendar day (UTC). Every per-account limit multiplies with the number of accounts, and nothing yet stops a script making accounts, so this bounds the day's total; past it no account's model is asked until the next day, and each case says so. Default 25. No limit in the single-owner demo. |
+| `NEW_ACCOUNTS_PER_HOUR` | Optional | With accounts on, how many new accounts the deployment makes in one clock hour (UTC), by any sign-in method. Past it sign-up is refused in plain words until the next hour. Default 20. |
+| `NEW_ACCOUNTS_PER_DAY` | Optional | With accounts on, how many new accounts the deployment makes in a calendar day (UTC). Past it sign-up is refused in plain words until the next day. Default 100. |
+| `PROJECTS_PER_ACCOUNT` | Optional | With accounts on, how many projects one account may have. Each project brings its own report keys and customer-report allowance. Default 10. |
+| `INTAKE_KEYS_PER_PROJECT` | Optional | With accounts on, how many intake keys one project may have taking reports at once, since each key carries its own report limits. A stopped key makes room. Default 3. |
+| `INTAKE_SPEND_PER_DAY_USD` | Optional | With accounts on, the estimated model spend in US dollars that reading one project's customer reports may reach in a calendar day (UTC): triage, and investigating and planning the cases they open. It is separate from MODEL_SPEND_LIMIT_USD, so customers cannot spend what diagnosing the owner's outages needs; past it triage uses its rules and those cases a rule-based reading until the next day. Default 0.5. No limit in the single-owner demo. |
+| `INTAKE_CASES_PER_DAY` | Optional | With accounts on, how many new cases customer reports may open on one project in a calendar day (UTC). A report past it is kept on no case and says why; one that matches an open case still joins it. Default 5. No limit in the single-owner demo. |
 | `REVYL_API_KEY` (secret) | Optional | Runs a fix's device check on a Revyl cloud phone. Without it a device check reports that it is not set up. |
 | `REVYL_BASE_URL` | Optional | Revyl API address. Default https://backend.revyl.ai. |
 | `KEIKI_API_KEY` (secret) | Optional | Keiki key for owner alerts by text. Does nothing without KEIKI_AGENT_ID and KEIKI_OWNER_CONTACT. |
 | `KEIKI_AGENT_ID` | Optional | The Keiki agent that words owner alerts. |
 | `KEIKI_BASE_URL` | Optional | Keiki API address. Default https://onkeiki.com. |
 | `EXPO_ACCESS_TOKEN` (secret) | Optional | Expo access token for push notifications, needed only once enhanced push security is turned on for the project in Expo. Without it pushes still send while that setting is off. |
-| `KEIKI_OWNER_CONTACT` | Never set | One phone number that receives every alert in the deployment. In production that would text one person about every account's incidents. Never set it until alerts go to each account's own owner. |
-| `GITHUB_TOKEN` (secret) | Never set | One GitHub token for the whole deployment, which is how the demo reaches GitHub. Every account would act through it. Production reaches GitHub only through the GitHub App, and with this unset there is nothing to fall back to when the app's variables go missing, so access fails closed. |
+| `KEIKI_OWNER_CONTACT` | Never set | One phone number that receives every alert in the deployment. In production that would text one person about every account's incidents. Never set it until alerts go to each account's own owner. With AUTH_REQUIRED=true the backend treats it as not set. |
+| `GITHUB_TOKEN` (secret) | Never set | One GitHub token for the whole deployment, which is how the demo reaches GitHub. Every account would act through it. Production reaches GitHub only through the GitHub App, and with this unset there is nothing to fall back to when the app's variables go missing, so access fails closed. With AUTH_REQUIRED=true the backend treats it as not set. |
 | `GITHUB_API_URL` | Never set | Points GitHub calls at a stand-in server in tests. In production it would send the app's tokens to another server. |
-| `EXPO_PUSH_API_URL` | Never set | Points push notifications at a stand-in for Expo's push service in tests. In production it would send every owner's phone address and project names to another server. |
+| `EXPO_PUSH_API_URL` | Never set | Points push notifications at a stand-in for Expo's push service in tests. In production it would send every owner's phone address and project names to another server, so with AUTH_REQUIRED=true the backend honours it only when it runs locally. |
 | `DEV_TOOLS_ENABLED` | Never set | "true" opens the dev tools functions: sample cases, staged outages on the booking demo, memory resets, and seeded data, callable by anyone who knows the backend address. With AUTH_REQUIRED=true they stay closed whatever this says. |
 | `EVIDENCE_LOCAL_PROOF` | Never set | "true" opens the local evidence fixtures (convex/evidence/localProof.ts). They also need DEV_TOOLS_ENABLED and a localhost backend, and refuse to run anywhere else. |
 | `PROTECTED_APP_URL` | Never set | Address of the booking demo's control routes. It makes this deployment watch the one demo app every minute. Demo only. |
 | `PROTECTED_APP_CONTROL_SECRET` (secret) | Never set | Bearer token turtl sends to the booking demo's control routes. Demo only. |
 | `PROTECTED_APP_CONTROL_SECRET_SHA256` | Never set | Hash that opens the booking demo's control routes (/booking-demo/flags, /staged-failure, /journey-check, /errors) on this deployment. Without it they answer 503, and with AUTH_REQUIRED=true the booking demo's customer functions refuse too. Demo only. |
 | `PROTECTED_APP_REVISION` | Never set | Revision label the booking demo reports. Demo only. |
-| `REVYL_BOOKING_WORKFLOW_ID` | Never set | Revyl workflow for the booking demo's device check. Demo only. |
+| `REVYL_BOOKING_WORKFLOW_ID` | Never set | Revyl workflow for the booking demo's device check. Demo only: with AUTH_REQUIRED=true the backend treats it as not set, so no account's fix is checked with the demo's workflow on the operator's Revyl credits. |
 <!-- variables:end -->
 
 The table's source is `backend-env.mjs`. After changing it, run `node release/check-backend-env.mjs --write-table`.
