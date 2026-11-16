@@ -1,8 +1,8 @@
-import { useLocalSearchParams } from "expo-router";
+import { useLocalSearchParams, type Href } from "expo-router";
 import { useRef, useState, type ComponentRef } from "react";
 import { Pressable, ScrollView, View } from "react-native";
 import { CasePage } from "../../../components/fix/CasePage";
-import { Header, Screen, T } from "../../../components/ui";
+import { Header, Icon, Screen, T } from "../../../components/ui";
 import { setStarred, useCase, useCases, useProject } from "../../../data";
 import { useTheme } from "../../../theme";
 
@@ -34,7 +34,7 @@ export default function Review() {
   if (!first || !current) {
     return (
       <Screen>
-        <Header title="Not found" fallback="/" />
+        <Header title="Not found" fallback={"/projects" as Href} />
         <T style={{ padding: 16 }}>This case could not be found.</T>
       </Screen>
     );
@@ -60,14 +60,9 @@ export default function Review() {
             accessibilityState={{ selected: !!current.starred }}
             testID="case-star"
             hitSlop={8}
-            style={{ flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 6, height: 44 }}
+            style={{ alignItems: "center", justifyContent: "center", width: 44, height: 44 }}
           >
-            <T variant="title" color={current.starred ? "statusNeedsYou" : "textMuted"}>
-              {current.starred ? "★" : "☆"}
-            </T>
-            <T variant="small" color="textMuted">
-              {current.starred ? "Starred" : "Star"}
-            </T>
+            <Icon name="Star" size={21} color={current.starred ? "statusNeedsYou" : "textMuted"} strokeWidth={current.starred ? 2.7 : 1.7} />
           </Pressable>
         }
       />
@@ -77,7 +72,7 @@ export default function Review() {
             flexDirection: "row",
             alignItems: "center",
             justifyContent: "space-between",
-            paddingHorizontal: 8,
+            paddingHorizontal: 12,
             borderBottomWidth: 1,
             borderBottomColor: colors.border,
           }}
@@ -87,10 +82,11 @@ export default function Review() {
             disabled={page === 0}
             accessibilityRole="button"
             testID="case-prev"
-            style={{ padding: 10, opacity: page === 0 ? 0.35 : 1 }}
+            style={{ padding: 10, minHeight: 44, flexDirection: "row", alignItems: "center", gap: 4, opacity: page === 0 ? 0.35 : 1 }}
           >
-            <T variant="small" color="link" style={{ fontWeight: "600" }}>
-              ‹ Previous
+            <Icon name="ArrowLeft" size={14} color="textMuted" />
+            <T variant="small" color="textMuted" style={{ fontWeight: "600" }}>
+              Previous
             </T>
           </Pressable>
           <T variant="small" color="textMuted" testID="case-position">
@@ -101,11 +97,12 @@ export default function Review() {
             disabled={page === ids.length - 1}
             accessibilityRole="button"
             testID="case-next"
-            style={{ padding: 10, opacity: page === ids.length - 1 ? 0.35 : 1 }}
+            style={{ padding: 10, minHeight: 44, flexDirection: "row", alignItems: "center", gap: 4, opacity: page === ids.length - 1 ? 0.35 : 1 }}
           >
-            <T variant="small" color="link" style={{ fontWeight: "600" }}>
-              Next ›
+            <T variant="small" color="textMuted" style={{ fontWeight: "600" }}>
+              Next
             </T>
+            <Icon name="ArrowRight" size={14} color="textMuted" />
           </Pressable>
         </View>
       )}

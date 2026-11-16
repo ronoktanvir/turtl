@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { AccessibilityInfo, Animated } from "react-native";
+import { AccessibilityInfo, Animated, type StyleProp, type ViewStyle } from "react-native";
 
 export function useReducedMotion() {
   const [reduced, setReduced] = useState(true);
@@ -11,7 +11,7 @@ export function useReducedMotion() {
   return reduced;
 }
 
-export function Reveal({ children, delay = 0 }: { children: ReactNode; delay?: number }) {
+export function Reveal({ children, delay = 0, style }: { children: ReactNode; delay?: number; style?: StyleProp<ViewStyle> }) {
   const reduced = useReducedMotion();
   const value = useRef(new Animated.Value(1)).current;
   useEffect(() => {
@@ -21,5 +21,5 @@ export function Reveal({ children, delay = 0 }: { children: ReactNode; delay?: n
     animation.start();
     return () => animation.stop();
   }, [reduced, delay, value]);
-  return <Animated.View style={{ opacity: value, transform: [{ translateY: value.interpolate({ inputRange: [0, 1], outputRange: [8, 0] }) }] }}>{children}</Animated.View>;
+  return <Animated.View style={[style, { opacity: value, transform: [{ translateY: value.interpolate({ inputRange: [0, 1], outputRange: [8, 0] }) }] }]}>{children}</Animated.View>;
 }

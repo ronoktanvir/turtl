@@ -3,6 +3,7 @@ import { Stack, useSegments } from "expo-router";
 import { StatusBar, StyleSheet, Text, View } from "react-native";
 import { DevTools } from "../components/dev/DevTools";
 import { ThemeProvider, useTheme } from "../theme";
+import { useReducedMotion } from "../components/ui/motion";
 
 const convexUrl = process.env.EXPO_PUBLIC_CONVEX_URL;
 const convex = convexUrl
@@ -11,10 +12,11 @@ const convex = convexUrl
 
 function Screens() {
   const { colors, scheme } = useTheme();
+  const reduced = useReducedMotion();
   return (
     <>
       <StatusBar barStyle={scheme === "dark" ? "light-content" : "dark-content"} />
-      <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.bg } }} />
+      <Stack screenOptions={{ headerShown: false, animation: reduced ? "none" : "slide_from_right", animationDuration: 240, contentStyle: { backgroundColor: colors.bg } }} />
     </>
   );
 }

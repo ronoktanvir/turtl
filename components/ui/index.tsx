@@ -17,6 +17,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { Health } from "../../data/types";
 import { healthToken, healthWord, useTheme, type TokenName } from "../../theme";
 import { Icon } from "./Icon";
+import { Reveal } from "./motion";
 export { Icon, type IconName } from "./Icon";
 export { Reveal, useReducedMotion } from "./motion";
 
@@ -69,7 +70,7 @@ export function Screen({ children, testID }: { children: ReactNode; testID?: str
       <View style={{ paddingHorizontal: 20, paddingTop: 5, paddingBottom: 5, alignItems: "flex-end" }}>
         <Text style={{ color: colors.textMuted, fontSize: 10, letterSpacing: 1.6, fontWeight: "600" }}>EXAMPLE DATA</Text>
       </View>
-      {children}
+      <Reveal style={{ flex: 1 }}>{children}</Reveal>
     </View>
   );
 }
@@ -156,14 +157,15 @@ export function Button({
           borderWidth: 1,
           alignItems: "center",
           justifyContent: "center",
-          backgroundColor: look[kind].bg,
-          borderColor: look[kind].border,
-          opacity: disabled ? 0.45 : pressed ? 0.8 : 1,
+          backgroundColor: disabled ? colors.surfaceRaised : look[kind].bg,
+          borderColor: disabled ? colors.border : look[kind].border,
+          opacity: disabled ? 0.65 : pressed ? 0.8 : 1,
+          transform: [{ scale: pressed ? 0.98 : 1 }],
         },
         style,
       ]}
     >
-      <T variant="strong" color={look[kind].text}>
+      <T variant="strong" color={disabled ? "textMuted" : look[kind].text} style={{ textAlign: "center" }}>
         {label}
       </T>
     </Pressable>

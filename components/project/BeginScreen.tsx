@@ -4,8 +4,8 @@ import { PanResponder, Pressable, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useCases, useProject } from "../../data";
 import type { CaseType } from "../../data/types";
-import { useTheme } from "../../theme";
-import { Button, Chip, Header, Screen, T, Turtle, ago } from "../ui";
+import { labels, useTheme } from "../../theme";
+import { Button, Chip, Header, Icon, Reveal, Screen, T, Turtle, ago } from "../ui";
 
 export default function BeginScreen({ type }: { type: CaseType }) {
   const { projectId } = useLocalSearchParams<{ projectId: string }>();
@@ -37,15 +37,16 @@ export default function BeginScreen({ type }: { type: CaseType }) {
   if (project === null) {
     return (
       <Screen testID={`begin-${type}`}>
-        <Header title="Project not found" fallback="/" />
+        <Header title="Project not found" fallback={"/projects" as Href} />
         <View style={{ padding: 20 }}>
-          <Button label="Back to projects" onPress={() => router.replace("/")} testID="begin-not-found-back" />
+          <Button label="Back to projects" onPress={() => router.replace("/projects" as Href)} testID="begin-not-found-back" />
         </View>
       </Screen>
     );
   }
 
-  const title = `${project.name}: ${type === "fix" ? "Fix" : "Features"}`;
+  const title = `${project.name}: ${type === "fix" ? "Fix" : labels.features}`;
+  const needsApproval = cases.filter((c) => c.status === "needs_approval").length;
   return (
     <Screen testID={`begin-${type}`}>
       <Header
@@ -65,29 +66,44 @@ export default function BeginScreen({ type }: { type: CaseType }) {
           </T>
         </View>
       ) : (
-        <View style={{ flex: 1 }}>
+        <ScrollView testID="begin-scroll" contentContainerStyle={{ flexGrow: 1 }}>
+          <Reveal>
+            <View style={{ paddingHorizontal: 20, paddingTop: 28, paddingBottom: 12, gap: 8 }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <Icon name={type === "fix" ? "Wrench" : "Sparkles"} size={18} color="brandDeep" />
+                <T variant="small" color="textMuted">{type === "fix" ? "YOUR REVIEW QUEUE" : labels.features.toUpperCase()}</T>
+              </View>
+              <T variant="display">{needsApproval ? "Ready for your call." : "A closer look."}</T>
+              <T color="textMuted">{needsApproval ? `${needsApproval} ${needsApproval === 1 ? "case needs" : "cases need"} approval. Start with the evidence.` : type === "fix" ? "Follow the evidence, then choose a way forward." : "See what people are asking for, and explore the options."}</T>
+            </View>
+          </Reveal>
           <View style={{ flexGrow: 0 }}>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ padding: 16, gap: 12 }}>
-              {cases.map((c) => (
+            <ScrollView horizontal testID="begin-case-strip" showsHorizontalScrollIndicator={false} contentContainerStyle={{ padding: 20, gap: 12 }}>
+              {cases.map((c, i) => (
                 <Pressable
                   key={c.id}
                   onPress={() => router.push(`/review/${c.id}` as Href)}
                   accessibilityRole="button"
                   testID={`begin-case-${c.id}`}
                   style={({ pressed }) => ({
-                    width: 170,
-                    borderRadius: 14,
+                    width: 208,
+                    minHeight: 172,
+                    borderRadius: 20,
                     borderWidth: 1,
-                    borderColor: colors.border,
+                    borderColor: c.status === "needs_approval" ? colors.statusNeedsYou : colors.border,
                     backgroundColor: pressed ? colors.surfaceRaised : colors.surface,
-                    padding: 12,
-                    gap: 6,
+                    padding: 16,
+                    gap: 10,
                   })}
                 >
+                  <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+                    <T variant="mono" color="textMuted">{String(i + 1).padStart(2, "0")}</T>
+                    <Icon name="ArrowRight" size={16} color="textMuted" />
+                  </View>
                   <T variant="strong" numberOfLines={3}>
                     {c.title}
                   </T>
-                  <T variant="small" color="textMuted">
+                  <T variant="small" color="textMuted" style={{ marginTop: "auto" }}>
                     {ago(c.happenedAt)}
                   </T>
                   {type === "feature" && c.reportCount !== undefined && (
@@ -100,33 +116,34 @@ export default function BeginScreen({ type }: { type: CaseType }) {
           </View>
           <View
             {...pan.panHandlers}
-            style={{ flex: 1, alignItems: "center", justifyContent: "center", paddingBottom: insets.bottom + 90 }}
+            style={{ flex: 1, minHeight: 200, alignItems: "center", justifyContent: "center", paddingHorizontal: 20, paddingBottom: insets.bottom + 24 }}
           >
             <Pressable
               onPress={() => router.push(`/review/${cases[0].id}` as Href)}
               accessibilityRole="button"
               accessibilityLabel="Swipe up to review"
               testID="begin-review"
-              style={{ alignItems: "center", gap: 12 }}
+              style={({ pressed }) => ({ alignItems: "center", gap: 12, opacity: pressed ? 0.7 : 1 })}
             >
               <View
                 style={{
-                  width: 120,
-                  height: 120,
-                  borderRadius: 60,
-                  borderWidth: 3,
-                  borderColor: colors.brandDeep,
+                  width: 80,
+                  height: 80,
+                  borderRadius: 40,
+                  borderWidth: 1,
+                  borderColor: colors.border,
                   backgroundColor: colors.surface,
                   alignItems: "center",
                   justifyContent: "center",
                 }}
               >
-                <T style={{ fontSize: 64, lineHeight: 72, fontWeight: "700" }}>↑</T>
+                <Icon name="ArrowUp" size={36} color="brandDeep" strokeWidth={1.4} />
               </View>
               <T variant="heading">Swipe up to review</T>
+              <T variant="small" color="textMuted">Or tap a case above</T>
             </Pressable>
           </View>
-        </View>
+        </ScrollView>
       )}
     </Screen>
   );

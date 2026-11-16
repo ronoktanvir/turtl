@@ -1,8 +1,8 @@
 import { useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { Pressable, ScrollView, Text, View } from "react-native";
 import type { Citation, CodeRef, LogLine, Span, Visualization } from "../../data/types";
 import { useTheme, type TokenName } from "../../theme";
-import { ago, T } from "../ui";
+import { ago, Icon, T } from "../ui";
 
 export type Sources = { citations: Citation[]; logs: LogLine[]; code: CodeRef[] };
 
@@ -20,14 +20,14 @@ function clock(at: number) {
 
 export function LogRow({ line }: { line: LogLine }) {
   return (
-    <View style={{ gap: 2 }} testID={"log-" + line.id}>
+    <View style={{ gap: 8 }} testID={"log-" + line.id}>
       <T variant="small" color={levels[line.level].tone} style={{ fontWeight: "700" }}>
         {levels[line.level].word}
         <T variant="small" color="textMuted">
           {"  " + line.source + " · " + clock(line.at)}
         </T>
       </T>
-      <T>{line.text}</T>
+      <T variant="mono" style={{ fontSize: 15, lineHeight: 24 }}>{line.text}</T>
     </View>
   );
 }
@@ -35,25 +35,30 @@ export function LogRow({ line }: { line: LogLine }) {
 export function CodeBox({ code }: { code: CodeRef }) {
   const { colors } = useTheme();
   const block = (label: string, text: string, sign: string, backgroundColor: string) => (
-    <View style={{ gap: 4 }}>
-      <T variant="small" color="textMuted" style={{ fontWeight: "700" }}>
+    <View style={{ gap: 8 }}>
+      <T variant="small" color="textMuted" style={{ fontWeight: "600" }}>
         {label}
       </T>
-      <View style={{ backgroundColor, borderRadius: 8, padding: 10 }}>
-        {text.split("\n").map((line, i) => (
-          <T key={i} variant="mono">
-            {sign + " " + line}
-          </T>
-        ))}
-      </View>
+      <ScrollView horizontal testID={"code-scroll-" + code.id + "-" + sign} style={{ backgroundColor, borderRadius: 12 }} contentContainerStyle={{ paddingVertical: 12, paddingRight: 16, minWidth: "100%" }}>
+        <View>
+          {text.split("\n").map((line, i) => (
+            <View key={i} style={{ flexDirection: "row", minHeight: 25 }}>
+              <T variant="mono" color="textMuted" style={{ width: 44, textAlign: "right", paddingRight: 12 }}>{code.startLine + i}</T>
+              <T variant="mono" style={{ width: 20 }}>{sign}</T>
+              <T variant="mono" style={{ lineHeight: 25 }}>{line || " "}</T>
+            </View>
+          ))}
+        </View>
+      </ScrollView>
     </View>
   );
   return (
-    <View style={{ gap: 10 }} testID={"code-" + code.id}>
+    <View style={{ gap: 12 }} testID={"code-" + code.id}>
+      <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
+        <Icon name="Code2" size={18} color="brandDeep" />
+        <T variant="mono" color="textMuted" style={{ flex: 1 }}>{code.path}</T>
+      </View>
       {code.note && <T>{code.note}</T>}
-      <T variant="mono" color="textMuted">
-        {code.path + ", line " + code.startLine}
-      </T>
       {block(
         code.after ? "The code now" : "The code",
         code.before,
@@ -81,11 +86,11 @@ export function SpanText({ spans, sources, prefix }: { spans: Span[]; sources: S
             <Text
               key={i}
               onPress={() => setOpen(open === cite ? null : cite)}
-              accessibilityRole="link"
+              accessibilityRole="button"
+              accessibilityState={{ expanded: open === cite }}
               testID={prefix + "-cite-" + cite}
               style={{
                 color: colors.link,
-                backgroundColor: colors.surfaceRaised,
                 textDecorationLine: "underline",
                 fontWeight: "600",
               }}
@@ -99,11 +104,13 @@ export function SpanText({ spans, sources, prefix }: { spans: Span[]; sources: S
         <View
           style={{
             borderWidth: 1,
-            borderColor: colors.link,
-            backgroundColor: colors.bg,
-            borderRadius: 12,
-            padding: 12,
-            gap: 8,
+            borderColor: colors.border,
+            borderLeftWidth: 3,
+            borderLeftColor: colors.brandDeep,
+            backgroundColor: colors.surface,
+            borderRadius: 16,
+            padding: 16,
+            gap: 12,
           }}
           testID={prefix + "-cite-box-" + open}
         >
@@ -118,9 +125,7 @@ export function SpanText({ spans, sources, prefix }: { spans: Span[]; sources: S
               testID={prefix + "-cite-close-" + open}
               hitSlop={12}
             >
-              <T variant="heading" color="textMuted">
-                ×
-              </T>
+              <Icon name="X" size={18} color="textMuted" />
             </Pressable>
           </View>
           {log && <LogRow line={log} />}
@@ -131,42 +136,41 @@ export function SpanText({ spans, sources, prefix }: { spans: Span[]; sources: S
   );
 }
 
-const journeyStates: Record<"passed" | "failed" | "not_reached", { symbol: string; word: string; tone: TokenName }> = {
-  passed: { symbol: "✓", word: "Worked", tone: "statusClear" },
-  failed: { symbol: "✕", word: "Stops here", tone: "statusAffected" },
-  not_reached: { symbol: "·", word: "Never reached", tone: "textMuted" },
+const journeyStates: Record<"passed" | "failed" | "not_reached", { word: string; tone: TokenName }> = {
+  passed: { word: "Worked", tone: "statusClear" },
+  failed: { word: "Stops here", tone: "statusAffected" },
+  not_reached: { word: "Never reached", tone: "textMuted" },
 };
 
 export function Viz({ viz }: { viz: Visualization }) {
   const { colors } = useTheme();
   if (viz.type === "journey") {
     return (
-      <View>
+      <View style={{ paddingHorizontal: 2 }}>
         {viz.steps.map((step, i) => {
           const state = journeyStates[step.state];
           return (
-            <View key={i} style={{ flexDirection: "row", gap: 12 }}>
+            <View key={i} style={{ flexDirection: "row", gap: 16 }}>
               <View style={{ alignItems: "center", width: 30 }}>
                 <View
                   style={{
                     width: 30,
                     height: 30,
                     borderRadius: 15,
-                    borderWidth: 2,
+                    borderWidth: 1,
                     borderColor: colors[state.tone],
+                    backgroundColor: step.state === "failed" ? colors.codeDelBg : colors.surface,
                     alignItems: "center",
                     justifyContent: "center",
                   }}
                 >
-                  <T variant="small" color={state.tone} style={{ fontWeight: "700" }}>
-                    {state.symbol}
-                  </T>
+                  {step.state === "not_reached" ? <View style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: colors.textMuted }} /> : <Icon name={step.state === "passed" ? "Check" : "X"} size={15} color={state.tone} />}
                 </View>
                 {i < viz.steps.length - 1 && (
-                  <View style={{ width: 2, flex: 1, minHeight: 12, backgroundColor: colors.border }} />
+                  <View style={{ width: 1, flex: 1, minHeight: 18, backgroundColor: colors.border }} />
                 )}
               </View>
-              <View style={{ flex: 1, paddingBottom: 12 }}>
+              <View style={{ flex: 1, paddingBottom: i < viz.steps.length - 1 ? 20 : 0, gap: 2 }}>
                 <T variant={step.state === "failed" ? "strong" : "body"} color={step.state === "not_reached" ? "textMuted" : "text"}>
                   {step.label}
                 </T>
@@ -183,6 +187,7 @@ export function Viz({ viz }: { viz: Visualization }) {
   const max = Math.max(...viz.points.map((p) => p.v), 1);
   const first = viz.points[0];
   const last = viz.points[viz.points.length - 1];
+  if (!first || !last) return <T color="textMuted">No measurements yet.</T>;
   const amount = (v: number) => v + (viz.unit === "%" ? "%" : " " + viz.unit);
   const markerAt = viz.markerAt;
   return (

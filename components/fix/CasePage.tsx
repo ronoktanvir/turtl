@@ -5,11 +5,12 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useCase } from "../../data";
 import type { FixOption, Screenshot } from "../../data/types";
 import { useTheme } from "../../theme";
-import { ago, Button, Card, Chip, devToolsOn, HealthWord, T, Turtle } from "../ui";
+import { ago, Button, Card, Chip, devToolsOn, HealthWord, Icon, Reveal, T, Turtle } from "../ui";
 import { CodeBox, LogRow, SpanText, Viz } from "./Evidence";
 import { ApproveSheet, FixCard } from "./FixCard";
 
 const tabs = ["Overview", "Logs", "Code"] as const;
+const tabIcons = { Overview: "Layers", Logs: "Terminal", Code: "Code2" } as const;
 const phases: Record<Screenshot["phase"], string> = { failure: "When it failed", before: "Before", after: "After" };
 
 export function CasePage({ caseId, current }: { caseId: string; current: boolean }) {
@@ -24,7 +25,7 @@ export function CasePage({ caseId, current }: { caseId: string; current: boolean
   const [height, setHeight] = useState(0);
   const [atFixes, setAtFixes] = useState(false);
   const [approving, setApproving] = useState<FixOption | null>(null);
-  const id = (name: string) => (current ? name : undefined);
+  const id = (name: string) => (current ? name : caseId + "-" + name);
 
   useEffect(() => {
     setAtFixes(fixesY > 0 && offset.current + height > fixesY + 120);
@@ -52,7 +53,7 @@ export function CasePage({ caseId, current }: { caseId: string; current: boolean
         contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}
         testID={"case-scroll-" + c.id}
       >
-        <View style={{ flexDirection: "row", borderBottomWidth: 1, borderBottomColor: colors.border, paddingHorizontal: 8 }}>
+        <View style={{ flexDirection: "row", borderBottomWidth: 1, borderBottomColor: colors.border, paddingHorizontal: 20, gap: 20 }}>
           {tabs.map((name) => (
             <Pressable
               key={name}
@@ -61,12 +62,15 @@ export function CasePage({ caseId, current }: { caseId: string; current: boolean
               accessibilityState={{ selected: tab === name }}
               testID={id("tab-" + name.toLowerCase())}
               style={{
-                paddingHorizontal: 14,
-                paddingVertical: 12,
-                borderBottomWidth: 3,
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 7,
+                paddingVertical: 16,
+                borderBottomWidth: 2,
                 borderBottomColor: tab === name ? colors.brandDeep : "transparent",
               }}
             >
+              <Icon name={tabIcons[name]} size={17} color={tab === name ? "brandDeep" : "textMuted"} />
               <T variant={tab === name ? "strong" : "body"} color={tab === name ? "text" : "textMuted"}>
                 {name}
               </T>
@@ -74,56 +78,55 @@ export function CasePage({ caseId, current }: { caseId: string; current: boolean
           ))}
         </View>
 
-        <View style={{ padding: 16, gap: 18, minHeight: Math.max(0, height - 150) }}>
+        <View style={{ padding: 20, paddingTop: 28, gap: 28, minHeight: Math.max(0, height - 150) }}>
           {tab === "Overview" && (
             <>
-              <View style={{ flexDirection: "row", gap: 12, alignItems: "center" }}>
-                <Turtle health={c.health} size={60} />
-                <View style={{ flex: 1, gap: 4 }}>
-                  <T variant="strong" testID={id("case-summary")}>
-                    {c.summary}
-                  </T>
-                  <View style={{ flexDirection: "row", flexWrap: "wrap", columnGap: 10 }}>
+              <Reveal>
+                <View style={{ gap: 16 }}>
+                  <View style={{ flexDirection: "row", flexWrap: "wrap", columnGap: 12, alignItems: "center" }}>
                     <HealthWord health={c.health} testID={id("case-health")} />
                     <T variant="small" color="textMuted">
                       {ago(c.happenedAt)}
                     </T>
+                  </View>
+                  <T variant="title" accessibilityRole="header">{c.title}</T>
+                  <View style={{ flexDirection: "row", gap: 12, alignItems: "center" }}>
+                    <Turtle health={c.health} size={44} />
+                    <T style={{ flex: 1 }} testID={id("case-summary")}>{c.summary}</T>
+                  </View>
                     {!!c.reportCount && (
-                      <T variant="small" color="textMuted">
+                      <T variant="small" color="textMuted" style={{ paddingLeft: 56 }}>
                         {c.reportCount + (feature ? " people asked" : " people reported it")}
                       </T>
                     )}
-                  </View>
                 </View>
-              </View>
-              {c.learned && (
-                <Card style={{ gap: 4, borderColor: colors.statusClear }} testID={id("case-learned")}>
-                  <T variant="strong">What turtl learned</T>
-                  <T>{c.learned}</T>
-                </Card>
-              )}
+              </Reveal>
               {c.overview.map((block, i) =>
                 block.kind === "paragraph" ? (
                   <SpanText key={i} spans={block.spans} sources={sources} prefix={"overview-" + i} />
                 ) : (
-                  <Card key={i} style={{ gap: 12 }}>
-                    <T variant="strong">{block.title}</T>
+                  <View key={i} style={{ gap: 20, borderTopWidth: 1, borderBottomWidth: 1, borderColor: colors.border, paddingVertical: 20 }}>
+                    <T variant="heading">{block.title}</T>
                     <Viz viz={block.viz} />
-                  </Card>
+                  </View>
                 ),
               )}
-              <View style={{ gap: 10 }}>
+              <View style={{ gap: 12 }}>
                 <T variant="heading">Screenshots from app</T>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12 }}>
+                <ScrollView horizontal testID={id("screenshots-strip")} showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12 }}>
                   {c.screenshots.map((shot) => (
-                    <View key={shot.id} style={{ width: 190, gap: 6 }} testID={"screenshot-" + shot.id}>
+                    <View key={shot.id} style={{ width: 208, gap: 10 }} testID={"screenshot-" + shot.id}>
+                      <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+                        <Chip label={phases[shot.phase]} tone={shot.phase === "failure" ? "statusAffected" : shot.phase === "after" ? "statusClear" : "textMuted"} />
+                        <T variant="small" color="textMuted">{ago(shot.takenAt)}</T>
+                      </View>
                       <Image
                         source={{ uri: shot.url }}
-                        style={{ width: 190, height: 380, borderRadius: 12, borderWidth: 1, borderColor: colors.border }}
+                        style={{ width: 208, height: 392, borderRadius: 20, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface }}
+                        resizeMode="contain"
                         accessibilityLabel={shot.caption}
                       />
-                      <Chip label={phases[shot.phase]} tone={shot.phase === "failure" ? "statusAffected" : "textMuted"} />
-                      <T>{shot.caption}</T>
+                      <T variant="small" color="textMuted">{shot.caption}</T>
                     </View>
                   ))}
                 </ScrollView>
@@ -133,20 +136,22 @@ export function CasePage({ caseId, current }: { caseId: string; current: boolean
           {tab === "Logs" && (
             <>
               <T color="textMuted">What the app and turtl wrote down, oldest first.</T>
+              <View style={{ gap: 20 }}>
               {c.logs.map((line) => (
-                <Card key={line.id}>
+                <View key={line.id} style={{ paddingBottom: 20, borderBottomWidth: 1, borderBottomColor: colors.border }}>
                   <LogRow line={line} />
-                </Card>
+                </View>
               ))}
+              </View>
             </>
           )}
           {tab === "Code" && (
             <>
               <T color="textMuted">The parts of the code this case touches.</T>
               {c.code.map((code) => (
-                <Card key={code.id}>
+                <View key={code.id}>
                   <CodeBox code={code} />
-                </Card>
+                </View>
               ))}
             </>
           )}
@@ -155,8 +160,9 @@ export function CasePage({ caseId, current }: { caseId: string; current: boolean
         <View
           onLayout={(event) => setFixesY(event.nativeEvent.layout.y)}
           style={{
-            padding: 16,
-            gap: 12,
+            padding: 20,
+            paddingTop: 28,
+            gap: 20,
             minHeight: height,
             borderTopWidth: 1,
             borderTopColor: colors.border,
@@ -167,6 +173,7 @@ export function CasePage({ caseId, current }: { caseId: string; current: boolean
           <T variant="title" accessibilityRole="header">
             {feature ? "Options" : "Fixes"}
           </T>
+          <T color="textMuted">{feature ? "Choose an approach. You’ll confirm before work begins." : "A way forward, with the trade-offs made clear. You’ll confirm before anything runs."}</T>
           {active && e && (
             <Card style={{ gap: 10, borderColor: colors.statusWorking }} testID={id("fixes-enacting")}>
               <T variant="strong">
@@ -197,13 +204,11 @@ export function CasePage({ caseId, current }: { caseId: string; current: boolean
             testID={id("investigate-further")}
             style={{ flexDirection: "row", alignItems: "center", gap: 10 }}
           >
-            <T variant="strong" color="textMuted" style={{ width: 18 }}>
-              ▸
-            </T>
+            <Icon name="MessageCircle" color="brandDeep" />
             <T variant="strong" style={{ flex: 1 }}>
               Investigate further
             </T>
-            <T color="textMuted">Ask turtl</T>
+            <Icon name="ArrowRight" color="textMuted" />
           </Card>
         </View>
       </ScrollView>
@@ -216,8 +221,12 @@ export function CasePage({ caseId, current }: { caseId: string; current: boolean
             left: 0,
             right: 0,
             bottom: 0,
-            paddingLeft: 16,
-            paddingRight: devToolsOn ? 88 : 16,
+            paddingLeft: 20,
+            paddingTop: 12,
+            backgroundColor: colors.bg,
+            borderTopWidth: 1,
+            borderTopColor: colors.border,
+            paddingRight: devToolsOn ? 88 : 20,
             paddingBottom: insets.bottom + 12,
           }}
         >

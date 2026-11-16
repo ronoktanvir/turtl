@@ -191,8 +191,7 @@ function advance(caseId: string) {
   const seed = plan[running];
   const pr = e.pullRequest;
   if (seed.effect === "checks" && pr && pr.checkRuns.some((r) => r.status === "pending")) {
-    const first = pr.checkRuns.findIndex((r) => r.status === "pending");
-    const checkRuns = pr.checkRuns.map((r, i) => (i === first ? { ...r, status: "passed" as const } : r));
+    const checkRuns = pr.checkRuns.map((r) => ({ ...r, status: "passed" as const }));
     const passed = checkRuns.every((r) => r.status === "passed");
     patchEnactment(caseId, (e) => ({
       ...e,

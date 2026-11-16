@@ -4,7 +4,7 @@ import { Pressable, View } from "react-native";
 import { approveFix } from "../../data";
 import type { FixKind, FixOption } from "../../data/types";
 import { useTheme } from "../../theme";
-import { Button, Card, Chip, Sheet, T } from "../ui";
+import { Button, Icon, Sheet, T } from "../ui";
 import { SpanText, type Sources } from "./Evidence";
 
 export const kindLabel: Record<FixKind, string> = {
@@ -36,27 +36,23 @@ export function FixCard({
   const { colors } = useTheme();
   const [open, setOpen] = useState(!!defaultOpen);
   return (
-    <Card
-      style={{ gap: 12, borderColor: fix.recommended ? colors.brandDeep : colors.border }}
+    <View
+      style={{ gap: 16, borderTopWidth: 1, borderColor: fix.recommended ? colors.brandDeep : colors.border, paddingTop: 20, paddingBottom: 8 }}
       testID={prefix + "-" + fix.key}
     >
-      <View style={{ flexDirection: "row", gap: 10, alignItems: "flex-start" }}>
+      {fix.recommended && <View style={{ flexDirection: "row", alignItems: "center", gap: 7 }}><Icon name="Sparkles" size={16} color="brandDeep" /><T variant="small" color="brandDeep" style={{ fontWeight: "700" }}>Recommended</T></View>}
+      <View style={{ flexDirection: "row", gap: 12, alignItems: "flex-start" }}>
         <Pressable
           onPress={() => setOpen(!open)}
           accessibilityRole="button"
           accessibilityState={{ expanded: open }}
           testID={prefix + "-toggle-" + fix.key}
-          style={{ flex: 1, flexDirection: "row", gap: 8 }}
+          style={{ flex: 1, flexDirection: "row", gap: 8, minHeight: 44 }}
         >
-          <T variant="strong" color="textMuted" style={{ width: 18 }}>
-            {open ? "▾" : "▸"}
-          </T>
+          <View style={{ paddingTop: 3 }}><Icon name={open ? "ChevronDown" : "ChevronRight"} size={18} color="textMuted" /></View>
           <View style={{ flex: 1, gap: 6 }}>
             <T variant="strong">{(number ? number + ". " : "") + fix.title}</T>
-            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
-              {fix.recommended && <Chip label="Recommended" tone="statusClear" />}
-              <Chip label={kindLabel[fix.kind]} />
-            </View>
+            <T variant="small" color="textMuted">{kindLabel[fix.kind]}</T>
           </View>
         </Pressable>
         <Button
@@ -69,9 +65,9 @@ export function FixCard({
         />
       </View>
       {open && (
-        <View style={{ gap: 12 }}>
+        <View style={{ gap: 20, paddingLeft: 26 }}>
           <T>{fix.whatChanges}</T>
-          {fix.delivery === "pull_request" && <T color="textMuted">{pullRequestNote}</T>}
+          {fix.delivery === "pull_request" && <View style={{ flexDirection: "row", gap: 10, borderLeftWidth: 2, borderLeftColor: colors.brandDeep, paddingLeft: 12 }}><Icon name="GitPullRequest" size={18} color="brandDeep" /><T variant="small" color="textMuted" style={{ flex: 1 }}>{pullRequestNote}</T></View>}
           <View style={{ gap: 4 }}>
             <T variant="strong">Why</T>
             <SpanText spans={fix.why} sources={sources} prefix={prefix + "-" + fix.key} />
@@ -80,10 +76,10 @@ export function FixCard({
             <T variant="strong">Trade-offs</T>
             <T>{fix.whatMightBeLost}</T>
           </View>
-          <T color="textMuted">{"How turtl checks it: " + fix.howChecked}</T>
+          <View style={{ flexDirection: "row", gap: 8 }}><Icon name="ShieldCheck" size={18} color="brandDeep" /><T color="textMuted" style={{ flex: 1 }}>{"How turtl checks it: " + fix.howChecked}</T></View>
         </View>
       )}
-    </Card>
+    </View>
   );
 }
 
