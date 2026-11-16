@@ -4,16 +4,20 @@ import type { GenericActionCtx } from "convex/server";
 import { ConvexError, v } from "convex/values";
 import { createRemoteJWKSet, jwtVerify, type JWTPayload, type JWTVerifyGetKey } from "jose";
 import { internal } from "../_generated/api";
-import type { DataModel } from "../_generated/dataModel";
+import type { DataModel, Id } from "../_generated/dataModel";
 import { internalMutation } from "../_generated/server";
+import { exchangeCode } from "./appleTokens";
 import { words } from "./rules";
-import { appleAudience, appleKeysUrl } from "./settings";
+import { appleAudience, appleClient, appleKeysUrl } from "./settings";
 
 // Sign in with Apple through the iPhone's own sheet (expo-apple-authentication). The app makes a random nonce,
 // gives Apple its SHA-256, and sends Apple's identity token and the nonce here. This file checks the token the way
 // Apple asks: its signature against Apple's published keys, the issuer, the audience (the app's bundle id), the
 // expiry, and that the token's nonce is the hash of the one sent. A nonce works once, so a copied token cannot be
 // replayed. Apple's own name and email for the person come in the token; the name only on the first sign-in.
+//
+// The app also sends Apple's one-time authorization code. It is traded for Apple's refresh token, which is kept so it
+// can be revoked when the account is deleted (appleTokens.ts). A failed trade never stops the sign-in.
 
 export const APPLE_PROVIDER_ID = "apple";
 export const APPLE_ISSUER = "https://appleid.apple.com";
@@ -73,6 +77,22 @@ async function findAppleAccount(ctx: GenericActionCtx<DataModel>, sub: string) {
   }
 }
 
+/** Keeps Apple's refresh token for this sign-in, so deleting the account can revoke it. Logs a failure, never throws. */
+async function keepAppleToken(ctx: GenericActionCtx<DataModel>, userId: Id<"users">, appleUser: string, code: unknown) {
+  if (typeof code !== "string" || !code || code.length > 2048) return;
+  const client = appleClient();
+  if (!client) {
+    console.warn("Sign in with Apple: AUTH_APPLE_TEAM_ID, AUTH_APPLE_KEY_ID or AUTH_APPLE_PRIVATE_KEY is not set, so no Apple token was kept to revoke later.");
+    return;
+  }
+  const exchanged = await exchangeCode(client, code, appleUser);
+  if (!exchanged.ok) {
+    console.error(`Sign in with Apple: no Apple token was kept to revoke later (${exchanged.reason}).`);
+    return;
+  }
+  await ctx.runMutation(internal.auth.appleTokens.keep, { userId, refreshToken: exchanged.refreshToken });
+}
+
 export function apple() {
   return ConvexCredentials<DataModel>({
     id: APPLE_PROVIDER_ID,
@@ -81,16 +101,22 @@ export function apple() {
       const fresh: boolean = await ctx.runMutation(internal.auth.apple.spendNonce, { nonceHash: identity.nonceHash, expiresAt: identity.expiresAt });
       if (!fresh) throw new ConvexError(words.appleRefused);
       const existing = await findAppleAccount(ctx, identity.sub);
-      if (existing) return { userId: existing.userId };
-      // Apple passes the name to the app once, on the first sign-in, and not inside the token. It is display text only.
-      const name = typeof params.name === "string" ? params.name.trim().slice(0, 100) : "";
-      const { user } = await createAccount(ctx, {
-        provider: APPLE_PROVIDER_ID,
-        account: { id: identity.sub },
-        profile: { ...(identity.email ? { email: identity.email } : {}), ...(name ? { name } : {}) },
-        shouldLinkViaEmail: false,
-      });
-      return { userId: user._id };
+      let userId: Id<"users">;
+      if (existing) {
+        userId = existing.userId;
+      } else {
+        // Apple passes the name to the app once, on the first sign-in, and not inside the token. It is display text only.
+        const name = typeof params.name === "string" ? params.name.trim().slice(0, 100) : "";
+        const { user } = await createAccount(ctx, {
+          provider: APPLE_PROVIDER_ID,
+          account: { id: identity.sub },
+          profile: { ...(identity.email ? { email: identity.email } : {}), ...(name ? { name } : {}) },
+          shouldLinkViaEmail: false,
+        });
+        userId = user._id;
+      }
+      await keepAppleToken(ctx, userId, identity.sub, params.authorizationCode);
+      return { userId };
     },
   });
 }

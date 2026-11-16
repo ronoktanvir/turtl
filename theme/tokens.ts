@@ -19,6 +19,10 @@ export const dark = {
   onBrand: "#1c2128",
   codeAddBg: "#1b4721",
   codeDelBg: "#5d0f12",
+  // The case screen's Overview, Logs and Code tabs, each in its own colour when selected (label, icon and underline).
+  tabOverview: "#81a56f",
+  tabLogs: "#b392f0",
+  tabCode: "#7dd3fc",
 };
 
 export type TokenName = keyof typeof dark;
@@ -43,6 +47,10 @@ export const light: Tokens = {
   onBrand: "#1c2128",
   codeAddBg: "#dafbe1",
   codeDelBg: "#ffebe9",
+  // Darker than the dark theme's, so each reads at 4.5:1 or more against the light background.
+  tabOverview: "#557a45",
+  tabLogs: "#7c3aed",
+  tabCode: "#0369a1",
 };
 
 export const healthOrder: Health[] = ["affected", "needs_you", "working", "clear"];

@@ -4,6 +4,9 @@ import { accessEnforced, canSeeApp, projectCases, visibleApps } from "../access"
 import { currentPermission, MIN_VERIFIED_RECOVERIES, sourceAction, usesOf } from "../permissions";
 import { latestForCase, toPullRequest } from "../prTracking/records";
 
+/** More recovery memories than one project collects; it bounds the read. */
+const MAX_MEMORIES = 200;
+
 export const list = query({
   args: {},
   handler: async (ctx) => {
@@ -45,7 +48,9 @@ export const approvalSettings = query({
     const appId = ctx.db.normalizeId("apps", projectId);
     const app = appId ? await ctx.db.get(appId) : null;
     if (!app || app.isSample) return null;
-    const memories = (await ctx.db.query("recoveryMemories").collect()).filter((memory) => memory.appId === app._id && memory.invalidatedAt === undefined);
+    // This project's memories only, through its index: never a read of every account's memories.
+    const memories = (await ctx.db.query("recoveryMemories").withIndex("by_app_and_signature", (q) => q.eq("appId", app._id)).take(MAX_MEMORIES))
+      .filter((memory) => memory.invalidatedAt === undefined);
     const candidates = [];
     const active = [];
     for (const memory of memories) {

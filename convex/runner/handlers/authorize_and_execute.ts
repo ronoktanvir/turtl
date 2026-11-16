@@ -2,6 +2,7 @@ import { internal } from "../../_generated/api";
 import type { Doc, Id } from "../../_generated/dataModel";
 import { runCodeChange } from "../../prTracking/execute";
 import { call, describeFailure } from "../../protectedApp/client";
+import { watchedApp } from "../../protectedApp/watched";
 import type { HandlerResult, StepHandler } from "../contract";
 
 type Claim = { mode: "send" | "reconcile" | "completed" | "cancelled"; action: Doc<"actions"> };
@@ -53,12 +54,14 @@ export const handler: StepHandler = {
       await finish(ctx, action._id, "failed", "The approved payload has no flag and value; nothing was sent.");
       return { status: "failed", error: "The approved payload has no flag and value; nothing was sent." };
     }
+    // The case's project: its own address and token, with accounts on (convex/protectedApp/watched.ts).
+    const app = await watchedApp(ctx, { appId: input.case.appId });
     const flagIn = (body: unknown) => (body as Record<string, unknown> | null)?.[flag];
     const refOf = (body: unknown) =>
       `${flag}=${String(flagIn(body))} at ${(body as { updatedAt?: unknown } | null)?.updatedAt ?? "unknown time"}`;
 
     if (mode === "reconcile") {
-      const read = await call(config.url, { credentialRef: config.credentialRef });
+      const read = await call(config.url, { app, credentialRef: config.credentialRef });
       if (read.kind !== "response" || read.status !== 200 || typeof flagIn(read.body) !== "boolean") {
         const result = `Could not read ${flag} to reconcile (${describeFailure(read)}); nothing was sent again.`;
         await finish(ctx, action._id, "unknown", result);
@@ -73,6 +76,7 @@ export const handler: StepHandler = {
     }
 
     const sent = await call(config.url, {
+      app,
       method: config.method === "GET" ? "GET" : "POST",
       body: { [flag]: value },
       credentialRef: config.credentialRef,

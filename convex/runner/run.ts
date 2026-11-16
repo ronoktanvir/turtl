@@ -25,6 +25,7 @@ import {
   waitOnAttempt,
 } from "../workflow";
 import { vHandlerResult } from "./contract";
+import { cancelJobs, rememberJobs } from "./jobs";
 import type { HandlerResult, LoadedInput } from "./contract";
 import { HANDLERS } from "./handlers";
 import { matchRecovery } from "../memory/flow";
@@ -80,11 +81,12 @@ async function dispatch(
   approvedAt?: number,
 ) {
   const limitMs = HANDLERS[purpose].timeoutMs;
-  await ctx.scheduler.runAfter(0, internal.runner.run.execute, { attemptId, approvedAt });
-  await ctx.scheduler.runAfter(limitMs, internal.runner.run.checkTimeout, {
+  const run = await ctx.scheduler.runAfter(0, internal.runner.run.execute, { attemptId, approvedAt });
+  const timeout = await ctx.scheduler.runAfter(limitMs, internal.runner.run.checkTimeout, {
     attemptId,
     limitMs,
   });
+  await rememberJobs(ctx, attemptId, [run, timeout]);
 }
 
 // Tells the owner a decision is waiting, once the case actually waits for them.
@@ -295,12 +297,8 @@ async function applyResult(
 
   if (result.status === "waiting") {
     await waitOnAttempt(ctx, attemptId, { ...notes, summary: result.summary });
-    if (step.purpose === "verify") {
-      for (const job of await ctx.db.system.query("_scheduled_functions").collect()) {
-        const args = job.args[0] as { attemptId?: string } | undefined;
-        if (job.state.kind === "pending" && job.name.endsWith("checkTimeout") && args?.attemptId === attemptId) await ctx.scheduler.cancel(job._id);
-      }
-    }
+    // A device run can outlast the step's time limit; its follow-up resumes the attempt instead.
+    if (step.purpose === "verify") await cancelJobs(ctx, attempt, "checkTimeout");
   } else {
     await finishAttempt(ctx, attemptId, {
       ...notes,

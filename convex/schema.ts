@@ -1,5 +1,6 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
+import { accountDeletionTables } from "./account/schema";
 import { accountTables } from "./auth/schema";
 import { bookingError } from "./bookingDemo/validators";
 import { codeNetworkTables } from "./codeNetwork/schema";
@@ -34,6 +35,8 @@ import { githubTables } from "./github/schema";
 import { intakeTables } from "./intake/schema";
 import { learningTables } from "./learning/schema";
 import { pushTables } from "./push/schema";
+import { watchingTables } from "./protectedApp/schema";
+import { secretTables } from "./secrets/schema";
 import { revylTables } from "./revyl/schema";
 import { spendTables } from "./spend/schema";
 import { voiceTables } from "./voice/schema";
@@ -106,6 +109,8 @@ export default defineSchema({
     inputRefs: v.optional(v.array(v.id("stepAttempts"))),
     output: v.optional(v.any()),
     outputRefs: v.optional(v.array(vOutputRef)),
+    // The run and time-limit jobs scheduled for this attempt, so Stop and the runner cancel them by id (runner/jobs.ts).
+    scheduledJobs: v.optional(v.array(v.id("_scheduled_functions"))),
     lateResultAt: v.optional(v.number()),
     lateResult: v.optional(v.object({
       status: v.optional(vAttemptStatus),
@@ -166,6 +171,8 @@ export default defineSchema({
   agentRuns: defineTable(vAgentRun)
     .index("by_case", ["caseId"])
     .index("by_attempt", ["stepAttemptId"])
+    // A run for a project and no case (reading the repository at onboarding, triaging a report): account deletion finds it here.
+    .index("by_app", ["appId"])
     .index("by_task_and_settled", ["taskType", "outcomeAt"])
     .index("by_settled", ["outcomeAt"]),
   // Mutations must enforce app ownership and source/revision freshness; retrieved context never authorizes execution.
@@ -222,4 +229,7 @@ export default defineSchema({
   ...accountTables,
   ...consentTables,
   ...spendTables,
+  ...accountDeletionTables,
+  ...secretTables,
+  ...watchingTables,
 });

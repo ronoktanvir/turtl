@@ -1,8 +1,9 @@
+import { demoOnly } from "../demoSettings";
+import { githubApiUrl } from "../github/config";
 import type { CheckRun, Checks, GithubSnapshot } from "./validators";
 
 declare const process: { env: Record<string, string | undefined> };
 
-const API_URL = "https://api.github.com";
 const REQUEST_TIMEOUT_MS = 10_000;
 const PASSED_CONCLUSIONS = ["success", "neutral", "skipped"];
 
@@ -22,7 +23,8 @@ export type GithubPull = {
 export type GithubCheckRun = { name: string; status: string; conclusion: string | null; html_url: string | null };
 export type GithubStatus = { context: string; state: string; target_url: string | null };
 
-export const githubToken = () => process.env.GITHUB_TOKEN || undefined;
+/** The demo's one deployment-wide GitHub token. With accounts on it reads as not set: every account would act through it. */
+export const githubToken = () => demoOnly(process.env.GITHUB_TOKEN) || undefined;
 
 export function parsePullRequestUrl(url: string): { repo: string; number: number } | null {
   const match = /^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/pull\/(\d+)(?:[/?#].*)?$/.exec(url.trim());
@@ -36,7 +38,7 @@ export function repoFromUrl(repoUrl: string): string | null {
 
 export async function github<T>(token: string | undefined, path: string, init?: { method: string; body: unknown }): Promise<GithubResult<T>> {
   try {
-    const response = await fetch(`${API_URL}${path}`, {
+    const response = await fetch(`${githubApiUrl()}${path}`, {
       method: init?.method ?? "GET",
       headers: {
         ...(token && { Authorization: `Bearer ${token}` }),

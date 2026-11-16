@@ -7,6 +7,8 @@ import { PullRequestPanel } from "../../../components/onboarding/PullRequestPane
 import { ReadinessReport } from "../../../components/onboarding/ReadinessReport";
 import { WorksNow } from "../../../components/onboarding/WorksNow";
 import { editableStages, inspectableStages, rulesNote, stageLine } from "../../../components/onboarding/stage";
+import { CodingAgentNotice, useCodingAgentMissing } from "../../../components/secrets/CodingAgentNotice";
+import ControlTokenSettings from "../../../components/secrets/ControlTokenSettings";
 import { Button, Header, Icon, Reveal, Screen, Sheet, T, Turtle } from "../../../components/ui";
 import { Empty } from "../../../components/ui/Empty";
 import { approvePreparation, checkLiveAgain, inspectAgain, mergePreparation, refreshPreparation, saveNeverBreak, useDataStatus, useOnboarding, useProject } from "../../../data";
@@ -30,6 +32,7 @@ export default function Prepare() {
   const [approving, setApproving] = useState(false);
   const [merging, setMerging] = useState<{ title: string; headSha: string } | null>(null);
   const [refused, setRefused] = useState<string | null>(null);
+  const agentMissing = useCodingAgentMissing();
   const title = (project?.name ?? "") + ": Preparation";
   const back = ("/project/" + projectId) as never;
 
@@ -138,7 +141,7 @@ export default function Prepare() {
             </View>
           </Reveal>
 
-          {error && !approving && !merging && <T color="statusAffected" accessibilityRole="alert" testID="prepare-error">{error}</T>}
+          {error && !approving && !merging && <T font="text" color="statusAffected" accessibilityRole="alert" testID="prepare-error">{error}</T>}
 
           <ReadinessReport onboarding={o} />
 
@@ -157,7 +160,8 @@ export default function Prepare() {
 
           {o.stage === "ready" && (
             <View style={{ gap: 10 }}>
-              <Button label="Prepare my app" icon="Sparkles" disabled={unsaved || busy !== null} onPress={() => { setError(null); setApproving(true); }} testID="prepare-approve" />
+              <CodingAgentNotice testID="prepare-coding-agent" />
+              <Button label="Prepare my app" icon="Sparkles" disabled={unsaved || busy !== null || agentMissing} onPress={() => { setError(null); setApproving(true); }} testID="prepare-approve" />
               {unsaved && <T variant="small" color="textMuted" style={{ textAlign: "center" }}>Save your answers first.</T>}
             </View>
           )}
@@ -168,8 +172,12 @@ export default function Prepare() {
           {refused && (
             <View style={{ flexDirection: "row", gap: 10, padding: 16, backgroundColor: colors.surface, borderRadius: 16 }}>
               <Icon name="TriangleAlert" color="statusNeedsYou" />
-              <T color="statusNeedsYou" accessibilityRole="alert" style={{ flex: 1 }} testID="prepare-merge-refused">{refused}</T>
+              <T font="text" color="statusNeedsYou" accessibilityRole="alert" style={{ flex: 1 }} testID="prepare-merge-refused">{refused}</T>
             </View>
+          )}
+
+          {(o.stage === "opening" || o.stage === "pr_open" || o.stage === "registering" || o.stage === "registered") && (
+            <ControlTokenSettings projectId={o.projectId} testID="prepare-control-token" />
           )}
 
           {(o.stage === "registering" || o.stage === "registered") && (
@@ -188,7 +196,7 @@ export default function Prepare() {
           ))}
         </View>
         <T color="textMuted">Nothing changes in your live app until you merge it.</T>
-        {error && <T color="statusAffected" accessibilityRole="alert" testID="prepare-approve-error">{error}</T>}
+        {error && <T font="text" color="statusAffected" accessibilityRole="alert" testID="prepare-approve-error">{error}</T>}
         <View style={{ gap: 10 }}>
           <Button label={busy === "approve" ? "Opening…" : "Open the pull request"} disabled={busy !== null} onPress={() => void approve()} testID="prepare-approve-confirm" />
           <Button label="Cancel" kind="plain" disabled={busy === "approve"} onPress={() => setApproving(false)} testID="prepare-approve-cancel" />

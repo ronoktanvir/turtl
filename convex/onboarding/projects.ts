@@ -4,15 +4,21 @@ import type { Doc, Id } from "../_generated/dataModel";
 import { action, mutation, query, type MutationCtx } from "../_generated/server";
 import { accessEnforced, canSeeApp, guardApp, guardAppInAction, requireAccount, visibleApps } from "../access";
 import { requireOwnerPasscode } from "../ownerPasscode";
+import { ceilingRefusal, projectsPerAccount } from "../spend/limits";
 import { repositoryAccess } from "../github/access";
 import { mergePullRequest, readPullRequest } from "../prTracking/github";
 import { pullRequestOf } from "../prTracking/validators";
+import { liveAddressProblem } from "../protectedApp/address";
+import { accountSecret } from "../secrets/store";
+import { CONNECT_CODING_AGENT } from "../secrets/words";
 import { normalizeFolders, parseGithubUrl, READINESS_ITEMS } from "./detect";
 import { latestInspection, preparationFor } from "./records";
 import { syncPreparation } from "./prepare";
 import { hasWork, stageOf } from "./stage";
 
 const MAX_ANSWERS = 10;
+/** With accounts on, how soon after one Check again the owner can ask for another. */
+export const CHECK_AGAIN_EVERY_MS = 2 * 60_000;
 
 async function appFor(ctx: MutationCtx, projectId: string) {
   const appId = ctx.db.normalizeId("apps", projectId);
@@ -37,9 +43,15 @@ async function startInspection(ctx: MutationCtx, appId: Id<"apps">, repo: string
   return inspectionId;
 }
 
+// The project's live address. With accounts on it is where its control token goes, so it must be https on a public
+// name (convex/protectedApp/address.ts). The single-owner demo keeps its looser rule.
 function liveUrlOf(input: string | undefined) {
   const text = input?.trim();
   if (!text) return undefined;
+  if (accessEnforced()) {
+    const problem = liveAddressProblem(text);
+    if (problem) throw new ConvexError(problem);
+  }
   let url: URL;
   try {
     url = new URL(text);
@@ -56,6 +68,11 @@ export const add = mutation({
   handler: async (ctx, { repoUrl, liveUrl, folders, passcode }) => {
     const account = await requireAccount(ctx);
     await requireOwnerPasscode(ctx, passcode);
+    // Each project brings its own limits (customer-report keys and allowance), so an account has at most so many.
+    const cap = projectsPerAccount();
+    if (accessEnforced() && (await ctx.db.query("apps").withIndex("by_owner", (q) => q.eq("ownerId", account)).take(cap)).length >= cap) {
+      throw new ConvexError(ceilingRefusal.projects(cap));
+    }
     const parsed = parseGithubUrl(repoUrl);
     if (!parsed) throw new ConvexError("Paste the repository's GitHub address, like https://github.com/owner/name.");
     let scope: string[];
@@ -144,7 +161,13 @@ export const approve = mutation({
     if (!inspection.stack.supported) throw new ConvexError(`Automatic preparation is not supported for ${inspection.stack.label} yet.`);
     if (preparation.answeredAt === undefined) throw new ConvexError("Tell turtl what must never break first.");
     if (!hasWork(inspection, preparation)) throw new ConvexError("Nothing is missing, so there is nothing to prepare.");
+    // With accounts on the preparation runs on the owner's own coding agent, so it must be connected. (prepare:start
+    // checks it again, with the GitHub connection, before anything is sent.)
+    if (accessEnforced() && (!app.ownerId || !(await accountSecret(ctx, app.ownerId, "coding_agent_key")))) {
+      throw new ConvexError(`${CONNECT_CODING_AGENT} Nothing was sent.`);
+    }
     await ctx.db.patch(preparation._id, {
+      blocked: undefined,
       approvedAt: Date.now(),
       inspectionId: inspection._id,
       requestId: `turtl-onboarding:${preparation._id}:${inspection._id}`,
@@ -182,10 +205,10 @@ export const merge = action({
     const access = await repositoryAccess(ctx, row.repo, { appId: row.appId });
     if (!access.ok) return { ok: false, reason: `${access.message} Nothing was merged.` };
     const token = access.token;
-    if (!token) return { ok: false, reason: "Not configured: turtl needs a GITHUB_TOKEN that can merge in this repository. Nothing was merged." };
+    if (!token) return { ok: false, reason: "turtl has no GitHub access that can merge in this repository. Connect it to turtl through GitHub (Add project, Connect GitHub), or merge it on GitHub yourself. Nothing was merged." };
     const read = await readPullRequest(token, row.repo, row.number);
     if (!read.ok) {
-      return { ok: false, reason: read.status === 401 ? "GitHub rejected turtl's GITHUB_TOKEN, so turtl can't merge. Nothing was merged." : read.message };
+      return { ok: false, reason: read.status === 401 ? "GitHub turned down turtl's access, so turtl can't merge. Connect the repository to turtl through GitHub again, or merge it on GitHub yourself. Nothing was merged." : read.message };
     }
     await ctx.runMutation(internal.onboarding.records.applySnapshot, { id: row._id, ...read.body });
     const { snapshot } = read.body;
@@ -217,7 +240,13 @@ export const checkAgain = mutation({
     await requireOwnerPasscode(ctx, passcode);
     const { preparation } = await appFor(ctx, projectId);
     if (preparation.mergedAt === undefined) throw new ConvexError("The preparation pull request has not merged yet.");
-    await ctx.db.patch(preparation._id, { registration: { ...(preparation.registration ?? { checks: [] }), status: "checking" } });
+    const now = Date.now();
+    // With accounts on, each Check again calls every endpoint on the live app, so it can't be repeated back to back.
+    const last = preparation.registration?.requestedAt;
+    if (accessEnforced() && last !== undefined && now - last < CHECK_AGAIN_EVERY_MS) {
+      throw new ConvexError(`turtl checked your live app less than ${CHECK_AGAIN_EVERY_MS / 60_000} minutes ago. Try again in a minute or two.`);
+    }
+    await ctx.db.patch(preparation._id, { registration: { ...(preparation.registration ?? { checks: [] }), status: "checking", ...(accessEnforced() && { requestedAt: now }) } });
     await ctx.scheduler.runAfter(0, internal.onboarding.prepare.register, { preparationId: preparation._id });
     return null;
   },
@@ -270,9 +299,10 @@ export const forProject = query({
       answered: preparation.answeredAt !== undefined,
       ...(preparation.approvedAt && { approvedAt: preparation.approvedAt }),
       ...(preparation.number !== undefined && preparation.snapshot && preparation.repo && { pullRequest: pullRequestOf(preparation.repo, preparation.number, preparation.snapshot) }),
-      ...((preparation.openError ?? preparation.syncError) && { problem: preparation.openError ?? preparation.syncError }),
+      ...((preparation.openError ?? preparation.syncError ?? preparation.blocked) && { problem: preparation.openError ?? preparation.syncError ?? preparation.blocked }),
       checks: (registration?.checks ?? []).map(({ journeyId, actionCatalogId, ...check }) => ({ ...check, registered: Boolean(journeyId ?? actionCatalogId) })),
       ...(registration?.error && { checksError: registration.error }),
+      ...(registration?.note && { checksNote: registration.note }),
       ...(registration?.checkedAt && { checkedAt: registration.checkedAt }),
     };
   },

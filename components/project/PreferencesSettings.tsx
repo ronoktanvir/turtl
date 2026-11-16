@@ -45,7 +45,7 @@ export default function PreferencesSettings({ projectId }: { projectId: string }
       {data?.preferences.length === 0 && <T color="textMuted" testID="preferences-empty">Nothing saved yet.</T>}
       {data?.preferences.map((preference) => (
         <View key={preference.id} style={{ flexDirection: "row", alignItems: "center", gap: 8, borderLeftWidth: 2, borderLeftColor: colors.brandDeep, paddingLeft: 12 }} testID={"preference-" + preference.id}>
-          <T style={{ flex: 1 }}>{preference.statement}</T>
+          <T font="text" style={{ flex: 1 }}>{preference.statement}</T>
           <Pressable onPress={() => void run(() => removePreference(projectId, preference.id))} disabled={busy} accessibilityRole="button" accessibilityLabel="Remove preference" testID={"preference-remove-" + preference.id} hitSlop={6} style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center", opacity: busy ? 0.5 : 1 }}>
             <Icon name="X" size={18} color="textMuted" />
           </Pressable>
@@ -74,7 +74,7 @@ export default function PreferencesSettings({ projectId }: { projectId: string }
           <T variant="strong">turtl heard</T>
           {data.suggestions.map((suggestion) => (
             <View key={suggestion.id} style={{ gap: 10, padding: 14, borderRadius: 12, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceRaised }} testID={"suggestion-" + suggestion.id}>
-              <T>{"“" + suggestion.statement + "”"}</T>
+              <T font="text">{"“" + suggestion.statement + "”"}</T>
               <T variant="small" color="textMuted">{heardFrom[suggestion.source]}</T>
               <View style={{ flexDirection: "row", gap: 8 }}>
                 <Button label="Save" disabled={busy} onPress={() => void run(() => confirmPreference(projectId, suggestion.id))} testID={"suggestion-save-" + suggestion.id} style={{ flex: 1, minHeight: 44 }} />
@@ -84,7 +84,7 @@ export default function PreferencesSettings({ projectId }: { projectId: string }
           ))}
         </View>
       )}
-      {error && <T color="statusAffected" accessibilityRole="alert" testID="preferences-error">{error}</T>}
+      {error && <T font="text" color="statusAffected" accessibilityRole="alert" testID="preferences-error">{error}</T>}
     </View>
   );
 }

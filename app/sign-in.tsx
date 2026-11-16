@@ -31,7 +31,7 @@ export default function SignIn() {
     <FormScreen title="Log in" testID="sign-in">
       <Field label="Email" testID="sign-in-email" value={email} onChangeText={setEmail} keyboardType="email-address" textContentType="username" autoComplete="email" editable={!busy} returnKeyType="next" />
       <Field label="Password" testID="sign-in-password" value={password} onChangeText={setPassword} secureTextEntry textContentType="password" autoComplete="current-password" editable={!busy} returnKeyType="go" onSubmitEditing={() => void submit()} />
-      {error && <T color="statusAffected" accessibilityRole="alert" testID="sign-in-error">{error}</T>}
+      {error && <T font="text" color="statusAffected" accessibilityRole="alert" testID="sign-in-error">{error}</T>}
       <Button label={busy ? "Logging in…" : "Log in"} disabled={busy || !email || !password} onPress={() => void submit()} testID="sign-in-submit" />
       <FormLink label="Forgot your password?" onPress={() => router.push("/reset-password")} testID="sign-in-forgot" />
       <FormLink label="New to turtl? Create an account" onPress={() => router.replace("/sign-up")} testID="sign-in-to-sign-up" />

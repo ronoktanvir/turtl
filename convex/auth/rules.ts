@@ -7,7 +7,10 @@ export const MAX_PASSWORD_LENGTH = 128;
 /** What the owner reads when something about signing in goes wrong. One place, so the app and backend agree. */
 export const words = {
   wrongPassword: "That email and password don't match. Check them and try again, or reset your password.",
-  accountExists: "There's already an account for this email.",
+  // Says plainly that the address has an account, though that tells anyone who tries it: a sign-up that works signs in
+  // at once, so a refusal reads differently whatever its words. Hiding it needs a code emailed either way (see
+  // convex/auth/README.md on email checks). Signing in and reset never say whether an address has an account.
+  accountExists: "There's already an account for this email. Log in instead, or reset your password if you've forgotten it.",
   weakPassword: `Choose a password of at least ${MIN_PASSWORD_LENGTH} characters that isn't easy to guess.`,
   passwordTooLong: `Choose a password of at most ${MAX_PASSWORD_LENGTH} characters.`,
   passwordIsEmail: "Choose a password that isn't your email address.",

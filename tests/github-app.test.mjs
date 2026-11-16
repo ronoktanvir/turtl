@@ -94,7 +94,8 @@ test("a token is stored in one table that only github/tokens.ts reads, and only 
       .map((entry) => resolve(entry.parentPath, entry.name).slice(root.length + 1))
       .filter((path) => !path.startsWith("convex/_generated/"));
   const mentions = [...sources("convex"), ...sources("app"), ...sources("components"), ...sources("data")].filter((path) => readFileSync(resolve(root, path), "utf8").includes("githubInstallationTokens"));
-  assert.deepEqual(mentions.sort(), ["convex/github/schema.ts", "convex/github/tokens.ts"]);
+  // convex/account/registry.ts names the table only to say GitHub's disconnect removes it when an account is deleted.
+  assert.deepEqual(mentions.sort(), ["convex/account/registry.ts", "convex/github/schema.ts", "convex/github/tokens.ts"]);
   for (const path of sources("convex/github")) {
     const imported = /import \{([^}]+)\} from "\.\.\/_generated\/server"/.exec(readFileSync(resolve(root, path), "utf8"))?.[1] ?? "";
     const names = imported.split(",").map((name) => name.replace(/\btype\b/, "").trim()).filter(Boolean);
@@ -534,9 +535,13 @@ test("the code network build asks that one place too", async (t) => {
       await prepare(w);
       const real = globalThis.fetch;
       const seen = [];
+      // The build's own reads go to the stand-in too (GITHUB_API_URL); they are recorded under GitHub's address and
+      // answered "not found". The GitHub App's own calls (installation, token) reach the stub as before.
       t.mock.method(globalThis, "fetch", async (input, init) => {
-        if (String(input).startsWith(w.stub.url)) return real(input, init);
-        seen.push({ url: String(input), authorization: new Headers(init?.headers).get("Authorization") });
+        const read = /\/repos\/octo\/app\/(commits|git)\//.test(String(input));
+        if (String(input).startsWith(w.stub.url) && !read) return real(input, init);
+        assert.ok(String(input).startsWith(w.stub.url), "the build reads GitHub at GITHUB_API_URL, not " + String(input));
+        seen.push({ url: String(input).replace(w.stub.url, "https://api.github.com"), authorization: new Headers(init?.headers).get("Authorization") });
         return new Response(JSON.stringify({ message: "Not Found" }), { status: 404 });
       });
       const result = await w.load("convex/codeNetwork/build.ts").build.handler(w.backend.ctx, { projectId: "apps:1", repo: "octo/app", reuseLabels: true });

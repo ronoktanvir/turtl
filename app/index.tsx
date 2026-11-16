@@ -2,6 +2,7 @@ import { useRouter } from "expo-router";
 import { useRef, useState } from "react";
 import { Pressable, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import DeleteAccountNotice from "../components/account/DeleteAccountNotice";
 import LegalLinks from "../components/legal/LegalLinks";
 import { BrandIcon, Button, Logo, Reveal, Screen, T } from "../components/ui";
 import { useAccount, useAccountActions } from "../data/account";
@@ -45,6 +46,7 @@ export default function Login() {
           <Reveal><Logo health="clear" width={240} /></Reveal>
         </View>
         <Reveal delay={100} style={{ gap: 12, width: "100%", maxWidth: 400, alignSelf: "center" }}>
+          <DeleteAccountNotice />
           <Button label="Log in" testID="login-enter" onPress={() => open("/sign-in")} style={{ minHeight: 52, borderRadius: 16 }} />
           <View style={{ flexDirection: "row", gap: 12 }}>
             {providers.map((provider) => (
@@ -54,7 +56,7 @@ export default function Login() {
               </Pressable>
             ))}
           </View>
-          {error && <T color="statusAffected" accessibilityRole="alert" testID="login-error" style={{ textAlign: "center" }}>{error}</T>}
+          {error && <T font="text" color="statusAffected" accessibilityRole="alert" testID="login-error" style={{ textAlign: "center" }}>{error}</T>}
           <Button label="Sign up" kind="plain" testID="login-signup" onPress={() => open("/sign-up")} style={{ minHeight: 50, borderRadius: 16, backgroundColor: colors.bg, borderColor: colors.bg }} />
           <LegalLinks />
         </Reveal>

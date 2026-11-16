@@ -10,7 +10,7 @@ A customer's words reach turtl through a form in the customer's own app. Each me
 - `triage.ts`: `processNext`, the triage of one report.
 - `rules.ts`: pure rules with no Convex imports: body validation, rate limits, fingerprints, the dedupe rule (`decide`), the rule-based fallback, the untrusted-text rule and every prompt. `tests/intake-rules.test.mjs` runs them.
 - `workflow.ts`: the `investigate` and `plan` handlers for customer cases, wrapped around the registered ones in `runner/handlers/index.ts`.
-- `keys.ts`: `issue` and `revoke` (owner passcode), `forApp` (read).
+- `keys.ts`: `issue` (the only answer that holds the whole key), `revoke` (by the key's id, or by the key itself for the operator), and `forApp` (when each live key was made and its last four characters, never the key). In the demo `issue` and `revoke` ask for the owner passcode; with accounts on, the project's owner decides, and a project has at most `INTAKE_KEYS_PER_PROJECT` live keys. The project's Settings show them in the Customer reports row (`components/reportKeys/CustomerReportsSettings.tsx`).
 - `dev.ts`: `bookingKey`, behind `DEV_TOOLS_ENABLED`: registers the booking app and its pull request action and returns its key.
 
 `runner/handlers/detect_or_receive.ts` handles "receive" for these cases (below).
@@ -28,6 +28,8 @@ A customer's words reach turtl through a form in the customer's own app. Each me
 - Success is `202 { ok: true, received: true }`. Nothing about cases is returned.
 
 The deployment URL is public, so the limits and sizes are the only protection; a sender can change `reporterId` freely, so the per-key limits are the real cap.
+
+What reports cost is bounded apart from those limits (`convex/spend/README.md`). With accounts on, triage and the investigate and plan steps of a case customers opened run on the project's own daily allowance (`INTAKE_SPEND_PER_DAY_USD`), never the owner's monthly one, so a flood of reports cannot stop turtl diagnosing the owner's outages; once it is spent, the rules judge reports until the next day. And reports open at most `INTAKE_CASES_PER_DAY` new cases on a project a day; past that, a report is kept on no case with the reason in its triage row.
 
 ### A customer's contact
 
@@ -99,5 +101,5 @@ The booking demo shares turtl's deployment, so it works the address out from its
 ## Setup
 
 1. Deploy. Set `INTAKE_CONTACT_KEY` (required in production, see above). `INTAKE_NAMESPACE_PREFIX` is optional and empty in production; a test deployment sets it to keep its Supermemory namespaces apart.
-2. Issue a key for each app: `npx convex run intake/keys:issue '{"appId":"<app id>","passcode":"<owner passcode>"}'` (or `intake/dev:bookingKey` on a dev deployment). The turtl app does not show a key yet, so the operator hands it to the owner. For a pull request option to be offered, the app needs its pull request action (`prTracking/catalog:register` for the booking app).
+2. Issue a key for each app: `npx convex run intake/keys:issue '{"appId":"<app id>","passcode":"<owner passcode>"}'` (or `intake/dev:bookingKey` on a dev deployment). The owner can also make one themselves in the project's Settings, under Customer reports, where it is shown once. For a pull request option to be offered, the app needs its pull request action (`prTracking/catalog:register` for the booking app).
 3. Add the form to the customer app and set its two settings (above).

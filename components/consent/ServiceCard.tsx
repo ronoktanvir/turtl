@@ -19,7 +19,7 @@ export default function ServiceCard({ service }: { service: AiService }) {
         {service.receives.map((item) => (
           <View key={item} style={{ flexDirection: "row", gap: 8, paddingLeft: 2 }}>
             <View style={{ width: 5, height: 5, borderRadius: 3, marginTop: 10, backgroundColor: colors.brandDeep }} />
-            <T style={{ flex: 1 }}>{item}</T>
+            <T font="title" style={{ flex: 1 }}>{item}</T>
           </View>
         ))}
       </View>

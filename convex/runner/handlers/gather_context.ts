@@ -22,9 +22,9 @@ export const handler: StepHandler = {
     }
     const loaded = await loadJourneyContext(ctx, input);
     if (!loaded.ok) return { status: "failed", error: loaded.reason };
-    const { journey, check } = loaded.context;
+    const { journey, check, watched } = loaded.context;
     const [outcome, app] = await Promise.all([
-      runJourneyCheck(check),
+      runJourneyCheck(check, watched),
       readAppEvidence(ctx, input, loaded.context),
     ]);
     const { revision } = app;

@@ -1,3 +1,4 @@
+import { githubRawUrl } from "../github/config";
 import { github, type GithubResult } from "../prTracking/github";
 import { readable, type RepoFile } from "./detect";
 
@@ -18,15 +19,16 @@ export type RepoRead =
     }
   | { ok: false; reason: string };
 
-const rejectedNote = "GitHub rejected turtl's access token, so turtl read the repository as a public one.";
+const rejectedNote = "GitHub turned down turtl's access to this repository, so turtl read it the way anyone can read a public one.";
 
+// Plain words for an owner: what turtl could not do, and what they can do about it. No setting names.
 function unreadable(repo: string, read: Extract<GithubResult<unknown>, { ok: false }>, token: string | undefined, rejected: boolean): string {
   if (read.status === 403 && /rate limit/i.test(read.message)) {
-    return `GitHub's limit for reads without a token is used up, so turtl could not read ${repo}. Try again within the hour, or set a valid GITHUB_TOKEN on turtl's deployment.`;
+    return `GitHub limits how often turtl may read repositories it has no access to, and that limit is used up for now, so turtl could not read ${repo}. Try again within the hour, or connect the repository to turtl through GitHub (Add project, Connect GitHub), which lifts the limit.`;
   }
   if (read.status === 404 || read.status === 403) {
-    if (token && !rejected) return `GitHub has no repository ${repo} that turtl's GITHUB_TOKEN can read.`;
-    return `GitHub shows no public repository ${repo}. If it is private, turtl needs a GITHUB_TOKEN that can read it: ${rejected ? "the one set on turtl's deployment was rejected" : "none is set on turtl's deployment"}.`;
+    if (token && !rejected) return `GitHub did not let turtl read ${repo}. Check that it is one of the repositories you connected to turtl through GitHub, then read it again.`;
+    return `GitHub shows no public repository ${repo}. If it is private, connect it to turtl through GitHub (Add project, Connect GitHub) so turtl can read it${rejected ? "; the access turtl had was turned down" : ""}.`;
   }
   return `turtl could not read ${repo}: ${read.message}.`;
 }
@@ -42,7 +44,7 @@ async function readWithFallback<T>(path: string, token: string | undefined): Pro
 // a token is retried without it, which still reads a public repository.
 export async function readRaw(repo: string, sha: string, path: string, token: string | undefined): Promise<string | null> {
   try {
-    const response = await fetch(`https://raw.githubusercontent.com/${repo}/${sha}/${path.split("/").map(encodeURIComponent).join("/")}`, {
+    const response = await fetch(`${githubRawUrl()}/${repo}/${sha}/${path.split("/").map(encodeURIComponent).join("/")}`, {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
       signal: AbortSignal.timeout(RAW_TIMEOUT_MS),
     });

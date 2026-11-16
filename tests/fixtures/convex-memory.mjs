@@ -103,19 +103,30 @@ export function memoryDb(tables, seed = {}) {
       assert.ok(found, "No document " + id);
       found.list[found.index] = { ...found.list[found.index], ...structuredClone(fields) };
     },
+    delete: async (id) => {
+      const found = locate(id);
+      assert.ok(found, "No document " + id);
+      found.list.splice(found.index, 1);
+    },
     query: (table) => ({
       withIndex: (name, build) => {
         reads.push(["index", table, name]);
         const fields = tables[table]?.export().indexes.find((index) => index.indexDescriptor === name)?.fields;
         assert.ok(fields, table + " has no index " + name);
         const conditions = [];
-        const range = { eq: (field, value) => (conditions.push([field, value]), range) };
+        // eq on the leading fields, then at most a range (lt, lte, gt, gte) on the next one, as Convex allows.
+        const tests = { eq: (a, b) => a === b, lt: (a, b) => a < b, lte: (a, b) => a <= b, gt: (a, b) => a > b, gte: (a, b) => a >= b };
+        const range = Object.fromEntries(Object.entries(tests).map(([operator, holds]) => [operator, (field, value) => (conditions.push([field, value, holds, operator]), range)]));
         build(range);
-        conditions.forEach(([field], position) => assert.equal(field, fields[position], table + "." + name + " cannot be read by " + field + " here"));
+        let position = 0;
+        for (const [field, , , operator] of conditions) {
+          assert.equal(field, fields[position], table + "." + name + " cannot be read by " + field + " here");
+          if (operator === "eq") position++;
+        }
         let descending = false;
         const matched = () => {
           const list = rowsOf(table)
-            .filter((row) => conditions.every(([field, value]) => row[field] === value))
+            .filter((row) => conditions.every(([field, value, holds]) => holds(row[field], value)))
             .sort((a, b) => a._creationTime - b._creationTime);
           return structuredClone(descending ? list.reverse() : list);
         };

@@ -45,7 +45,7 @@ export default function AiSettings({ onClose }: { onClose: () => void }) {
           ? <Button label="Take back" kind="danger" disabled={busy} onPress={() => void withdraw()} testID="ai-settings-withdraw" style={{ flex: 1 }} />
           : <Button label="Allow" onPress={open} testID="ai-settings-allow" style={{ flex: 1 }} />}
       </View>
-      {error && <T color="statusAffected" accessibilityRole="alert">{error}</T>}
+      {error && <T font="text" color="statusAffected" accessibilityRole="alert">{error}</T>}
     </View>
   );
 }

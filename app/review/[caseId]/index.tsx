@@ -3,8 +3,8 @@ import { useRef, useState, type ComponentRef } from "react";
 import { Pressable, ScrollView, View } from "react-native";
 import AiNotice from "../../../components/consent/AiNotice";
 import { CasePage } from "../../../components/fix/CasePage";
-import { Header, Icon, Screen, T } from "../../../components/ui";
-import { isLiveData, setStarred, useCase, useCases, useDataStatus, useProject } from "../../../data";
+import { caseTitle, Header, Icon, Screen, T } from "../../../components/ui";
+import { isLiveData, setStarred, useCase, useCases, useDataStatus } from "../../../data";
 import { useTheme } from "../../../theme";
 
 export default function Review() {
@@ -12,7 +12,6 @@ export default function Review() {
   const first = useCase(caseId);
   const { errors } = useDataStatus();
   const list = useCases(first?.projectId ?? "", first?.type ?? "fix");
-  const project = useProject(first?.projectId ?? "");
   const { colors } = useTheme();
   const [size, setSize] = useState({ width: 0, height: 0 });
   const width = size.width;
@@ -68,9 +67,8 @@ export default function Review() {
   return (
     <Screen testID="review">
       <Header
-        title={project?.name
-          ? project.name + (current.number > 0 ? (feature ? ": request #" : ": error #") + current.number : feature ? ": Request" : ": Case")
-          : current.number > 0 ? (feature ? "Request #" : "Error #") + current.number : feature ? "Request" : "Case"}
+        title={caseTitle(current)}
+        scrollTitle
         fallback={("/project/" + current.projectId + (feature ? "/features" : "/fix")) as never}
         testID="review-title"
         right={
@@ -88,8 +86,8 @@ export default function Review() {
           </Pressable>
         }
       />
-      {isLiveData && <T variant="small" color="textMuted" testID="case-star-unavailable" style={{ paddingHorizontal: 20, paddingVertical: 8 }}>Stars are not available on this backend yet</T>}
-      {starError && <T color="statusAffected" accessibilityRole="alert" testID="case-star-error" style={{ paddingHorizontal: 20, paddingVertical: 8 }}>{starError}</T>}
+      {isLiveData && <T variant="small" font="text" color="textMuted" testID="case-star-unavailable" style={{ paddingHorizontal: 20, paddingVertical: 8 }}>Stars are not available on this backend yet</T>}
+      {starError && <T font="text" color="statusAffected" accessibilityRole="alert" testID="case-star-error" style={{ paddingHorizontal: 20, paddingVertical: 8 }}>{starError}</T>}
       <AiNotice uses={["openai", "capy"]} cannot="diagnose this with AI or write code fixes" style={{ marginHorizontal: 20, marginTop: 8 }} />
 
       {ids.length > 1 && (

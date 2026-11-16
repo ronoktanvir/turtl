@@ -2,7 +2,8 @@ import { internal } from "../../_generated/api";
 import type { Doc } from "../../_generated/dataModel";
 import type { ActionCtx } from "../../_generated/server";
 import type { Revision } from "../../constants";
-import { ENVIRONMENT } from "../../protectedApp/client";
+import { ENVIRONMENT, type WatchedApp } from "../../protectedApp/client";
+import { watchedApp } from "../../protectedApp/watched";
 import type { HandlerInput } from "../contract";
 
 // Shared by the handlers that work on a monitored journey (the booking app). A case with no journey,
@@ -23,6 +24,8 @@ export type JourneyContext = CaseContext & {
   base: string;
   journey: Doc<"journeys">;
   check: { url: string; credentialRef?: string };
+  /** The case's project, which every request to its app is sent for (convex/protectedApp/watched.ts). */
+  watched: WatchedApp;
 };
 
 export async function loadJourneyContext(
@@ -39,7 +42,7 @@ export async function loadJourneyContext(
   if (journey.check.kind !== "http") {
     return { ok: false, reason: "Only http journey checks can be run; this journey uses another kind." };
   }
-  return { ok: true, context: { ...context, base, journey, check: journey.check.config } };
+  return { ok: true, context: { ...context, base, journey, check: journey.check.config, watched: await watchedApp(ctx, { appId: input.case.appId }) } };
 }
 
 export function evidenceRow(

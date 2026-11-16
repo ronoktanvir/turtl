@@ -82,7 +82,7 @@ export function WorkflowGraph({ workflow }: { workflow: Workflow }) {
             testID={`workflow-step-${step.key}`}
             style={({ pressed }) => ({ flex: 1, minWidth: 0, minHeight: 88, padding: 12, gap: 8, borderRadius: 16, borderWidth: 1, borderColor: open ? colors.link : colors[look.color], backgroundColor: pressed ? colors.surfaceRaised : colors.surface })}>
             <Icon name={look.icon} color={look.color} size={20} />
-            <T variant="strong" font="title" style={{ flexShrink: 1 }}>{step.title}</T>
+            <T variant="strong" style={{ flexShrink: 1 }}>{step.title}</T>
             <T variant="small" color={look.color}>{statusWords[step.status]}</T>
             {row.unordered && <T variant="small" color="textMuted">Order unknown</T>}
           </Pressable>;

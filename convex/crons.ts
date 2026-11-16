@@ -3,7 +3,8 @@ import { internal } from "./_generated/api";
 
 const crons = cronJobs();
 
-// Checks every registered journey; it does nothing while PROTECTED_APP_URL is not set.
+// Checks registered journeys. The demo checks its one app and does nothing while PROTECTED_APP_URL is not set; with
+// accounts on, each tick checks the next projects in turn, each with its own token (convex/protectedApp/watching.ts).
 crons.interval("check registered journeys", { minutes: 1 }, internal.monitor.tick, {});
 
 // Keeps pull requests that are being opened or are still open fresh; it does nothing while there are none.
@@ -14,5 +15,8 @@ crons.interval("settle agent run outcomes", { minutes: 2 }, internal.routing.log
 
 // Keeps onboarding preparation pull requests fresh; it does nothing while there are none.
 crons.interval("refresh onboarding pull requests", { minutes: 1 }, internal.onboarding.prepare.refreshActive, {});
+
+// Starts again an account deletion whose run stopped (convex/account); it does nothing while none has.
+crons.interval("resume account deletions", { minutes: 15 }, internal.account.deletion.resumeStalled, {});
 
 export default crons;

@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { internalAction } from "./_generated/server";
 import { gateFor, type Gate } from "./consent/gate";
+import { demoOnly } from "./demoSettings";
 
 declare const process: { env: Record<string, string | undefined> };
 
@@ -21,7 +22,9 @@ const OUTCOMES = ["ran", "queued", "unavailable"] as const;
 export async function sendOwnerNotice(gate: Gate, text: string): Promise<NoticeResult> {
   const apiKey = process.env.KEIKI_API_KEY;
   const agentId = process.env.KEIKI_AGENT_ID;
-  const phone = process.env.KEIKI_OWNER_CONTACT;
+  // One number for the whole deployment: the demo's owner. With accounts on it reads as not set, so no account's
+  // notices are texted to someone else.
+  const phone = demoOnly(process.env.KEIKI_OWNER_CONTACT);
   if (!apiKey || !agentId || !phone) {
     return { outcome: "not_configured" };
   }
