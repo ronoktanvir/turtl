@@ -32,10 +32,13 @@ async function sync(ctx: ActionCtx, row: Doc<"pullRequests">): Promise<RefreshRe
     if (!row.capyThreadId) return { outcome: "failed", message: "This pull request has no number and no Capy thread." };
     const capy = capyConfig();
     if (!capy.ok) return { outcome: "not_configured", missing: capy.missing };
-    const found = await findPullRequestNumber(capy, row.capyThreadId, row.repo);
+    const found = await findPullRequestNumber(capy, row.capyThreadId, row.repo, row.capyCursor);
     if (!found.ok) {
       await ctx.runMutation(internal.prTracking.records.recordSyncError, { id: row._id, error: found.message });
       return { outcome: "failed", message: found.message };
+    }
+    if (found.body.cursor && found.body.cursor !== row.capyCursor) {
+      await ctx.runMutation(internal.prTracking.records.setCapyCursor, { id: row._id, cursor: found.body.cursor });
     }
     if (found.body.number === undefined) {
       if (found.body.stopped && Date.now() - row.requestedAt > OPENING_GRACE_MS) {
