@@ -16,7 +16,10 @@ import { DEMO_APP, type TokenRead, type WatchedApp } from "./client";
 
 export type ProjectRef = { appId: string } | { caseId: string };
 
-const vTarget = v.union(v.object({ ok: v.literal(true), appId: v.id("apps"), origin: v.string() }), v.object({ ok: v.literal(false), reason: v.string() }));
+const vTarget = v.union(
+  v.object({ ok: v.literal(true), appId: v.id("apps"), origin: v.string(), practice: v.optional(v.boolean()) }),
+  v.object({ ok: v.literal(false), reason: v.string() }),
+);
 
 // The project's live origin, or why nothing may be sent for it. Fragments: call() writes them into sentences.
 export const target = internalQuery({
@@ -32,12 +35,14 @@ export const target = internalQuery({
     if (!app) return { ok: false as const, reason: "this project no longer exists, so turtl sent nothing" };
     if (!app.ownerId) return { ok: false as const, reason: "turtl does not know whose project this is, so it sent nothing" };
     if (!app.productionUrl) return { ok: false as const, reason: "this project has no live address, so turtl sent nothing" };
-    const origin = liveOrigin(app.productionUrl);
+    // A practice project's address is turtl's own site, under its own path (address.ts).
+    const practiceId = app.practice ? app._id : undefined;
+    const origin = liveOrigin(app.productionUrl, undefined, practiceId);
     if (!origin) {
-      const problem = liveAddressProblem(app.productionUrl) ?? "The live app address cannot be used.";
+      const problem = liveAddressProblem(app.productionUrl, undefined, practiceId) ?? "The live app address cannot be used.";
       return { ok: false as const, reason: `${problem.charAt(0).toLowerCase()}${problem.slice(1).replace(/\.$/, "")}, so turtl sent nothing` };
     }
-    return { ok: true as const, appId: app._id, origin };
+    return { ok: true as const, appId: app._id, origin, ...(practiceId && { practice: true }) };
   },
 });
 
@@ -56,7 +61,7 @@ const refusing = (reason: string): WatchedApp => ({
 export async function watchedApp(ctx: Pick<ActionCtx, "runQuery">, project: ProjectRef): Promise<WatchedApp> {
   // The demo's one app, unless the deployment holds accounts: then it is no demo, and nothing is sent (convex/access.ts).
   if (!accessEnforced()) return (await demoHoldsAccountsInAction(ctx)) ? refusing("turtl is unavailable right now, so it sent nothing") : DEMO_APP;
-  const found: { ok: true; appId: string; origin: string } | { ok: false; reason: string } = await ctx.runQuery(internal.protectedApp.watched.target, project);
+  const found: { ok: true; appId: string; origin: string; practice?: boolean } | { ok: false; reason: string } = await ctx.runQuery(internal.protectedApp.watched.target, project);
   if (!found.ok) return refusing(found.reason);
   let token: Promise<TokenRead> | null = null;
   const read = async (): Promise<TokenRead> => {
@@ -64,7 +69,7 @@ export async function watchedApp(ctx: Pick<ActionCtx, "runQuery">, project: Proj
     return opened.ok ? { ok: true, token: opened.value } : { ok: false, reason: TOKEN_WORDS[opened.why] };
   };
   return {
-    refuse: (url) => requestRefusal(url, found.origin),
+    refuse: (url) => requestRefusal(url, found.origin, undefined, found.practice ? found.appId : undefined),
     token: () => (token ??= read()),
     followRedirects: false,
   };

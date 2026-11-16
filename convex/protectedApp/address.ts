@@ -13,10 +13,16 @@ import { localBackend } from "../demoSettings";
 //
 // Only names are checked: turtl cannot see what a name resolves to, so a public name pointed at a private address is
 // not caught here.
+//
+// Not turtl's own addresses (third review, "worth a second look"): this deployment's site and API (CONVEX_SITE_URL,
+// CONVEX_CLOUD_URL, and CUSTOM_AUTH_SITE_URL when the site has a custom domain) serve turtl's own routes, so a project
+// may not use them, and no request for a project goes to them, whatever path or query its turtl.json names. The one
+// exception is a practice project, whose address turtl itself sets to /practice/<project id> on its own site
+// (convex/practice; an owner cannot set or change it): its requests may go under that path, and nowhere else there.
 
 declare const process: { env: Record<string, string | undefined> };
 
-type Problem = "invalid" | "credentials" | "not_https" | "ip_literal" | "private" | "port";
+type Problem = "invalid" | "credentials" | "not_https" | "ip_literal" | "private" | "port" | "own";
 
 const LOCAL_NAMES = [".localhost", ".local", ".internal", ".home.arpa", ".lan", ".intranet"];
 const LOOPBACK = ["127.0.0.1", "localhost", "[::1]"];
@@ -29,7 +35,23 @@ export function loopbackAllowed(): boolean {
   return process.env.WATCHED_APP_ALLOW_LOOPBACK === "true" && localBackend();
 }
 
-function problemOf(text: string, allowLoopback: boolean): { problem: Problem } | { url: URL } {
+/** This deployment's own origins: its site, its API, and its site's custom domain. */
+function ownOrigins(): string[] {
+  return [process.env.CONVEX_SITE_URL, process.env.CONVEX_CLOUD_URL, process.env.CUSTOM_AUTH_SITE_URL].flatMap((text) => {
+    try {
+      return text ? [new URL(text).origin] : [];
+    } catch {
+      return [];
+    }
+  });
+}
+
+/** Whether a URL on turtl's own site is under the practice project's own path (the parser has already folded "..",
+ * so a path cannot climb out of it). */
+const underPractice = (url: URL, practiceId: string | undefined) =>
+  !!practiceId && (url.pathname === `/practice/${practiceId}` || url.pathname.startsWith(`/practice/${practiceId}/`));
+
+function problemOf(text: string, allowLoopback: boolean, practiceId?: string): { problem: Problem } | { url: URL } {
   let url: URL;
   try {
     url = new URL(text.trim());
@@ -38,6 +60,7 @@ function problemOf(text: string, allowLoopback: boolean): { problem: Problem } |
   }
   if (url.protocol !== "https:" && url.protocol !== "http:") return { problem: "invalid" };
   if (url.username || url.password) return { problem: "credentials" };
+  if (ownOrigins().includes(url.origin) && !underPractice(url, practiceId)) return { problem: "own" };
   // The URL parser has already turned 2130706433, 0x7f.1 and 127.1 into 127.0.0.1.
   const host = url.hostname.toLowerCase().replace(/\.$/, "");
   if (allowLoopback && LOOPBACK.includes(host)) return { url };
@@ -56,17 +79,19 @@ const LIVE_ADDRESS: Record<Problem, string> = {
   ip_literal: "The live app address must be a name, like app.example.com, not a numeric IP address.",
   private: "The live app address must be a public address on the internet, not a name inside a private network.",
   port: "The live app address must be the one your customers use, with no port number, like https://app.example.com.",
+  own: "The live app address must be your app's own address, not turtl's.",
 };
 
-/** Why turtl will not use this as a project's live address, as a sentence, or null when it will. */
-export function liveAddressProblem(text: string, allowLoopback = loopbackAllowed()): string | null {
-  const found = problemOf(text, allowLoopback);
+/** Why turtl will not use this as a project's live address, as a sentence, or null when it will. `practiceId` names
+ * a practice project, whose own path on turtl's site is allowed. */
+export function liveAddressProblem(text: string, allowLoopback = loopbackAllowed(), practiceId?: string): string | null {
+  const found = problemOf(text, allowLoopback, practiceId);
   return "problem" in found ? LIVE_ADDRESS[found.problem] : null;
 }
 
 /** The origin of a usable live address, or null. */
-export function liveOrigin(text: string, allowLoopback = loopbackAllowed()): string | null {
-  const found = problemOf(text, allowLoopback);
+export function liveOrigin(text: string, allowLoopback = loopbackAllowed(), practiceId?: string): string | null {
+  const found = problemOf(text, allowLoopback, practiceId);
   return "url" in found ? found.url.origin : null;
 }
 
@@ -78,11 +103,13 @@ const REQUEST: Record<Problem, string> = {
   ip_literal: "turtl does not send requests to a numeric IP address, so it sent nothing",
   private: "turtl does not send requests to a name inside a private network, so it sent nothing",
   port: "turtl sends requests for this project only to the standard https port, so it sent nothing",
+  own: "turtl does not send a project's requests to turtl's own addresses, so it sent nothing",
 };
 
-/** Why turtl will not send this request for a project whose live origin is `origin`, as a fragment, or null. */
-export function requestRefusal(text: string, origin: string, allowLoopback = loopbackAllowed()): string | null {
-  const found = problemOf(text, allowLoopback);
+/** Why turtl will not send this request for a project whose live origin is `origin`, as a fragment, or null.
+ * `practiceId` names a practice project, whose requests may go under its own path on turtl's site. */
+export function requestRefusal(text: string, origin: string, allowLoopback = loopbackAllowed(), practiceId?: string): string | null {
+  const found = problemOf(text, allowLoopback, practiceId);
   if ("problem" in found) return REQUEST[found.problem];
   if (found.url.origin !== origin) return `turtl sends this project's requests only to its own address, ${origin}, and this one is on ${found.url.origin}, so it sent nothing`;
   return null;

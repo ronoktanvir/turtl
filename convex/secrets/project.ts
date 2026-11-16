@@ -37,7 +37,7 @@ export const controlToken = query({
     if (!app || app.isSample) return null;
     if (!accessEnforced()) return { accounts: false, set: false };
     const row = await projectSecret(ctx, app._id, "control_token");
-    const origin = app.productionUrl ? liveOrigin(app.productionUrl) : null;
+    const origin = app.productionUrl ? liveOrigin(app.productionUrl, undefined, app.practice ? app._id : undefined) : null;
     // The monitor writes its notice on its own turn. A notice that the token is missing is out of date the moment one
     // is saved, so it is not shown beside "Saved just now" while the next turn is still to come.
     const recorded = await watchNotice(ctx, app._id);

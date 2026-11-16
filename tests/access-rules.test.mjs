@@ -22,7 +22,7 @@ const VARIABLES = [
   "AUTH_REQUIRED", "DEV_TOOLS_ENABLED", "PROTECTED_APP_CONTROL_SECRET_SHA256", "PROTECTED_APP_URL", "PROTECTED_APP_CONTROL_SECRET", "CODE_NETWORK_CHAT_ENABLED", "OPENAI_API_KEY", "SUPERMEMORY_API_KEY",
   // Demo-only and stand-in variables (finding 8), what they need beside them, and the deployment's own address.
   "GITHUB_TOKEN", "GITHUB_APP_ID", "GITHUB_APP_PRIVATE_KEY", "GITHUB_APP_SLUG", "GITHUB_APP_WEBHOOK_SECRET", "AUTH_STAND_IN_URL", "AUTH_RESEND_KEY", "AUTH_EMAIL_FROM",
-  "KEIKI_API_KEY", "KEIKI_AGENT_ID", "KEIKI_OWNER_CONTACT", "EXPO_PUSH_API_URL", "REVYL_API_KEY", "REVYL_BOOKING_WORKFLOW_ID", "CONVEX_CLOUD_URL",
+  "KEIKI_API_KEY", "KEIKI_AGENT_ID", "KEIKI_OWNER_CONTACT", "EXPO_PUSH_API_URL", "REVYL_API_KEY", "REVYL_BOOKING_WORKFLOW_ID", "CONVEX_CLOUD_URL", "CONVEX_SITE_URL", "CUSTOM_AUTH_SITE_URL",
   // Limits (findings 5 and 7).
   "INTAKE_CASES_PER_DAY", "INTAKE_SPEND_PER_DAY_USD", "PROJECTS_PER_ACCOUNT", "INTAKE_KEYS_PER_PROJECT",
 ];
@@ -878,6 +878,61 @@ test("ATTACK (finding 20): with AUTH_REQUIRED unset and an account present, the 
   assert.equal(w.backend.rows("stepAttempts").length, attempts, "no attempt started");
   assert.deepEqual(w.backend.scheduled, [], "nothing dispatched");
   assert.equal(await run.loadInput.handler(ctx, { attemptId }), null, "an attempt dispatched earlier does not run");
+});
+
+// ---- turtl's own addresses as a live app (third review, "worth a second look") ----
+
+const OWN = { AUTH_REQUIRED: "true", CONVEX_SITE_URL: "https://patient-otter-123.convex.site", CONVEX_CLOUD_URL: "https://patient-otter-123.convex.cloud" };
+
+test("ATTACK (review): a project cannot give turtl's own site or API as its live app, and no request for one goes there", async (t) => {
+  const w = world(t, OWN);
+  const { alice } = await seed(w);
+  const asAlice = w.as("alice");
+  const own = "The live app address must be your app's own address, not turtl's.";
+  for (const liveUrl of [OWN.CONVEX_SITE_URL, `${OWN.CONVEX_SITE_URL}/booking-demo`, `${OWN.CONVEX_SITE_URL}/practice/${alice.appId}`, `${OWN.CONVEX_SITE_URL}/intake/report?key=x`, OWN.CONVEX_CLOUD_URL]) {
+    await refuses(asAlice("onboarding/projects", "add", { repoUrl: "https://github.com/alice/other", liveUrl }), own);
+  }
+  assert.ok(!w.backend.rows("apps").some((app) => app.productionUrl?.includes("convex")), "nothing was registered");
+
+  // A project row that names turtl's site anyway (written before this rule): the monitor's plan skips it, and a request
+  // its turtl.json could name, to any of turtl's own routes, never leaves.
+  const sent = recordingFetch(t);
+  const owner = await w.backend.db.insert("users", { email: "alice@example.com" });
+  await w.backend.db.patch(alice.appId, { productionUrl: OWN.CONVEX_SITE_URL, ownerId: owner });
+  await w.backend.db.insert("journeys", { appId: alice.appId, name: "Book", description: "Book.", checkVersion: "v1", check: { kind: "http", config: { url: `${OWN.CONVEX_SITE_URL}/journey-check`, method: "POST", expectedStatus: 200 } } });
+  const plan = await w.load("convex/protectedApp/watching.ts").planFor(w.ctxFor(null), w.backend.rows("apps").find((app) => app._id === alice.appId));
+  assert.deepEqual(plan, { kind: "skip", reason: own });
+  const ctx = w.ctxFor(owner).actionCtx;
+  const app = await w.load("convex/protectedApp/watched.ts").watchedApp(ctx, { appId: alice.appId });
+  const client = w.load("convex/protectedApp/client.ts");
+  for (const path of ["/booking-demo/flags", "/intake/report", "/github/callback?state=x&code=y", "/practice/other/journey-check"]) {
+    assert.equal((await client.call(OWN.CONVEX_SITE_URL + path, { app, method: "POST" })).kind, "not_sent", path);
+  }
+  for (const path of ["/api/query", "/api/mutation"]) assert.equal((await client.call(OWN.CONVEX_CLOUD_URL + path, { app, method: "POST" })).kind, "not_sent", path);
+  assert.deepEqual(sent, [], "no request left");
+});
+
+test("a practice project keeps its checks: turtl's own site under its own path, and nowhere else there", async (t) => {
+  const w = world(t, OWN);
+  const { alice } = await seed(w);
+  const owner = await w.backend.db.insert("users", { email: "alice@example.com" });
+  await w.backend.db.patch(alice.appId, { productionUrl: `${OWN.CONVEX_SITE_URL}/practice/${alice.appId}`, practice: true, ownerId: owner });
+  const row = w.backend.rows("apps").find((candidate) => candidate._id === alice.appId);
+  await w.backend.db.insert("journeys", { appId: alice.appId, name: "Book", description: "Book.", checkVersion: "v1", check: { kind: "http", config: { url: `${row.productionUrl}/journey-check`, method: "POST", expectedStatus: 200 } } });
+  const plan = await w.load("convex/protectedApp/watching.ts").planFor(w.ctxFor(null), row);
+  assert.equal(plan.kind, "run", JSON.stringify(plan));
+  assert.equal(plan.base, row.productionUrl);
+  const app = await w.load("convex/protectedApp/watched.ts").watchedApp(w.ctxFor(owner).actionCtx, { appId: alice.appId });
+  assert.equal(app.refuse(`${row.productionUrl}/journey-check`), null, "its own path");
+  assert.equal(app.refuse(`${row.productionUrl}/flags?x=1`), null);
+  for (const path of [`/practice/${alice.appId}/../../intake/report`, `/practice/${alice.appId}%2f..%2f..%2fbooking-demo/flags`, "/practice/another-project/journey-check", "/booking-demo/flags", "/github/webhook"]) {
+    const refused = app.refuse(OWN.CONVEX_SITE_URL + path);
+    assert.ok(refused === "turtl does not send a project's requests to turtl's own addresses, so it sent nothing" || /only to its own address/.test(refused ?? ""), path + ": " + refused);
+  }
+  assert.ok(app.refuse(`${OWN.CONVEX_CLOUD_URL}/api/mutation`));
+  // A project that is not a practice project may not use a practice path either.
+  await w.backend.db.patch(alice.appId, { practice: undefined });
+  assert.equal((await w.load("convex/protectedApp/watching.ts").planFor(w.ctxFor(null), { ...row, practice: undefined })).kind, "skip");
 });
 
 test("with AUTH_REQUIRED unset and no account, the monitor, intake, the gate and push delivery behave as before", async (t) => {
