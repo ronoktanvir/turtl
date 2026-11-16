@@ -646,7 +646,8 @@ test("practice: counts a practice check has on record go at its next round, and 
   const ada = await w.db.insert("users", { email: "ada@example.com" });
   const appId = await practiceProject(w, ada);
   const [journey] = w.rows("journeys");
-  await w.db.patch(journey._id, { unanswered: { count: 5, since: at(-10), at: at(-1), latest: { kind: "no_result", status: 502 } } });
+  // A check that had passed and has a count on record, so only the practice rule keeps it from being "not answering".
+  await w.db.patch(journey._id, { lastPassedAt: at(-30), unanswered: { count: 5, since: at(-10), at: at(-1), latest: { kind: "no_result", status: 502 } } });
   assert.equal((await overview(w, appId, ada))[0].notAnswering, undefined, "never shown as not answering, even with a count on record");
   assert.equal(await w.run("internal.protectedApp.notAnswering.open", { appId, ran: [journey._id], turtl: "reachable" }), null);
   assert.deepEqual(notAnswering(w), [], "open() refuses a practice project");
