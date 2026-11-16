@@ -1,6 +1,7 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 import { bookingError } from "./bookingDemo/validators";
+import { vPullRequestRow } from "./prTracking/validators";
 import {
   vAttemptStatus,
   vCaseKind,
@@ -148,6 +149,11 @@ export default defineSchema({
     proposalId: v.optional(v.id("proposals")),
     optionKey: v.optional(v.string()),
   }).index("by_case", ["caseId"]),
+  // Mutations must link a pull request to its case and the approved action; only the owner's Merge tap merges, with checks passing on the head they were shown.
+  pullRequests: defineTable(vPullRequestRow)
+    .index("by_case", ["caseId"])
+    .index("by_action", ["actionId"])
+    .index("by_settled", ["settledAt"]),
   bookingDemoSettings: defineTable({
     key: v.literal("demo"),
     recommendationsEnabled: v.boolean(),
