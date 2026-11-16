@@ -4,7 +4,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { readFileSync } from "node:fs";
 import { deploymentProblems, markdownTable, variables } from "../release/backend-env.mjs";
-import { appConfigProblems, easProblems, privacyManifestProblems } from "../release/store-checks.mjs";
+import { appConfigProblems, collectedDataProblems, easProblems, privacyManifestProblems } from "../release/store-checks.mjs";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 
@@ -14,6 +14,12 @@ test("app.json carries what the App Store needs: iPhone only, export compliance,
 
 test("the privacy manifest declares every reason the installed native libraries declare", () => {
   assert.deepEqual(privacyManifestProblems(root), []);
+});
+
+test("the privacy manifest lists exactly the data types the App Privacy answers say turtl collects", () => {
+  assert.deepEqual(collectedDataProblems(root), []);
+  const collected = JSON.parse(readFileSync(new URL("../app.json", import.meta.url), "utf8")).expo.ios.privacyManifests.NSPrivacyCollectedDataTypes;
+  assert.ok(collected.length >= 4, "accounts and push alone make four types: email, name, user id, device id");
 });
 
 test("eas.json has a development, a preview and a production profile, each with its own environment", () => {

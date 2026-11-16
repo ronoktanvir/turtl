@@ -65,6 +65,28 @@ export function privacyManifestProblems(root) {
   return [...new Set(problems)];
 }
 
+// The App Privacy answers (store/app-privacy.md) and the app's privacy manifest are two statements of one fact: what
+// turtl collects. Apple compares them, so every type the answers mark "Yes" is in the manifest, and nothing else is.
+export function collectedDataProblems(root) {
+  const answered = readFileSync(join(root, "store/app-privacy.md"), "utf8")
+    .split("\n")
+    .map((line) => line.split("|").map((cell) => cell.trim()))
+    .filter((cells) => cells.length > 4 && cells[3] === "**Yes**")
+    .map((cells) => `NSPrivacyCollectedDataType${cells[2].replace(/\s+/g, "")}`);
+  if (!answered.length) return ["store/app-privacy.md: no data type is marked **Yes** in the answers table, so the manifest cannot be checked against it."];
+  const entries = json(root, "app.json").expo.ios?.privacyManifests?.NSPrivacyCollectedDataTypes ?? [];
+  const declared = entries.map((entry) => entry.NSPrivacyCollectedDataType);
+  const problems = [];
+  for (const type of answered) if (!declared.includes(type)) problems.push(`app.json: ios.privacyManifests.NSPrivacyCollectedDataTypes must list ${type}, which store/app-privacy.md says turtl collects.`);
+  for (const type of declared) if (!answered.includes(type)) problems.push(`app.json: the privacy manifest lists ${type}, which store/app-privacy.md does not mark as collected.`);
+  for (const entry of entries) {
+    if (entry.NSPrivacyCollectedDataTypeLinked !== true || entry.NSPrivacyCollectedDataTypeTracking !== false || JSON.stringify(entry.NSPrivacyCollectedDataTypePurposes) !== JSON.stringify(["NSPrivacyCollectedDataTypePurposeAppFunctionality"])) {
+      problems.push(`app.json: ${entry.NSPrivacyCollectedDataType} must be linked, not used to track, and for App Functionality, as store/app-privacy.md answers for every type.`);
+    }
+  }
+  return problems;
+}
+
 export function easProblems(root) {
   const eas = json(root, "eas.json");
   const problems = [];

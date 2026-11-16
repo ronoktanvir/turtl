@@ -5,7 +5,7 @@
 //   node release/preflight.mjs --advisory   the quick checks as GitHub warnings; always exits 0 (pull request CI)
 import { fileURLToPath } from "node:url";
 import { tableProblems } from "./backend-env.mjs";
-import { appConfigProblems, easProblems, nativeProblems, privacyManifestProblems, signInProblems } from "./store-checks.mjs";
+import { appConfigProblems, collectedDataProblems, easProblems, nativeProblems, privacyManifestProblems, signInProblems } from "./store-checks.mjs";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const advisory = process.argv.includes("--advisory");
@@ -13,6 +13,7 @@ const advisory = process.argv.includes("--advisory");
 const checks = [
   ["Store configuration in app.json", () => appConfigProblems(root)],
   ["Privacy manifest covers every library", () => privacyManifestProblems(root)],
+  ["Privacy manifest matches the App Privacy answers", () => collectedDataProblems(root)],
   ["Build profiles in eas.json", () => easProblems(root)],
   ["Backend variable table matches convex/", () => tableProblems(root)],
   ...(advisory ? [] : [
