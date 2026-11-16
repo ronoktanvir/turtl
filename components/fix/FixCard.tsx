@@ -1,8 +1,8 @@
 import { useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
-import { Pressable, TextInput, View } from "react-native";
-import { approveFix, declineFixes } from "../../data";
-import type { FixKind, FixOption } from "../../data/types";
+import { Pressable, ScrollView, TextInput, useWindowDimensions, View } from "react-native";
+import { approveFix, declineFixes, useCase } from "../../data";
+import type { FixKind, FixOption, FixSends } from "../../data/types";
 import { useTheme } from "../../theme";
 import { Button, Icon, Sheet, T } from "../ui";
 import { SpanText, type Sources } from "./Evidence";
@@ -104,6 +104,7 @@ export function ApproveSheet({
   stay?: boolean;
 }) {
   const router = useRouter();
+  const fromCustomers = !!useCase(caseId)?.raisedByCustomers;
   const pending = useRef(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -130,13 +131,13 @@ export function ApproveSheet({
     }
   };
   return (
-    <Sheet visible={!!fix} onClose={close} title={fix ? "Approve: " + fix.title + "?" : ""} testID="approve-sheet">
-      {fix && (
-        <>
-          <T>{fix.whatChanges}</T>
-          {fix.delivery === "pull_request" && <T testID="approve-pull-request-note">{pullRequestNote}</T>}
-          <T color="textMuted">{fix.whatMightBeLost}</T>
-          {!fix.recommended && <NoteInput label="Why this one? (optional)" placeholder="Anything turtl should remember" value={note} onChangeText={setNote} editable={!busy} testID="approve-note" />}
+    <Sheet
+      visible={!!fix}
+      onClose={close}
+      title={fix ? "Approve: " + fix.title + "?" : ""}
+      testID="approve-sheet"
+      footer={fix && (
+        <View style={{ gap: 12 }}>
           {error && <T color="statusAffected" accessibilityRole="alert" testID="approve-error">{error}</T>}
           <View style={{ flexDirection: "row", gap: 12 }}>
             <Button label="Cancel" kind="plain" disabled={busy} onPress={close} testID="approve-cancel" style={{ flex: 1 }} />
@@ -148,9 +149,78 @@ export function ApproveSheet({
               style={{ flex: 1 }}
             />
           </View>
+        </View>
+      )}
+    >
+      {fix && (
+        <>
+          <T>{fix.whatChanges}</T>
+          {fix.delivery === "pull_request" && <T testID="approve-pull-request-note">{pullRequestNote}</T>}
+          <T color="textMuted">{fix.whatMightBeLost}</T>
+          {fix.sends && <WhatGetsSent key={caseId + ":" + fix.key + ":" + fromCustomers} sends={fix.sends} fromCustomers={fromCustomers} />}
+          {!fix.recommended && <NoteInput label="Why this one? (optional)" placeholder="Anything turtl should remember" value={note} onChangeText={setNote} editable={!busy} testID="approve-note" />}
         </>
       )}
     </Sheet>
+  );
+}
+
+// What approving sends, word for word as turtl stored it (TUR-68): the coding agent's full instructions, or the
+// catalog action with its exact target and values. A model wrote the instructions, and on a case customers raised
+// that model read their messages, so there they are open from the start. Long text scrolls inside its own box.
+export function WhatGetsSent({ sends, fromCustomers }: { sends: FixSends; fromCustomers: boolean }) {
+  const { colors } = useTheme();
+  const { height } = useWindowDimensions();
+  const [open, setOpen] = useState(fromCustomers);
+  const instructions = sends.kind === "instructions";
+  const label = open
+    ? instructions ? "Hide the full instructions" : "Hide what turtl will run"
+    : instructions ? "See the full instructions" : "See exactly what turtl will run";
+  return (
+    <View style={{ gap: 8 }} testID="approve-sends">
+      {fromCustomers && instructions && (
+        <View style={{ flexDirection: "row", gap: 10 }} testID="approve-customer-note">
+          <Icon name="MessageSquareQuote" size={18} color="statusNeedsYou" />
+          <T variant="small" style={{ flex: 1 }}>A model wrote these instructions after reading what customers sent. Read them before you approve: this is exactly what the coding agent will be told.</T>
+        </View>
+      )}
+      <Pressable
+        onPress={() => setOpen(!open)}
+        accessibilityRole="button"
+        accessibilityLabel={label}
+        accessibilityState={{ expanded: open }}
+        aria-expanded={open}
+        testID="approve-instructions-toggle"
+        style={{ flexDirection: "row", alignItems: "center", gap: 8, minHeight: 44 }}
+      >
+        <Icon name={open ? "ChevronDown" : "ChevronRight"} size={18} color="brandDeep" />
+        <T variant="strong" color="brandDeep" style={{ flex: 1 }}>{label}</T>
+      </Pressable>
+      {open && (
+        <ScrollView
+          nestedScrollEnabled
+          style={{ maxHeight: Math.max(160, Math.round(height * 0.3)), borderRadius: 12, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.bg }}
+          contentContainerStyle={{ padding: 14, gap: 8 }}
+          testID="approve-instructions"
+        >
+          {sends.kind === "instructions" ? (
+            <>
+              <T variant="small" color="textMuted">What the coding agent will be told, word for word</T>
+              <T variant="mono" selectable testID="approve-instructions-text">{sends.text}</T>
+            </>
+          ) : (
+            <>
+              <T variant="strong" font="title">{sends.name}</T>
+              {sends.description && <T variant="small" color="textMuted">{sends.description}</T>}
+              <T variant="small" color="textMuted">Where</T>
+              <T variant="mono" selectable>{sends.target}</T>
+              <T variant="small" color="textMuted">{sends.values.length ? "With exactly these values" : "With no values"}</T>
+              {sends.values.map((value) => <T key={value.name} variant="mono" selectable>{value.name + " = " + value.value}</T>)}
+            </>
+          )}
+        </ScrollView>
+      )}
+    </View>
   );
 }
 
