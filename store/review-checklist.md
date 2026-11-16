@@ -111,6 +111,7 @@ Each sentence of the description in `store.config.json`, and what makes it true:
 | "the privacy policy names each service and what it receives" | True once the pages are published | **Ronok** (RC-01) |
 | "you need a GitHub repository and a live app to connect" | The app has no way to connect either | **TUR-62** and **TUR-63** |
 
+- [ ] An owner other than the demo's can add the report form to their own app: there is a form to add, and instructions for adding it. **Unowned**
 - [ ] Every row above reads "True" on the build that is submitted, or its sentence is removed from the description. **TUR-66**
 
 ### RC-09 · Guideline 2.3.1(a) · Notes for the reviewer

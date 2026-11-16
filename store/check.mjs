@@ -169,7 +169,7 @@ export function openLines() {
     if (!line.startsWith("- [ ] ")) continue;
     open++;
     const owners = [...line.matchAll(/\*\*((?:TUR-\d+)|Ronok|Unowned)\*\*/g)].map((match) => match[1]);
-    const text = line.slice(6).replace(/\[([^\]]+)\]\([^)]*\)/g, "$1").replace(/\s*\*\*(?:TUR-\d+|Ronok|Unowned)\*\*(?:,? (?:then|with|and|after) \*\*(?:TUR-\d+|Ronok|Unowned)\*\*)*\s*$/, "");
+    const text = line.slice(6).replace(/\[([^\]]+)\]\(\S+ "[^"]*"\)/g, "$1").replace(/\s*\*\*(?:TUR-\d+|Ronok|Unowned)\*\*(?:,? (?:then|with|and|after) \*\*(?:TUR-\d+|Ronok|Unowned)\*\*)*\s*$/, "");
     for (const owner of owners.length ? owners : ["No owner named"]) {
       if (!byOwner.has(owner)) byOwner.set(owner, []);
       byOwner.get(owner).push(item + ": " + text + (owners.length > 1 ? " (with " + owners.filter((other) => other !== owner).join(", ") + ")" : ""));
