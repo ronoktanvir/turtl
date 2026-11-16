@@ -55,3 +55,10 @@ test("a step that finished in under a second says so, never \"took 0 s\"", async
     assert.doesNotMatch(source, /took \$\{formatDuration\(/, file);
   }
 });
+
+test("at 320 wide the running fix's status wraps under Stop and Merge instead of squeezing beside them", async () => {
+  const { readFileSync } = await import("node:fs");
+  const screen = readFileSync(new URL("../app/review/[caseId]/enacting.tsx", import.meta.url), "utf8");
+  assert.match(screen, /flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: 12, rowGap: 10/);
+  assert.match(screen, /style=\{\{ flexGrow: 1, flexShrink: 1, flexBasis: 120, minWidth: 0 \}\} testID="enacting-ci"/);
+});
