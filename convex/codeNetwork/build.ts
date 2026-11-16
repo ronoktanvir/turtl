@@ -102,14 +102,20 @@ async function fetchRepository(
   ref: string,
   token: string | undefined,
 ): Promise<{ sha: string; files: SourceFile[] } | { reason: string }> {
-  const commit = await github(`/repos/${repo}/commits/${encodeURIComponent(ref)}`, token);
+  let githubToken = token;
+  const commitPath = `/repos/${repo}/commits/${encodeURIComponent(ref)}`;
+  let commit = await github(commitPath, githubToken);
+  if (commit.status === 401 && githubToken) {
+    githubToken = undefined;
+    commit = await github(commitPath, githubToken);
+  }
   if (!commit.ok) {
     return {
-      reason: `GitHub could not find ${repo} at ${ref} (${commit.status}).${token ? "" : " For a private repository set GITHUB_TOKEN."}`,
+      reason: `GitHub could not find ${repo} at ${ref} (${commit.status}).${githubToken ? "" : " For a private repository set a valid GITHUB_TOKEN."}`,
     };
   }
   const sha = ((await commit.json()) as { sha: string }).sha;
-  const tree = await github(`/repos/${repo}/git/trees/${sha}?recursive=1`, token);
+  const tree = await github(`/repos/${repo}/git/trees/${sha}?recursive=1`, githubToken);
   if (!tree.ok) return { reason: `GitHub did not return the file list of ${repo} (${tree.status}).` };
   const entries = ((await tree.json()) as { tree: { path: string; type: string; size?: number }[] }).tree
     .filter((entry) => entry.type === "blob" && isSourcePath(entry.path) && (entry.size ?? 0) <= MAX_FILE_BYTES)
@@ -119,7 +125,7 @@ async function fetchRepository(
     const batch = await Promise.all(
       entries.slice(start, start + FETCH_CONCURRENCY).map(async (entry) => {
         const response = await fetch(`https://raw.githubusercontent.com/${repo}/${sha}/${entry.path}`, {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
+          headers: githubToken ? { Authorization: `Bearer ${githubToken}` } : {},
         });
         return response.ok ? { path: entry.path, content: await response.text() } : null;
       }),
