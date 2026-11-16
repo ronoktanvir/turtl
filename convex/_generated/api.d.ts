@@ -23,6 +23,8 @@ import type * as crons from "../crons.js";
 import type * as decisions from "../decisions.js";
 import type * as dev from "../dev.js";
 import type * as diagnosis from "../diagnosis.js";
+import type * as fixOptions from "../fixOptions.js";
+import type * as fixes from "../fixes.js";
 import type * as http from "../http.js";
 import type * as keiki from "../keiki.js";
 import type * as memory_checks from "../memory/checks.js";
@@ -73,6 +75,8 @@ declare const fullApi: ApiFromModules<{
   decisions: typeof decisions;
   dev: typeof dev;
   diagnosis: typeof diagnosis;
+  fixOptions: typeof fixOptions;
+  fixes: typeof fixes;
   http: typeof http;
   keiki: typeof keiki;
   "memory/checks": typeof memory_checks;

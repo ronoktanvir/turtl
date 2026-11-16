@@ -138,6 +138,15 @@ export default defineSchema({
   contextSources: defineTable(vContextSource)
     .index("by_app", ["appId"])
     .index("by_app_and_source", ["appId", "sourceRef"]),
+  // The Investigate further chat about one case; a turtl message may point at the fix it added to a proposal.
+  fixChatMessages: defineTable({
+    caseId: v.id("cases"),
+    role: v.union(v.literal("owner"), v.literal("turtl")),
+    text: v.string(),
+    at: v.number(),
+    proposalId: v.optional(v.id("proposals")),
+    optionKey: v.optional(v.string()),
+  }).index("by_case", ["caseId"]),
   bookingDemoSettings: defineTable({
     key: v.literal("demo"),
     recommendationsEnabled: v.boolean(),
