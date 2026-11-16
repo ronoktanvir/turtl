@@ -25,10 +25,15 @@ function when(check: WatchedCheck, now: number): string {
 /** What an empty list and the project home say when turtl could not read the project's repository. */
 export const UNREADABLE_LINE = "turtl couldn't read this project's repository, so it is not watching anything yet. Open Preparation to see why and read it again.";
 
+// A check that has not run yet is neither passing nor failing, so it is counted apart: a new project's one check reads
+// "1 check, not run yet", never "0 of 1 checks passing".
 export function watchingSummary(checks: WatchedCheck[]): string {
-  const passing = checks.filter((check) => check.state === "passing").length;
-  if (passing === checks.length) return checks.length === 1 ? "1 check passing" : "All " + checks.length + " checks passing";
-  return passing + " of " + checks.length + " checks passing";
+  const ran = checks.filter((check) => check.state !== "waiting");
+  const waiting = checks.length - ran.length;
+  if (ran.length === 0) return waiting === 1 ? "1 check, not run yet" : waiting + " checks, not run yet";
+  const passing = ran.filter((check) => check.state === "passing").length;
+  const summary = passing === ran.length ? (ran.length === 1 ? "1 check passing" : "All " + ran.length + " checks passing") : passing + " of " + ran.length + " checks passing";
+  return waiting ? summary + ", " + waiting + " not run yet" : summary;
 }
 
 export default function Watching({ projectId, rows = 4, brief = false, testID = "watching" }: { projectId: string; rows?: number; brief?: boolean; testID?: string }) {

@@ -55,13 +55,16 @@ async function codeMap(ctx: QueryCtx, app: Doc<"apps">) {
 const mapOf = (network: Doc<"codeNetworks"> | null | undefined) =>
   network && network.nodes.length ? { parts: network.nodes.length, groups: network.clusters.length } : null;
 
-async function journeyFailing(ctx: QueryCtx, appId: Id<"apps">, journeyId: Id<"journeys">) {
+async function journeyFailing(ctx: QueryCtx, appId: Id<"apps">, journey: Pick<Doc<"journeys">, "_id" | "lastPassedAt">) {
   const latest = await ctx.db
     .query("cases")
-    .withIndex("by_app_and_signature", (q) => q.eq("appId", appId).eq("signature", `journey_failed:${journeyId}`))
+    .withIndex("by_app_and_signature", (q) => q.eq("appId", appId).eq("signature", `journey_failed:${journey._id}`))
     .order("desc")
     .first();
-  return Boolean(latest && !NOT_OPEN.includes(latest.status));
+  if (!latest) return false;
+  if (!NOT_OPEN.includes(latest.status)) return true;
+  // A case declined or left unresolved fixed nothing: the check is still failing until it passes again after it.
+  return (latest.status === "declined" || latest.status === "unresolved") && (journey.lastPassedAt ?? 0) < latest._creationTime;
 }
 
 export const forProject = query({
@@ -77,7 +80,7 @@ export const forProject = query({
       id: journey._id as string,
       kind: "journey" as const,
       name: journey.name,
-      state: (await journeyFailing(ctx, app._id, journey._id)) ? "failing" as const : journey.lastPassedAt === undefined ? "waiting" as const : "passing" as const,
+      state: (await journeyFailing(ctx, app._id, journey)) ? "failing" as const : journey.lastPassedAt === undefined ? "waiting" as const : "passing" as const,
       ...(journey.lastPassedAt !== undefined && { lastPassedAt: journey.lastPassedAt }),
     })));
 

@@ -1,0 +1,60 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { createLoader } from "./fixtures/convex-memory.mjs";
+
+// What "What turtl is watching" says must be true now: a check that has not run is not counted as failing, and a
+// check whose break was declined is not shown as passing.
+
+const { watchingSummary } = createLoader({
+  "react-native": {},
+  "expo-router": {},
+  "react/jsx-runtime": { jsx: () => null, jsxs: () => null, Fragment: "Fragment" },
+  "components/onboarding/Glyph": {},
+  "data/overview": {},
+  data: {},
+  "data/index": {},
+  theme: {},
+  "components/ui": {},
+})("components/project/Watching.tsx");
+
+const check = (state) => ({ id: state + Math.random(), kind: "journey", name: "Book", state });
+
+test("a check that has not run yet is counted apart, never as not passing", () => {
+  assert.equal(watchingSummary([check("waiting")]), "1 check, not run yet");
+  assert.equal(watchingSummary([check("waiting"), check("waiting")]), "2 checks, not run yet");
+  assert.equal(watchingSummary([check("passing"), check("waiting")]), "1 check passing, 1 not run yet");
+  assert.equal(watchingSummary([check("passing"), check("failing"), check("waiting")]), "1 of 2 checks passing, 1 not run yet");
+  assert.equal(watchingSummary([check("passing"), check("passing")]), "All 2 checks passing");
+  assert.equal(watchingSummary([check("failing")]), "0 of 1 checks passing");
+});
+
+function overviewQuery(cases, journey) {
+  return createLoader({
+    "convex/access": { visibleApp: async (ctx, appId) => await ctx.db.get(appId), accessEnforced: () => false, visibleApps: async () => [] },
+    "convex/onboarding/records": { latestInspection: async () => null, preparationFor: async () => null },
+  })("convex/screens/overview.ts").forProject.handler({
+    db: {
+      normalizeId: (_table, id) => id,
+      get: async (id) => (id === "app1" ? { _id: "app1", name: "Practice" } : null),
+      query: (table) => ({
+        withIndex: () => ({
+          take: async () => (table === "journeys" ? [journey] : []),
+          order: () => ({ first: async () => (table === "cases" ? cases[0] ?? null : null) }),
+        }),
+        order: () => ({ take: async () => [] }),
+      }),
+    },
+  }, { projectId: "app1" });
+}
+
+test("a check whose break was declined or left unresolved stays failing until it passes again", async () => {
+  const journey = { _id: "j1", name: "Book an appointment", lastPassedAt: 1_000 };
+  for (const status of ["declined", "unresolved"]) {
+    const after = await overviewQuery([{ _id: "c1", _creationTime: 2_000, status }], journey);
+    assert.equal(after.checks[0].state, "failing", status);
+    const passedSince = await overviewQuery([{ _id: "c1", _creationTime: 2_000, status }], { ...journey, lastPassedAt: 3_000 });
+    assert.equal(passedSince.checks[0].state, "passing", status + ", then passed again");
+  }
+  assert.equal((await overviewQuery([{ _id: "c1", _creationTime: 2_000, status: "investigating" }], journey)).checks[0].state, "failing");
+  assert.equal((await overviewQuery([{ _id: "c1", _creationTime: 2_000, status: "restored" }], journey)).checks[0].state, "passing");
+});
