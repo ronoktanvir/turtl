@@ -45,9 +45,10 @@ function snapshot(): Practice {
       name: practiceProject.name,
       failure: now,
       ...(now && brokenAt !== undefined && { brokenAt }),
-      ...(open && caseId && { caseId }),
+      ...(open && caseId && { caseId, caseStage: status === "needs_approval" ? "waiting" as const : status === "enacting" || status === "ready_to_merge" ? "carrying_out" as const : "working" as const }),
       ...(now && status === "declined" && { stalled: true }),
       breaksLeft: BREAKS_PER_DAY - breaks,
+      breaksResetAt: new Date(new Date().setHours(24, 0, 0, 0)).getTime(),
       ...(note && { note }),
     },
   };
