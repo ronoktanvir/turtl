@@ -36,12 +36,16 @@ This is every variable the backend reads, taken from the code. "Required" stops 
 | `DIAGNOSIS_MODEL` | Optional | Model for diagnosis. Default gpt-5.4-mini. |
 | `FIXES_MODEL` | Optional | Model for fix options and report triage. Default: the diagnosis model. |
 | `OPENAI_MODEL` | Optional | Model for the code map's labels and chat, and for reading a repository at onboarding. Default gpt-6-luna. |
+| `STRUCTURAL_MODEL` | Optional | Model that examines related cases for a deeper cause. Default gpt-5.4. |
+| `ANTHROPIC_API_KEY` (secret) | Optional | Lets claude-sonnet-4-5 join the model council. With accounts on, nothing is sent to Anthropic until store/data-practices.json lists it and the owner has agreed. |
+| `GEMINI_API_KEY` (secret) | Optional | Lets gemini-2.5-pro join the model council. With accounts on, nothing is sent to Google until store/data-practices.json lists it and the owner has agreed. |
 | `VOICE_ENABLED` | Optional | "true" turns on talking with turtl about a case. Anything else and voice refuses with a plain message. Each turn spends OpenAI credits. |
 | `VOICE_TRANSCRIBE_MODEL` | Optional | Model that transcribes a voice clip. Default gpt-4o-mini-transcribe. |
 | `VOICE_SPEECH_MODEL` | Optional | Model that speaks a reply. Default gpt-4o-mini-tts. |
 | `CODE_NETWORK_CHAT_ENABLED` | Optional | "true" lets the Investigate screen answer questions about the code. Each question spends OpenAI and Supermemory credits. |
 | `INTAKE_CONTACT_KEY` (secret) | Required | Key for the keyed hash a customer's contact on the report form becomes, so turtl can count one person once without keeping the address. Use at least 32 random characters and never change it: a new key counts returning customers as new people. Without it the contact becomes a plain hash, which someone holding the database could match against a guessed address. |
 | `INTAKE_NAMESPACE_PREFIX` | Optional | Prefix for the Supermemory namespaces that hold customer reports. It keeps a test deployment's reports apart; leave it unset in production. |
+| `SUPERMEMORY_NAMESPACE_PREFIX` | Optional | Prefix for every Supermemory namespace. It keeps a test deployment's memory apart from a hosted project's; leave it unset in production. |
 | `GITHUB_APP_ID` | Required, arrives with turtl#54 | The GitHub App's id. turtl reaches each account's repositories with a token of the app's installation on them, and with nothing else. |
 | `GITHUB_APP_PRIVATE_KEY` (secret) | Required, arrives with turtl#54 | The GitHub App's private key (the .pem file), which signs the request for an installation token. |
 | `GITHUB_APP_SLUG` | Required, arrives with turtl#54 | The GitHub App's name in its public link, used to send an owner to install it. |
@@ -77,6 +81,7 @@ This is every variable the backend reads, taken from the code. "Required" stops 
 | `GITHUB_API_URL` | Never set, arrives with turtl#54 | Points GitHub calls at a stand-in server in tests. In production it would send the app's tokens to another server. |
 | `EXPO_PUSH_API_URL` | Never set | Points push notifications at a stand-in for Expo's push service in tests. In production it would send every owner's phone address and project names to another server. |
 | `DEV_TOOLS_ENABLED` | Never set | "true" opens the dev tools functions: sample cases, staged outages on the booking demo, memory resets, and seeded data, callable by anyone who knows the backend address. With AUTH_REQUIRED=true they stay closed whatever this says. |
+| `EVIDENCE_LOCAL_PROOF` | Never set | "true" opens the local evidence fixtures (convex/evidence/localProof.ts). They also need DEV_TOOLS_ENABLED and a localhost backend, and refuse to run anywhere else. |
 | `PROTECTED_APP_URL` | Never set | Address of the booking demo's control routes. It makes this deployment watch the one demo app every minute. Demo only. |
 | `PROTECTED_APP_CONTROL_SECRET` (secret) | Never set | Bearer token turtl sends to the booking demo's control routes. Demo only. |
 | `PROTECTED_APP_CONTROL_SECRET_SHA256` | Never set | Hash that opens the booking demo's control routes (/booking-demo/flags, /staged-failure, /journey-check, /errors) on this deployment. Without it they answer 503, and with AUTH_REQUIRED=true the booking demo's customer functions refuse too. Demo only. |
