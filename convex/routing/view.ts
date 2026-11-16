@@ -1,10 +1,13 @@
 import { v } from "convex/values";
 import { query } from "../_generated/server";
+import { canSeeCase } from "../access";
 
-// Read-only: who worked on each step of a case and why, and the council's consolidated view. Reads stay open.
+// Read-only: who worked on each step of a case and why, and the council's consolidated view. With accounts on, only
+// for the owner of the case's project.
 export const forCase = query({
   args: { caseId: v.string() },
   handler: async (ctx, args) => {
+    if (!(await canSeeCase(ctx, args.caseId))) return null;
     const caseId = ctx.db.normalizeId("cases", args.caseId);
     if (!caseId || !(await ctx.db.get(caseId))) return null;
     const steps = await ctx.db.query("steps").withIndex("by_case", (q) => q.eq("caseId", caseId)).collect();

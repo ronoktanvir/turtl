@@ -3,6 +3,10 @@ import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import { internalAction } from "../_generated/server";
 import { DEFAULT_MODEL, respond } from "../codeNetwork/openai";
+import { MASK, redactFiles, redactText } from "../codeNetwork/redact";
+import { gateFor } from "../consent/gate";
+import { plainFailure } from "../consent/outbound";
+import { repositoryAccess } from "../github/access";
 import {
   confirmItems,
   detectStack,
@@ -104,7 +108,13 @@ export function inspectionInput(input: {
   scoped: RepoFile[];
   hits: Record<ItemKey, Hit[]>;
 }): string {
-  const { repo, sha, folders, stack, scoped, hits } = input;
+  // Secrets never reach the model: secret files are left out of the excerpts and secrets are masked in the rest,
+  // including in the pattern matches' lines (convex/codeNetwork/redact.ts).
+  const { repo, sha, folders, stack } = input;
+  const scoped = redactFiles(input.scoped).files;
+  const hits = Object.fromEntries(
+    Object.entries(input.hits).map(([key, list]) => [key, list.map((hit) => ({ ...hit, text: redactText(hit.text).text }))]),
+  ) as Record<ItemKey, Hit[]>;
   const score = new Map<string, number>();
   for (const list of Object.values(hits)) for (const hit of list) score.set(hit.path, (score.get(hit.path) ?? 0) + 1);
   const important = (path: string) => /(^|\/)(package\.json|app\.json|http\.[jt]s|schema\.[jt]s|README\.md)$|(^|\/)app\/api\//.test(path);
@@ -127,15 +137,15 @@ export function inspectionInput(input: {
     "## Readiness items",
     ...READINESS_ITEMS.map((item) => `- ${item.key} (${item.label}): ${DEFINITIONS[item.key]}`),
     "",
-    `## The app's files (${scoped.length})`,
-    ...scoped.slice(0, MAX_LISTED_PATHS).map((file) => `- ${file.path}`),
+    `## The app's files (${input.scoped.length})`,
+    ...input.scoped.slice(0, MAX_LISTED_PATHS).map((file) => `- ${file.path}`),
     "",
     "## Pattern matches (leads, not findings)",
     ...READINESS_ITEMS.map((item) =>
       [`### ${item.key}`, ...(hits[item.key].length ? hits[item.key].map((hit) => `- ${hit.path}:${hit.line}: ${hit.text}`) : ["- none"])].join("\n"),
     ),
     "",
-    `## Excerpts (${excerpts.length} of ${scoped.length} files; each cut at ${EXCERPT_CHARS} characters, lines numbered)`,
+    `## Excerpts (${excerpts.length} of ${input.scoped.length} files; each cut at ${EXCERPT_CHARS} characters, lines numbered; secrets show as ${MASK})`,
     ...excerpts,
   ].join("\n");
 }
@@ -156,7 +166,8 @@ export const run = internalAction({
     );
     if (!context) return { outcome: "missing" as const };
     const { inspection, appId } = context;
-    const read = await readRepository(inspection.repo);
+    const access = await repositoryAccess(ctx, inspection.repo, { appId });
+    const read = access.ok ? await readRepository(inspection.repo, access.token) : { ok: false as const, reason: access.message };
     if (!read.ok) {
       await ctx.runMutation(internal.onboarding.records.failInspection, { inspectionId, error: read.reason });
       return { outcome: "failed" as const, reason: read.reason };
@@ -182,9 +193,15 @@ export const run = internalAction({
     let judgedBy: "model" | "rules" = "model";
     let fallbackReason: string | undefined;
     let agentRunId: Id<"agentRuns"> | undefined;
+    const gate = gateFor(ctx, { appId });
+    const refused = process.env.OPENAI_API_KEY ? await gate.blocked("openai") : null;
     if (!process.env.OPENAI_API_KEY) {
       judgedBy = "rules";
       fallbackReason = "No model answered: OPENAI_API_KEY is not set on turtl's deployment. These results are text-search leads only.";
+      items = ruleItems(hits);
+    } else if (refused) {
+      judgedBy = "rules";
+      fallbackReason = `No model answered: ${refused}. These results are text-search leads only.`;
       items = ruleItems(hits);
     } else {
       agentRunId = await ctx.runMutation(internal.onboarding.records.startAgentRun, {
@@ -196,7 +213,7 @@ export const run = internalAction({
       });
       const started = Date.now();
       try {
-        const { text } = await respond({
+        const { text } = await respond(gate, {
           instructions: INSTRUCTIONS,
           input: inspectionInput({ repo: inspection.repo, sha: read.sha, folders: inspection.folders, stack, scoped, hits }),
           maxOutputTokens: 12_000,
@@ -214,7 +231,8 @@ export const run = internalAction({
         summary = parsed.summary.trim().slice(0, 600);
         await ctx.runMutation(internal.onboarding.records.finishAgentRun, { agentRunId, status: "completed", durationMs: Date.now() - started });
       } catch (error) {
-        const message = error instanceof Error ? error.message.slice(0, 300) : "unknown error";
+        // Plain words only: a vendor's own error text can echo the code that was sent.
+        const message = plainFailure("OpenAI", error);
         await ctx.runMutation(internal.onboarding.records.finishAgentRun, { agentRunId, status: "failed", durationMs: Date.now() - started, error: message });
         judgedBy = "rules";
         fallbackReason = `No model answered (${message}). These results are text-search leads only.`;

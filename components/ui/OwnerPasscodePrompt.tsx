@@ -18,7 +18,7 @@ export default function OwnerPasscodePrompt() {
   return <Sheet visible onClose={close} title="Owner passcode" testID="owner-passcode-sheet">
     <T>Enter your passcode to make this decision. It stays on this device for your next decision.</T>
     <View style={{ gap: 12 }}>
-      <TextInput autoFocus secureTextEntry autoCapitalize="none" autoCorrect={false} value={passcode} onChangeText={setPasscode} editable={!prompt.busy} accessibilityLabel="Owner passcode" testID="owner-passcode-input" onSubmitEditing={() => { if (passcode && !prompt.busy) void submit(); }} style={{ color: colors.text, backgroundColor: colors.surfaceRaised, borderWidth: 1, borderColor: colors.border, borderRadius: 12, minHeight: 48, paddingHorizontal: 14, fontSize: 16 }} />
+      <TextInput autoFocus secureTextEntry autoCapitalize="none" autoCorrect={false} value={passcode} onChangeText={setPasscode} editable={!prompt.busy} accessibilityLabel="Owner passcode" testID="owner-passcode-input" onSubmitEditing={() => { if (passcode && !prompt.busy) void submit(); }} style={{ color: colors.text, backgroundColor: colors.surfaceRaised, borderWidth: 1, borderColor: colors.border, borderRadius: 12, minHeight: 48, paddingHorizontal: 14, fontSize: 16, fontFamily: "Capriola_400Regular", fontWeight: "400" }} />
       {prompt.error && <T color="statusAffected" accessibilityRole="alert" testID="owner-passcode-error">{prompt.error}</T>}
       <Button label={prompt.busy ? "Checking…" : "Continue"} disabled={!passcode || prompt.busy} onPress={() => void submit()} testID="owner-passcode-continue" />
       <Button label="Cancel" kind="plain" disabled={prompt.busy} onPress={close} testID="owner-passcode-cancel" />

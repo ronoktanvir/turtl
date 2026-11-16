@@ -1,6 +1,7 @@
 import { internal } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
 import type { ActionCtx } from "../../_generated/server";
+import { gateFor, type Gate } from "../../consent/gate";
 import { examineWithCouncil, type CouncilResult } from "../../council/run";
 import {
   askModel,
@@ -30,12 +31,14 @@ type Run = {
   reading: Reading | null;
   noModel: string | null;
   infra: boolean;
+  blocked: boolean;
   costUsd: number;
   durationMs: number;
 };
 
 async function diagnose(
   ctx: ActionCtx,
+  gate: Gate,
   input: HandlerInput,
   configKey: ConfigKey,
   reason: string,
@@ -75,7 +78,7 @@ async function diagnose(
       limits,
     },
   });
-  const { answer, reading, unusable } = await askModel(config, context);
+  const { answer, reading, unusable } = await askModel(gate, config, context);
   const failure = !answer.ok ? answer.reason : unusable;
   const infra = !answer.ok && answer.infra;
   await ctx.runMutation(internal.routing.log.finishRun, {
@@ -96,6 +99,7 @@ async function diagnose(
     reading,
     noModel: failure ? `No model answered: ${failure}.` : null,
     infra,
+    blocked: !answer.ok && !!answer.blocked,
     costUsd: answer.costUsd ?? 0,
     durationMs: answer.durationMs,
   };
@@ -117,6 +121,7 @@ export const handler: StepHandler = {
       };
     }
     const started = input.attempt.startedAt ?? Date.now();
+    const gate = gateFor(ctx, { appId: input.case.appId });
     const loaded = await loadJourneyContext(ctx, input);
     if (!loaded.ok) return { status: "failed", error: loaded.reason };
     const { base, evidence, catalog } = loaded.context;
@@ -147,7 +152,7 @@ export const handler: StepHandler = {
       pastCases: past.notes,
       lookAlikes: recall.filter((item) => !item.applies).map((item) => ({ memoryId: item.memoryId, failedChecks: item.failedChecks })),
     };
-    runs.push(await diagnose(ctx, input, selection.configKey, selection.reason, traits, selection, firstLimits, context));
+    runs.push(await diagnose(ctx, gate, input, selection.configKey, selection.reason, traits, selection, firstLimits, context));
 
     let handoff: string | null = null;
     const first = runs[0];
@@ -155,13 +160,13 @@ export const handler: StepHandler = {
     const stronger = firstConfig.escalatesTo && CONFIGURATIONS[firstConfig.escalatesTo];
     const kinds = Object.fromEntries(gathered.map((item) => [item.id, item.kind]));
     const firstReasons = first.reading ? unsupportedReasons(first.reading, facts, kinds) : [first.noModel ?? "it gave no answer"];
-    if (firstReasons.length && stronger && providerKey(modelFor(stronger).provider)) {
+    if (firstReasons.length && stronger && !first.blocked && providerKey(modelFor(stronger).provider)) {
       handoff = `The ${firstConfig.label.toLowerCase()} could not establish a cause: ${firstReasons.join("; ")}.${
         first.reading ? ` Its reading was: "${first.reading.cause}" (confidence ${pct(first.reading.confidence)}).` : ""
       }${first.reading?.missingEvidence.length ? ` It said this is missing: ${first.reading.missingEvidence.join("; ")}.` : ""}`;
       const limits = limitsNow();
       const reason = `${stronger.label}: handed up. ${handoff}`;
-      runs.push(await diagnose(ctx, input, stronger.key, reason, traits, selection, limits, { ...context, handoff }));
+      runs.push(await diagnose(ctx, gate, input, stronger.key, reason, traits, selection, limits, { ...context, handoff }));
       await ctx.runMutation(internal.routing.log.handUp, { fromRunId: first.agentRunId, toRunId: runs[1].agentRunId, handoff });
     }
 

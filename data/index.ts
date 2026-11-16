@@ -53,7 +53,7 @@ function useExampleApprovalSettings(projectId: string) {
   const project = example.useProject(projectId);
   return {
     loading: project === undefined, active: project?.approvals === "auto", canEnable: true,
-    reason: "This is an example preference, not permission to act on a live app.",
+    reason: project?.approvals === "auto" ? "Preference saved. You can still choose a fix below." : "You decide which fix goes ahead.",
     scope: undefined as string | undefined,
   };
 }

@@ -19,6 +19,7 @@ import type { Health } from "../../data/types";
 import { healthToken, healthWord, useTheme, type TokenName } from "../../theme";
 import { Icon, type IconName } from "./Icon";
 import { Reveal, ZoomPressable } from "./motion";
+import { useSheetCover } from "./sheetCover";
 export { Icon, type IconName } from "./Icon";
 export { Reveal, ZoomPressable, useReducedMotion } from "./motion";
 export { BrandIcon } from "./BrandIcon";
@@ -281,15 +282,18 @@ export function Sheet({
   title,
   children,
   testID,
+  footer,
 }: {
   visible: boolean;
   onClose: () => void;
   title: string;
   children: ReactNode;
   testID: string;
+  footer?: ReactNode; // stays below the scrolling content, so a confirm button is never scrolled away
 }) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
+  const cover = useSheetCover();
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={{ flex: 1, justifyContent: "flex-end" }}>
@@ -316,7 +320,9 @@ export function Sheet({
           <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: colors.border, alignSelf: "center" }} />
           <T variant="title">{title}</T>
           <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 20 }}>{children}</ScrollView>
+          {footer}
         </View>
+        {cover}
       </View>
     </Modal>
   );

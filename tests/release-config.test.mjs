@@ -20,6 +20,11 @@ test("eas.json has a development, a preview and a production profile, each with 
   assert.deepEqual(easProblems(root), []);
 });
 
+test("eas submit reads the listing from the dynamic store.config.js, which adds the reviewer's details", () => {
+  const eas = JSON.parse(readFileSync(new URL("../eas.json", import.meta.url), "utf8"));
+  assert.equal(eas.submit.production.ios.metadataPath, "./store.config.js");
+});
+
 test("the app config refuses a production build with a demo switch and resolves a clean one", () => {
   const config = (env) => spawnSync("npx", ["expo", "config", "--type", "public", "--json"], { cwd: root, encoding: "utf8", env: { ...process.env, EXPO_PUBLIC_DATA_SOURCE: "", EXPO_PUBLIC_DEV_TOOLS: "", EXPO_PUBLIC_APP_ENV: "production", EXPO_PUBLIC_CONVEX_URL: "https://production-backend.convex.cloud", ...env } });
   const refused = config({ EXPO_PUBLIC_DEV_TOOLS: "1" });
@@ -31,6 +36,10 @@ test("the app config refuses a production build with a demo switch and resolves 
   assert.equal(expo.ios.bundleIdentifier, "com.turtl.oncall");
   assert.equal(expo.scheme, "turtl");
   assert.deepEqual(expo.plugins.find((plugin) => plugin[0] === "expo-secure-store"), ["expo-secure-store", { faceIDPermission: false }]);
+  assert.equal(
+    expo.plugins.find((plugin) => plugin[0] === "expo-audio")[1].microphonePermission,
+    "turtl listens after you tap Talk so you can ask about a case out loud. Your recording is sent to OpenAI to be turned into text, and is not kept.",
+  );
 });
 
 test("the runbook shows the same variable table the check uses", () => {

@@ -49,4 +49,6 @@ The independent **staged** `bookingStoreFailure` is the counterexample: the same
 
 Use turtl's existing development controls or its authenticated `/booking-demo` HTTP surface to stage/reset these backend conditions; this screen has no admin switches or credentials. See `../convex/bookingDemo/README.md` for the control boundary, environment configuration, and fixture-only server checks. Reload the page after changing the provider timeout to refresh suggestions; recovery-flag changes update live.
 
+Below the booking card, "Report a problem" and "Request a feature" send a customer's words to turtl. That form lives in `report/`, a self-contained folder another owner can copy into their own app; `report/README.md` says how, what the customer sees, and what is sent. The demo sets its address from `EXPO_PUBLIC_CONVEX_URL` and its key from `EXPO_PUBLIC_TURTL_INTAKE_KEY`.
+
 The root Revyl build remains the on-call app's build, not a proof of this booking screen. This frontend adds no Revyl project or native proof configuration.

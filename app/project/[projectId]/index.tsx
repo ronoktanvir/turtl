@@ -3,12 +3,15 @@ import { useState } from "react";
 import { Linking, Pressable, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Svg, { Circle, Path } from "react-native-svg";
+import AiNotice from "../../../components/consent/AiNotice";
 import ProjectIcon from "../../../components/project/ProjectIcon";
 import SettingsSheet from "../../../components/project/SettingsSheet";
+import Watching from "../../../components/project/Watching";
 import { BrandIcon, Button, HealthWord, Header, Icon, Reveal, Screen, T, Turtle, ZoomPressable } from "../../../components/ui";
 import { Glyph } from "../../../components/onboarding/Glyph";
 import { ownerStages, preparationStatus } from "../../../components/onboarding/stage";
 import { useCases, useDataStatus, useOnboarding, useProject, useStructuralFindings } from "../../../data";
+import { useOverview } from "../../../data/overview";
 import { approvalLabel, labels, useTheme } from "../../../theme";
 
 export default function ProjectHome() {
@@ -19,6 +22,7 @@ export default function ProjectHome() {
   const features = useCases(projectId, "feature");
   const finding = useStructuralFindings(projectId)?.[0];
   const onboarding = useOnboarding(projectId);
+  const overview = useOverview(projectId);
   const fixApprovals = fixes?.filter((item) => item.status === "needs_approval" || item.status === "ready_to_merge").length ?? 0;
   const featureApprovals = features?.filter((item) => item.status === "needs_approval" || item.status === "ready_to_merge").length ?? 0;
   const router = useRouter();
@@ -31,6 +35,8 @@ export default function ProjectHome() {
   const tilePadding = compact ? 14 : 20;
   const [settings, setSettings] = useState(false);
 
+  // Nothing open yet (or any more): show what turtl is watching, so a new project is not an empty page.
+  const quiet = project ? project.bugCount === 0 && project.featureCount === 0 : false;
   if (project === undefined) return <Screen testID="project-home">{errors.length === 0 && <T style={{ padding: 20 }}>Loading…</T>}</Screen>;
   if (project === null) return <Screen testID="project-home"><Header title="Project not found" fallback="/projects" /><View style={{ padding: 20, gap: 16 }}><T>This project is no longer available.</T><Button label="Back to projects" onPress={() => router.replace("/projects")} testID="project-not-found-back" /></View></Screen>;
 
@@ -58,19 +64,26 @@ export default function ProjectHome() {
             <Icon name="ChevronRight" size={16} color="textMuted" />
           </Pressable>}
         </View>
+        <AiNotice uses={["openai", "capy"]} cannot="use AI to diagnose problems or write fixes" />
         {finding && <Pressable testID="project-structural" accessibilityRole="button" onPress={() => router.push(("/review/" + finding.caseId) as Href)} style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 12, minHeight: 48, paddingHorizontal: 14, paddingVertical: 6, borderRadius: 14, borderWidth: 1, borderColor: colors.border, backgroundColor: pressed ? colors.surfaceRaised : colors.surface })}>
           <Icon name="Layers" size={18} color="brandDeep" />
           <View style={{ flex: 1, minWidth: 0 }}><T variant="small">turtl found a deeper cause</T><T variant="small" color="textMuted" numberOfLines={1}>{finding.hypothesis}</T></View>
           <Icon name="ArrowRight" size={16} color="textMuted" />
         </Pressable>}
+        {quiet && <Reveal><Watching projectId={project.id} rows={short ? 0 : compact ? 1 : 2} brief testID="project-watching" /></Reveal>}
         <View style={{ flex: 1, minHeight: 0, gap: 12 }}>
-          <Reveal style={{ flex: short ? 1.45 : 1.65, minHeight: 0 }}>
+          <Reveal style={{ flex: quiet ? 1 : short ? 1.45 : 1.65, minHeight: 0 }}>
             <ZoomPressable containerStyle={{ flex: 1 }} testID="project-fix" accessibilityRole="button" onPress={() => router.push(`/project/${project.id}/fix` as Href)} style={({ pressed }) => ({ flex: 1, minHeight: 0, justifyContent: "center", borderRadius: 20, borderWidth: 1, borderColor: colors.brandDeep, backgroundColor: pressed ? colors.surfaceRaised : colors.surface, padding: tilePadding, overflow: "hidden" })}>
               <View pointerEvents="none" style={{ position: "absolute", right: -22, top: 6, opacity: 0.3 }}><Svg width={210} height={190} viewBox="0 0 210 190"><Circle cx="130" cy="80" r="73" stroke={colors.brandDeep} strokeWidth="1" fill="none" /><Circle cx="130" cy="80" r="52" stroke={colors.brandDeep} strokeWidth="1" fill="none" /><Path d="M32 145h42l24-48 22 22 24-60h49" stroke={colors.brandDeep} strokeWidth="2" fill="none" /><Circle cx="144" cy="59" r="5" fill={colors.brandDeep} /></Svg></View>
-              {!compact && <View style={{ flexDirection: "row", gap: 8, alignItems: "center", marginBottom: 12 }}><Icon name="Wrench" size={18} color="brandDeep" /><T variant="small" color="textMuted">OPEN BUGS</T></View>}
-              <View style={{ flexDirection: "row", alignItems: "baseline", gap: 12 }}><T variant="display">Fix</T><T variant="title" color="brandDeep">{project.bugCount}</T></View>
-              <T testID="project-fix-approval-count" color="textMuted" numberOfLines={short ? 1 : 2} style={{ marginTop: 4, maxWidth: "90%" }}>{project.bugCount === 0 ? "No open bugs." : fixApprovals > 0 ? approvalLabel(fixApprovals) + "." : "Review open bugs and proposed fixes."}</T>
-              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: compact ? 8 : 16 }}><T variant="strong" color="brandDeep">{project.bugCount === 0 ? "View fixes" : "Review fixes"}</T><Icon name="ArrowRight" color="brandDeep" /></View>
+              {quiet ? <>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}><Icon name="Wrench" size={20} color="brandDeep" /><T variant="title">Fix</T><T variant="heading" color="brandDeep">{project.bugCount}</T>{short && <View style={{ flex: 1, alignItems: "flex-end" }}><Icon name="ArrowRight" size={18} color="brandDeep" /></View>}</View>
+                {!short && <View style={{ flexDirection: "row", alignItems: "center", gap: 16, marginTop: 12 }}><T testID="project-fix-approval-count" color="textMuted" style={{ flex: 1 }}>No open bugs.</T><Icon name="ArrowRight" size={18} color="brandDeep" /></View>}
+              </> : <>
+                {!compact && <View style={{ flexDirection: "row", gap: 8, alignItems: "center", marginBottom: 12 }}><Icon name="Wrench" size={18} color="brandDeep" /><T variant="small" color="textMuted">OPEN BUGS</T></View>}
+                <View style={{ flexDirection: "row", alignItems: "baseline", gap: 12 }}><T variant="display">Fix</T><T variant="title" color="brandDeep">{project.bugCount}</T></View>
+                <T testID="project-fix-approval-count" color="textMuted" numberOfLines={short ? 1 : 2} style={{ marginTop: 4, maxWidth: "90%" }}>{project.bugCount === 0 ? "No open bugs." : fixApprovals > 0 ? approvalLabel(fixApprovals) + "." : "Review open bugs and proposed fixes."}</T>
+                <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: compact ? 8 : 16 }}><T variant="strong" color="brandDeep">{project.bugCount === 0 ? "View fixes" : "Review fixes"}</T><Icon name="ArrowRight" color="brandDeep" /></View>
+              </>}
             </ZoomPressable>
           </Reveal>
           <Reveal delay={60} style={{ flex: 1, minHeight: 0 }}>
@@ -84,7 +97,7 @@ export default function ProjectHome() {
             <ZoomPressable containerStyle={{ flex: 1 }} testID="project-investigate" accessibilityRole="button" onPress={() => router.push(`/project/${project.id}/investigate` as Href)} style={({ pressed }) => ({ flex: 1, minHeight: 0, justifyContent: "center", borderRadius: 20, borderWidth: 1, borderColor: colors.border, backgroundColor: pressed ? colors.surfaceRaised : colors.bg, padding: tilePadding, overflow: "hidden" })}>
               <View pointerEvents="none" style={{ position: "absolute", right: -8, top: 0, opacity: 0.3 }}><Svg width={130} height={140} viewBox="0 0 130 140"><Path d="M24 14 78 40 41 84 111 113M78 40l39-24M41 84l-24 43M78 40l33 73" stroke={colors.brandDeep} fill="none" />{[[24, 14], [78, 40], [41, 84], [111, 113], [117, 16], [17, 127]].map(([cx, cy], i) => <Circle key={i} cx={cx} cy={cy} r={i === 1 ? 7 : 4} fill={colors.bg} stroke={colors.brandDeep} strokeWidth="1.5" />)}</Svg></View>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}><Icon name="Network" size={20} color="brandDeep" /><T variant="title">Investigate</T>{short && <View style={{ flex: 1, alignItems: "flex-end" }}><Icon name="ArrowRight" size={18} color="textMuted" /></View>}</View>
-              {!short && <View style={{ flexDirection: "row", alignItems: "center", gap: 16, marginTop: 12 }}><T color="textMuted" style={{ flex: 1 }}>See how the code connects.</T><Icon name="ArrowRight" size={18} color="textMuted" /></View>}
+              {!short && <View style={{ flexDirection: "row", alignItems: "center", gap: 16, marginTop: 12 }}><T color="textMuted" style={{ flex: 1 }} testID="project-investigate-note">{quiet && overview?.map ? overview.map.parts + " parts mapped. See how they connect." : "See how the code connects."}</T><Icon name="ArrowRight" size={18} color="textMuted" /></View>}
             </ZoomPressable>
           </Reveal>
         </View>

@@ -4,9 +4,9 @@ A customer's words reach turtl through a form in the customer's own app. Each me
 
 ## Files
 
-- `schema.ts`: `intakeKeys` (public keys, one app each), `intakeRateWindows` (rate-limit counters), `reportTriage` (one per report: verdict, how it was judged, where it landed, the optional contact), `intakeLocks` (one triage at a time per app). Spread into `convex/schema.ts`.
+- `schema.ts`: `intakeKeys` (public keys, one app each), `intakeRateWindows` (rate-limit counters), `reportTriage` (one per report: verdict, how it was judged, where it landed; its `contact` field is legacy and no longer written), `intakeLocks` (one triage at a time per app). Spread into `convex/schema.ts`.
 - `http.ts`: `POST /intake/report` and its CORS preflight, registered from `convex/http.ts`.
-- `records.ts`: storing a report (`receive`), the per-app triage queue (`claim`, `release`), applying a decision (`land`), the triage `agentRuns` rows, and the reads `forCase` and `forApp`.
+- `records.ts`: storing a report (`receive`), the per-app triage queue (`claim`, `release`), applying a decision (`land`), the triage `agentRuns` rows, the reads `forCase` and `forApp`, and deleting: `deleteReport` (the owner, one report), `deleteAppReports` (all of an app's, for account deletion), `forgetCopies` (the Supermemory copies) and the one-off `forgetStoredContacts`.
 - `triage.ts`: `processNext`, the triage of one report.
 - `rules.ts`: pure rules with no Convex imports: body validation, rate limits, fingerprints, the dedupe rule (`decide`), the rule-based fallback, the untrusted-text rule and every prompt. `tests/intake-rules.test.mjs` runs them.
 - `workflow.ts`: the `investigate` and `plan` handlers for customer cases, wrapped around the registered ones in `runner/handlers/index.ts`.
@@ -22,12 +22,30 @@ A customer's words reach turtl through a form in the customer's own app. Each me
 - `key` is the app's public intake key (`tik_…`). It identifies the app and is not a secret: it ships inside the customer's app. Unknown or revoked keys get 403.
 - `text` is 3 to 2,000 characters; the whole body is at most 8 KB (413 otherwise). Unknown fields are refused.
 - `kind` is the button the customer pressed, a hint only.
-- `contact` is optional, at most 200 characters. It is stored on the triage row, never in a prompt, never returned by a query; the report's `fromRef` holds a hash of it.
+- `contact` is optional, at most 200 characters. turtl's own form does not send one. It is not stored: it becomes the report's `fromRef` (below) and is dropped. It never reaches a prompt or a query.
 - `reportId` makes a retry idempotent (`reports.by_app_and_provider_event`). `reporterId` is an anonymous device id that counts one person when no contact is given.
 - Rate limits, per fixed window: 30 a minute and 500 a day per key, 5 per 10 minutes per sender. Over a limit: 429 with `Retry-After`.
 - Success is `202 { ok: true, received: true }`. Nothing about cases is returned.
 
 The deployment URL is public, so the limits and sizes are the only protection; a sender can change `reporterId` freely, so the per-key limits are the real cap.
+
+### A customer's contact
+
+The only use of a contact is to count one person once, across reports and devices, and to give them their own per-sender rate limit. Nothing reads the address, nobody can write back to it, and no screen shows it. So turtl keeps the least that serves that use: a reference in the report's `fromRef`. With `INTAKE_CONTACT_KEY` set it is `form:contact-keyed:` and an HMAC-SHA-256 of the lowercased contact under that key (32 hex characters), so someone holding the database cannot check a guessed address without the key. Without the key it is `form:contact:` and the first 24 hex characters of a plain SHA-256, as the demo always did; production must set the key (`release/backend-env.mjs`). Never change the key: returning customers would count as new people.
+
+Reports received before this change kept the contact as written on `reportTriage.contact`. Set the key, then run once per deployment:
+
+```sh
+npx convex run intake/records:forgetStoredContacts '{}'
+```
+
+It clears every stored contact, a batch at a time, and moves those reports' `fromRef` to the keyed reference so people keep being counted once. Then the `contact` field can be dropped from the schema.
+
+## Deleting reports
+
+- **One report.** `deleteReport({ caseId, reportId, passcode? })`, from the "Manage" control on a customer case (`components/fix/CustomerReports.tsx`). It asks `requireCase`, and in the single-owner demo the owner passcode. It deletes the report and its triage row, replaces its words in the case's evidence, the case's title and impact, and step outputs with "[a deleted report]" (unless another report on the case says the same words), recounts `reportCount` and `distinctRequesterCount`, and schedules `forgetCopies`. Model-written text that paraphrases a report (a diagnosis, fix options, the case chat) is not rewritten.
+- **All of an app's reports.** `deleteAppReports({ appId })` (internal), for deleting an account or a project: the same, 100 reports per run, scheduling itself until none is left. It does not rewrite quotes, since the cases go with the account.
+- **The Supermemory copy.** `forgetCopies({ appId, reportIds })` deletes the documents triage added to `${INTAKE_NAMESPACE_PREFIX}reports_<appId>` under each report's id. Without `SUPERMEMORY_API_KEY` it sends nothing. A failure is retried twice, a minute apart, then logged.
 
 ## Triage
 
@@ -65,10 +83,21 @@ Approving an option goes through `decisions.approve` (owner passcode) and the ex
 
 ## Screens
 
-Fix and Features read these cases through `data/live`: Features lists open feature requests by how many people asked, then newest; a case's Overview shows every message customers wrote, with the count of messages and people; a feature's reading is labelled "What customers ask for". The booking app (`protected-app/report/ReportForm.tsx`) has "Report a problem" and "Request a feature".
+Fix and Features read these cases through `data/live`: Features lists open feature requests by how many people asked, then newest; a case's Overview shows every message customers wrote, with the count of messages and people; a feature's reading is labelled "What customers ask for". A customer case's Overview also has "Manage", which lists its reports and deletes one (above).
+
+## The report form, for any owner's app
+
+`protected-app/report/` is the form ("Report a problem" and "Request a feature"), one self-contained file an owner copies into their own Expo or React Native app, with a README that says what to copy, the two settings, what the customer sees and what is sent. In short:
+
+- **Copy** `protected-app/report/ReportForm.tsx`. It needs only `react` and `react-native`.
+- **Two settings**: `EXPO_PUBLIC_TURTL_INTAKE_KEY` (the app's intake key) and `EXPO_PUBLIC_TURTL_INTAKE_URL` (`https://<deployment>.convex.site/intake/report`), or the props `intakeKey` and `endpoint`.
+- **The customer sees** two buttons, a text box, a notice that their message goes to the app's team through turtl and the AI services it uses, with a link to the report form section of turtl's privacy policy, and Send.
+- **It sends** `key`, `text`, `kind`, a random `reporterId` for the device and a random `reportId`. No name, email or contact.
+
+The booking demo shares turtl's deployment, so it works the address out from its own `EXPO_PUBLIC_CONVEX_URL` (`.convex.cloud` to `.convex.site`, or port 3210 to 3211 locally) unless `EXPO_PUBLIC_TURTL_INTAKE_URL` is set. Another app must set the URL.
 
 ## Setup
 
-1. Deploy. No new environment variable is required. `INTAKE_NAMESPACE_PREFIX` is optional and empty in production; a test deployment sets it to keep its Supermemory namespaces apart.
-2. Issue a key for each app: `npx convex run intake/keys:issue '{"appId":"<app id>","passcode":"<owner passcode>"}'` (or `intake/dev:bookingKey` on a dev deployment). For a pull request option to be offered, the app needs its pull request action (`prTracking/catalog:register` for the booking app).
-3. Set `EXPO_PUBLIC_TURTL_INTAKE_KEY` in the customer app. The booking app finds the endpoint from `EXPO_PUBLIC_CONVEX_URL` (`.convex.cloud` to `.convex.site`, or port 3210 to 3211 locally), or from `EXPO_PUBLIC_TURTL_INTAKE_URL`.
+1. Deploy. Set `INTAKE_CONTACT_KEY` (required in production, see above). `INTAKE_NAMESPACE_PREFIX` is optional and empty in production; a test deployment sets it to keep its Supermemory namespaces apart.
+2. Issue a key for each app: `npx convex run intake/keys:issue '{"appId":"<app id>","passcode":"<owner passcode>"}'` (or `intake/dev:bookingKey` on a dev deployment). The turtl app does not show a key yet, so the operator hands it to the owner. For a pull request option to be offered, the app needs its pull request action (`prTracking/catalog:register` for the booking app).
+3. Add the form to the customer app and set its two settings (above).

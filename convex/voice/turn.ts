@@ -2,6 +2,8 @@ import { v } from "convex/values";
 import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { action, internalMutation, query, type ActionCtx } from "../_generated/server";
+import { canSeeCase, guardCaseInAction } from "../access";
+import { gateFor } from "../consent/gate";
 import { speak, speechModelId, transcribe, transcribeModelId } from "./openai";
 import {
   clipExtension,
@@ -41,6 +43,7 @@ export type TalkResult =
 export const status = query({
   args: { caseId: v.string() },
   handler: async (ctx, args): Promise<{ available: boolean; reason: string | null; maxClipMs: number }> => {
+    if (!(await canSeeCase(ctx, args.caseId))) return { available: false, reason: "This case was not found.", maxClipMs: MAX_CLIP_MS };
     const caseId = ctx.db.normalizeId("cases", args.caseId);
     if (!caseId || !(await ctx.db.get(caseId))) return { available: false, reason: "This case was not found.", maxClipMs: MAX_CLIP_MS };
     const reason = unavailableReason(process.env);
@@ -105,6 +108,7 @@ async function timed<T extends { ok: boolean }>(
 export const talk = action({
   args: { caseId: v.id("cases"), audio: v.bytes(), mimeType: v.string(), durationMs: v.number() },
   handler: async (ctx, { caseId, audio, mimeType, durationMs }): Promise<TalkResult> => {
+    await guardCaseInAction(ctx, caseId, "This case was not found.");
     const unavailable = unavailableReason(process.env);
     if (unavailable) return { ok: false, reason: unavailable, retry: false };
     if (!clipExtension(mimeType)) return { ok: false, reason: `turtl can't read ${mimeType} recordings.`, retry: false };
@@ -112,6 +116,10 @@ export const talk = action({
       return { ok: false, reason: `That recording is longer than turtl takes (${MAX_CLIP_MS / 1000} seconds). Ask a shorter question.`, retry: true };
     }
     if (!audio.byteLength) return { ok: false, reason: "turtl didn't hear a question. Ask again, or end the conversation.", retry: true };
+    // The recording goes to OpenAI only with the owner's permission; without it nothing is sent and typing still works.
+    const gate = gateFor(ctx, { caseId });
+    const refused = await gate.blocked("openai");
+    if (refused) return { ok: false, reason: `turtl can't listen: ${refused}. You can still type your question.`, retry: false };
 
     const turn = await ctx.runMutation(internal.voice.turn.begin, { caseId });
     if (!turn.ok) return { ok: false, reason: turn.reason, retry: false };
@@ -119,7 +127,7 @@ export const talk = action({
       ctx.runMutation(internal.voice.turn.finish, { turnId: turn.turnId, outcome, ...(error ? { error } : {}) });
     try {
       const heard = await timed(ctx, caseId, { taskType: "voice_transcription", modelId: transcribeModelId(), promptVersion: "voice-transcribe-1" }, () =>
-        transcribe(audio, mimeType, `The owner of ${turn.appName} is asking turtl, an on-call assistant, about the case "${turn.title}".`),
+        transcribe(gate, audio, mimeType, `The owner of ${turn.appName} is asking turtl, an on-call assistant, about the case "${turn.title}".`),
       );
       if (!heard.ok) {
         await end("failed", heard.reason);
@@ -143,7 +151,7 @@ export const talk = action({
       }
 
       const voice = await timed(ctx, caseId, { taskType: "voice_speech", modelId: speechModelId(), promptVersion: "voice-speech-1" }, () =>
-        speak(spokenText(reply)),
+        speak(gate, spokenText(reply)),
       );
       await end(ended ? "ended" : command ? "command" : "answered", voice.ok ? undefined : `speech: ${voice.reason}`);
       return {

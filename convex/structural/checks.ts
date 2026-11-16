@@ -1,6 +1,7 @@
 import { ConvexError, v } from "convex/values";
 import { internal } from "../_generated/api";
 import { internalAction, internalMutation, internalQuery, mutation } from "../_generated/server";
+import { guardRow } from "../access";
 import { requireOwnerPasscode } from "../ownerPasscode";
 import { call, CHECK_VERSION, describeFailure } from "../protectedApp/client";
 import { vCheckRun } from "./schema";
@@ -12,6 +13,7 @@ import { vCheckRun } from "./schema";
 export const approve = mutation({
   args: { findingId: v.string(), passcode: v.optional(v.string()) },
   handler: async (ctx, args) => {
+    await guardRow(ctx, "structuralFindings", args.findingId, "This finding no longer exists.");
     await requireOwnerPasscode(ctx, args.passcode);
     const findingId = ctx.db.normalizeId("structuralFindings", args.findingId);
     const finding = findingId ? await ctx.db.get(findingId) : null;

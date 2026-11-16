@@ -75,6 +75,8 @@ export async function submitOwnerPasscode(passcode: string) {
 
 export async function withOwnerPasscode<T>(work: (passcode?: string) => Promise<T>): Promise<T> {
   const status = await requireLiveClient().query(api.ownerPasscode.status, {});
+  // With accounts on, the signed-in owner is the authority: the decision runs without a passcode or a prompt.
+  if (status.accounts) return await work(undefined);
   const passcode = status.configured ? await getStoredOwnerPasscode().catch(() => undefined) : undefined;
   let error: string | undefined;
   if (!status.configured || passcode !== undefined) {

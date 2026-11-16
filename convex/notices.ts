@@ -2,17 +2,22 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { internalAction, internalMutation, query } from "./_generated/server";
+import { canSeeCase } from "./access";
+import { gateFor } from "./consent/gate";
 import { vNoticeEvent, vNoticeOutcome } from "./constants";
 import { sendOwnerNotice } from "./keiki";
 import type { NoticeResult } from "./keiki";
+import { sendsPush } from "./push/message";
 
 export const forCase = query({
   args: { caseId: v.id("cases") },
-  handler: async (ctx, { caseId }) =>
-    await ctx.db
+  handler: async (ctx, { caseId }) => {
+    if (!(await canSeeCase(ctx, caseId))) return [];
+    return await ctx.db
       .query("ownerNotices")
       .withIndex("by_case_and_event", (q) => q.eq("caseId", caseId))
-      .collect(),
+      .collect();
+  },
 });
 
 export const claim = internalMutation({
@@ -51,7 +56,9 @@ export const notifyOwner = internalAction({
   handler: async (ctx, { caseId, event, text }): Promise<NoticeResult | null> => {
     const noticeId = await ctx.runMutation(internal.notices.claim, { caseId, event });
     if (!noticeId) return null;
-    const result = await sendOwnerNotice(text);
+    // The owner's phones get a push for this event too (convex/push); its outcome is recorded beside this one.
+    if (sendsPush(event)) await ctx.scheduler.runAfter(0, internal.push.deliver.forNotice, { noticeId, caseId, event });
+    const result = await sendOwnerNotice(gateFor(ctx, { caseId }), text);
     await ctx.runMutation(internal.notices.recordResult, { noticeId, ...result });
     return result;
   },

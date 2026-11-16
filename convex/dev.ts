@@ -9,6 +9,7 @@ import {
   type MutationCtx,
   type QueryCtx,
 } from "./_generated/server";
+import { devToolsEnabled, requireDevTools } from "./access";
 import { CASE_KINDS, CLOSED_CASE_STATUSES, STAGES } from "./constants";
 import type { CaseKind, CaseStatus, RaisedBy } from "./constants";
 import {
@@ -24,7 +25,8 @@ import { CREDENTIAL_REF, call, controlBase, describeFailure, runJourneyCheck } f
 import { latestProposal } from "./protectedApp/records";
 import { BOOKING_APP_NAME, registerBookingApp } from "./protectedApp/registry";
 
-declare const process: { env: Record<string, string | undefined> };
+// Dev tools. They open only with DEV_TOOLS_ENABLED=true on the single-owner demo; with accounts on
+// (AUTH_REQUIRED=true) they stay closed whatever that flag says (convex/access.ts).
 
 const AUTO_RUN_INTERVAL_MS = 1200;
 const AUTO_RUN_STAGGER_MS = 400;
@@ -63,14 +65,6 @@ const SAMPLES: Record<
   },
 };
 
-const isEnabled = () => process.env.DEV_TOOLS_ENABLED === "true";
-
-const requireEnabled = () => {
-  if (!isEnabled()) {
-    throw new Error("Dev tools are disabled on this deployment.");
-  }
-};
-
 const requireSampleCase = async (ctx: QueryCtx, caseId: Id<"cases">) => {
   const row = await ctx.db.get(caseId);
   if (!row?.isSample) {
@@ -80,6 +74,12 @@ const requireSampleCase = async (ctx: QueryCtx, caseId: Id<"cases">) => {
 
 const isClosed = (status: CaseStatus) =>
   (CLOSED_CASE_STATUSES as readonly string[]).includes(status);
+
+const sampleApps = (ctx: QueryCtx) =>
+  ctx.db.query("apps").withIndex("by_isSample", (q) => q.eq("isSample", true));
+
+const sampleCases = (ctx: QueryCtx) =>
+  ctx.db.query("cases").withIndex("by_isSample", (q) => q.eq("isSample", true));
 
 const advanceOnce = async (
   ctx: MutationCtx,
@@ -131,11 +131,8 @@ const advanceOnce = async (
 export const createSampleCases = mutation({
   args: {},
   handler: async (ctx) => {
-    requireEnabled();
-    const existing = await ctx.db
-      .query("apps")
-      .filter((q) => q.eq(q.field("isSample"), true))
-      .first();
+    requireDevTools();
+    const existing = await sampleApps(ctx).first();
     const appId = existing?._id ?? (await ctx.db.insert("apps", SAMPLE_APP));
     const caseIds: Id<"cases">[] = [];
     for (const kind of CASE_KINDS) {
@@ -159,7 +156,7 @@ export const createSampleCases = mutation({
 export const advance = mutation({
   args: { caseId: v.id("cases") },
   handler: async (ctx, { caseId }) => {
-    requireEnabled();
+    requireDevTools();
     await requireSampleCase(ctx, caseId);
     return await advanceOnce(ctx, caseId);
   },
@@ -168,7 +165,7 @@ export const advance = mutation({
 export const autoRunStep = internalMutation({
   args: { caseId: v.id("cases") },
   handler: async (ctx, { caseId }) => {
-    if (!isEnabled()) return;
+    if (!devToolsEnabled()) return;
     if (!(await ctx.db.get(caseId))?.isSample) return;
     const status = await advanceOnce(ctx, caseId);
     if (!status || isClosed(status)) return;
@@ -181,16 +178,11 @@ export const autoRunStep = internalMutation({
 export const autoRun = mutation({
   args: { caseId: v.optional(v.id("cases")) },
   handler: async (ctx, { caseId }) => {
-    requireEnabled();
+    requireDevTools();
     if (caseId) await requireSampleCase(ctx, caseId);
     const targets = caseId
       ? [caseId]
-      : (
-          await ctx.db
-            .query("cases")
-            .filter((q) => q.eq(q.field("isSample"), true))
-            .collect()
-        )
+      : (await sampleCases(ctx).collect())
           .filter((c) => !isClosed(c.status))
           .map((c) => c._id);
 
@@ -218,11 +210,8 @@ export const autoRun = mutation({
 export const resetSamples = mutation({
   args: {},
   handler: async (ctx) => {
-    requireEnabled();
-    const samples = await ctx.db
-      .query("cases")
-      .filter((q) => q.eq(q.field("isSample"), true))
-      .collect();
+    requireDevTools();
+    const samples = await sampleCases(ctx).collect();
     for (const sampleCase of samples) {
       const attempts = await ctx.db
         .query("stepAttempts")
@@ -236,10 +225,7 @@ export const resetSamples = mutation({
       for (const step of steps) await ctx.db.delete(step._id);
       await ctx.db.delete(sampleCase._id);
     }
-    const apps = await ctx.db
-      .query("apps")
-      .filter((q) => q.eq(q.field("isSample"), true))
-      .collect();
+    const apps = await sampleApps(ctx).collect();
     for (const app of apps) await ctx.db.delete(app._id);
     return samples.length;
   },
@@ -248,15 +234,13 @@ export const resetSamples = mutation({
 const findLiveApp = (ctx: QueryCtx) =>
   ctx.db
     .query("apps")
-    .filter((q) => q.eq(q.field("name"), LIVE_APP_NAME))
+    .withIndex("by_name", (q) => q.eq("name", LIVE_APP_NAME))
     .first();
 
 const liveCases = async (ctx: QueryCtx) => {
   const app = await findLiveApp(ctx);
   if (!app) return [];
-  return (await ctx.db.query("cases").order("desc").collect()).filter(
-    (row) => row.appId === app._id,
-  );
+  return await ctx.db.query("cases").withIndex("by_app", (q) => q.eq("appId", app._id)).order("desc").collect();
 };
 
 const requireLiveCase = async (ctx: QueryCtx, caseId: Id<"cases">) => {
@@ -273,7 +257,7 @@ export const startLiveRun = mutation({
     ),
   },
   handler: async (ctx, { staged }) => {
-    requireEnabled();
+    requireDevTools();
     const appId =
       (await findLiveApp(ctx))?._id ?? (await ctx.db.insert("apps", { name: LIVE_APP_NAME }));
     const caseId = await startCaseRun(ctx, {
@@ -298,7 +282,7 @@ export const startLiveRun = mutation({
 export const approveLiveRun = mutation({
   args: { caseId: v.id("cases") },
   handler: async (ctx, { caseId }) => {
-    requireEnabled();
+    requireDevTools();
     await requireLiveCase(ctx, caseId);
     await approveCase(ctx, caseId);
   },
@@ -307,7 +291,7 @@ export const approveLiveRun = mutation({
 export const declineLiveRun = mutation({
   args: { caseId: v.id("cases") },
   handler: async (ctx, { caseId }) => {
-    requireEnabled();
+    requireDevTools();
     await requireLiveCase(ctx, caseId);
     await declineCase(ctx, caseId);
   },
@@ -316,7 +300,7 @@ export const declineLiveRun = mutation({
 export const clearLiveRuns = mutation({
   args: {},
   handler: async (ctx) => {
-    requireEnabled();
+    requireDevTools();
     const cases = await liveCases(ctx);
     for (const row of cases) {
       for (const table of ["stepAttempts", "steps"] as const) {
@@ -337,7 +321,7 @@ export const clearLiveRuns = mutation({
 export const registerBooking = mutation({
   args: {},
   handler: async (ctx) => {
-    requireEnabled();
+    requireDevTools();
     return await registerBookingApp(ctx);
   },
 });
@@ -346,7 +330,7 @@ export const registerBooking = mutation({
 export const checkNow = action({
   args: {},
   handler: async (ctx): Promise<MonitorResult> => {
-    requireEnabled();
+    requireDevTools();
     return await checkJourneys(ctx);
   },
 });
@@ -355,7 +339,7 @@ export const checkNow = action({
 export const stageOutage = action({
   args: { on: v.boolean() },
   handler: async (_ctx, { on }) => {
-    requireEnabled();
+    requireDevTools();
     const base = controlBase();
     if (!base) throw new Error("PROTECTED_APP_URL is not set on this deployment.");
     const response = await call(`${base}/staged-failure`, {
@@ -373,7 +357,7 @@ export const stageOutage = action({
 export const stageStoreFailure = action({
   args: { on: v.boolean() },
   handler: async (_ctx, { on }) => {
-    requireEnabled();
+    requireDevTools();
     const base = controlBase();
     if (!base) throw new Error("PROTECTED_APP_URL is not set on this deployment.");
     const response = await call(`${base}/staged-failure`, {
@@ -389,7 +373,7 @@ export const stageStoreFailure = action({
 export const recommendationsOn = action({
   args: {},
   handler: async () => {
-    requireEnabled();
+    requireDevTools();
     const base = controlBase();
     if (!base) throw new Error("PROTECTED_APP_URL is not set on this deployment.");
     const response = await call(`${base}/flags`, { method: "POST", body: { recommendationsEnabled: true }, credentialRef: CREDENTIAL_REF });
@@ -401,7 +385,7 @@ export const recommendationsOn = action({
 export const resetBooking = action({
   args: {},
   handler: async (ctx): Promise<{ summary: string; deletedCases: number; deletedMemories: number; deletedPermissions: number; deleted: Record<string, number> }> => {
-    requireEnabled();
+    requireDevTools();
     const scope = await ctx.runMutation(internal.memory.reset.prepare, {});
     const completed = ["Open booking cases were marked declined, pending work was cancelled, pass watermarks were cleared, and booking permissions were removed"];
     let deletionStarted = false;
@@ -442,10 +426,10 @@ export const resetBooking = action({
 const bookingStatus = async (ctx: QueryCtx) => {
   const app = await ctx.db
     .query("apps")
-    .filter((q) => q.eq(q.field("name"), BOOKING_APP_NAME))
+    .withIndex("by_name", (q) => q.eq("name", BOOKING_APP_NAME))
     .first();
   if (!app) return null;
-  const latest = (await ctx.db.query("cases").order("desc").collect()).find((c) => c.appId === app._id);
+  const latest = await ctx.db.query("cases").withIndex("by_app", (q) => q.eq("appId", app._id)).order("desc").first();
   const proposal = latest ? await latestProposal(ctx, latest._id) : null;
   const option = proposal?.options.find((o) => o.recommended) ?? proposal?.options[0];
   return {
@@ -460,11 +444,8 @@ const bookingStatus = async (ctx: QueryCtx) => {
 export const status = query({
   args: {},
   handler: async (ctx) => {
-    if (!isEnabled()) return { enabled: false as const, cases: [], live: [], booking: null };
-    const samples = await ctx.db
-      .query("cases")
-      .filter((q) => q.eq(q.field("isSample"), true))
-      .collect();
+    if (!devToolsEnabled()) return { enabled: false as const, cases: [], live: [], booking: null };
+    const samples = await sampleCases(ctx).collect();
     const cases = await Promise.all(
       samples.map(async (sampleCase) => ({
         case: sampleCase,

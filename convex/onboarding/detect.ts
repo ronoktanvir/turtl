@@ -222,6 +222,13 @@ export function ruleItems(hits: Record<ItemKey, Hit[]>): Item[] {
   );
 }
 
+/**
+ * The one setting a turtl.json may name as its bearer token. It equals CREDENTIAL_REF in
+ * convex/protectedApp/client.ts, which refuses every other name when a request is made: a project's file must
+ * never choose which of the deployment's secrets is sent to that project's server.
+ */
+export const MANIFEST_CREDENTIAL_REF = "PROTECTED_APP_CONTROL_SECRET";
+
 export type ManifestCheck = { name: string; description?: string; path: string; authenticated?: boolean };
 export type ManifestSwitch = ManifestCheck & { field: string };
 export type Manifest = {
@@ -262,8 +269,8 @@ export function parseManifest(text: string): { ok: true; manifest: Manifest } | 
       return base && typeof field === "string" && /^[A-Za-z_][\w]*$/.test(field) ? [{ ...base, field }] : [];
     });
   const credentialRef = object.credentialRef;
-  if (credentialRef !== undefined && (typeof credentialRef !== "string" || !/^[A-Z][A-Z0-9_]*$/.test(credentialRef))) {
-    return { ok: false, reason: "credentialRef must name an environment variable, like PROTECTED_APP_CONTROL_SECRET." };
+  if (credentialRef !== undefined && credentialRef !== MANIFEST_CREDENTIAL_REF) {
+    return { ok: false, reason: `credentialRef must be ${MANIFEST_CREDENTIAL_REF}, the one setting turtl sends to a watched app. It names the setting and is never the secret itself.` };
   }
   const health = check(object.health, "Health check");
   const readiness = check(object.readiness, "Readiness check");

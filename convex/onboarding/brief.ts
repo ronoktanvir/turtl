@@ -1,4 +1,4 @@
-import { MANIFEST_FILE, READINESS_ITEMS, manifestPath, type Item, type Stack } from "./detect";
+import { MANIFEST_CREDENTIAL_REF, MANIFEST_FILE, READINESS_ITEMS, manifestPath, type Item, type Stack } from "./detect";
 
 type NeverBreak = { text: string; addCheck: boolean };
 
@@ -8,7 +8,7 @@ const cite = (item: Item) => item.files.map((file) => (file.line ? `${file.path}
 const MANIFEST_SPEC = [
   `{`,
   `  "version": 1,`,
-  `  "credentialRef": "NAME_OF_ENV_VAR",          // the environment variable on turtl's side that holds the bearer token for authenticated paths; never the secret itself`,
+  `  "credentialRef": "${MANIFEST_CREDENTIAL_REF}", // exactly this name: the setting on turtl's side that holds the bearer token for authenticated paths; never the secret itself`,
   `  "health":    { "name": "...", "path": "/health" },`,
   `  "readiness": { "name": "...", "path": "/ready", "authenticated": false },`,
   `  "journeys": [ { "name": "...", "description": "...", "path": "/journey-check", "authenticated": true } ],`,

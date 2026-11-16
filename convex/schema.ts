@@ -1,7 +1,9 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
+import { accountTables } from "./auth/schema";
 import { bookingError } from "./bookingDemo/validators";
 import { codeNetworkTables } from "./codeNetwork/schema";
+import { consentTables } from "./consent/schema";
 import { councilTables } from "./council/schema";
 import { onboardingTables } from "./onboarding/schema";
 import { vPullRequestRow } from "./prTracking/validators";
@@ -31,7 +33,9 @@ import {
 import { githubTables } from "./github/schema";
 import { intakeTables } from "./intake/schema";
 import { learningTables } from "./learning/schema";
+import { pushTables } from "./push/schema";
 import { revylTables } from "./revyl/schema";
+import { spendTables } from "./spend/schema";
 import { voiceTables } from "./voice/schema";
 import { structuralTables } from "./structural/schema";
 
@@ -45,7 +49,10 @@ export default defineSchema({
     revision: v.optional(v.string()),
     ownerId: v.optional(v.string()),
     isSample: v.optional(v.boolean()),
-  }),
+  })
+    .index("by_owner", ["ownerId"])
+    .index("by_name", ["name"])
+    .index("by_isSample", ["isSample"]),
   // Mutations must enforce app ownership and same-app journey/memory links; restored service is not a completed permanent repair.
   cases: defineTable({
     appId: v.id("apps"),
@@ -62,7 +69,10 @@ export default defineSchema({
     distinctRequesterCount: v.optional(v.number()),
     resolvedAt: v.optional(v.number()),
     isSample: v.optional(v.boolean()),
-  }).index("by_app_and_signature", ["appId", "signature"]),
+  })
+    .index("by_app_and_signature", ["appId", "signature"])
+    .index("by_app", ["appId"])
+    .index("by_isSample", ["isSample"]),
   ownerNotices: defineTable(vOwnerNotice).index("by_case_and_event", ["caseId", "event"]),
   // Mutations must maintain one workflow per case, unique step keys, acyclic validated additions, and completed history; memory skips require fresh applicability and executed changes require verification.
   steps: defineTable({
@@ -208,4 +218,8 @@ export default defineSchema({
   ...learningTables,
   ...onboardingTables,
   ...githubTables,
+  ...pushTables,
+  ...accountTables,
+  ...consentTables,
+  ...spendTables,
 });

@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import { internalMutation } from "../_generated/server";
+import { gateFor } from "../consent/gate";
 import type { Criterion, OptionKind, ProposalOption, Stage } from "../constants";
 import { askJson, fixesModelId, keyFor, MAX_FIXES, orderFixes, pullRequestEntry, pullRequestOption, type CodeChangeDraft } from "../fixOptions";
 import { CRITERIA, revisionOf } from "../protectedApp/client";
@@ -85,7 +86,7 @@ async function askWithRun(
     promptVersion,
   });
   const started = Date.now();
-  const answer = await askJson(system, user);
+  const answer = await askJson(gateFor(ctx, { appId: input.case.appId }), system, user);
   await ctx.runMutation(internal.intake.workflow.finishRun, {
     agentRunId,
     status: answer.ok ? "completed" : "failed",

@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import type { WithoutSystemFields } from "convex/server";
 import { internalMutation, internalQuery, query, type MutationCtx, type QueryCtx } from "../_generated/server";
 import type { Doc } from "../_generated/dataModel";
+import { canSeeApp } from "../access";
 import {
   vCodeChatScope,
   vNetCluster,
@@ -32,6 +33,7 @@ const toMessage = (row: Doc<"codeChatMessages">): ChatMessage => ({
 export const get = query({
   args: { projectId: v.string() },
   handler: async (ctx, { projectId }): Promise<CodeNetwork | null> => {
+    if (!(await canSeeApp(ctx, projectId))) return null;
     const row = await latest(ctx, projectId);
     if (!row) return null;
     return {
@@ -48,6 +50,7 @@ export const get = query({
 export const messages = query({
   args: { scope: vCodeChatScope },
   handler: async (ctx, { scope }): Promise<ChatMessage[]> => {
+    if (!(await canSeeApp(ctx, scope.projectId))) return [];
     const rows = await ctx.db
       .query("codeChatMessages")
       .withIndex("by_project_scope_and_at", (q) =>

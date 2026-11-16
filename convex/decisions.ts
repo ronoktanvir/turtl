@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { mutation, type MutationCtx } from "./_generated/server";
+import { canSeeCase, guardRow, ownerActor, requireAccount } from "./access";
 import { CLOSED_CASE_STATUSES, type Actor, type ParameterConstraint, type Parameters } from "./constants";
 import { recordDecision } from "./learning/feedback";
 import { requireOwnerPasscode } from "./ownerPasscode";
@@ -8,6 +9,7 @@ import { revisionOf } from "./protectedApp/client";
 import { approveCase, declineCase } from "./runner/run";
 import { finishAttempt, loadSteps, setCaseStatus, skipStep } from "./workflow";
 
+// The demo's one owner. With accounts on, decisions record ownerActor(account) from convex/access.ts instead.
 export const SOLO_OWNER = { kind: "owner", identity: "solo-owner" } as const satisfies Actor;
 
 async function undecidedProposal(ctx: MutationCtx, proposalId: Id<"proposals">, version: number) {
@@ -114,10 +116,11 @@ export async function freezeAndRecordAction(
 export const approve = mutation({
   args: { proposalId: v.id("proposals"), version: v.number(), optionKey: v.string(), passcode: v.optional(v.string()), note: v.optional(v.string()) },
   handler: async (ctx, { proposalId, version, optionKey, passcode, note }) => {
+    const account = await guardRow(ctx, "proposals", proposalId, "Proposal not found.");
     await requireOwnerPasscode(ctx, passcode);
     const proposal = await undecidedProposal(ctx, proposalId, version);
     const actionId = await freezeAndRecordAction(ctx, proposal, optionKey, {
-      actor: SOLO_OWNER,
+      actor: ownerActor(account),
       requestedBy: "owner",
     });
     await recordDecision(ctx, proposal, { outcome: "approved", chosenKey: optionKey, note });
@@ -129,11 +132,12 @@ export const approve = mutation({
 export const decline = mutation({
   args: { proposalId: v.id("proposals"), version: v.number(), passcode: v.optional(v.string()), note: v.optional(v.string()) },
   handler: async (ctx, { proposalId, version, passcode, note }) => {
+    const account = await guardRow(ctx, "proposals", proposalId, "Proposal not found.");
     await requireOwnerPasscode(ctx, passcode);
     const proposal = await undecidedProposal(ctx, proposalId, version);
     await ctx.db.patch(proposalId, {
       decisionStatus: "declined",
-      chosenBy: SOLO_OWNER,
+      chosenBy: ownerActor(account),
       decidedAt: Date.now(),
     });
     await recordDecision(ctx, proposal, { outcome: "declined", note });
@@ -144,6 +148,9 @@ export const decline = mutation({
 export const stop = mutation({
   args: { caseId: v.id("cases"), passcode: v.optional(v.string()), note: v.optional(v.string()) },
   handler: async (ctx, { caseId, passcode, note }): Promise<{ stopped: true; summary: string } | { stopped: false; reason: string }> => {
+    const account = await requireAccount(ctx);
+    // Another account's case gets the same answer as a deleted one.
+    if (!(await canSeeCase(ctx, caseId))) return { stopped: false, reason: "This case no longer exists." };
     await requireOwnerPasscode(ctx, passcode);
     const row = await ctx.db.get(caseId);
     if (!row) return { stopped: false, reason: "This case no longer exists." };
@@ -169,7 +176,7 @@ export const stop = mutation({
         : " Capy may still be writing a pull request. turtl will not follow or merge it; any branch or pull request it creates remains on GitHub."
       : " Nothing was sent to the live app.";
     const summary = `The owner stopped this action.${left}`;
-    await ctx.db.patch(action._id, { status: "cancelled", cancelledBy: SOLO_OWNER, cancelledAt: now, completedAt: now, result: summary });
+    await ctx.db.patch(action._id, { status: "cancelled", cancelledBy: ownerActor(account), cancelledAt: now, completedAt: now, result: summary });
     for (const pending of pulls) await ctx.db.patch(pending._id, { settledAt: now, openError: summary, syncError: undefined });
     const steps = await loadSteps(ctx, caseId);
     const ids = new Set<string>([caseId, action._id, ...steps.flatMap((s) => s.currentAttemptId ? [s.currentAttemptId] : []), ...pulls.map((p) => p._id)]);

@@ -2,6 +2,8 @@ import { ConvexError, v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import { internalAction, internalMutation, internalQuery, mutation, query, type ActionCtx } from "../_generated/server";
+import { canSeeApp, guardApp, guardRow } from "../access";
+import { gateFor } from "../consent/gate";
 import { requireOwnerPasscode } from "../ownerPasscode";
 import { deleteDocuments, putDocument, searchWithMetadata } from "../supermemory";
 import { cleanStatement, preferenceFromNote } from "./model";
@@ -38,6 +40,7 @@ const toPreference = (row: Doc<"ownerPreferences">) => ({
 export const list = query({
   args: { projectId: v.string() },
   handler: async (ctx, { projectId }) => {
+    if (!(await canSeeApp(ctx, projectId))) return null;
     const appId = ctx.db.normalizeId("apps", projectId);
     const app = appId ? await ctx.db.get(appId) : null;
     if (!app) return null;
@@ -64,6 +67,7 @@ export const list = query({
 export const add = mutation({
   args: { projectId: v.string(), statement: v.string(), passcode: v.optional(v.string()) },
   handler: async (ctx, { projectId, statement, passcode }) => {
+    await guardApp(ctx, projectId, "This project was not found.");
     await requireOwnerPasscode(ctx, passcode);
     const appId = ctx.db.normalizeId("apps", projectId);
     if (!appId || !(await ctx.db.get(appId))) throw new ConvexError("This project was not found.");
@@ -76,6 +80,7 @@ export const add = mutation({
 export const remove = mutation({
   args: { preferenceId: v.string(), passcode: v.optional(v.string()) },
   handler: async (ctx, { preferenceId, passcode }) => {
+    await guardRow(ctx, "ownerPreferences", preferenceId, "This preference was already removed.");
     await requireOwnerPasscode(ctx, passcode);
     const id = ctx.db.normalizeId("ownerPreferences", preferenceId);
     const row = id ? await ctx.db.get(id) : null;
@@ -92,6 +97,7 @@ export const remove = mutation({
 export const confirm = mutation({
   args: { suggestionId: v.string(), statement: v.optional(v.string()), passcode: v.optional(v.string()) },
   handler: async (ctx, { suggestionId, statement, passcode }) => {
+    await guardRow(ctx, "preferenceSuggestions", suggestionId, "This suggestion no longer exists.");
     await requireOwnerPasscode(ctx, passcode);
     const id = ctx.db.normalizeId("preferenceSuggestions", suggestionId);
     const suggestion = id ? await ctx.db.get(id) : null;
@@ -112,6 +118,7 @@ export const confirm = mutation({
 export const dismiss = mutation({
   args: { suggestionId: v.string(), passcode: v.optional(v.string()) },
   handler: async (ctx, { suggestionId, passcode }) => {
+    await guardRow(ctx, "preferenceSuggestions", suggestionId, "This suggestion no longer exists.");
     await requireOwnerPasscode(ctx, passcode);
     const id = ctx.db.normalizeId("preferenceSuggestions", suggestionId);
     const suggestion = id ? await ctx.db.get(id) : null;
@@ -172,23 +179,27 @@ export const index = internalAction({
     if (!process.env.SUPERMEMORY_API_KEY) return { indexed: false, reason: "SUPERMEMORY_API_KEY is not set." };
     const row: Doc<"ownerPreferences"> | null = await ctx.runQuery(internal.learning.preferences.get, { preferenceId });
     if (!row) return { indexed: false, reason: "The preference was removed before it was indexed." };
+    const gate = gateFor(ctx, { appId: row.appId });
+    const refused = await gate.blocked("supermemory");
+    if (refused) return { indexed: false, reason: `Not copied to Supermemory: ${refused}.` };
     const supermemoryId = await putDocument(
+      gate,
       preferenceNamespace(row.appId),
       row._id,
       `Owner preference (Convex ownerPreferences ${row._id}): ${row.statement}\nThis is what the owner said matters for this app. It is not evidence and never approves anything.`,
       { preferenceId: row._id, appId: row.appId, kind: "owner_preference" },
     );
     const kept: boolean = await ctx.runMutation(internal.learning.preferences.storeSupermemoryId, { preferenceId, supermemoryId });
-    if (!kept) await deleteDocuments(preferenceNamespace(row.appId), [supermemoryId]);
+    if (!kept) await deleteDocuments(gate, preferenceNamespace(row.appId), [supermemoryId]);
     return { indexed: kept, supermemoryId };
   },
 });
 
 export const unindex = internalAction({
   args: { appId: v.id("apps"), documentId: v.string() },
-  handler: async (_ctx, { appId, documentId }) => {
+  handler: async (ctx, { appId, documentId }) => {
     if (!process.env.SUPERMEMORY_API_KEY) return { deleted: false };
-    await deleteDocuments(preferenceNamespace(appId), [documentId]);
+    await deleteDocuments(gateFor(ctx, { appId }), preferenceNamespace(appId), [documentId]);
     return { deleted: true };
   },
 });
@@ -206,11 +217,14 @@ export async function applicablePreferences(
   if (!rows.length) return { preferences: [], summary: "You have not told turtl what matters for this app yet." };
   let ranked: string[] = [];
   let how = "SUPERMEMORY_API_KEY is not set, so they were not ranked";
-  if (process.env.SUPERMEMORY_API_KEY) {
+  const gate = gateFor(ctx, { appId });
+  const refused = process.env.SUPERMEMORY_API_KEY ? await gate.blocked("supermemory") : null;
+  if (refused) how = `they were not ranked because ${refused}`;
+  else if (process.env.SUPERMEMORY_API_KEY) {
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       const hits = await Promise.race([
-        searchWithMetadata(preferenceNamespace(appId), query, MAX_APPLICABLE),
+        searchWithMetadata(gate, preferenceNamespace(appId), query, MAX_APPLICABLE),
         new Promise<never>((_, reject) => {
           timer = setTimeout(() => reject(new Error("timeout")), SEARCH_TIMEOUT_MS);
         }),

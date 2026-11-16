@@ -6,6 +6,10 @@ declare const process: { env: Record<string, string | undefined> };
 // Never read the staging switch here: `configuration` in a journey-check response is dropped below.
 
 export const CREDENTIAL_REF = "PROTECTED_APP_CONTROL_SECRET";
+// The only settings turtl will send to a watched app as its bearer token. A check's or an action's
+// `credentialRef` is data: it is stored on a row and can come from a project's turtl.json. It must never choose
+// which of this deployment's secrets leaves, so any other name is refused before a request is made.
+export const SENDABLE_CREDENTIAL_REFS: readonly string[] = [CREDENTIAL_REF];
 export const ENVIRONMENT = "protected-app";
 export const CHECK_VERSION = "journey-check-v1";
 export const CRITERIA_VERSION = "booking-recovery-criteria-v1";
@@ -56,6 +60,9 @@ export async function call(
   const { method = "GET", body, credentialRef, timeoutMs = REQUEST_TIMEOUT_MS } = options;
   const headers: Record<string, string> = {};
   if (credentialRef) {
+    if (!SENDABLE_CREDENTIAL_REFS.includes(credentialRef)) {
+      return { kind: "not_sent", reason: `turtl does not send the setting named ${credentialRef} to a watched app` };
+    }
     const secret = process.env[credentialRef];
     if (!secret) return { kind: "not_sent", reason: `${credentialRef} is not set on this deployment` };
     headers.Authorization = `Bearer ${secret}`;

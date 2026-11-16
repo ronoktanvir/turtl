@@ -81,6 +81,23 @@ export const RATE_LIMITS = [
 ] as const;
 export const windowStart = (now: number, windowMs: number) => now - (now % windowMs);
 
+const hex = (buffer: ArrayBuffer) => [...new Uint8Array(buffer)].map((b) => b.toString(16).padStart(2, "0")).join("");
+
+export const CONTACT_REF = "form:contact:";
+export const KEYED_CONTACT_REF = "form:contact-keyed:";
+
+// A customer's contact is used for one thing: counting the same person once across reports and devices (and their
+// share of the per-sender rate limit). Nothing reads the address itself, nobody can reply to it, and it is never
+// stored: only this reference is, on the report. With INTAKE_CONTACT_KEY set, it is a keyed hash (HMAC-SHA-256), so
+// someone holding the database cannot test a guessed address against it without the key. Without the key it is the
+// plain SHA-256 the demo has always used, so the demo counts people exactly as before.
+export async function contactRef(contact: string, key?: string): Promise<string> {
+  const data = new TextEncoder().encode(contact.toLowerCase());
+  if (!key) return CONTACT_REF + hex(await crypto.subtle.digest("SHA-256", data)).slice(0, 24);
+  const hmac = await crypto.subtle.importKey("raw", new TextEncoder().encode(key), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  return KEYED_CONTACT_REF + hex(await crypto.subtle.sign("HMAC", hmac, data)).slice(0, 32);
+}
+
 export const fingerprint = (text: string) =>
   text
     .toLowerCase()

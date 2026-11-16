@@ -30,39 +30,61 @@ This is every variable the backend reads, taken from the code. "Required" stops 
 <!-- variables:start -->
 | Variable | Production | What it does |
 | --- | --- | --- |
+| `AUTH_REQUIRED` | Required | Set it to "true". Every backend function then needs a signed-in account and reaches only that account's projects, owner decisions are authorised by the account instead of the shared owner passcode, and the dev tools stay closed. Unset, the backend is the single-owner demo, where anyone with its address acts as the one owner. The release check sees only the name, so check the value is "true". |
 | `OPENAI_API_KEY` (secret) | Required | Model calls: diagnosis, fix options, customer report triage, the case chat, the code map's labels and chat, and voice. Without it turtl falls back to rule-based text or refuses the feature. |
 | `SUPERMEMORY_API_KEY` (secret) | Required | Memory of past incidents, matching of customer reports, and the code map. Without it turtl reads only its recent notes in Convex and cannot build a code map. Use a key that is not the demo's, so production memory is separate. |
 | `DIAGNOSIS_MODEL` | Optional | Model for diagnosis. Default gpt-5.4-mini. |
 | `FIXES_MODEL` | Optional | Model for fix options and report triage. Default: the diagnosis model. |
-| `OPENAI_MODEL` | Optional | Model for the code map's labels and chat, and for assistant.chat. Default gpt-6-luna. |
+| `OPENAI_MODEL` | Optional | Model for the code map's labels and chat, and for reading a repository at onboarding. Default gpt-6-luna. |
+| `STRUCTURAL_MODEL` | Optional | Model that examines related cases for a deeper cause. Default gpt-5.4. |
+| `ANTHROPIC_API_KEY` (secret) | Optional | Lets claude-sonnet-4-5 join the model council. With accounts on, nothing is sent to Anthropic until store/data-practices.json lists it and the owner has agreed. |
+| `GEMINI_API_KEY` (secret) | Optional | Lets gemini-2.5-pro join the model council. With accounts on, nothing is sent to Google until store/data-practices.json lists it and the owner has agreed. |
 | `VOICE_ENABLED` | Optional | "true" turns on talking with turtl about a case. Anything else and voice refuses with a plain message. Each turn spends OpenAI credits. |
 | `VOICE_TRANSCRIBE_MODEL` | Optional | Model that transcribes a voice clip. Default gpt-4o-mini-transcribe. |
 | `VOICE_SPEECH_MODEL` | Optional | Model that speaks a reply. Default gpt-4o-mini-tts. |
 | `CODE_NETWORK_CHAT_ENABLED` | Optional | "true" lets the Investigate screen answer questions about the code. Each question spends OpenAI and Supermemory credits. |
+| `INTAKE_CONTACT_KEY` (secret) | Required | Key for the keyed hash a customer's contact on the report form becomes, so turtl can count one person once without keeping the address. Use at least 32 random characters and never change it: a new key counts returning customers as new people. Without it the contact becomes a plain hash, which someone holding the database could match against a guessed address. |
 | `INTAKE_NAMESPACE_PREFIX` | Optional | Prefix for the Supermemory namespaces that hold customer reports. It keeps a test deployment's reports apart; leave it unset in production. |
-| `GITHUB_APP_ID` | Required, arrives with turtl#54 | The GitHub App's id. turtl reaches each account's repositories with a token of the app's installation on them, and with nothing else. |
-| `GITHUB_APP_PRIVATE_KEY` (secret) | Required, arrives with turtl#54 | The GitHub App's private key (the .pem file), which signs the request for an installation token. |
-| `GITHUB_APP_SLUG` | Required, arrives with turtl#54 | The GitHub App's name in its public link, used to send an owner to install it. |
-| `GITHUB_APP_WEBHOOK_SECRET` (secret) | Required, arrives with turtl#54 | Proves a webhook delivery came from GitHub. Without it every delivery is answered 503. |
-| `AUTH_GITHUB_ID` | Required, arrives with the accounts pull request | The same GitHub App's client id, for signing in with GitHub. |
-| `AUTH_GITHUB_SECRET` (secret) | Required, arrives with the accounts pull request | The same GitHub App's client secret. |
+| `SUPERMEMORY_NAMESPACE_PREFIX` | Optional | Prefix for every Supermemory namespace. It keeps a test deployment's memory apart from a hosted project's; leave it unset in production. |
+| `GITHUB_APP_ID` | Required | The GitHub App's id. turtl reaches each account's repositories with a token of the app's installation on them, and with nothing else. |
+| `GITHUB_APP_PRIVATE_KEY` (secret) | Required | The GitHub App's private key (the .pem file), which signs the request for an installation token. |
+| `GITHUB_APP_SLUG` | Required | The GitHub App's name in its public link, used to send an owner to install it. |
+| `GITHUB_APP_WEBHOOK_SECRET` (secret) | Required | Proves a webhook delivery came from GitHub. Without it every delivery is answered 503. |
+| `AUTH_GITHUB_ID` | Required | The same GitHub App's client id. Connect GitHub asks the owner to authorize the app with it, which is how GitHub confirms who connected; signing in with GitHub uses it too. Without it Add project offers only a typed repository address. |
+| `AUTH_GITHUB_SECRET` (secret) | Required | The same GitHub App's client secret. Connect GitHub exchanges the owner's authorization with it for a user token, uses that token to read which installations the owner can reach, then revokes it. Signing in with GitHub uses it too. |
+| `JWT_PRIVATE_KEY` (secret) | Required | Signs the sign-in tokens the backend hands out (Convex Auth). Make it with the steps in convex/auth/README.md, with JWKS. Changing it signs everyone out. |
+| `JWKS` | Required | The public half of JWT_PRIVATE_KEY, which the backend checks sign-in tokens against. |
+| `SITE_URL` | Required | Where GitHub sign-in returns on the web, and the only web address a sign-in code may be sent to besides the app's own turtl:// link. The password reset email needs it too. For the iPhone-only launch, the turtl site: https://ronoktanvir.github.io/turtl |
+| `AUTH_RESEND_KEY` (secret) | Optional | Resend key that emails the code for a password reset. Without it, or without AUTH_EMAIL_FROM, reset is off and the app tells people to contact support. |
+| `AUTH_EMAIL_FROM` | Optional | Sender of the reset email, on a domain verified with Resend, such as "turtl <no-reply@example.com>". Register the same domain with Apple so Hide My Email addresses receive it. |
+| `AUTH_APPLE_BUNDLE_ID` | Optional | The app's bundle id, which Apple names as the audience of a Sign in with Apple token. Default com.turtl.oncall. Change it only together with the app's bundle id. |
+| `AUTH_STAND_IN_URL` | Never set | Points GitHub sign-in, Apple's signing keys and the reset email at a stand-in server in tests. In production it would let that server decide who is signed in. |
+| `AUTH_SESSION_TOTAL_DURATION_MS` | Optional | How long a sign-in lasts before the person must sign in again. Default 30 days. |
+| `AUTH_SESSION_INACTIVE_DURATION_MS` | Optional | How long a sign-in lasts unused. Default 30 days. |
+| `AUTH_LOG_LEVEL` | Optional | How much Convex Auth logs: ERROR, WARN, INFO (the default) or DEBUG. DEBUG writes email addresses to the logs; leave it unset in production. |
+| `AUTH_LOG_SECRETS` | Never set | "true" makes Convex Auth write passwords and tokens to the logs. |
+| `CUSTOM_AUTH_SITE_URL` | Optional | The backend's own web address when it is served from a custom domain; GitHub sign-in starts there. Default: the deployment's .convex.site address. |
 | `CAPY_API_KEY` (secret) | Optional | Starts the Capy thread that writes a code fix and opens its pull request. Without it a code fix reports that it cannot open a pull request. Every account's fixes are billed to this key's owner. |
 | `CAPY_PROJECT_ID` | Optional | Capy project those threads start in. Default: the project that holds the repository. |
 | `CAPY_MODEL_ID` | Optional | Model for those Capy threads. Default: the Capy project's model. |
 | `CAPY_REASONING` | Optional | Reasoning level for those Capy threads. Used only with CAPY_MODEL_ID. |
+| `MODEL_SPEND_LIMIT_USD` | Optional | With accounts on, the estimated model spend in US dollars one account may reach in a calendar month (UTC); past it turtl asks no model for that account and says so on the case. Default 20. No limit in the single-owner demo. |
+| `CODING_THREADS_PER_DAY` | Optional | With accounts on, how many Capy threads (code changes) one account may start in a calendar day (UTC), since every thread is billed to CAPY_API_KEY. Default 5. No limit in the single-owner demo. |
 | `REVYL_API_KEY` (secret) | Optional | Runs a fix's device check on a Revyl cloud phone. Without it a device check reports that it is not set up. |
 | `REVYL_BASE_URL` | Optional | Revyl API address. Default https://backend.revyl.ai. |
 | `KEIKI_API_KEY` (secret) | Optional | Keiki key for owner alerts by text. Does nothing without KEIKI_AGENT_ID and KEIKI_OWNER_CONTACT. |
 | `KEIKI_AGENT_ID` | Optional | The Keiki agent that words owner alerts. |
 | `KEIKI_BASE_URL` | Optional | Keiki API address. Default https://onkeiki.com. |
+| `EXPO_ACCESS_TOKEN` (secret) | Optional | Expo access token for push notifications, needed only once enhanced push security is turned on for the project in Expo. Without it pushes still send while that setting is off. |
 | `KEIKI_OWNER_CONTACT` | Never set | One phone number that receives every alert in the deployment. In production that would text one person about every account's incidents. Never set it until alerts go to each account's own owner. |
 | `GITHUB_TOKEN` (secret) | Never set | One GitHub token for the whole deployment, which is how the demo reaches GitHub. Every account would act through it. Production reaches GitHub only through the GitHub App, and with this unset there is nothing to fall back to when the app's variables go missing, so access fails closed. |
-| `GITHUB_API_URL` | Never set, arrives with turtl#54 | Points GitHub calls at a stand-in server in tests. In production it would send the app's tokens to another server. |
-| `DEV_TOOLS_ENABLED` | Never set | "true" opens the dev tools functions: sample cases, staged outages on the booking demo, memory resets, and seeded data, callable by anyone who knows the backend address. |
-| `ASSISTANT_ENABLED` | Never set | "true" opens assistant.chat, a public action that reads and writes memory under whatever user id the caller sends. No screen uses it. Never set it until the action checks its caller. |
+| `GITHUB_API_URL` | Never set | Points GitHub calls at a stand-in server in tests. In production it would send the app's tokens to another server. |
+| `EXPO_PUSH_API_URL` | Never set | Points push notifications at a stand-in for Expo's push service in tests. In production it would send every owner's phone address and project names to another server. |
+| `DEV_TOOLS_ENABLED` | Never set | "true" opens the dev tools functions: sample cases, staged outages on the booking demo, memory resets, and seeded data, callable by anyone who knows the backend address. With AUTH_REQUIRED=true they stay closed whatever this says. |
+| `EVIDENCE_LOCAL_PROOF` | Never set | "true" opens the local evidence fixtures (convex/evidence/localProof.ts). They also need DEV_TOOLS_ENABLED and a localhost backend, and refuse to run anywhere else. |
 | `PROTECTED_APP_URL` | Never set | Address of the booking demo's control routes. It makes this deployment watch the one demo app every minute. Demo only. |
 | `PROTECTED_APP_CONTROL_SECRET` (secret) | Never set | Bearer token turtl sends to the booking demo's control routes. Demo only. |
-| `PROTECTED_APP_CONTROL_SECRET_SHA256` | Never set | Hash that opens the booking demo's control routes (/booking-demo/flags, /staged-failure, /journey-check, /errors) on this deployment. Without it they answer 503. Demo only. |
+| `PROTECTED_APP_CONTROL_SECRET_SHA256` | Never set | Hash that opens the booking demo's control routes (/booking-demo/flags, /staged-failure, /journey-check, /errors) on this deployment. Without it they answer 503, and with AUTH_REQUIRED=true the booking demo's customer functions refuse too. Demo only. |
 | `PROTECTED_APP_REVISION` | Never set | Revision label the booking demo reports. Demo only. |
 | `REVYL_BOOKING_WORKFLOW_ID` | Never set | Revyl workflow for the booking demo's device check. Demo only. |
 <!-- variables:end -->

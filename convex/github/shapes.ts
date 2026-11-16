@@ -1,7 +1,8 @@
 import { REPOSITORY_PATTERN } from "./config";
 
-export type Installation = { installationId: number; accountLogin: string; repositorySelection: "all" | "selected" };
+export type Installation = { installationId: number; accountLogin: string; repositorySelection: "all" | "selected"; accountType?: string };
 export type Repository = { fullName: string; private?: boolean };
+export type GithubUser = { id: number; login: string };
 
 export const record = (value: unknown): Record<string, unknown> | null =>
   value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
@@ -18,8 +19,20 @@ export function installationOf(value: unknown): (Installation & { suspended: boo
     installationId: installation.id as number,
     accountLogin: login,
     repositorySelection: selection,
+    ...(typeof account?.type === "string" && account.type && { accountType: account.type }),
     suspended: installation.suspended_at != null,
   };
+}
+
+// The GitHub id of the user or organization an installation is on, or null when GitHub did not say.
+export function installationAccountId(value: unknown): number | null {
+  const id = record(record(value)?.account)?.id;
+  return Number.isSafeInteger(id) ? (id as number) : null;
+}
+
+export function userOf(value: unknown): GithubUser | null {
+  const user = record(value);
+  return user && Number.isSafeInteger(user.id) && typeof user.login === "string" && user.login ? { id: user.id as number, login: user.login } : null;
 }
 
 export function repositoriesOf(value: unknown): Repository[] | null {

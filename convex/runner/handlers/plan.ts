@@ -2,6 +2,7 @@ import { internal } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
 import { CRITERIA, DONE_MEANS, ENVIRONMENT } from "../../protectedApp/client";
 import type { ProposalOption } from "../../constants";
+import { gateFor } from "../../consent/gate";
 import { fixesModelId, planFixes } from "../../fixOptions";
 import type { ContextUse } from "../../learning/context";
 import { applicablePreferences } from "../../learning/preferences";
@@ -202,7 +203,7 @@ export const handler: StepHandler = {
       preferences: applied.preferences,
       feedback: { turnedDown: feedback.turnedDown, conditionsText: conditions.text, recent: feedback.recent },
       context,
-    });
+    }, gateFor(ctx, { appId: input.case.appId }));
     if (agentRunId) {
       await ctx.runMutation(internal.learning.runs.finish, {
         agentRunId,

@@ -2,7 +2,8 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import { action, internalAction, mutation, query, type ActionCtx } from "./_generated/server";
-import { SOLO_OWNER } from "./decisions";
+import { canSeeCase, guardCaseInAction, ownerActor, requireDevTools } from "./access";
+import { gateFor } from "./consent/gate";
 import { repositoryAccess } from "./github/access";
 import { capyConfig, findPullRequestNumber } from "./prTracking/capy";
 import { registerCodeChangeAction } from "./prTracking/catalog";
@@ -23,15 +24,12 @@ export type MergeResult = { outcome: "merged"; pullRequest: PullRequest } | { ou
 const NO_GITHUB_TOKEN: NotConfigured = { outcome: "not_configured", missing: ["GITHUB_TOKEN"] };
 
 // The credential for one repository: a GitHub App installation token, or GITHUB_TOKEN while the app is not configured.
-async function githubAccess(ctx: ActionCtx, repo: string): Promise<{ token: string } | NotConfigured | Failed> {
-  const access = await repositoryAccess(ctx, repo);
+// With accounts on, only an installation the case's project owner connected.
+async function githubAccess(ctx: ActionCtx, repo: string, caseId: string): Promise<{ token: string } | NotConfigured | Failed> {
+  const access = await repositoryAccess(ctx, repo, { caseId });
   if (!access.ok) return { outcome: "failed", message: access.message };
   return access.token ? { token: access.token } : NO_GITHUB_TOKEN;
 }
-
-const requireDevTools = () => {
-  if (process.env.DEV_TOOLS_ENABLED !== "true") throw new Error("Dev tools are disabled on this deployment.");
-};
 
 // Brings one pull request up to date: finds its number in Capy's reply while it is being opened, then
 // reads GitHub. A merge or close seen here settles the execute step waiting on it.
@@ -42,7 +40,7 @@ async function sync(ctx: ActionCtx, row: Doc<"pullRequests">): Promise<RefreshRe
     if (!row.capyThreadId) return { outcome: "failed", message: "This pull request has no number and no Capy thread." };
     const capy = capyConfig();
     if (!capy.ok) return { outcome: "not_configured", missing: capy.missing };
-    const found = await findPullRequestNumber(capy, row.capyThreadId, row.repo, row.capyCursor);
+    const found = await findPullRequestNumber(gateFor(ctx, { caseId: row.caseId }), capy, row.capyThreadId, row.repo, row.capyCursor);
     if (!found.ok) {
       await ctx.runMutation(internal.prTracking.records.recordSyncError, { id: row._id, error: found.message });
       return { outcome: "failed", message: found.message };
@@ -61,7 +59,7 @@ async function sync(ctx: ActionCtx, row: Doc<"pullRequests">): Promise<RefreshRe
     number = found.body.number;
     await ctx.runMutation(internal.prTracking.records.setNumber, { id: row._id, number });
   }
-  const access = await githubAccess(ctx, row.repo);
+  const access = await githubAccess(ctx, row.repo, row.caseId);
   if ("outcome" in access) return access;
   const read = await readPullRequest(access.token, row.repo, number);
   if (!read.ok) {
@@ -89,6 +87,7 @@ async function sync(ctx: ActionCtx, row: Doc<"pullRequests">): Promise<RefreshRe
 export const forCase = query({
   args: { caseId: v.string() },
   handler: async (ctx, args): Promise<PullRequest | null> => {
+    if (!(await canSeeCase(ctx, args.caseId))) return null;
     const caseId = ctx.db.normalizeId("cases", args.caseId);
     const row = caseId && (await latestForCase(ctx, caseId));
     return row ? toPullRequest(row) : null;
@@ -99,6 +98,7 @@ export const forCase = query({
 export const refresh = action({
   args: { caseId: v.id("cases") },
   handler: async (ctx, { caseId }): Promise<RefreshResult> => {
+    await guardCaseInAction(ctx, caseId);
     const row: Doc<"pullRequests"> | null = await ctx.runQuery(internal.prTracking.records.forCase, { caseId });
     return row ? await sync(ctx, row) : { outcome: "none" };
   },
@@ -120,11 +120,12 @@ export const refreshActive = internalAction({
 export const merge = action({
   args: { caseId: v.id("cases"), headSha: v.string(), passcode: v.optional(v.string()) },
   handler: async (ctx, { caseId, headSha, passcode }): Promise<MergeResult> => {
+    const account = await guardCaseInAction(ctx, caseId);
     await ctx.runQuery(internal.ownerPasscode.authorize, { passcode });
     const row: Doc<"pullRequests"> | null = await ctx.runQuery(internal.prTracking.records.forCase, { caseId });
     if (!row || row.number === undefined) return { outcome: "refused", reason: "This case has no pull request yet." };
     if (row.settledAt !== undefined) return { outcome: "refused", reason: row.openError ?? "turtl is no longer following this pull request." };
-    const access = await githubAccess(ctx, row.repo);
+    const access = await githubAccess(ctx, row.repo, caseId);
     if ("outcome" in access) return access;
     const { token } = access;
     const read = await readPullRequest(token, row.repo, row.number);
@@ -141,7 +142,7 @@ export const merge = action({
     }
     if (!snapshot.mergeable) return refused(`GitHub can't merge it right now (${snapshot.mergeableState}).`);
 
-    const allowed = await ctx.runMutation(internal.prTracking.records.beginMerge, { id: row._id, by: SOLO_OWNER });
+    const allowed = await ctx.runMutation(internal.prTracking.records.beginMerge, { id: row._id, by: ownerActor(account) });
     if (!allowed) return refused("The owner stopped this action or the pull request already finished. Nothing was merged.");
     const merged = await mergePullRequest(token, row.repo, row.number, headSha);
     if (!merged.ok || !merged.body.merged) {
@@ -175,7 +176,7 @@ export const attachByUrl = action({
     requireDevTools();
     const parsed = parsePullRequestUrl(url);
     if (!parsed) return { outcome: "failed", message: "Expected a pull request URL like https://github.com/owner/name/pull/123." };
-    const access = await githubAccess(ctx, parsed.repo);
+    const access = await githubAccess(ctx, parsed.repo, caseId);
     if ("outcome" in access) return access;
     const read = await readPullRequest(access.token, parsed.repo, parsed.number);
     if (!read.ok) return { outcome: "failed", message: read.message };

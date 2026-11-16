@@ -45,6 +45,15 @@ export default function Enacting() {
   const [chatError, setChatError] = useState<string | null>(null);
   const e = c?.enactment;
   const back = ("/review/" + caseId) as never;
+  // A case that is not this account's, or no longer exists, reads as not found, like the case screen.
+  if (c === null) {
+    return (
+      <Screen testID="enacting">
+        <Header title="Not found" fallback={"/projects" as never} />
+        <T style={{ padding: 20 }} testID="enacting-not-found">This case could not be found.</T>
+      </Screen>
+    );
+  }
   if (!c || !e) {
     return (
       <Screen testID="enacting">
@@ -125,7 +134,7 @@ export default function Enacting() {
 
   return (
     <Screen testID="enacting">
-      <Header title={(project?.name ?? "") + (c.type === "feature" ? " request" : " error") + ": Fix " + number} fallback={back} testID="enacting-title" />
+      <Header title={(project?.name ? project.name + (c.type === "feature" ? " request" : " error") : c.type === "feature" ? "Request" : "Error") + ": Fix " + number} fallback={back} testID="enacting-title" />
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
         <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 20, gap: 28, paddingBottom: insets.bottom + 40 }} testID="enacting-scroll">
           <Reveal>

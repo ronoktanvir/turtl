@@ -2,10 +2,22 @@ import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import { internalMutation, internalQuery, query, type MutationCtx, type QueryCtx } from "../_generated/server";
+import { canSeeApp, canSeeCase } from "../access";
 import { CLOSED_CASE_STATUSES } from "../constants";
 import { startCaseRun } from "../runner/run";
 import { HARNESS_VERSION, RATE_LIMITS, TRIAGE_PROMPT_VERSION, fingerprint, windowStart, type Candidate } from "./rules";
 import { vReportHint, vTriageVerdict } from "./schema";
+// Deleting a report, and keeping a customer's contact only as a reference.
+import { ConvexError } from "convex/values";
+import { internalAction, mutation } from "../_generated/server";
+import { accessEnforced, requireCase } from "../access";
+import { requireOwnerPasscode } from "../ownerPasscode";
+import { gateFor } from "../consent/gate";
+import { deleteDocuments } from "../supermemory";
+import { CONTACT_REF, contactRef } from "./rules";
+import { reportsNamespace } from "./triage";
+
+declare const process: { env: Record<string, string | undefined> };
 
 export const PROVIDER = "turtl-form";
 const LOCK_MS = 120_000;
@@ -17,11 +29,6 @@ const isOpen = (row: Doc<"cases">) => !(CLOSED_CASE_STATUSES as readonly string[
 const isCustomerCase = (row: Doc<"cases">) =>
   row.raisedBy === "customer" && (row.kind === "bug_report" || row.kind === "feature_request");
 
-async function sha256(text: string) {
-  const bytes = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)));
-  return [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
-}
-
 async function reportsOn(ctx: QueryCtx, caseId: Id<"cases">) {
   return await ctx.db
     .query("reports")
@@ -32,7 +39,9 @@ async function reportsOn(ctx: QueryCtx, caseId: Id<"cases">) {
 // reportCount counts messages; distinctRequesterCount counts the people (fromRef) behind them.
 async function recount(ctx: MutationCtx, caseId: Id<"cases">) {
   const rows = await reportsOn(ctx, caseId);
-  await ctx.db.patch(caseId, { reportCount: rows.length, distinctRequesterCount: new Set(rows.map((r) => r.fromRef)).size });
+  const counts = { reportCount: rows.length, distinctRequesterCount: new Set(rows.map((r) => r.fromRef)).size };
+  await ctx.db.patch(caseId, counts);
+  return counts;
 }
 
 // Stores one report from the public endpoint after its key and rate limits pass, and queues its triage.
@@ -51,8 +60,9 @@ export const receive = internalMutation({
       return { ok: false, status: 403, code: "UNKNOWN_KEY", message: "This report key is not recognised." };
     }
     const appId = key.appId;
+    // The contact becomes this reference and is then dropped: it is not stored anywhere (rules.ts, contactRef).
     const fromRef = args.contact
-      ? `form:contact:${(await sha256(args.contact.toLowerCase())).slice(0, 24)}`
+      ? await contactRef(args.contact, process.env.INTAKE_CONTACT_KEY)
       : args.reporterId
         ? `form:device:${args.reporterId}`
         : `form:anonymous:${args.reportId ?? crypto.randomUUID()}`;
@@ -111,7 +121,6 @@ export const receive = internalMutation({
       fingerprint: fingerprint(args.text),
       status: "pending",
       ...(args.hint && { hint: args.hint }),
-      ...(args.contact && { contact: args.contact }),
     });
     await ctx.scheduler.runAfter(0, internal.intake.triage.processNext, { appId });
     return { ok: true, duplicate: false };
@@ -321,6 +330,8 @@ export const caseReports = internalQuery({
 export const forCase = query({
   args: { caseId: v.string() },
   handler: async (ctx, args) => {
+    // What customers wrote is shown only to the owner of the app they sent it to.
+    if (!(await canSeeCase(ctx, args.caseId))) return null;
     const caseId = ctx.db.normalizeId("cases", args.caseId);
     if (!caseId) return null;
     const rows = await reportsOn(ctx, caseId);
@@ -337,6 +348,7 @@ export const forCase = query({
 export const forApp = query({
   args: { appId: v.id("apps") },
   handler: async (ctx, { appId }) => {
+    if (!(await canSeeApp(ctx, appId))) return [];
     const rows = await ctx.db.query("reportTriage").withIndex("by_app_and_status", (q) => q.eq("appId", appId)).collect();
     return await Promise.all(
       rows
@@ -359,5 +371,168 @@ export const forApp = query({
           };
         }),
     );
+  },
+});
+
+// Deleting reports: one at the owner's request, or all of an app's when its account goes.
+
+export const REPORT_NOT_AVAILABLE = "That report is not available. It may already have been deleted.";
+const DELETED_EVIDENCE = {
+  title: "A customer's report, deleted by the owner",
+  body: "The owner deleted this report, so turtl no longer keeps the customer's words.",
+};
+const EVIDENCE_SCAN = 2_000;
+const BATCH = 100;
+const FORGET_TRIES = 3;
+
+// Removes reports: their rows, their triage rows, and their words in their cases' evidence. An evidence row stays,
+// so the case's history still adds up, but it says the report was deleted. Returns the cases they were on. The
+// caller recounts those cases and asks Supermemory to forget the copies (forgetCopies).
+// Other places quote a report: a rule-based case title, the rule-based reading ("the first in their words: …"), and
+// step outputs. Those quotes are replaced too, unless another report still on the case says the same words.
+// Deleting a whole app's reports (deleteAppReports) passes scrubQuotes: false: its cases are deleted with the account,
+// and reading every case's history in one batch would exceed a mutation's read limit.
+export async function removeReports(ctx: MutationCtx, reports: Doc<"reports">[], { scrubQuotes = true } = {}): Promise<Id<"cases">[]> {
+  const byCase = new Map<Id<"cases">, Doc<"reports">[]>();
+  for (const report of reports) {
+    for (const triage of await ctx.db.query("reportTriage").withIndex("by_report", (q) => q.eq("reportId", report._id)).take(10)) {
+      await ctx.db.delete(triage._id);
+    }
+    await ctx.db.delete(report._id);
+    if (report.caseId) byCase.set(report.caseId, [...(byCase.get(report.caseId) ?? []), report]);
+  }
+  for (const [caseId, removed] of byCase) {
+    const sourceRefs = new Set(removed.map((r) => `reports/${r._id}`));
+    const remaining = (await reportsOn(ctx, caseId)).map((r) => r.text.replace(/\s+/g, " "));
+    const needles = scrubQuotes ? [...new Set(removed.flatMap((r) => quotesOf(r.text)))].filter((n) => !remaining.some((text) => text.includes(n))) : [];
+    for (const row of await ctx.db.query("evidence").withIndex("by_case", (q) => q.eq("caseId", caseId)).take(EVIDENCE_SCAN)) {
+      if (row.kind === "customer_report" && row.sourceRef && sourceRefs.has(row.sourceRef)) await ctx.db.patch(row._id, DELETED_EVIDENCE);
+      else if (needles.length) {
+        const title = scrub(row.title, needles);
+        const body = row.body === undefined ? undefined : scrub(row.body, needles);
+        if (title !== row.title || body !== row.body) await ctx.db.patch(row._id, { title, ...(body !== undefined && { body }) });
+      }
+    }
+    if (!needles.length) continue;
+    const row = await ctx.db.get(caseId);
+    if (row) {
+      const title = scrub(row.title, needles);
+      const impact = scrub(row.impact, needles);
+      if (title !== row.title || impact !== row.impact) await ctx.db.patch(caseId, { title, impact });
+    }
+    for (const attempt of await ctx.db.query("stepAttempts").withIndex("by_case", (q) => q.eq("caseId", caseId)).take(EVIDENCE_SCAN)) {
+      // Its summary, handoff, output and error can each quote the reading of the reports.
+      const { _id, _creationTime, ...fields } = attempt;
+      const changed = Object.fromEntries(Object.entries(fields).filter(([key, value]) => JSON.stringify(scrub(value, needles)) !== JSON.stringify(value)).map(([key, value]) => [key, scrub(value, needles)]));
+      if (Object.keys(changed).length) await ctx.db.patch(_id, changed);
+    }
+  }
+  return [...byCase.keys()];
+}
+
+const DELETED_QUOTE = "[a deleted report]";
+const MIN_QUOTE = 12;
+
+// The forms a report's words are quoted in: whole, the first 140 characters (customer_report evidence titles), and
+// the first sentence cut at 70 (ruleTitle). Very short texts are not searched for, so ordinary words are not erased.
+function quotesOf(text: string): string[] {
+  const flat = text.replace(/\s+/g, " ").trim();
+  const first = flat.split(/(?<=[.!?])\s/)[0].trim();
+  const cut = first.length > 70 ? first.slice(0, 70).replace(/\s+\S*$/, "") : first;
+  return [flat, flat.slice(0, 140), cut].filter((q) => q.length >= MIN_QUOTE);
+}
+
+function scrub<T>(value: T, needles: string[]): T {
+  if (typeof value === "string") return needles.reduce((s: string, n) => s.split(n).join(DELETED_QUOTE), value) as T;
+  if (Array.isArray(value)) return value.map((item) => scrub(item, needles)) as T;
+  if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([k, item]) => [k, scrub(item, needles)])) as T;
+  return value;
+}
+
+// The owner deletes one report on one of their cases. The case's counts are recounted, and the copy turtl keeps in
+// Supermemory for matching reports is deleted too. In the single-owner demo the owner passcode guards it.
+export const deleteReport = mutation({
+  args: { caseId: v.string(), reportId: v.string(), passcode: v.optional(v.string()) },
+  returns: v.object({ reportCount: v.number(), people: v.number() }),
+  handler: async (ctx, args) => {
+    const caseId = ctx.db.normalizeId("cases", args.caseId);
+    if (!caseId) throw new ConvexError(REPORT_NOT_AVAILABLE);
+    await requireCase(ctx, caseId);
+    if (!accessEnforced()) await requireOwnerPasscode(ctx, args.passcode);
+    const reportId = ctx.db.normalizeId("reports", args.reportId);
+    const report = reportId ? await ctx.db.get(reportId) : null;
+    if (!report || report.caseId !== caseId) throw new ConvexError(REPORT_NOT_AVAILABLE);
+    await removeReports(ctx, [report]);
+    await ctx.scheduler.runAfter(0, internal.intake.records.forgetCopies, { appId: report.appId, reportIds: [report._id], tries: 0 });
+    const counts = await recount(ctx, caseId);
+    return { reportCount: counts.reportCount, people: counts.distinctRequesterCount };
+  },
+});
+
+// Every report an app received, a batch at a time, for deleting an account or a project: rows, triage rows, the
+// words in evidence, and the Supermemory copies. Cases that remain are recounted. Schedules itself until none is left.
+export const deleteAppReports = internalMutation({
+  args: { appId: v.id("apps") },
+  returns: v.object({ deleted: v.number(), more: v.boolean() }),
+  handler: async (ctx, { appId }) => {
+    const rows = await ctx.db.query("reports").withIndex("by_app_and_provider_event", (q) => q.eq("appId", appId)).take(BATCH + 1);
+    const batch = rows.slice(0, BATCH);
+    for (const caseId of await removeReports(ctx, batch, { scrubQuotes: false })) if (await ctx.db.get(caseId)) await recount(ctx, caseId);
+    if (batch.length) await ctx.scheduler.runAfter(0, internal.intake.records.forgetCopies, { appId, reportIds: batch.map((r) => r._id), tries: 0 });
+    const more = rows.length > BATCH;
+    if (more) await ctx.scheduler.runAfter(0, internal.intake.records.deleteAppReports, { appId });
+    return { deleted: batch.length, more };
+  },
+});
+
+// Deletes the copies of these reports that triage added to the app's Supermemory namespace, by the report id they
+// were added under. Without SUPERMEMORY_API_KEY turtl made no copy and sends nothing. A failure is retried twice.
+export const forgetCopies = internalAction({
+  args: { appId: v.id("apps"), reportIds: v.array(v.string()), tries: v.number() },
+  returns: v.object({ removed: v.boolean(), reason: v.optional(v.string()) }),
+  handler: async (ctx, { appId, reportIds, tries }) => {
+    if (!process.env.SUPERMEMORY_API_KEY) return { removed: false, reason: "SUPERMEMORY_API_KEY is not set, so turtl keeps no copy in Supermemory." };
+    try {
+      await deleteDocuments(gateFor(ctx, { appId }), reportsNamespace(appId), reportIds);
+      return { removed: true };
+    } catch (error) {
+      const reason = `Supermemory did not confirm the deletion (${error instanceof Error ? error.name : "unknown error"}).`;
+      if (tries + 1 < FORGET_TRIES) {
+        await ctx.scheduler.runAfter(60_000 * (tries + 1), internal.intake.records.forgetCopies, { appId, reportIds, tries: tries + 1 });
+      } else {
+        console.error(`${reason} Gave up after ${FORGET_TRIES} tries for ${reportIds.length} report(s) of app ${appId}.`);
+      }
+      return { removed: false, reason };
+    }
+  },
+});
+
+// One-off: reports received before contacts stopped being stored kept the contact as written on reportTriage.
+// This clears it from every such row, a batch at a time. With INTAKE_CONTACT_KEY set, it first moves the report's
+// person reference to the keyed hash, so people keep being counted once. Set the key before running it:
+//   npx convex run intake/records:forgetStoredContacts '{}'
+export const forgetStoredContacts = internalMutation({
+  args: { cursor: v.optional(v.union(v.string(), v.null())) },
+  returns: v.object({ cleared: v.number(), rekeyed: v.number(), done: v.boolean() }),
+  handler: async (ctx, { cursor }) => {
+    const key = process.env.INTAKE_CONTACT_KEY;
+    const page = await ctx.db.query("reportTriage").paginate({ cursor: cursor ?? null, numItems: BATCH });
+    let cleared = 0;
+    let rekeyed = 0;
+    const cases = new Set<Id<"cases">>();
+    for (const triage of page.page) {
+      if (triage.contact === undefined) continue;
+      const report = await ctx.db.get(triage.reportId);
+      if (key && report?.fromRef.startsWith(CONTACT_REF)) {
+        await ctx.db.patch(report._id, { fromRef: await contactRef(triage.contact, key) });
+        rekeyed++;
+        if (report.caseId) cases.add(report.caseId);
+      }
+      await ctx.db.patch(triage._id, { contact: undefined });
+      cleared++;
+    }
+    for (const caseId of cases) if (await ctx.db.get(caseId)) await recount(ctx, caseId);
+    if (!page.isDone) await ctx.scheduler.runAfter(0, internal.intake.records.forgetStoredContacts, { cursor: page.continueCursor });
+    return { cleared, rekeyed, done: page.isDone };
   },
 });

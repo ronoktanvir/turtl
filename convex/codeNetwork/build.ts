@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import { internalAction } from "../_generated/server";
+import { gateFor, type Gate } from "../consent/gate";
 import { repositoryAccess } from "../github/access";
 import { addDocuments, type CodeDocument } from "../supermemory";
 import {
@@ -13,6 +14,7 @@ import {
   type SourceFile,
 } from "./graph";
 import { respond, type ModelUsage } from "./openai";
+import { redactFiles } from "./redact";
 import { codeNamespace, type NetCluster, type NetNode } from "./schema";
 
 declare const process: { env: Record<string, string | undefined> };
@@ -152,11 +154,12 @@ function digest(files: SourceFile[], nodes: GraphNode[], edges: GraphEdge[]): st
 }
 
 async function labelWithModel(
+  gate: Gate,
   files: SourceFile[],
   nodes: GraphNode[],
   edges: GraphEdge[],
 ): Promise<{ labels: Labels; usage: ModelUsage }> {
-  const { text, usage } = await respond({
+  const { text, usage } = await respond(gate, {
     instructions: CLUSTER_PROMPT,
     input: digest(files, nodes, edges),
     maxOutputTokens: MODEL_OUTPUT_TOKENS,
@@ -190,16 +193,24 @@ export const build = internalAction({
       (name) => !process.env[name],
     );
     if (missing.length) return { outcome: "not_configured", missing };
+    // Nothing goes to OpenAI or Supermemory without the owner's permission (convex/consent/gate.ts).
+    const gate = gateFor(ctx, { appId: projectId });
+    for (const service of reuseLabels ? (["supermemory"] as const) : (["openai", "supermemory"] as const)) {
+      const refused = await gate.blocked(service);
+      if (refused) return { outcome: "failed", reason: `The map of the code was not built: ${refused}.` };
+    }
     if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) return { outcome: "failed", reason: `repo must be owner/name, got ${repo}.` };
 
     const started = Date.now();
-    const access = await repositoryAccess(ctx, repo);
+    const access = await repositoryAccess(ctx, repo, { appId: projectId });
     if (!access.ok) return { outcome: "failed", reason: access.message };
     const fetched = await fetchRepository(repo, ref ?? "HEAD", access.token);
     if ("reason" in fetched) return { outcome: "failed", reason: fetched.reason };
     const githubMs = Date.now() - started;
     const { nodes: graphNodes, edges } = buildGraph(fetched.files);
     if (graphNodes.length === 0) return { outcome: "failed", reason: `${repo} has no source files turtl can read.` };
+    // What leaves turtl is the code with its secrets masked and secret files left out (convex/codeNetwork/redact.ts).
+    const shared = redactFiles(fetched.files).files;
 
     const modelStarted = Date.now();
     let labels: Labels;
@@ -209,7 +220,7 @@ export const build = internalAction({
       if (!stored) return { outcome: "failed", reason: `reuseLabels needs a stored network for ${projectId}; none exists.` };
       labels = { clusters: stored.clusters, nodes: new Map(stored.nodes.map(({ id, ...rest }) => [id, rest])) };
     } else {
-      ({ labels, usage } = await labelWithModel(fetched.files, graphNodes, edges));
+      ({ labels, usage } = await labelWithModel(gate, shared, graphNodes, edges));
     }
     const modelMs = Date.now() - modelStarted;
 
@@ -231,7 +242,7 @@ export const build = internalAction({
     const clusterName = new Map(clusters.map((cluster) => [cluster.id, cluster.name]));
 
     const namespace = codeNamespace(projectId);
-    const content = new Map(fetched.files.map((file) => [file.path, file.content]));
+    const content = new Map(shared.map((file) => [file.path, file.content]));
     const documentId = (id: string) => id.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 200);
     const documents: CodeDocument[] = [
       ...clusters.map((cluster) => ({
@@ -255,7 +266,7 @@ export const build = internalAction({
       ),
     ];
     const supermemoryStarted = Date.now();
-    const added = await addDocuments(namespace, documents);
+    const added = await addDocuments(gate, namespace, documents);
     const supermemoryMs = Date.now() - supermemoryStarted;
 
     await ctx.runMutation(internal.codeNetwork.network.store, {

@@ -1,6 +1,7 @@
 import { ConvexError, v } from "convex/values";
 import type { Infer } from "convex/values";
 import { internalMutation, internalQuery, query } from "../_generated/server";
+import { canSeeApp } from "../access";
 import { PROVIDER_KEYS } from "../routing/configs";
 import { vCouncilMember } from "./schema";
 
@@ -39,6 +40,7 @@ export const resolve = internalQuery({
 export const forApp = query({
   args: { appId: v.id("apps") },
   handler: async (ctx, { appId }) => {
+    if (!(await canSeeApp(ctx, appId))) return null;
     const row = await ctx.db.query("councilSettings").withIndex("by_app", (q) => q.eq("appId", appId)).unique();
     const members = row?.members ?? DEFAULT_MEMBERS;
     return {

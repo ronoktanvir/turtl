@@ -3,6 +3,7 @@ import { TextInput, View } from "react-native";
 import { api } from "../../convex/_generated/api";
 import { errorMessage, requireLiveClient, useLiveQuery } from "../../data/live/client";
 import { storeOwnerPasscode } from "../../data/live/ownerPasscode";
+import { isStoreBuild } from "../../data/source";
 import { useTheme } from "../../theme";
 import { Button, T } from "../ui";
 
@@ -15,7 +16,7 @@ export default function OwnerPasscodeSettings() {
   const [confirm, setConfirm] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const inputStyle = { color: colors.text, backgroundColor: colors.surfaceRaised, borderWidth: 1, borderColor: colors.border, borderRadius: 12, minHeight: 48, paddingHorizontal: 14, fontSize: 16 };
+  const inputStyle = { color: colors.text, backgroundColor: colors.surfaceRaised, borderWidth: 1, borderColor: colors.border, borderRadius: 12, minHeight: 48, paddingHorizontal: 14, fontSize: 16, fontFamily: "Capriola_400Regular", fontWeight: "400" as const };
   const save = async () => {
     if (busy) return;
     if (next !== confirm) { setMessage("The new passcodes do not match."); return; }
@@ -33,6 +34,9 @@ export default function OwnerPasscodeSettings() {
     } catch (error) { setMessage(errorMessage(error)); }
     finally { setBusy(false); }
   };
+  // With accounts on there is no passcode: the account protects owner decisions. A store build always runs with
+  // accounts on, so it shows nothing while the answer loads either.
+  if (status?.accounts || (status === undefined && isStoreBuild)) return null;
   return <View style={{ gap: 12 }} testID="owner-passcode-settings">
     <T variant="heading">Owner passcode</T>
     <T color={status?.configured ? "textMuted" : "statusAffected"} testID="owner-passcode-status">{status === undefined ? "Checking owner passcode…" : status.configured ? "A passcode protects owner decisions across all projects. Read-only screens stay open." : "No owner passcode is set. Anyone with the backend address can make decisions. Linking and merging pull requests are blocked until you set one."}</T>

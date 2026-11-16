@@ -1,9 +1,12 @@
 import type { Doc, Id } from "./_generated/dataModel";
+import type { Gate } from "./consent/gate";
 import type { Criterion, Delivery, OptionKind, ProposalOption, Span } from "./constants";
 import { checkParameters } from "./decisions";
 import { modelId as diagnosisModelId } from "./diagnosis";
 import { fingerprint, pastDecisionLine, recommend, type TurnedDown } from "./learning/rules";
+import { codeChangeInstructions, instructionsToSend } from "./prTracking/capy";
 import type { Facts } from "./runner/handlers/journey";
+import { modelCost } from "./spend/limits";
 
 declare const process: { env: Record<string, string | undefined> };
 
@@ -36,9 +39,33 @@ export type FixOption = {
   delivery: Delivery;
   preferences?: { id: string; statement: string }[];
   pastDecisions?: string;
+  sends?: FixSends;
 };
 
-export function toFixOption(option: ProposalOption): FixOption {
+// What approving sends, word for word as the option stores it (TUR-68): the coding agent's full instructions for a
+// code change, or the catalog action with the exact target and values decisions.ts freezes and runs.
+export type FixSends =
+  | { kind: "instructions"; text: string }
+  | { kind: "action"; name: string; description?: string; target: string; values: { name: string; value: string }[] };
+
+type CatalogWords = Pick<Doc<"actionCatalog">, "name" | "description">;
+
+export function sendsOf(option: ProposalOption, entry?: CatalogWords | null): FixSends | undefined {
+  if (option.delivery === "pull_request") {
+    const text = instructionsToSend(option.parameters, option.target);
+    return text ? { kind: "instructions", text } : undefined;
+  }
+  return {
+    kind: "action",
+    name: entry?.name ?? option.title,
+    ...(entry?.description && { description: entry.description }),
+    target: `${option.target.resourceRef} (${option.target.environment.replace(/[_-]+/g, " ")})`,
+    values: option.parameters.map((p) => ({ name: p.name, value: JSON.stringify(p.value) })),
+  };
+}
+
+export function toFixOption(option: ProposalOption, entry?: CatalogWords | null): FixOption {
+  const sends = sendsOf(option, entry);
   return {
     key: option.key,
     title: option.title,
@@ -57,6 +84,7 @@ export function toFixOption(option: ProposalOption): FixOption {
       preferences: option.preferences.map((p) => ({ id: p.preferenceId as string, statement: p.statement })),
     }),
     ...(option.pastDecisions && { pastDecisions: option.pastDecisions }),
+    ...(sends && { sends }),
   };
 }
 
@@ -108,12 +136,14 @@ export function pullRequestOption(
   key: string,
 ): ProposalOption {
   if (entry.config.kind !== "capy") throw new Error("The catalog entry does not open pull requests.");
+  const repo = entry.config.repoUrl.replace(/^https?:\/\/github\.com\//, "").replace(/\.git$/, "");
+  // The stored "change" is the coding agent's full instructions, so the owner approves the exact text that is sent.
+  const change = codeChangeInstructions({ repo, baseBranch: entry.config.baseBranch, title: draft.title, change: draft.change });
   const parameters = [
     { name: "title", value: draft.title },
-    { name: "change", value: draft.change },
+    { name: "change", value: change },
   ];
   checkParameters(parameters, entry.parameterConstraints);
-  const repo = entry.config.repoUrl.replace(/^https?:\/\/github\.com\//, "").replace(/\.git$/, "");
   return {
     key,
     title: draft.title,
@@ -160,21 +190,25 @@ export function readDraft(raw: unknown, kinds: OptionKind[] = CODE_CHANGE_KINDS)
 export const FIX_FIELDS =
   'A code change is written {"title": string (at most 8 words), "kind": "recovery" | "repair" | "prevention", "why": string, "whatChanges": string, "whatMightBeLost": string, "howChecked": string, "change": string, "confidence": number}. why: one or two plain sentences on why it would work, citing what the evidence shows. whatChanges: what changes for customers and in the app. whatMightBeLost: the honest trade-offs. howChecked: how turtl would check it worked. change: precise instructions for the engineer writing the pull request (what behaviour to change, and where if the evidence shows it). confidence: 0 to 1.';
 
-// One JSON-mode chat completion. Never throws; a missing key or a failed call is a reason.
+// One JSON-mode chat completion. Never throws; a missing key, the gate's no, or a failed call is a reason.
 export async function askJson(
+  gate: Gate,
   system: string,
   user: unknown,
 ): Promise<{ ok: true; json: Record<string, unknown> } | { ok: false; reason: string }> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) return { ok: false, reason: "OPENAI_API_KEY is not set on this deployment, so no model was asked" };
+  const opened = await gate.open("openai");
+  if (!opened.ok) return { ok: false, reason: opened.reason };
+  const model = fixesModelId();
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), MODEL_TIMEOUT_MS);
   try {
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    const response = await opened.fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: fixesModelId(),
+        model,
         response_format: { type: "json_object" },
         messages: [
           { role: "system", content: system },
@@ -184,7 +218,11 @@ export async function askJson(
       signal: controller.signal,
     });
     if (!response.ok) return { ok: false, reason: `the model call returned HTTP ${response.status}` };
-    const body = (await response.json()) as { choices?: { message?: { content?: string } }[] };
+    const body = (await response.json()) as {
+      choices?: { message?: { content?: string } }[];
+      usage?: { prompt_tokens?: number; completion_tokens?: number };
+    };
+    await gate.spent(modelCost(model, body.usage && { inputTokens: body.usage.prompt_tokens ?? 0, outputTokens: body.usage.completion_tokens ?? 0 }));
     const json = JSON.parse(body.choices?.[0]?.message?.content ?? "null") as unknown;
     if (!json || typeof json !== "object") return { ok: false, reason: "the model's answer was not a JSON object" };
     return { ok: true, json: json as Record<string, unknown> };
@@ -268,6 +306,7 @@ const refsOf = (raw: unknown, field: string) =>
 // is recommended (learning/rules.ts); they never make a fix recommended that the facts don't support.
 export async function planFixes(
   input: PlanInput,
+  gate: Gate,
 ): Promise<{ options: ProposalOption[]; note: string; modelAnswered: boolean; noModelReason?: string }> {
   const { base, basis, preferences, feedback, context } = input;
   const baseWhy: Span[] = [
@@ -383,6 +422,7 @@ export async function planFixes(
 
   const entry = pullRequestEntry(input.catalog);
   const answer = await askJson(
+    gate,
     [
       PLAN_PROMPT,
       preferences.length ? PREFERENCE_PROMPT : NO_PREFERENCES_PROMPT,

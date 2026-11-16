@@ -1,13 +1,19 @@
 import { query } from "../_generated/server";
 import { v } from "convex/values";
+import { accessEnforced, canSeeApp, projectCases, visibleApps } from "../access";
 import { currentPermission, MIN_VERIFIED_RECOVERIES, sourceAction, usesOf } from "../permissions";
 import { latestForCase, toPullRequest } from "../prTracking/records";
 
 export const list = query({
   args: {},
   handler: async (ctx) => {
-    const apps = (await ctx.db.query("apps").collect()).filter((app) => !app.isSample);
-    const cases = (await ctx.db.query("cases").collect()).filter((row) => !row.isSample);
+    // Accounts: the caller's projects by the by_owner index and each one's newest cases by the by_app index, oldest
+    // first like the demo's read. The demo still reads every app and every case.
+    const accounts = accessEnforced();
+    const apps = (accounts ? await visibleApps(ctx) : await ctx.db.query("apps").collect()).filter((app) => !app.isSample);
+    const cases = accounts
+      ? (await Promise.all(apps.map(async (app) => (await projectCases(ctx, app._id)).reverse()))).flat().filter((row) => !row.isSample)
+      : (await ctx.db.query("cases").collect()).filter((row) => !row.isSample);
     const projects = [];
     for (const app of apps) {
       const journeys = await ctx.db.query("journeys").withIndex("by_app", (q) => q.eq("appId", app._id)).collect();
@@ -35,6 +41,7 @@ export const list = query({
 export const approvalSettings = query({
   args: { projectId: v.string() },
   handler: async (ctx, { projectId }) => {
+    if (!(await canSeeApp(ctx, projectId))) return null;
     const appId = ctx.db.normalizeId("apps", projectId);
     const app = appId ? await ctx.db.get(appId) : null;
     if (!app || app.isSample) return null;
@@ -50,7 +57,7 @@ export const approvalSettings = query({
     const scopes = (active.length ? active : candidates.slice(0, 1)).map((chosen) => {
       const target = chosen.source?.executionPayload.target;
       const values = chosen.source?.executionPayload.parameters.map((p) => `${p.name}=${JSON.stringify(p.value)}`).join(", ");
-      return `${chosen.memory.actionType} on ${target?.resourceRef ?? "the recorded target"} (${target?.environment ?? "recorded environment"}); ${values || "no parameters"}. Up to 3 uses, only on app version ${chosen.memory.appRevision}. Fresh conditions are checked before every use.`;
+      return `turtl may ${chosen.memory.actionType.replace(/_/g, " ")} on ${target?.resourceRef ?? "the recorded target"} (${target?.environment ?? "the recorded environment"}) with ${values || "no values"}, at most 3 times, and only while the app runs version ${chosen.memory.appRevision}. Before each run it checks again that the conditions still hold.`;
     });
     return {
       active: active.length > 0,

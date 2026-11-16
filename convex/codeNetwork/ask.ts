@@ -1,7 +1,9 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { internal } from "../_generated/api";
 import { action } from "../_generated/server";
 import type { Doc } from "../_generated/dataModel";
+import { guardAppInAction } from "../access";
+import { gateFor } from "../consent/gate";
 import { searchChunks, type DocumentMatch } from "../supermemory";
 import { respond } from "./openai";
 import { scopeKey, vCodeChatScope, type ChatMessage, type CodeChatScope, type NetNode } from "./schema";
@@ -91,6 +93,7 @@ function describeScope(network: Network, scope: CodeChatScope): { context: strin
 export const ask = action({
   args: { scope: vCodeChatScope, message: v.string() },
   handler: async (ctx, { scope, message }): Promise<AskResult> => {
+    await guardAppInAction(ctx, scope.projectId);
     const missing = [
       ...(process.env.CODE_NETWORK_CHAT_ENABLED === "true" ? [] : ["CODE_NETWORK_CHAT_ENABLED"]),
       ...["SUPERMEMORY_API_KEY", "OPENAI_API_KEY"].filter((name) => !process.env[name]),
@@ -106,6 +109,12 @@ export const ask = action({
     if (!network) {
       throw new Error(`No code network is stored for project ${scope.projectId}. Build it with codeNetwork/build:build or load the seed with codeNetwork/dev:loadSeed.`);
     }
+    // The question goes to Supermemory and OpenAI only with the owner's permission (convex/consent/gate.ts).
+    const gate = gateFor(ctx, { appId: scope.projectId });
+    for (const service of ["supermemory", "openai"] as const) {
+      const refused = await gate.blocked(service);
+      if (refused) throw new ConvexError(`turtl can't answer questions about your code: ${refused}.`);
+    }
     const { context, anyOf } = describeScope(network, scope);
     const key = scopeKey(scope);
     const history = await ctx.runQuery(internal.codeNetwork.network.recentMessages, {
@@ -120,14 +129,14 @@ export const ask = action({
       text,
     });
 
-    const chunks = await searchChunks(network.namespace, text, { limit: 8, anyOf });
+    const chunks = await searchChunks(gate, network.namespace, text, { limit: 8, anyOf });
     const excerpts = chunks.length
       ? `Code excerpts found for this question:\n${chunks
           .map((chunk) => `--- ${typeof chunk.metadata.path === "string" ? chunk.metadata.path : "summary"}\n${chunk.text}`)
           .join("\n")}`
       : "No code excerpts were found for this question.";
 
-    const { text: reply } = await respond({
+    const { text: reply } = await respond(gate, {
       instructions: `${SYSTEM_PROMPT}\n\n${context}\n\n${excerpts}`,
       input: [
         ...history.map((turn) => ({ role: turn.role === "owner" ? ("user" as const) : ("assistant" as const), content: turn.text })),

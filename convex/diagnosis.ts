@@ -1,4 +1,5 @@
 import type { Doc } from "./_generated/dataModel";
+import type { Gate } from "./consent/gate";
 import type { Facts } from "./runner/handlers/journey";
 import { supportedFactKeys } from "./memory/checks";
 import { CONFIGURATIONS, type ConfigKey, type Configuration, type ModelRef } from "./routing/configs";
@@ -68,10 +69,11 @@ export function payloadFor(config: Configuration, context: DiagnosisContext) {
 }
 
 export async function askModel(
+  gate: Gate,
   config: Configuration,
   context: DiagnosisContext,
 ): Promise<{ answer: ModelAnswer; reading: Reading | null; unusable?: string }> {
-  const answer = await callModel({
+  const answer = await callModel(gate, {
     ref: modelFor(config),
     system: config.instructions.join("\n"),
     user: JSON.stringify(payloadFor(config, context)),

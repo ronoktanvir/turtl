@@ -10,7 +10,7 @@ import { chromium } from "playwright-core";
 
 test("recorded workflow is keyboard accessible with truthful edges and narrow independent lanes", async () => {
   const dir = await mkdtemp(join(tmpdir(), "turtl-workflow-"));
-  const executablePath = process.env.CHROME_PATH ?? ["/usr/bin/google-chrome-stable", "/usr/bin/chromium"].find(existsSync);
+  const executablePath = process.env.CHROME_PATH ?? ["/usr/bin/google-chrome-stable", "/usr/bin/chromium", "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"].find(existsSync);
   assert.ok(executablePath, "Set CHROME_PATH to a Chromium executable");
   let browser;
   let server;
@@ -68,33 +68,35 @@ test("recorded workflow is keyboard accessible with truthful edges and narrow in
       assert.equal(await page.getByTestId("workflow-graph").locator("svg").first().getAttribute("aria-hidden"), "true");
       await noOverflow();
       await app.focus();
-      assert.match(await app.getAttribute("aria-label"), /Collect application state, running/);
+      assert.match(await app.getAttribute("aria-label"), /Collect application state, Working now/);
       assert.equal(await app.getAttribute("aria-expanded"), "false");
       await page.keyboard.press("Enter");
       assert.equal(await app.getAttribute("aria-expanded"), "true");
-      assert.match(await page.getByTestId("workflow-step-detail").innerText(), /Attempt count: 2/);
-      assert.match(await page.getByTestId("workflow-step-detail").innerText(), /attempt-detect-1/);
-      assert.match(await page.getByTestId("workflow-step-detail").innerText(), /Dependency key: detect/);
+      const detail = await page.getByTestId("workflow-step-detail").innerText();
+      assert.match(detail, /Tried 2 times/);
+      assert.match(detail, /Built on what “Receive report” found/);
+      assert.match(detail, /Runs after “Receive report”/);
+      assert.doesNotMatch(detail, /attempt-detect-1|collect_app_state|detect_or_receive/, "owners never read raw ids");
       await noOverflow();
       await app.focus();
       await page.keyboard.press("Space");
       assert.equal(await app.getAttribute("aria-expanded"), "false");
       await page.screenshot({ path: join(screenshotDir, `local-fixture-running-${width}.png`), fullPage: true });
     }
-    for (const [scenario, key, status] of [["waiting", "error-window", "waiting"], ["failed", "error-window", "failed"], ["skipped", "investigate", "skipped"], ["joined", "gather", "done"]]) {
+    for (const [scenario, key, status] of [["waiting", "error-window", "Waiting"], ["failed", "error-window", "Stopped"], ["skipped", "investigate", "Skipped"], ["joined", "gather", "Done"]]) {
       await page.goto(`${base}/?scenario=${scenario}`);
       const node = page.getByTestId(`workflow-step-${key}`);
       await node.waitFor();
       assert.match(await node.innerText(), new RegExp(status));
       await node.click();
       const text = await page.getByTestId("workflow-step-detail").innerText();
-      assert.match(text, new RegExp(`Status: ${status}`));
+      assert.match(text, new RegExp(status));
       if (scenario === "failed") assert.match(text, /recorded collector request failed/);
-      if (scenario === "skipped") assert.match(text, /Skip reason: Recorded skip/);
+      if (scenario === "skipped") assert.match(text, /Skipped: Recorded skip/);
       if (scenario === "joined") {
-        assert.match(text, /attempt-app-state-2/);
-        assert.match(text, /attempt-error-window-1/);
-        assert.match(text, /evidence-gather/);
+        assert.match(text, /Built on what “Collect application state” and “Collect error window” found/);
+        assert.match(text, /Recorded evidence reference/);
+        assert.doesNotMatch(text, /attempt-app-state-2|attempt-error-window-1|evidence-gather/);
       }
       await noOverflow();
       await page.screenshot({ path: join(screenshotDir, `local-fixture-${scenario}-390.png`), fullPage: true });
@@ -104,12 +106,12 @@ test("recorded workflow is keyboard accessible with truthful edges and narrow in
     await page.screenshot({ path: join(screenshotDir, "local-fixture-light-390.png"), fullPage: true });
     await page.goto(`${base}/?scenario=malformed`);
     await page.getByTestId("workflow-step-a").waitFor();
-    assert.match((await page.getByTestId("workflow-warning").allInnerTexts()).join(" "), /missing dependency.*cycle/);
+    assert.match((await page.getByTestId("workflow-warning").allInnerTexts()).join(" "), /never recorded.*cycle/);
     await noOverflow();
     await page.setViewportSize({ width: 320, height: 844 });
     await page.goto(`${base}/?scenario=long-refs`);
     await page.getByTestId("workflow-step-gather").click();
-    assert.match(await page.getByTestId("workflow-step-detail").innerText(), new RegExp("e".repeat(140)));
+    assert.match(await page.getByTestId("workflow-step-detail").innerText(), /Long recorded reference/);
     await noOverflow();
     assert.deepEqual(errors, []);
   } finally {

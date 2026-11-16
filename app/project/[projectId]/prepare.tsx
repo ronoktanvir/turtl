@@ -1,4 +1,4 @@
-import { useLocalSearchParams } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { useRef, useState } from "react";
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -6,7 +6,7 @@ import { NeverBreakEditor } from "../../../components/onboarding/NeverBreakEdito
 import { PullRequestPanel } from "../../../components/onboarding/PullRequestPanel";
 import { ReadinessReport } from "../../../components/onboarding/ReadinessReport";
 import { WorksNow } from "../../../components/onboarding/WorksNow";
-import { editableStages, inspectableStages, stageLine } from "../../../components/onboarding/stage";
+import { editableStages, inspectableStages, rulesNote, stageLine } from "../../../components/onboarding/stage";
 import { Button, Header, Icon, Reveal, Screen, Sheet, T, Turtle } from "../../../components/ui";
 import { approvePreparation, checkLiveAgain, inspectAgain, mergePreparation, refreshPreparation, saveNeverBreak, useDataStatus, useOnboarding, useProject } from "../../../data";
 import type { NeverBreakAnswer } from "../../../data/onboarding/types";
@@ -19,6 +19,7 @@ export default function Prepare() {
   const project = useProject(projectId);
   const onboarding = useOnboarding(projectId);
   const { errors } = useDataStatus();
+  const router = useRouter();
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
   const [draft, setDraft] = useState<NeverBreakAnswer[] | null>(null);
@@ -30,6 +31,19 @@ export default function Prepare() {
   const [refused, setRefused] = useState<string | null>(null);
   const title = (project?.name ?? "") + ": Preparation";
   const back = ("/project/" + projectId) as never;
+
+  // A project that is not this account's, or no longer exists, reads as not found, like the project home.
+  if (project === null) {
+    return (
+      <Screen testID="prepare">
+        <Header title="Project not found" fallback="/projects" />
+        <View style={{ padding: 20, gap: 16 }}>
+          <T testID="prepare-not-found">This project is no longer available.</T>
+          <Button label="Back to projects" onPress={() => router.replace("/projects")} testID="prepare-not-found-back" />
+        </View>
+      </Screen>
+    );
+  }
 
   if (!onboarding) {
     return (
@@ -89,7 +103,7 @@ export default function Prepare() {
 
   const notes = [
     inspection?.readNote,
-    inspection?.judgedBy === "rules" ? "No model answered, so turtl judged this with its built-in rules." + (inspection.fallbackReason ? " " + inspection.fallbackReason : "") : undefined,
+    inspection?.judgedBy === "rules" ? rulesNote(inspection.fallbackReason) : undefined,
     inspection?.error,
     o.problem,
   ].filter((note): note is string => !!note);

@@ -4,6 +4,19 @@ import { useAction, useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { ReportForm } from "../report/ReportForm";
 
+// The demo shares turtl's deployment, so its report form can find turtl's intake endpoint from its own backend
+// address: *.convex.site for *.convex.cloud, or port 3211 for a local backend on 3210. EXPO_PUBLIC_TURTL_INTAKE_URL
+// wins when set. An app with its own backend must set the URL instead (protected-app/report/README.md).
+function demoIntakeUrl(explicit = process.env.EXPO_PUBLIC_TURTL_INTAKE_URL, api = process.env.EXPO_PUBLIC_CONVEX_URL): string | null {
+  if (explicit) return explicit;
+  if (!api) return null;
+  const url = new URL(api);
+  if (url.hostname.endsWith(".convex.cloud")) url.hostname = url.hostname.replace(/\.convex\.cloud$/, ".convex.site");
+  else if (url.port === "3210") url.port = "3211";
+  else return null;
+  return `${url.origin}/intake/report`;
+}
+
 type Confirmation = { bookingId: string; serviceId: string; date: string; time: string };
 type Suggestions = { status: "loading" | "ready" | "disabled" | "unavailable"; serviceIds: string[] };
 
@@ -93,7 +106,7 @@ export default function BookingScreen() {
           </>}
         </View>
       </View>
-      <ReportForm />
+      <ReportForm endpoint={demoIntakeUrl()} />
       <View style={s.footer}><Text style={s.footerText}>STILL · A PROTECTED DEMO APP</Text><Text style={s.footerText}>A small pause. A better day.</Text></View>
     </View>
   </ScrollView>;

@@ -1,0 +1,80 @@
+import { useRouter, type Href } from "expo-router";
+import { Pressable, View } from "react-native";
+import { Glyph } from "../onboarding/Glyph";
+import { useOverview, type WatchedCheck } from "../../data/overview";
+import { useTheme, type TokenName } from "../../theme";
+import { Icon, T, ago } from "../ui";
+
+// What turtl is watching on a project with nothing open: each registered check and when it last passed,
+// and the way to the map of the code. Shown in an empty Fix or Features list, and briefly on the project home:
+// there the Investigate tile below it leads to the map, and the Preparation row already says when checks are not ready.
+
+const state: Record<WatchedCheck["state"], { glyph: "CircleCheck" | "CircleX" | "CircleDashed"; color: TokenName }> = {
+  passing: { glyph: "CircleCheck", color: "statusClear" },
+  failing: { glyph: "CircleX", color: "statusAffected" },
+  waiting: { glyph: "CircleDashed", color: "textMuted" },
+};
+
+function when(check: WatchedCheck, now: number): string {
+  if (check.state === "failing") return "Not passing";
+  if (check.lastPassedAt === undefined) return "Not checked yet";
+  return "Passed " + ago(check.lastPassedAt, now);
+}
+
+export function watchingSummary(checks: WatchedCheck[]): string {
+  const passing = checks.filter((check) => check.state === "passing").length;
+  if (passing === checks.length) return checks.length === 1 ? "1 check passing" : "All " + checks.length + " checks passing";
+  return passing + " of " + checks.length + " checks passing";
+}
+
+export default function Watching({ projectId, rows = 4, brief = false, testID = "watching" }: { projectId: string; rows?: number; brief?: boolean; testID?: string }) {
+  const overview = useOverview(projectId);
+  const router = useRouter();
+  const { colors } = useTheme();
+  if (!overview || (brief && !overview.checks.length && overview.preparation === "in_progress")) return null;
+  const now = Date.now();
+  const { checks, map, preparation } = overview;
+  const shown = checks.slice(0, rows);
+  const rest = checks.length - shown.length;
+  const row = { flexDirection: "row" as const, alignItems: "center" as const, gap: 12, minHeight: 44, paddingHorizontal: 16, borderTopWidth: 1, borderTopColor: colors.border };
+
+  return (
+    <View testID={testID} style={{ borderRadius: 20, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, overflow: "hidden" }}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 16, paddingVertical: 12 }}>
+        <Icon name="ShieldCheck" size={18} color="brandDeep" />
+        <View style={{ flex: 1 }}>
+          <T variant="heading" accessibilityRole="header">What turtl is watching</T>
+          {checks.length > 0 && <T variant="small" color="textMuted" testID={testID + "-summary"}>{watchingSummary(checks)}</T>}
+        </View>
+      </View>
+      {shown.map((check, index) => (
+        <View key={check.id} testID={testID + "-check-" + index} accessible accessibilityLabel={check.name + ". " + when(check, now)} style={{ ...row, alignItems: "flex-start", paddingVertical: 10 }}>
+          <View style={{ paddingTop: 2 }}><Glyph name={state[check.state].glyph} size={17} color={state[check.state].color} /></View>
+          <View style={{ flex: 1 }}>
+            <T variant="small" numberOfLines={2}>{check.name}</T>
+            <T variant="small" color={check.state === "failing" ? "statusAffected" : "textMuted"}>{when(check, now)}</T>
+          </View>
+        </View>
+      ))}
+      {rest > 0 && !brief && <View style={row}><T variant="small" color="textMuted">{rest === 1 ? "1 more check" : rest + " more checks"}</T></View>}
+      {checks.length === 0 && (preparation === "in_progress" ? (
+        <Pressable testID={testID + "-preparation"} accessibilityRole="link" accessibilityLabel="Open the preparation" onPress={() => router.push(("/project/" + projectId + "/prepare") as Href)} style={({ pressed }) => ({ ...row, paddingVertical: 10, backgroundColor: pressed ? colors.surfaceRaised : "transparent" })}>
+          <T variant="small" color="textMuted" style={{ flex: 1 }}>turtl is still preparing this project. Its checks show here once the preparation is merged.</T>
+          <Icon name="ChevronRight" size={16} color="textMuted" />
+        </Pressable>
+      ) : (
+        <View style={{ ...row, paddingVertical: 10 }}><T variant="small" color="textMuted" style={{ flex: 1 }} testID={testID + "-none"}>turtl has no checks for this project yet.</T></View>
+      ))}
+      {!brief && (
+        <Pressable testID={testID + "-map"} accessibilityRole="link" accessibilityLabel="Open the map of your code" onPress={() => router.push(("/project/" + projectId + "/investigate") as Href)} style={({ pressed }) => ({ ...row, paddingVertical: 10, backgroundColor: pressed ? colors.surfaceRaised : "transparent" })}>
+          <Icon name="Network" size={17} color="brandDeep" />
+          <View style={{ flex: 1 }}>
+            <T variant="small">Map of your code</T>
+            <T variant="small" color="textMuted">{map ? map.parts + " parts in " + map.groups + (map.groups === 1 ? " group" : " groups") : "turtl has not mapped it yet"}</T>
+          </View>
+          <Icon name="ArrowRight" size={16} color="textMuted" />
+        </Pressable>
+      )}
+    </View>
+  );
+}

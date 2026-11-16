@@ -10,7 +10,9 @@ import {
   type MutationCtx,
   type QueryCtx,
 } from "./_generated/server";
-import { vOptionKind, type ProposalOption } from "./constants";
+import { canSeeCase, guardCaseInAction, requireDevTools } from "./access";
+import { vDecisionStatus, vDelivery, vOptionKind, vSpan, type ProposalOption } from "./constants";
+import { gateFor } from "./consent/gate";
 import {
   askJson,
   FIX_FIELDS,
@@ -36,6 +38,35 @@ import { createCaseFromTemplate, finishAttempt, loadSteps, setCaseStatus, startA
 declare const process: { env: Record<string, string | undefined> };
 
 // The Fixes screen and its "Investigate further" chat (ui-contract.md sections 2 and 6).
+
+// The contract's FixOption as forCase returns it, with what approving sends (TUR-68).
+const vFixOption = v.object({
+  key: v.string(),
+  title: v.string(),
+  kind: vOptionKind,
+  recommended: v.boolean(),
+  why: v.array(vSpan),
+  whatChanges: v.string(),
+  whatMightBeLost: v.string(),
+  howChecked: v.string(),
+  usersCantNow: v.optional(v.string()),
+  confidence: v.optional(v.number()),
+  codeIds: v.optional(v.array(v.string())),
+  proposedInChat: v.optional(v.boolean()),
+  delivery: vDelivery,
+  preferences: v.optional(v.array(v.object({ id: v.string(), statement: v.string() }))),
+  pastDecisions: v.optional(v.string()),
+  sends: v.optional(v.union(
+    v.object({ kind: v.literal("instructions"), text: v.string() }),
+    v.object({
+      kind: v.literal("action"),
+      name: v.string(),
+      description: v.optional(v.string()),
+      target: v.string(),
+      values: v.array(v.object({ name: v.string(), value: v.string() })),
+    }),
+  )),
+});
 
 const MAX_MESSAGE_LENGTH = 2000;
 const HISTORY_LENGTH = 20;
@@ -68,16 +99,32 @@ async function toChatMessage(ctx: QueryCtx, row: Doc<"fixChatMessages">): Promis
 // id is not a case; fixes is empty until the plan step has proposed something.
 export const forCase = query({
   args: { caseId: v.string() },
+  returns: v.union(
+    v.null(),
+    v.object({
+      proposalId: v.union(v.id("proposals"), v.null()),
+      version: v.union(v.number(), v.null()),
+      decisionStatus: v.union(vDecisionStatus, v.null()),
+      chosenKey: v.union(v.string(), v.null()),
+      fixes: v.array(vFixOption),
+    }),
+  ),
   handler: async (ctx, args) => {
+    if (!(await canSeeCase(ctx, args.caseId))) return null;
     const caseId = ctx.db.normalizeId("cases", args.caseId);
     if (!caseId || !(await ctx.db.get(caseId))) return null;
     const proposal = await latestProposal(ctx, caseId);
+    // Each option's catalog entry names the action it runs (at most four reads, one per option).
+    const entries = new Map<string, Doc<"actionCatalog"> | null>();
+    for (const option of proposal?.options ?? []) {
+      if (!entries.has(option.actionCatalogId)) entries.set(option.actionCatalogId, await ctx.db.get(option.actionCatalogId));
+    }
     return {
       proposalId: proposal?._id ?? null,
       version: proposal?.version ?? null,
       decisionStatus: proposal?.decisionStatus ?? null,
       chosenKey: proposal?.chosenKey ?? null,
-      fixes: proposal ? orderFixes(proposal.options).map(toFixOption) : [],
+      fixes: proposal ? orderFixes(proposal.options).map((option) => toFixOption(option, entries.get(option.actionCatalogId))) : [],
     };
   },
 });
@@ -86,6 +133,7 @@ export const forCase = query({
 export const messages = query({
   args: { caseId: v.string() },
   handler: async (ctx, args): Promise<ChatMessage[] | null> => {
+    if (!(await canSeeCase(ctx, args.caseId))) return null;
     const caseId = ctx.db.normalizeId("cases", args.caseId);
     if (!caseId || !(await ctx.db.get(caseId))) return null;
     const rows = await ctx.db
@@ -257,6 +305,7 @@ const FEATURE_CHAT_RULE =
 export const investigate = action({
   args: { caseId: v.id("cases"), message: v.string(), newFix: v.optional(v.boolean()) },
   handler: async (ctx, { caseId, message, newFix }): Promise<ChatMessage> => {
+    await guardCaseInAction(ctx, caseId, "Case not found.");
     const asked = message.trim() || (newFix ? "New fix" : "");
     if (!asked) throw new Error("The message is empty.");
     if (asked.length > MAX_MESSAGE_LENGTH) {
@@ -277,6 +326,7 @@ export const investigate = action({
           : null;
     const askedAt = Date.now();
     const answer = await askJson(
+      gateFor(ctx, { caseId }),
       (blocked ? `${CHAT_PROMPT}\nYou cannot add a fix now (${blocked}): set fix to null and say so if the owner asks for one.` : CHAT_PROMPT) +
         (feature ? `\n${FEATURE_CHAT_RULE}` : ""),
       {
@@ -352,7 +402,7 @@ export const investigate = action({
 export const devThreeFixCase = mutation({
   args: {},
   handler: async (ctx): Promise<Id<"cases">> => {
-    if (process.env.DEV_TOOLS_ENABLED !== "true") throw new Error("Dev tools are disabled on this deployment.");
+    requireDevTools();
     const { appId, journeyId, actionCatalogId } = await registerBookingApp(ctx);
     const journey = (await ctx.db.get(journeyId))!;
     const flagEntry = (await ctx.db.get(actionCatalogId))!;
