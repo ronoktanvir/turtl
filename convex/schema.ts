@@ -31,6 +31,7 @@ import {
 import { githubTables } from "./github/schema";
 import { intakeTables } from "./intake/schema";
 import { learningTables } from "./learning/schema";
+import { pushTables } from "./push/schema";
 import { revylTables } from "./revyl/schema";
 import { voiceTables } from "./voice/schema";
 import { structuralTables } from "./structural/schema";
@@ -208,4 +209,5 @@ export default defineSchema({
   ...learningTables,
   ...onboardingTables,
   ...githubTables,
+  ...pushTables,
 });
