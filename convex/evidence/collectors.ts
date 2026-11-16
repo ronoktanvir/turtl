@@ -7,6 +7,14 @@ import type { HandlerInput, StepHandler } from "../runner/contract";
 import { evidenceRow, loadJourneyContext, type Facts } from "../runner/handlers/journey";
 import { validateErrors, validateFlags, validateHealth, validateRevisionResponse, validateSnapshot, type Collector, type EvidenceSnapshot, type ObservedWindow } from "./snapshots";
 
+// The error window in words: its length, not two raw timestamps, and the most common failure without its code's
+// underscores. The exact window stays in the snapshot this row is projected from.
+export function windowWords(window: { since: number; until: number; truncated: boolean }, errorRate: number, topCode: string): string {
+  const minutes = Math.max(1, Math.round((window.until - window.since) / 60_000));
+  const top = topCode && topCode !== "none" ? ` The most common failure was ${topCode.toLowerCase().replace(/_+/g, " ")}.` : " No failure stood out.";
+  return `${Math.round(errorRate * 100)}% of booking attempts failed in the ${minutes} ${minutes === 1 ? "minute" : "minutes"} before this check.${top}${window.truncated ? " Only a sample of the bookings in that time was read." : ""}`;
+}
+
 type ReadResult = {
   facts: Facts;
   missing: string[];
@@ -89,7 +97,7 @@ export async function readErrorWindow(input: HandlerInput, base: string, app: Wa
         kind: "errors",
         sourceRef: "GET /errors",
         title,
-        ...(errors.ok && { body: `Window ${errors.value.window.since}–${errors.value.window.until}. Error rate ${Math.round(errors.value.counts.errorRate * 100)}%. Most common sampled error: ${facts["errors.topCode"]}.${errors.value.window.truncated ? " The window's booking sample was capped." : ""}` }),
+        ...(errors.ok && { body: windowWords(errors.value.window, errors.value.counts.errorRate, String(facts["errors.topCode"] ?? "none")) }),
       }),
       observedAt: errors.observedAt,
       environment: errors.environment,

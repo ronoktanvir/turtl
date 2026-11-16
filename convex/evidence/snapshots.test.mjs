@@ -293,7 +293,9 @@ function harness(responses = {}) {
       return typeof response === "function" ? response() : response;
     },
   };
-  const journey = load("../runner/handlers/journey.ts", { "../../_generated/api": { internal }, "../../protectedApp/client": httpClient });
+  // The demo's watched app: with accounts off watchedApp hands back DEMO_APP (convex/protectedApp/watched.ts).
+  const watched = { watchedApp: async () => client.DEMO_APP };
+  const journey = load("../runner/handlers/journey.ts", { "../../_generated/api": { internal }, "../../protectedApp/client": httpClient, "../../protectedApp/watched": watched });
   const collectors = load("./collectors.ts", { "../_generated/api": { internal }, "../protectedApp/client": httpClient, "../runner/handlers/journey": journey, "./snapshots": snapshots });
   const reader = load("./context.ts", { "../_generated/api": { internal }, "./collectors": collectors, "./snapshots": snapshots });
   const records = load("./records.ts", { "convex/values": { v: { id: () => ({}) } }, "../_generated/server": { internalMutation: (config) => config }, "./snapshots": snapshots });

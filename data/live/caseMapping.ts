@@ -134,6 +134,17 @@ export function ownerWords(value: string): string {
     .replace(/reports health ok is false\b/g, "says it is not healthy");
 }
 
+// A recorded journey check's body for the Logs: step names in words, the error without its code, and no run id.
+export function journeyBodyWords(body: string): string {
+  return body
+    .split("\n")
+    .map((line) => line
+      .replace(/^([a-z][a-z0-9_]*): (passed|failed|skipped)\. /, (_all, name: string, verdict: string) => `${capitalized(plainWords(name))}: ${verdict}. `)
+      .replace(/^Error [A-Z][A-Z0-9_]*: /, "Error: ")
+      .replace(/\s*Run \S+ on revision \S+\.$/, ""))
+    .join("\n");
+}
+
 // A model reason that names a deployment setting reads as "no model is connected" to an owner.
 const plainModelReason = (reason: string) => (/_API_KEY|_KEY\b/.test(reason) ? "turtl has no model connected yet" : reason);
 
@@ -150,7 +161,7 @@ function journeyVisualization(body: string): Visualization | undefined {
   for (const line of body.split("\n")) {
     const match = /^([^:\n]+): (passed|failed|skipped)\. (.*)$/.exec(line);
     if (!match) continue;
-    steps.push({ label: match[1] + (match[2] === "skipped" ? " (skipped)" : ""), state: match[2] === "skipped" ? "not_reached" : match[2] as "passed" | "failed" });
+    steps.push({ label: capitalized(plainWords(match[1])) + (match[2] === "skipped" ? " (skipped)" : ""), state: match[2] === "skipped" ? "not_reached" : match[2] as "passed" | "failed" });
   }
   return steps.length ? { type: "journey", steps } : undefined;
 }
@@ -276,7 +287,7 @@ export function mapCaseDetail(
       continue;
     }
     const from = evidence.sourceRef ? plainSource(evidence.sourceRef) : null;
-    logs.push({ id: evidence._id, at: evidence.observedAt, level: "info", source: `Evidence · ${named(evidenceWords, evidence.kind)}`, text: [ownerWords(evidence.title), evidence.body, from && `From ${from}.`].filter(Boolean).join("\n") });
+    logs.push({ id: evidence._id, at: evidence.observedAt, level: "info", source: `Evidence · ${named(evidenceWords, evidence.kind)}`, text: [ownerWords(evidence.title), evidence.body && (evidence.kind === "journey_check" ? journeyBodyWords(evidence.body) : evidence.body), from && `From ${from}.`].filter(Boolean).join("\n") });
     citations.push({ id: evidence._id, kind: "log", logId: evidence._id });
     if (evidence.kind === "customer_report" && customerReports?.reports.length) continue;
     paragraph([sourceSpan(ownerWords(evidence.title), evidence._id)]);

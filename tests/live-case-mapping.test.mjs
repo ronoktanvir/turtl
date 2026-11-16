@@ -118,8 +118,8 @@ test("journey visualization uses only recorded step verdicts, not assumptions ab
   }));
   assert.deepEqual(result.overview.find((block) => block.kind === "visualization").viz, {
     type: "journey", steps: [
-      { label: "load_catalog", state: "passed" }, { label: "recommendations", state: "failed" },
-      { label: "submit_booking (skipped)", state: "not_reached" },
+      { label: "Load catalog", state: "passed" }, { label: "Recommendations", state: "failed" },
+      { label: "Submit booking (skipped)", state: "not_reached" },
     ],
   });
   const withoutSteps = map(cards({ journey: { name: "Book" }, evidence: [evidence({ body: "No structured step verdicts." })] }));
@@ -344,4 +344,11 @@ test("an error code in brackets is not shown to the owner", () => {
   const detail = map(cards({ evidence: [check], steps: [done] }));
   assert.ok(!JSON.stringify(detail).includes("RECOMMENDATIONS_TIMEOUT"));
   assert.ok(content(detail).includes('failed at the "recommendations" step, so no booking was saved.'));
+});
+
+test("a journey check's log names its steps in words, and shows no error code or run id", () => {
+  const body = "load_catalog: passed. Selected a service.\nrecommendations: failed. Provider timed out.\nError RECOMMENDATIONS_TIMEOUT: Provider timed out.\nCleanup succeeded (0 test booking(s) deleted). Run 6198e797-0455-400c-891b-571e2f63275e on revision local-qa.";
+  const line = map(cards({ evidence: [evidence({ body })] })).logs.find((log) => log.source.startsWith("Evidence")).text;
+  assert.ok(line.includes("Load catalog: passed. Selected a service.\nRecommendations: failed. Provider timed out.\nError: Provider timed out.\nCleanup succeeded (0 test booking(s) deleted)."), line);
+  for (const raw of ["load_catalog", "RECOMMENDATIONS_TIMEOUT", "6198e797", "Run "]) assert.ok(!line.includes(raw), raw);
 });

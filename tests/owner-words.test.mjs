@@ -43,3 +43,16 @@ test("a remembered recovery is named in words, not by its id", () => {
   assert.doesNotMatch(gather, /Recovery memory \$\{/);
   assert.match(gather, /A recovery turtl remembers applies/);
 });
+
+test("the error window reads as a length of time and a failure in words, not timestamps and a code", () => {
+  const { windowWords } = createLoader({ "convex/protectedApp/watched": {} })("convex/evidence/collectors.ts");
+  const since = 1794826293447;
+  assert.equal(windowWords({ since, until: since + 15 * 60_000, truncated: false }, 0, "none"), "0% of booking attempts failed in the 15 minutes before this check. No failure stood out.");
+  assert.equal(windowWords({ since, until: since + 60_000, truncated: true }, 0.25, "RECOMMENDATIONS_TIMEOUT"), "25% of booking attempts failed in the 1 minute before this check. The most common failure was recommendations timeout. Only a sample of the bookings in that time was read.");
+});
+
+test("a model provider without a key is named, not its setting", () => {
+  const models = read("convex/routing/models.ts");
+  assert.doesNotMatch(models, /\$\{keyName\} is not set/);
+  assert.match(models, /is not connected to turtl yet, so no request was sent/);
+});
