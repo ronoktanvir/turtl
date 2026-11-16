@@ -135,7 +135,7 @@ export function Header({
           <Icon name="ArrowLeft" color="textMuted" />
         </Pressable>
       )}
-      <T variant="heading" style={{ flex: 1 }} numberOfLines={2} testID={testID} accessibilityRole="header">
+      <T variant="heading" font="title" style={{ flex: 1 }} numberOfLines={2} testID={testID} accessibilityRole="header">
         {title}
       </T>
       {right}
@@ -193,7 +193,7 @@ export function Button({
       ]}
     >
       {icon && <Icon name={icon} size={18} color={disabled ? "textMuted" : look[kind].text} />}
-      <T variant="strong" color={disabled ? "textMuted" : look[kind].text} style={{ textAlign: "center" }}>
+      <T variant="strong" font="title" color={disabled ? "textMuted" : look[kind].text} style={{ textAlign: "center" }}>
         {label}
       </T>
     </Pressable>
@@ -214,7 +214,7 @@ export function Chip({ label, tone = "textMuted", testID }: { label: string; ton
       }}
       testID={testID}
     >
-      <T variant="small" color={tone} style={{ fontWeight: "600" }}>
+      <T variant="small" font="title" color={tone}>
         {label}
       </T>
     </View>
@@ -339,7 +339,7 @@ export function Sheet({
           }}
         >
           <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: colors.border, alignSelf: "center" }} />
-          <T variant="title">{title}</T>
+          <T variant="title" font="title">{title}</T>
           <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 20 }}>{children}</ScrollView>
           {footer}
         </View>

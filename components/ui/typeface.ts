@@ -32,17 +32,23 @@ function words(text: string): string[] {
   return text.split(/\s+/).filter((word) => /[\p{L}\p{N}]/u.test(word));
 }
 
-/** True when a sentence ends somewhere inside the text and another begins after it. */
-function endsASentenceInside(text: string): boolean {
-  const boundary = /([\p{L}\p{N}_.'’-]*)([.!?…]|\.\.\.)["'’”)\]»]*\s+["'‘“(]?[\p{L}\p{N}]/gu;
+/**
+ * How a sentence ends inside the text with more following it: "stop" for a full stop or an exclamation mark
+ * ("Something went wrong. Pull down to retry"), "soft" for a question mark or an ellipsis ("New to turtl? Create an
+ * account", "Checking… 3 of 4"), or null when nothing ends inside it.
+ */
+function innerEnding(text: string): "stop" | "soft" | null {
+  const boundary = /([\p{L}\p{N}_.'’-]*)(\.\.\.|[.!?…])["'’”)\]»]*\s+["'‘“(]?[\p{L}\p{N}]/gu;
+  let found: "soft" | null = null;
   for (const match of text.matchAll(boundary)) {
     const before = match[1].toLowerCase();
     if (match[2] === "." && ABBREVIATIONS.has(before.replace(/\.$/, ""))) continue;
     if (match[2] === "." && /^\d+$/.test(before)) continue; // "1. Answers time out", a numbered title
     if (match[2] === "." && /^\p{L}$/u.test(before)) continue; // an initial, "J. Smith"
-    return true;
+    if (match[2] === "." || match[2] === "!") return "stop";
+    found = "soft";
   }
-  return false;
+  return found;
 }
 
 /**
@@ -50,22 +56,24 @@ function endsASentenceInside(text: string): boolean {
  * (Righteous).
  *
  * - Ends in a full stop or an exclamation mark, with at least two words: a sentence ("No open bugs.").
- * - A sentence ends inside it and more follows: a paragraph, however it ends ("Guess which artist…, build a streak…").
- * - Fourteen words or more with no closing full stop: prose, such as a model's summary or a cut-off description.
+ * - A full stop inside it with more after: a paragraph, however it ends ("A Higher or Lower music game. Guess…").
+ * - Fourteen words or more: prose, such as a model's summary or a cut-off description, even with no closing stop.
  * - Anything else is a title: no closing punctuation ("Answers time out before the next round"), a label ending in
- *   a colon, a question a button or heading asks ("Approve: Generate the daily ladder from a seed?"), a status
- *   with an ellipsis ("Checking the code…"), a single word with a full stop ("Done."), a count or a date.
+ *   a colon, a question a button or heading asks ("Approve: Generate the daily ladder from a seed?"), a link that
+ *   asks and answers ("New to turtl? Create an account"), a status with an ellipsis ("Checking the code…"), a
+ *   single word with a full stop ("Done."), a count or a date. A short note in brackets at the end, such as
+ *   "(optional)", does not change what the text is.
  */
 export function isSentence(raw: string): boolean {
   const text = raw.replace(/\s+/g, " ").trim();
   if (!text) return false;
   const count = words(text).length;
   if (count === 0) return false;
-  const end = text.replace(CLOSERS, "");
-  if (endsASentenceInside(end)) return true;
   if (count >= PROSE_WORDS) return true;
+  const end = text.replace(/\s+\([^()]{1,24}\)$/, "").replace(CLOSERS, "");
+  if (innerEnding(end) === "stop") return true;
   if (/(\.\.\.|…)$/.test(end)) return false;
-  if (/[.!]$/.test(end)) return count >= 2;
+  if (/[.!]$/.test(end)) return words(end).length >= 2;
   return false;
 }
 

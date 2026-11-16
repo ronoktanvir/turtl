@@ -61,6 +61,12 @@ const RIGHTEOUS = [
   "Approve: Generate the daily ladder from a seed?",
   "Ready to ship?",
   "What should turtl look at?",
+  // A link that asks and answers, and a field label with a note in brackets.
+  "New to turtl? Create an account",
+  "Already installed? Confirm on GitHub",
+  "Why this one? (optional)",
+  "Live app URL (optional)",
+  "Checking… 3 of 4",
   // A status with an ellipsis, and a single word with a full stop.
   "Checking the code…",
   "Loading...",
@@ -79,6 +85,9 @@ const CAPRIOLA = [
   "A Higher or Lower music game. Guess which artist has more listeners, build a streak, and save your score.",
   "Try again!",
   "Something went wrong. Pull down to retry",
+  "Not connected. Connect GitHub when you add a project.",
+  "Not sure? Ask turtl.",
+  "Choose the repository (you can change it later).",
   "(The fix is waiting for your approval.)",
   "“Answers are slow.”",
   // A long run of prose with no full stop at the end: a model's summary or a cut-off description.
