@@ -8,48 +8,53 @@ import { createCaseFromTemplate, finishAttempt, setCaseStatus, startAttempt, wai
 import { turtlReachable } from "./client";
 import { canStopAnswering, MAX_JOURNEYS } from "./watching";
 
-// Cases for an app that stops answering turtl's checks.
+// Cases for an app that stops answering turtl's checks. The case means what its title says: the app gives turtl
+// nothing at all (the design's second revision, V1 to V6).
 //
-// Each check (a journeys row) counts the monitor's tries in a row that got no usable answer: no response at all, or a
-// reply with no check result (convex/protectedApp/client.ts, runJourneyCheck). A request turtl refused to send never
-// counts: the app was not asked. Only the monitor's own rounds count (monitor.ts calls settleRound at the end of a
-// round); a case's steps check the app too, and those tries count for nothing here. Any usable reply, a pass or a
-// failure, clears the count, and so does a pass a case's verify step records (monitor.ts, recordPass).
+// What a try got (V1): not sent (turtl refused to send: evidence of nothing); answered (a check result, passed or
+// failed, or any reply below 500 with or without one: a 404, a 401, a 429 or a redirect means the app is serving, though
+// turtl cannot run that check there); or quiet (no response at all, or a reply of 500 or more with no check result).
+// Only the monitor's own rounds count (monitor.ts calls settleRound at the end of a round); a case's steps check the app
+// too, and those tries count for nothing here.
 //
-// Only a check that has answered before can stop answering (watching.ts, canStopAnswering): a journey-contract check
-// that has passed at least once. The health and readiness endpoints onboarding registers as journeys never return a
-// check result to the monitor, and a check that has never passed (a wrong address) has not answered yet; their tries
-// keep no count, open or hold open no case, and are left out before the round's end, which then reads nothing.
+// Counting, per check (V2): only a check that can stop answering (watching.ts, canStopAnswering: a journey-contract
+// check that has passed before) keeps a count, of quiet tries in a row, cleared by anything else; a pass a case's verify
+// step records clears it too. At UNANSWERED_AFTER it shows as not answering on the project, case or no case.
 //
-// At UNANSWERED_AFTER in a row a check is not answering. After a round in which a check that ran is not answering, one
-// case opens for the whole project (signature not_answering:<appId>), however many of its checks stopped answering:
-// raised by the monitor, an outage, no journey, status waiting_for_app, and one step parked as waiting from the start,
-// never dispatched to a handler, so it has no time limit, no retries and no model call. Before it opens, turtl asks its
-// own site whether its requests are getting out at all; if not, nothing opens and the counts stay one short of the
-// threshold, so the next round asks again. At most NOT_ANSWERING_CASES_PER_DAY such cases open for one project a day.
+// Evidence, per round (V3): every try the round sent, its check countable or not. A health check that answers turtl's
+// POST with a 405 shows the app is serving.
 //
-// The case closes at the end of a round in which no check that ran is still not answering: resolved, with a second
-// notice, when the app answered; unresolved and with no notice when turtl stopped checking (every check refused, the
-// project skipped or left with nothing to check: watching.ts schedules `stopped`). A check that is no longer run loses
-// its count at the next round's end.
+// Opening (V4): one case for the whole project (signature not_answering:<appId>) after a round in which at least one
+// countable check was sent, every countable check sent is at UNANSWERED_AFTER or more, and no check sent answered. So
+// one check in trouble while another answers opens nothing: it shows on the project, with no push. The case is raised
+// by the monitor, an outage, no journey, status waiting_for_app, with one step parked as waiting from the start, never
+// dispatched, so it has no time limit, no retries and no model call. Before it opens: none already open, at most
+// NOT_ANSWERING_CASES_PER_DAY a day, never a practice project, the fleet check, and turtl asking its own site; if either
+// check says turtl's own requests may not be getting out, nothing opens and the counts are held one short.
 //
-// With accounts on, before a case opens and before turtl asks its own site, turtl looks across the fleet (fleetQuiet):
-// when at least FLEET_EVIDENCE other projects that answered within FLEET_ANSWERED_WITHIN_MS were checked since this one
-// went quiet, and not one of them got a usable reply in its latest round, the trouble is more likely turtl's own, and
-// the case is held back exactly as when turtl's own site does not answer. Such a hold lasts about half an hour: from the
-// inside, a host that every sampled project shares going down looks the same as turtl's own trouble, so once the
-// others' last answers are older than that they are no longer evidence, and the case opens if turtl's own site answers.
+// Closing (V5): at the end of a round in which any check answered, as answered, with a second notice; allPassed (read by
+// the case page) only when a check passed, none failed and none sent was quiet. A pass recorded outside a round closes
+// it too, allPassed only if no other check of the project has a count. When turtl stops checking (every check refused,
+// the project skipped or left with nothing to check: watching.ts schedules `stopped`), it closes unresolved with no
+// notice. The project's row records its open case (apps.notAnsweringCase), which the monitor reads on every turn, so a
+// round is always settled while a case is open, whatever the counts say.
 //
-// A practice project (convex/practice) is out of all this: its app is turtl's own code on turtl's own site, so a check
-// of it that gets no usable reply is turtl's trouble, not its owner's. Its checks keep no count, it gets no case and no
-// notice, and the backend log hears of it once a round (monitor.ts).
+// The fleet check (V6), with accounts on, before turtl asks its own site: when at least FLEET_EVIDENCE other projects
+// that answered within FLEET_ANSWERED_WITHIN_MS were checked since this one went quiet, and not one of them got a usable
+// reply in its latest round, the trouble is more likely turtl's own, and the case is held. Practice projects are no
+// evidence (they run on turtl's own site; monitor.ts never records them as answering). A hold never lasts past the point
+// where this project has been quiet for FLEET_HOLD_AT_MOST_MS: a shared host's outage and turtl's own trouble look the
+// same from inside, and an owner behind that host must still be told.
 //
-// A round settles only what is newer than what a check has on record: a try older than the check's latest unanswered
-// try or its latest pass (a round that finished after a newer one) changes nothing, as openCase ignores an old failure.
+// A practice project (convex/practice) is out of all this: its app is turtl's own code on turtl's own site, so its
+// checks keep no count, it gets no case and no notice, and the backend log hears of it once a round (monitor.ts).
+//
+// A round settles only what is newer than what a check has on record: a try older than the check's latest quiet try or
+// its latest pass (a round that finished after a newer one) changes nothing, as openCase ignores an old failure.
 //
 // Every read here is bounded: a project's checks (MAX_JOURNEYS), its newest NOT_ANSWERING_CASES_PER_DAY such cases, and
-// for the fleet FLEET_SAMPLE monitor rows. None of it runs on a round when no check of the project has a count and none
-// went unanswered (monitor.ts).
+// for the fleet FLEET_SAMPLE monitor rows. None of it runs on a round with no case open, no count on record and no
+// countable check quiet (monitor.ts).
 
 /** Tries in a row with no usable answer after which a check is not answering. */
 export const UNANSWERED_AFTER = 3;
@@ -86,6 +91,12 @@ const FLEET_RECENT_MS = 5 * 60_000;
  * owner whose app is down behind a shared host must still be told.
  */
 export const FLEET_ANSWERED_WITHIN_MS = 30 * 60_000;
+/** The longest a fleet hold lasts: once this project has been quiet this long, the case is no longer held for the fleet. */
+export const FLEET_HOLD_AT_MOST_MS = 30 * 60_000;
+/** A reply with no check result is quiet from this status up (a server error), and an answer below it (V1). */
+export const QUIET_FROM_STATUS = 500;
+/** The tail of a closing summary when the app answered but no check passed (a 404, say, or a health check's 405). */
+const NONE_PASSED = "It answered, but none of its checks passed this time.";
 
 /** What one of the monitor's tries of one check got. */
 const vGot = v.union(
@@ -98,9 +109,10 @@ const vGot = v.union(
 export const vTry = v.object({ journeyId: v.id("journeys"), at: v.number(), got: vGot });
 export type Try = Infer<typeof vTry>;
 
-/** Whether a try counts: the request went out and nothing usable came back. */
-export const counts = (got: Try["got"]): got is UnansweredTry => got.kind === "no_response" || got.kind === "no_result";
-/** Whether a check is not answering now. */
+/** Whether a try was quiet (V1): no response at all, or a reply of QUIET_FROM_STATUS or more with no check result. */
+export const isQuiet = (got: Try["got"]): got is UnansweredTry => got.kind === "no_response" || (got.kind === "no_result" && got.status >= QUIET_FROM_STATUS);
+/** Whether a try was answered (V1): a check result, or any reply below QUIET_FROM_STATUS. The app is serving. */
+export const isAnswered = (got: Try["got"]) => got.kind === "passed" || got.kind === "failed" || (got.kind === "no_result" && got.status < QUIET_FROM_STATUS);
 /** Whether a check is not answering now. Only a check that can stop answering ever is (watching.ts, canStopAnswering). */
 export const isNotAnswering = (journey: Pick<Doc<"journeys">, "check" | "lastPassedAt"> & { unanswered?: Unanswered }) =>
   canStopAnswering(journey) && (journey.unanswered?.count ?? 0) >= UNANSWERED_AFTER;
@@ -119,9 +131,9 @@ const recentCases = (ctx: Pick<MutationCtx, "db">, appId: Id<"apps">) =>
 const openOf = (recent: Doc<"cases">[]) => recent.find((row) => !NOT_OPEN.includes(row.status)) ?? null;
 const limitReached = (recent: Doc<"cases">[], now: number) => recent.filter((row) => row._creationTime > now - DAY_MS).length >= NOT_ANSWERING_CASES_PER_DAY;
 
-/** A check's count after one try: one more for a try that counts, cleared by anything else. */
+/** A check's count after one try: one more for a quiet try, cleared by anything else. */
 function after(previous: Unanswered | undefined, tried: Try): Unanswered | undefined {
-  if (!counts(tried.got)) return undefined;
+  if (!isQuiet(tried.got)) return undefined;
   const latest: UnansweredTry = tried.got.kind === "no_response" ? { kind: "no_response", timedOut: tried.got.timedOut } : { kind: "no_result", status: tried.got.status };
   return { count: (previous?.count ?? 0) + 1, since: previous?.since ?? tried.at, at: tried.at, latest };
 }
@@ -160,19 +172,21 @@ function impactOf(quiet: Doc<"journeys">[]): string {
 }
 
 /**
- * How the checks stand now that the app answered: the ones that fail, and the ones still with no answer, in words, and
- * whether every check that ran passed (a try turtl did not send did not run).
+ * How the checks stand now that the app answered, from every try the round sent (V3, V5): the ones that fail, and the
+ * ones still quiet, in words; and allPassed, true only when one passed, none failed and none was quiet. A check that
+ * answered without a result (a 404, a health check's 405) neither passes nor spoils it.
  */
-function nowWords(journeys: Doc<"journeys">[], tries: Try[]): { tail: string; allPassed: boolean } {
+function nowWords(journeys: Doc<"journeys">[], sent: Try[]): { tail: string; allPassed: boolean } {
   const names = (kind: (got: Try["got"]) => boolean) =>
-    tries.filter((tried) => kind(tried.got)).flatMap((tried) => journeys.filter((journey) => journey._id === tried.journeyId).map((journey) => journey.name));
+    sent.filter((tried) => kind(tried.got)).flatMap((tried) => journeys.filter((journey) => journey._id === tried.journeyId).map((journey) => journey.name));
   const failing = names((got) => got.kind === "failed");
-  const quiet = names(counts);
+  const quiet = names(isQuiet);
+  const anyPassed = sent.some((tried) => tried.got.kind === "passed");
   const parts = [];
   if (failing.length) parts.push(`${quoted(failing)} ${failing.length === 1 ? "fails" : "fail"} now, which turtl handles as a separate issue.`);
   if (quiet.length) parts.push(`${quoted(quiet)} got no answer this time.`);
-  const allPassed = tries.some((tried) => tried.got.kind === "passed") && tries.every((tried) => tried.got.kind === "passed" || tried.got.kind === "not_sent");
-  return { tail: parts.length ? parts.join(" ") : "Its checks pass now.", allPassed };
+  const allPassed = anyPassed && !sent.some((tried) => tried.got.kind === "failed" || isQuiet(tried.got));
+  return { tail: parts.length ? parts.join(" ") : anyPassed ? "Its checks pass now." : NONE_PASSED, allPassed };
 }
 
 const stoppedWords = (reason: string) => `turtl stopped checking this project, so it closed this case without knowing whether the app answers again. ${reason}`;
@@ -205,8 +219,10 @@ async function close(ctx: MutationCtx, row: Doc<"cases">, how: { answered: true;
   const allPassed = how.answered && how.allPassed;
   if (attempt) await finishAttempt(ctx, attempt._id, { status: "done", summary, output: { quietSince: since, closedAt: now, answered: how.answered, allPassed } });
   await setCaseStatus(ctx, row._id, how.answered ? "resolved" : "unresolved");
+  const app = await ctx.db.get(row.appId);
+  // The project no longer has an open case to settle each round for.
+  if (app?.notAnsweringCase === row._id) await ctx.db.patch(app._id, { notAnsweringCase: undefined });
   if (how.answered) {
-    const app = await ctx.db.get(row.appId);
     await ctx.scheduler.runAfter(0, internal.notices.notifyOwner, {
       caseId: row._id,
       event: "answering_again",
@@ -224,6 +240,8 @@ async function openFor(ctx: MutationCtx, app: Doc<"apps">, quiet: Doc<"journeys"
     [WAIT_STEP],
   );
   await setCaseStatus(ctx, caseId, "waiting_for_app");
+  // Recorded on the project's own row, which the monitor reads on every turn: each round is settled while it is open.
+  await ctx.db.patch(app._id, { notAnsweringCase: caseId });
   const step = await ctx.db.query("steps").withIndex("by_case_and_key", (q) => q.eq("caseId", caseId).eq("key", WAIT_STEP.key)).unique();
   const attemptId = await startAttempt(ctx, step!._id);
   await waitOnAttempt(ctx, attemptId, { summary: WAITING });
@@ -251,16 +269,19 @@ const vSettled = v.union(
 const older = (journey: Doc<"journeys">, one: Try) => one.at < (journey.unanswered?.at ?? 0) || one.at < (journey.lastPassedAt ?? 0);
 
 /**
- * The end of one round of a project's checks: counts this round's tries on their checks, clears the count of any check
- * the round did not run, and closes an open case when no check that ran is still not answering. A try older than what
- * its check has on record changes nothing. Says `would_open` when a case would open, which `open` decides once turtl has
- * looked across the fleet and asked its own site (settleRound). A practice project keeps no count and gets no case.
+ * The end of one round of a project's checks. Counts each countable check's quiet tries (V2), clearing the count of any
+ * check the round did not run; takes every try the round sent as evidence (V3); closes an open case when any check
+ * answered (V5); and says `would_open` when a case would open (V4), which `open` decides once turtl has looked across the
+ * fleet and asked its own site (settleRound). A try older than what its check has on record changes nothing. A
+ * practice project keeps no count and gets no case. Keeps the project's record of its open case true.
  */
 export const settle = internalMutation({
   args: { appId: v.id("apps"), tries: v.array(vTry) },
   returns: vSettled,
   handler: async (ctx, { appId, tries }): Promise<Infer<typeof vSettled>> => {
-    if ((await ctx.db.get(appId))?.practice) {
+    const app = await ctx.db.get(appId);
+    if (!app) return { kind: "none" };
+    if (app.practice) {
       await stopWatching(ctx, appId, PRACTICE);
       return { kind: "none" };
     }
@@ -268,38 +289,39 @@ export const settle = internalMutation({
     const journeys = await journeysOf(ctx, appId);
     const fresh: Try[] = [];
     for (const journey of journeys) {
-      // A check that cannot stop answering (a health or readiness journey, or one that has never passed) is settled as
-      // if not tried: it keeps no count. The monitor leaves its tries out before this; this holds whoever calls.
-      const one = canStopAnswering(journey) ? tried.get(journey._id) : undefined;
+      const one = tried.get(journey._id);
       if (one && older(journey, one)) continue;
       if (one) fresh.push(one);
-      const next = one ? after(journey.unanswered, one) : undefined;
+      // Only a check that can stop answering keeps a count (a health or readiness journey, or one that has never passed,
+      // does not); a check the round did not try loses its count.
+      const next = one && canStopAnswering(journey) ? after(journey.unanswered, one) : undefined;
       if (next || journey.unanswered) {
         await ctx.db.patch(journey._id, { unanswered: next });
         journey.unanswered = next;
       }
     }
-    const reached = new Set(fresh.filter((one) => one.got.kind !== "not_sent").map((one) => one.journeyId as string));
-    const ran = journeys.filter((journey) => reached.has(journey._id));
-    const quiet = ran.filter(isNotAnswering);
+    const sent = fresh.filter((one) => one.got.kind !== "not_sent");
+    const answered = sent.some((one) => isAnswered(one.got));
+    const reached = new Set(sent.map((one) => one.journeyId as string));
+    const counted = journeys.filter((journey) => reached.has(journey._id) && canStopAnswering(journey));
     const recent = await recentCases(ctx, appId);
     const open = openOf(recent);
+    if ((app.notAnsweringCase ?? null) !== (open?._id ?? null)) await ctx.db.patch(appId, { notAnsweringCase: open?._id });
     if (open) {
-      if (quiet.length) return { kind: "open", caseId: open._id };
-      if (fresh.some((one) => one.got.kind === "passed" || one.got.kind === "failed")) {
-        await close(ctx, open, { answered: true, ...nowWords(journeys, fresh) });
+      if (answered) {
+        await close(ctx, open, { answered: true, ...nowWords(journeys, sent) });
         return { kind: "closed", caseId: open._id, answered: true };
       }
-      if (fresh.length > 0 && fresh.every((one) => one.got.kind === "not_sent")) {
+      if (fresh.length > 0 && sent.length === 0) {
         await close(ctx, open, { answered: false, reason: NOT_SENT });
         return { kind: "closed", caseId: open._id, answered: false };
       }
-      // Some checks got no answer again, just not three times yet, or only older results came back: no answer yet.
+      // Nothing answered, or only older results came back: the app has not answered yet.
       return { kind: "open", caseId: open._id };
     }
-    if (!quiet.length) return { kind: "none" };
+    if (answered || counted.length === 0 || !counted.every(isNotAnswering)) return { kind: "none" };
     if (limitReached(recent, Date.now())) return { kind: "daily_limit" };
-    return { kind: "would_open", ran: ran.map((journey) => journey._id), since: Math.min(...quiet.map((journey) => journey.unanswered!.since)) };
+    return { kind: "would_open", ran: counted.map((journey) => journey._id), since: Math.min(...counted.map((journey) => journey.unanswered!.since)) };
   },
 });
 
@@ -322,9 +344,10 @@ export const fleetQuiet = internalQuery({
 });
 
 /**
- * Opens the project's not-answering case, deciding again in this one transaction: only if a check that ran is still not
- * answering, none is open and the day's limit is not reached, so two rounds never open two. With turtl's own requests
- * not getting out, opens nothing and holds those checks one short of the threshold, so the next round asks again.
+ * Opens the project's not-answering case, deciding again in this one transaction: only if every countable check the
+ * round sent (`ran`) is still not answering (a newer round in which one answered has cleared it), none is open and the
+ * day's limit is not reached, so two rounds never open two. With turtl's own requests possibly not getting out, opens
+ * nothing and holds those checks one short of the threshold, so the next round asks again.
  */
 export const open = internalMutation({
   args: { appId: v.id("apps"), ran: v.array(v.id("journeys")), turtl: v.union(v.literal("reachable"), v.literal("unreachable")) },
@@ -332,8 +355,8 @@ export const open = internalMutation({
   handler: async (ctx, { appId, ran, turtl }) => {
     const app = await ctx.db.get(appId);
     if (!app || app.practice) return null;
-    const quiet = (await journeysOf(ctx, appId)).filter((journey) => ran.includes(journey._id) && isNotAnswering(journey));
-    if (!quiet.length) return null;
+    const quiet = (await journeysOf(ctx, appId)).filter((journey) => ran.includes(journey._id));
+    if (!quiet.length || !quiet.every(isNotAnswering)) return null;
     const recent = await recentCases(ctx, appId);
     if (openOf(recent) || limitReached(recent, Date.now())) return null;
     if (turtl === "unreachable") {
@@ -345,8 +368,9 @@ export const open = internalMutation({
 });
 
 /**
- * Run by monitor.ts at the end of a round that has something to settle. When a case would open: with accounts on, the
- * fleet first, then turtl's own site; either one quiet holds the case back.
+ * Run by monitor.ts at the end of a round that has something to settle. When a case would open: with accounts on, and
+ * only while this project has been quiet for less than FLEET_HOLD_AT_MOST_MS, the fleet first; then turtl's own site.
+ * Either one quiet holds the case back.
  */
 export async function settleRound(ctx: Pick<ActionCtx, "runMutation" | "runQuery">, appId: Id<"apps">, tries: Try[]): Promise<void> {
   const settled: Infer<typeof vSettled> = await ctx.runMutation(internal.protectedApp.notAnswering.settle, { appId, tries });
@@ -355,7 +379,7 @@ export async function settleRound(ctx: Pick<ActionCtx, "runMutation" | "runQuery
     console.warn(why);
     await ctx.runMutation(internal.protectedApp.notAnswering.open, { appId, ran: settled.ran, turtl: "unreachable" });
   };
-  if (accessEnforced()) {
+  if (accessEnforced() && Date.now() - settled.since < FLEET_HOLD_AT_MOST_MS) {
     const fleet: { quiet: boolean } = await ctx.runQuery(internal.protectedApp.notAnswering.fleetQuiet, { appId, since: settled.since });
     if (fleet.quiet) return await hold(FLEET_QUIET);
   }
@@ -381,14 +405,15 @@ export const stopped = internalMutation({
 });
 
 /**
- * A pass recorded outside the monitor's rounds (a case's verify step): the check's count goes, and when no other check
- * of the project is still not answering, the open case closes as answered.
+ * A pass recorded outside the monitor's rounds (a case's verify step): the check's count goes, and an open case closes
+ * as answered (V5), allPassed only if no other check of the project has a count. Reads the project's row, and its cases
+ * and checks only when it records an open case.
  */
 export async function passedOutsideRound(ctx: MutationCtx, journey: Doc<"journeys">) {
-  await ctx.db.patch(journey._id, { unanswered: undefined });
-  const others = (await journeysOf(ctx, journey.appId)).filter((other) => other._id !== journey._id && isNotAnswering(other));
-  if (others.length) return;
+  if (journey.unanswered) await ctx.db.patch(journey._id, { unanswered: undefined });
+  if (!(await ctx.db.get(journey.appId))?.notAnsweringCase) return;
   const open = openOf(await recentCases(ctx, journey.appId));
-  // The one check that ran passed.
-  if (open) await close(ctx, open, { answered: true, tail: `${quoted([journey.name])} passed when another of this project's cases checked it.`, allPassed: true });
+  if (!open) return;
+  const others = (await journeysOf(ctx, journey.appId)).filter((other) => other._id !== journey._id && other.unanswered !== undefined);
+  await close(ctx, open, { answered: true, tail: `${quoted([journey.name])} passed when another of this project's cases checked it.`, allPassed: others.length === 0 });
 }

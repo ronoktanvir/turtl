@@ -70,17 +70,21 @@ export type Runnable = { journeyId: Id<"journeys">; url: string; credentialRef?:
  */
 export const canStopAnswering = (journey: Pick<Doc<"journeys">, "check" | "lastPassedAt">) =>
   journey.check?.kind === "http" && journey.check.config.method === "POST" && journey.lastPassedAt !== undefined;
-/** unanswered: some check of the project has tries with no usable answer on record (convex/protectedApp/notAnswering.ts). */
-type Plan = { unanswered: boolean } & ({ kind: "none" } | { kind: "skip"; reason: string } | { kind: "run"; base: string; journeys: Runnable[]; partial: string | null });
+/**
+ * unanswered: some check of the project has quiet tries on record; caseOpen: the project records an open not-answering
+ * case (apps.notAnsweringCase). Either one means the end of a round has something to settle (notAnswering.ts).
+ */
+type Plan = { unanswered: boolean; caseOpen: boolean } & ({ kind: "none" } | { kind: "skip"; reason: string } | { kind: "run"; base: string; journeys: Runnable[]; partial: string | null });
 
 /** What the monitor can check for one project now, read from its own rows. */
 export async function planFor(ctx: Read, app: Doc<"apps">): Promise<Plan> {
-  if (app.isSample) return { kind: "none", unanswered: false };
+  const caseOpen = app.notAnsweringCase !== undefined;
+  if (app.isSample) return { kind: "none", unanswered: false, caseOpen };
   const rows = await ctx.db.query("journeys").withIndex("by_app", (q) => q.eq("appId", app._id)).take(MAX_JOURNEYS);
   const unanswered = rows.some((journey) => journey.unanswered !== undefined);
   const journeys = rows.flatMap((journey) => (journey.check.kind === "http" ? [{ journeyId: journey._id, ...pick(journey.check), countable: canStopAnswering(journey) }] : []));
-  if (journeys.length === 0) return { kind: "none", unanswered };
-  const skip = (reason: string): Plan => ({ kind: "skip", reason, unanswered });
+  if (journeys.length === 0) return { kind: "none", unanswered, caseOpen };
+  const skip = (reason: string): Plan => ({ kind: "skip", reason, unanswered, caseOpen });
   if (!app.ownerId) return skip(WATCH_WORDS.noOwner);
   const owner = ctx.db.normalizeId("users", app.ownerId);
   if (!owner || !(await ctx.db.get(owner))) return skip(WATCH_WORDS.ownerGone);
@@ -90,7 +94,7 @@ export async function planFor(ctx: Read, app: Doc<"apps">): Promise<Plan> {
   const hasToken = (await projectSecret(ctx, app._id, "control_token")) !== null;
   const runnable = journeys.filter((journey) => hasToken || !journey.credentialRef);
   if (runnable.length === 0) return skip(WATCH_WORDS.noToken);
-  return { kind: "run", base: app.productionUrl.replace(/\/+$/, ""), journeys: runnable, partial: runnable.length < journeys.length ? WATCH_WORDS.someNeedToken : null, unanswered };
+  return { kind: "run", base: app.productionUrl.replace(/\/+$/, ""), journeys: runnable, partial: runnable.length < journeys.length ? WATCH_WORDS.someNeedToken : null, unanswered, caseOpen };
 }
 
 const pick = (check: Http): Omit<Runnable, "journeyId" | "countable"> => ({ url: check.config.url, ...(check.config.credentialRef && { credentialRef: check.config.credentialRef }) });
@@ -178,13 +182,13 @@ export async function takeTurn(
 ): Promise<{ kind: "none" } | { kind: "skipped"; reason: string } | { kind: "running" } | { kind: "started" }> {
   const plan = await planFor(ctx, app);
   const row = known ?? (await stateOf(ctx, app._id));
-  // turtl stops checking a project whose checks had tries with no answer on record: their counts go, and an open
-  // not-answering case closes with why (convex/protectedApp/notAnswering.ts). Only then is anything more read.
+  // turtl stops checking a project whose checks have quiet tries on record, or that records an open not-answering case:
+  // the counts go, and the case closes with why (convex/protectedApp/notAnswering.ts). Only then is anything more read.
   const stop = (reason: string) => ctx.scheduler.runAfter(0, internal.protectedApp.notAnswering.stopped, { appId: app._id, reason });
   if (plan.kind === "none") {
     // Nothing to check: no row is made, and one left from earlier checks is read again only now and then.
     if (row) await ctx.db.patch(row._id, { nextCheckAt: now + NO_CHECKS_EVERY_MS });
-    if (plan.unanswered) await stop(WATCH_WORDS.noChecks);
+    if (plan.unanswered || plan.caseOpen) await stop(WATCH_WORDS.noChecks);
     return { kind: "none" };
   }
   if (plan.kind === "skip") {
@@ -192,7 +196,7 @@ export async function takeTurn(
       nextCheckAt: now + SKIPPED_EVERY_MS,
       ...(!sameNotice(row, plan.reason) && { notice: { reason: plan.reason, at: now, partial: false } }),
     });
-    if (plan.unanswered) await stop(plan.reason);
+    if (plan.unanswered || plan.caseOpen) await stop(plan.reason);
     return { kind: "skipped", reason: plan.reason };
   }
   if (row?.runningSince !== undefined && now - row.runningSince < LEASE_MS) {
@@ -233,9 +237,9 @@ export const watchSoon = internalMutation({
   },
 });
 
-// What one project's check runs now: its live address and the checks it can run, whether any of its checks has
-// tries with no answer on record, and whether it is a practice project, for the end of the round (monitor.ts). Null
-// when it cannot be checked.
+// What one project's check runs now: its live address and the checks it can run, whether any of its checks has quiet
+// tries on record, whether it records an open not-answering case, and whether it is a practice project, for the end of
+// the round (monitor.ts). Null when it cannot be checked.
 export const plan = internalQuery({
   args: { appId: v.id("apps") },
   returns: v.union(
@@ -244,13 +248,14 @@ export const plan = internalQuery({
       base: v.string(),
       journeys: v.array(v.object({ journeyId: v.id("journeys"), url: v.string(), credentialRef: v.optional(v.string()), countable: v.boolean() })),
       unanswered: v.boolean(),
+      caseOpen: v.boolean(),
       practice: v.boolean(),
     }),
   ),
   handler: async (ctx, { appId }) => {
     const app = await ctx.db.get(appId);
     const found = app ? await planFor(ctx, app) : null;
-    return found?.kind === "run" ? { base: found.base, journeys: found.journeys, unanswered: found.unanswered, practice: app?.practice === true } : null;
+    return found?.kind === "run" ? { base: found.base, journeys: found.journeys, unanswered: found.unanswered, caseOpen: found.caseOpen, practice: app?.practice === true } : null;
   },
 });
 
