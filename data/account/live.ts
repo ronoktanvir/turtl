@@ -74,6 +74,8 @@ function connected(waitMs = 5000): Promise<boolean> {
   if (client.connectionState().isWebSocketConnected) return Promise.resolve(true);
   return new Promise((resolve) => {
     let done = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let unsubscribe = () => {};
     const finish = (value: boolean) => {
       if (done) return;
       done = true;
@@ -81,10 +83,11 @@ function connected(waitMs = 5000): Promise<boolean> {
       unsubscribe();
       resolve(value);
     };
-    const timer = setTimeout(() => finish(false), waitMs);
-    const unsubscribe = client.subscribeToConnectionState((state) => {
+    timer = setTimeout(() => finish(false), waitMs);
+    unsubscribe = client.subscribeToConnectionState((state) => {
       if (state.isWebSocketConnected) finish(true);
     });
+    if (done) unsubscribe();
   });
 }
 

@@ -23,5 +23,5 @@ export default function AccountGate() {
   }, [target, ready]);
   if (status === "accountsOff") return <AccountsOff />;
   if (!target && !holdScreens(status, isStoreBuild, mode)) return null;
-  return <View testID="account-gate" style={[StyleSheet.absoluteFill, { backgroundColor: colors.bg }]} />;
+  return <View testID="account-gate" accessibilityViewIsModal style={[StyleSheet.absoluteFill, { backgroundColor: colors.bg }]} />;
 }
