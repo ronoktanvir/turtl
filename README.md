@@ -39,10 +39,10 @@ flowchart TB
         approve{{"6 · Authorize<br/>owner or permission"}}
         approve -- "code change" --> pr["Capy opens<br/>a pull request"] --> merge["Owner merges,<br/>turtl waits for the deploy"] --> verify["7 · Verify<br/>health, journey,<br/>cloud device"]
         approve -- "action" --> run["Run the<br/>catalog action"] --> verify
-        approve -- "declined" --> declined(["Nothing runs"])
-        verify --> learn["8 · Learn<br/>memory and<br/>case note"]
+        approve -- "declined" --> declined(["Nothing more runs"])
     end
-    understand --> act
+    learn["8 · Learn: recovery memory and case note"]
+    understand --> act --> learn
 ```
 
 | Step | What it does on `main` |
