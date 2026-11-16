@@ -32,6 +32,20 @@ export const spendTables = {
     casesOpened: v.number(),
     updatedAt: v.number(),
   }).index("by_app_and_day", ["appId", "day"]),
+  // One row per account per calendar day (UTC) on which it asked a model: what its own calls cost (ownUsd) and what its
+  // projects' customer reports cost (intakeUsd), each checked against the account's share of the deployment's day
+  // (finding 12), plus the calls let through whose cost has not come back yet (held, MODEL_CALL_HOLD_USD each), so a
+  // burst cannot pass the share. Older days are deleted as new ones start; the rows go with the account.
+  accountSpendDays: defineTable({
+    account: v.string(),
+    day: v.string(),
+    ownUsd: v.number(),
+    ownHeldUsd: v.number(),
+    intakeUsd: v.number(),
+    intakeHeldUsd: v.number(),
+    calls: v.number(),
+    updatedAt: v.number(),
+  }).index("by_account_and_day", ["account", "day"]),
   // Deployment-wide running totals that belong to no account (finding 7): new accounts per clock hour and per day (Apple
   // and GitHub sign-ups, password sign-ups, and password accounts confirming their address, each counted apart), and
   // every account's model spend per day. `window` is the hour ("2026-11-15T12") or the day ("2026-11-15"), UTC. Older

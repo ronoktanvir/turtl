@@ -1,12 +1,13 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
-import type { Doc } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import { internalAction, type ActionCtx } from "./_generated/server";
 import { action, mutation, query } from "./functions";
 import { canSeeCase, guardCaseInAction, ownerActor, requireDevTools } from "./access";
 import { gateFor } from "./consent/gate";
 import { repositoryAccess, type Purpose } from "./github/access";
 import { findPullRequestNumber } from "./prTracking/capy";
+import { FOLLOW_CLAIMS } from "./prTracking/follow";
 import { capyConfigFor } from "./prTracking/codingAgent";
 import { registerCodeChangeAction } from "./prTracking/catalog";
 import { mergePullRequest, parsePullRequestUrl, readPullRequest } from "./prTracking/github";
@@ -108,14 +109,31 @@ export const refresh = action({
   },
 });
 
-// Every 30 seconds: every pull request still being opened or still open.
+// Every 30 seconds: each pull request still being opened or still open whose next read has come gets its own action,
+// claimed a batch at a time (convex/prTracking/follow.ts), so no account's pull requests hold up another's.
 export const refreshActive = internalAction({
   args: {},
-  handler: async (ctx): Promise<RefreshResult["outcome"][]> => {
-    const rows: Doc<"pullRequests">[] = await ctx.runQuery(internal.prTracking.records.active, {});
-    const outcomes: RefreshResult["outcome"][] = [];
-    for (const row of rows) outcomes.push((await sync(ctx, row)).outcome);
-    return outcomes;
+  handler: async (ctx): Promise<number> => {
+    let started = 0;
+    for (let claims = 0; claims < FOLLOW_CLAIMS; claims++) {
+      const { ids, more }: { ids: Id<"pullRequests">[]; more: boolean } = await ctx.runMutation(internal.prTracking.records.claimDue, {});
+      started += ids.length;
+      if (!more) break;
+    }
+    return started;
+  },
+});
+
+// One followed pull request's read, which then says when the next one is due.
+export const syncDue = internalAction({
+  args: { id: v.id("pullRequests") },
+  handler: async (ctx, { id }): Promise<RefreshResult["outcome"]> => {
+    try {
+      const row: Doc<"pullRequests"> | null = await ctx.runQuery(internal.prTracking.records.get, { id });
+      return row ? (await sync(ctx, row)).outcome : "none";
+    } finally {
+      await ctx.runMutation(internal.prTracking.records.followNext, { id });
+    }
   },
 });
 

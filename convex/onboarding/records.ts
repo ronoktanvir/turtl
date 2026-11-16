@@ -3,7 +3,9 @@ import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import { internalMutation, internalQuery, type MutationCtx, type QueryCtx } from "../_generated/server";
 import { vActionConfig, vCheck, vParameterConstraint } from "../constants";
+import { FOLLOW_BATCH, FOLLOW_LEASE_MS, nextFollowAt } from "../prTracking/follow";
 import { vGithubSnapshot } from "../prTracking/validators";
+import { checkSoon } from "../protectedApp/watching";
 import { vLiveCheck, vReadinessItem, vStack } from "./schema";
 
 export const latestInspection = (ctx: QueryCtx, appId: Id<"apps">) =>
@@ -115,17 +117,59 @@ export const forApp = internalQuery({
   },
 });
 
-/** More open preparation pull requests than the cron follows in one run; the rest wait for the next minute. */
-const ACTIVE_PER_RUN = 100;
+/** The preparation cron's interval (convex/crons.ts). */
+export const PREPARATION_EVERY_MS = 60_000;
 
-// Preparations approved and not yet settled: the ones the cron keeps fresh, oldest approval first, a bounded number.
-export const active = internalQuery({
+export const get = internalQuery({
+  args: { id: v.id("onboardingPreparations") },
+  handler: async (ctx, { id }) => ctx.db.get(id),
+});
+
+/** The next-sync time of a preparation turtl does not follow (not approved): later than any time, so never due. */
+export const NOT_FOLLOWED = Number.MAX_SAFE_INTEGER;
+
+// Approved preparations not yet settled whose next read has come, oldest due first, each leased while its read runs
+// (prepare.ts, syncDue). An approval sets the first next-sync time. A row from before those were kept has none: an
+// approved one is due now, and one not approved is marked as not followed, so it leaves the rows read here.
+export const claimDue = internalMutation({
   args: {},
-  handler: async (ctx) =>
-    await ctx.db
+  returns: v.object({ ids: v.array(v.id("onboardingPreparations")), more: v.boolean() }),
+  handler: async (ctx) => {
+    const now = Date.now();
+    const unknown = await ctx.db
       .query("onboardingPreparations")
-      .withIndex("by_settled_and_approved", (q) => q.eq("settledAt", undefined).gt("approvedAt", 0))
-      .take(ACTIVE_PER_RUN),
+      .withIndex("by_settled_and_next_sync", (q) => q.eq("settledAt", undefined).eq("nextSyncAt", undefined))
+      .take(FOLLOW_BATCH);
+    const legacy = [];
+    for (const row of unknown) {
+      if (row.approvedAt !== undefined) legacy.push(row);
+      else await ctx.db.patch(row._id, { nextSyncAt: NOT_FOLLOWED });
+    }
+    // Rows with a time have their own budget, so rows from before cannot hold them up.
+    const due = await ctx.db
+      .query("onboardingPreparations")
+      .withIndex("by_settled_and_next_sync", (q) => q.eq("settledAt", undefined).gte("nextSyncAt", 0).lte("nextSyncAt", now))
+      .take(FOLLOW_BATCH);
+    const ids = [...legacy, ...due].map((row) => row._id);
+    for (const id of ids) {
+      await ctx.db.patch(id, { nextSyncAt: now + FOLLOW_LEASE_MS });
+      await ctx.scheduler.runAfter(0, internal.onboarding.prepare.syncDue, { id });
+    }
+    return { ids, more: unknown.length === FOLLOW_BATCH || due.length === FOLLOW_BATCH };
+  },
+});
+
+// After a read, when the next one is due: less often the longer turtl has followed it (convex/prTracking/follow.ts).
+export const followNext = internalMutation({
+  args: { id: v.id("onboardingPreparations") },
+  returns: v.null(),
+  handler: async (ctx, { id }) => {
+    const row = await ctx.db.get(id);
+    if (row && row.settledAt === undefined && row.approvedAt !== undefined) {
+      await ctx.db.patch(id, { nextSyncAt: nextFollowAt(row.requestedAt ?? row.approvedAt, Date.now(), PREPARATION_EVERY_MS) });
+    }
+    return null;
+  },
 });
 
 export const recordThread = internalMutation({
@@ -141,7 +185,7 @@ export const refuseStart = internalMutation({
   handler: async (ctx, { id, reason }) => {
     const row = await ctx.db.get(id);
     if (!row || row.capyThreadId || row.settledAt !== undefined) return null;
-    await ctx.db.patch(id, { blocked: reason, approvedAt: undefined, inspectionId: undefined, requestId: undefined, repo: undefined, baseBranch: undefined });
+    await ctx.db.patch(id, { blocked: reason, approvedAt: undefined, inspectionId: undefined, requestId: undefined, repo: undefined, baseBranch: undefined, nextSyncAt: NOT_FOLLOWED });
     return null;
   },
 });
@@ -294,5 +338,7 @@ export const register = internalMutation({
     await ctx.db.patch(id, {
       registration: { status: "done", ref, checks: results, checkedAt: Date.now(), ...(note && { note }), ...(requestedAt !== undefined && { requestedAt }) },
     });
+    // What answered is watched from the monitor's next tick (convex/protectedApp/watching.ts).
+    await checkSoon(ctx, row.appId);
   },
 });

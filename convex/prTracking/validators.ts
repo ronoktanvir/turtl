@@ -43,6 +43,8 @@ export const vPullRequestRow = v.object({
   capyCursor: v.optional(v.string()),
   requestedAt: v.number(),
   syncedAt: v.optional(v.number()),
+  // When the cron next reads it (convex/prTracking/follow.ts). Missing on a row from before it was kept: due now.
+  nextSyncAt: v.optional(v.number()),
   syncError: v.optional(v.string()),
   openError: v.optional(v.string()),
   mergeRequestedBy: v.optional(vActor),

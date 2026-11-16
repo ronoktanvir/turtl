@@ -29,7 +29,7 @@ A customer's words reach turtl through a form in the customer's own app. Each me
 
 The deployment URL is public, so the limits and sizes are the only protection; a sender can change `reporterId` freely, so the per-key limits are the real cap.
 
-What reports cost is bounded apart from those limits (`convex/spend/README.md`). With accounts on, triage and the investigate and plan steps of a case customers opened run on the project's own daily allowance (`INTAKE_SPEND_PER_DAY_USD`), never the owner's monthly one, so a flood of reports cannot stop turtl diagnosing the owner's outages; once it is spent, the rules judge reports until the next day. And reports open at most `INTAKE_CASES_PER_DAY` new cases on a project a day; past that, a report is kept on no case with the reason in its triage row.
+What reports cost is bounded apart from those limits (`convex/spend/README.md`). With accounts on, triage and the investigate, examine-broader-causes and plan steps of a case customers opened run on the project's own daily allowance (`INTAKE_SPEND_PER_DAY_USD`, and the account's `ACCOUNT_INTAKE_SPEND_PER_DAY_USD` for all its projects together), never the owner's own, so a flood of reports cannot stop turtl diagnosing the owner's outages; once it is spent, the rules judge reports until the next day. And reports open at most `INTAKE_CASES_PER_DAY` new cases on a project a day; past that, a report is kept on no case with the reason in its triage row.
 
 ### A customer's contact
 
@@ -45,7 +45,7 @@ It clears every stored contact, a batch at a time, and moves those reports' `fro
 
 ## Deleting reports
 
-- **One report.** `deleteReport({ caseId, reportId, passcode? })`, from the "Manage" control on a customer case (`components/fix/CustomerReports.tsx`). It asks `requireCase`, and in the single-owner demo the owner passcode. It deletes the report and its triage row, replaces its words in the case's evidence, the case's title and impact, and step outputs with "[a deleted report]" (unless another report on the case says the same words), recounts `reportCount` and `distinctRequesterCount`, and schedules `forgetCopies`. Model-written text that paraphrases a report (a diagnosis, fix options, the case chat) is not rewritten.
+- **One report.** `deleteReport({ caseId, reportId, passcode? })`, from the "Manage" control on a customer case (`components/fix/CustomerReports.tsx`). It asks `requireCase`, and in the single-owner demo the owner passcode. It deletes the report and its triage row, replaces its words in the case's evidence, the case's title and impact, and step outputs with "[a deleted report]" (unless another report on the case says the same words), takes it off `reportCount` and `distinctRequesterCount` (and recounts both when the case has up to 1,000 reports), and schedules `forgetCopies`. Model-written text that paraphrases a report (a diagnosis, fix options, the case chat) is not rewritten.
 - **All of an app's reports.** `deleteAppReports({ appId })` (internal), for deleting an account or a project: the same, 100 reports per run, scheduling itself until none is left. It does not rewrite quotes, since the cases go with the account.
 - **The Supermemory copy.** `forgetCopies({ appId, reportIds })` deletes the documents triage added to `${INTAKE_NAMESPACE_PREFIX}reports_<appId>` under each report's id. Without `SUPERMEMORY_API_KEY` it sends nothing. A failure is retried twice, a minute apart, then logged.
 
@@ -53,13 +53,15 @@ It clears every stored contact, a batch at a time, and moves those reports' `fro
 
 Triage runs one report at a time per app, so a report can match the case the report before it opened.
 
-1. **Exact copy.** A report whose fingerprint (lowercased words) equals one already on an open customer case of the app joins that case. No model is asked.
-2. **Candidates.** The app's open customer-raised cases, newest 20, each with up to three of its reports, are read from Convex and labelled C1, C2, ….
+Everything triage reads is bounded per project and per case, so customers cannot grow a project's reports until its triage fails: the project's 200 newest cases, and on each open customer case its 200 newest triage rows and three newest reports.
+
+1. **Exact copy.** A report whose fingerprint (lowercased words) equals one of the 200 newest already on an open customer case of the app joins that case. No model is asked.
+2. **Candidates.** The open customer-raised cases among the app's 200 newest cases, newest 20, each with its three newest reports, are read from Convex and labelled C1, C2, ….
 3. **Supermemory suggestion.** Report texts are indexed per app in `${INTAKE_NAMESPACE_PREFIX}reports_<appId>`. A search may mark candidates `suggestedBySearch`; a suggestion that is not a candidate read from Convex is dropped.
 4. **Model.** One call (`FIXES_MODEL`, else `DIAGNOSIS_MODEL`, else gpt-5.4-mini) returns `{ verdict, sameAs, title, summary }`. Only those four fields are read, and `sameAs` must be one of the refs offered.
 5. **Rule-based fallback.** With no usable answer, rules judge the text (length, links, instruction-only text, request and symptom words, the customer's button) and match only by word overlap of at least 0.6. The reason says "Rule-based triage, not a model's: no model answered (…)".
 6. **Instruction guard.** Text that gives instructions to turtl, an AI or its operators and describes no symptom is noise, whatever the model said.
-7. **Decision** (`decide` in `rules.ts`). Noise lands nowhere. A report joins the matched case only when that case is open, of this app, raised by a customer, and of the kind the report was judged to be. Otherwise it opens a case of that kind (`bug_report` or `feature_request`), `raisedBy: "customer"`, with the app's journey when it has one. `reportCount` counts messages and `distinctRequesterCount` counts people; both are recomputed from the `reports` rows each time.
+7. **Decision** (`decide` in `rules.ts`). Noise lands nowhere. A report joins the matched case only when that case is open, of this app, raised by a customer, and of the kind the report was judged to be. Otherwise it opens a case of that kind (`bug_report` or `feature_request`), `raisedBy: "customer"`, with the app's journey when it has one. `reportCount` counts messages and `distinctRequesterCount` counts people; both are kept on the case as each report joins or leaves it (a person counts once while any report of theirs is on the case), and recounted from the `reports` rows when the owner deletes one, for a case of up to 1,000 reports. The case screen lists its 200 newest reports, and the reports screen the project's 200 newest.
 8. **Owner notice.** A new case schedules one `opened` notice through `notices.notifyOwner`, which keeps one outcome per case and event and stays best effort. Its text names only the app and the kind, never the customer's words, because the notice is read by another agent.
 
 A triage that fails three times is kept as `ignored` with that reason. A stuck lock expires after two minutes and the queue kicks itself again.

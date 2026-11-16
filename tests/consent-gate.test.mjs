@@ -176,9 +176,10 @@ test("the action-side gate asks on every call in accounts mode, and records spen
     const asked = [];
     const wrote = [];
     let answer = { ok: true, account: ADA };
+    // A model call about to be sent is admitted (asked and counted at once, convex/spend), so it is a mutation.
     const ctx = {
       runQuery: async (fn, args) => (asked.push([fn.path, args]), answer),
-      runMutation: async (fn, args) => void wrote.push([fn.path, args]),
+      runMutation: async (fn, args) => (fn.path === "internal.consent.gate.admit" ? (asked.push([fn.path, args]), answer) : void wrote.push([fn.path, args])),
     };
     const gate = gates.gateFor(ctx, { caseId: "cases:1" });
     assert.equal(await gate.blocked("openai"), null);
@@ -188,7 +189,7 @@ test("the action-side gate asks on every call in accounts mode, and records spen
     await gate.threadStarted("turtl:fix-1");
     assert.deepEqual(asked.map(([path, args]) => [path, args.service, args.purpose]), [
       ["internal.consent.gate.check", "openai", "send"],
-      ["internal.consent.gate.check", "openai", "send"],
+      ["internal.consent.gate.admit", "openai", "send"],
     ]);
     assert.deepEqual(asked[0][1].scope, { caseId: "cases:1" });
     assert.deepEqual(wrote, [
@@ -353,7 +354,10 @@ test("the structural review records the refusal on the case and asks no model", 
       if (fn.path === "internal.consent.gate.check") return { ok: false, reason: REASON };
       return { skip: null, prompt: { availableChecks: [] }, known: {}, relatedCaseIds: ["cases:2", "cases:3"], triggerSummary: "two related cases.", reason: "related_history", seededCaseCount: 0 };
     },
-    runMutation: async (fn, args) => (calls.push([fn.path, args.error ?? null]), "agentRuns:1"),
+    runMutation: async (fn, args) => {
+      if (fn.path === "internal.consent.gate.admit") return (calls.push(fn.path), { ok: false, reason: REASON });
+      return (calls.push([fn.path, args.error ?? null]), "agentRuns:1");
+    },
   };
   const input = { case: { _id: "cases:1", appId: "apps:1" }, step: { _id: "steps:1" }, attempt: { _id: "stepAttempts:1" } };
   const result = await withEnv({ ...ACCOUNTS, OPENAI_API_KEY: "sk-test-stand-in" }, () => examine.examineBroaderCauses(ctx, input));

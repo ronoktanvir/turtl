@@ -149,13 +149,15 @@ test("what customer reports cost lands on the project's day, never on the accoun
     const wrote = [];
     const ctx = {
       runQuery: async (fn, args) => gates.check.handler({ db }, args),
-      runMutation: async (fn, args) => (wrote.push([fn.path, args]), ledger.addModelSpend.handler({ db }, args)),
+      runMutation: async (fn, args) =>
+        fn.path === "internal.consent.gate.admit" ? gates.admit.handler({ db }, args) : (wrote.push([fn.path, args]), ledger.addModelSpend.handler({ db }, args)),
     };
     const triage = gates.gateFor(ctx, { appId: "apps:1" }, "intake");
     assert.equal((await triage.open("openai")).ok, true);
     await triage.spent(0.3);
     await triage.spent(0.25);
-    assert.deepEqual(wrote.map(([, args]) => args), [{ account: ADA, costUsd: 0.3, appId: "apps:1" }, { account: ADA, costUsd: 0.25, appId: "apps:1" }]);
+    // The first cost takes the place of the one call's hold; the second has none left to release.
+    assert.deepEqual(wrote.map(([, args]) => args), [{ account: ADA, costUsd: 0.3, appId: "apps:1", held: limits.MODEL_CALL_HOLD_USD }, { account: ADA, costUsd: 0.25, appId: "apps:1" }]);
     assert.equal(await ledger.monthSpend({ db }, ADA, Date.now()), 0, "the owner's month is untouched");
     assert.equal((await ledger.intakeSpendToday({ db }, "apps:1", Date.now())).toFixed(2), "0.55");
     assert.deepEqual(db.rows("intakeDays").map(({ day, calls }) => [day, calls]), [["2026-11-15", 2]], "an earlier day's row is dropped when a new day starts");
@@ -164,7 +166,7 @@ test("what customer reports cost lands on the project's day, never on the accoun
     const diagnosis = gates.gateFor(ctx, { appId: "apps:1" });
     assert.equal((await diagnosis.open("openai")).ok, true);
     await diagnosis.spent(0.1);
-    assert.deepEqual(wrote.at(-1)[1], { account: ADA, costUsd: 0.1 });
+    assert.deepEqual(wrote.at(-1)[1], { account: ADA, costUsd: 0.1, held: limits.MODEL_CALL_HOLD_USD });
     assert.equal(await ledger.monthSpend({ db }, ADA, Date.now()), 0.1);
   });
 });
@@ -188,7 +190,8 @@ test("customer reports open at most so many cases on a project a day", async (t)
 // ceiling on model spend, across every account and allowance.
 test("past the deployment's daily ceiling no account's model is asked, whatever its own allowance says", async (t) => {
   t.mock.timers.enable({ apis: ["Date"], now: NOV_15 });
-  await withEnv({ ...ACCOUNTS, DEPLOYMENT_MODEL_SPEND_PER_DAY_USD: "1" }, async () => {
+  // The ceiling alone: the part of the day kept for outages is tests/shared-spend.test.mjs's subject.
+  await withEnv({ ...ACCOUNTS, DEPLOYMENT_MODEL_SPEND_PER_DAY_USD: "1", OUTAGE_RESERVE_PERCENT: "0" }, async () => {
     const db = world();
     const check = (allowance) => gates.check.handler({ db }, { scope: { appId: "apps:1" }, service: "openai", purpose: "send", ...(allowance && { allowance }) });
     assert.equal((await check()).ok, true);

@@ -53,6 +53,42 @@ async function addToIntakeDay(ctx: MutationCtx, appId: Id<"apps">, add: { costUs
   await ctx.db.insert("intakeDays", { appId, day, ...add, updatedAt: now });
 }
 
+export type AccountDay = { ownUsd: number; ownHeldUsd: number; intakeUsd: number; intakeHeldUsd: number };
+type AccountDayAdd = Partial<AccountDay> & { calls?: number };
+
+const accountDayRow = (ctx: Reader, account: string, day: string) =>
+  ctx.db.query("accountSpendDays").withIndex("by_account_and_day", (q) => q.eq("account", account).eq("day", day)).unique();
+
+/** What the account's own calls and its projects' customer reports cost today (UTC), and what is still held. */
+export async function accountDay(ctx: Reader, account: string, at: number): Promise<AccountDay> {
+  const row = await accountDayRow(ctx, account, dayKey(at));
+  return { ownUsd: row?.ownUsd ?? 0, ownHeldUsd: row?.ownHeldUsd ?? 0, intakeUsd: row?.intakeUsd ?? 0, intakeHeldUsd: row?.intakeHeldUsd ?? 0 };
+}
+
+const cents = (value: number) => Math.max(0, Math.round(value * 1e6) / 1e6);
+
+/** Adds to the account's totals for today, starting the day's row (and dropping older ones) if needed. */
+async function addToAccountDay(ctx: MutationCtx, account: string, add: AccountDayAdd) {
+  const now = Date.now();
+  const day = dayKey(now);
+  const row = await accountDayRow(ctx, account, day);
+  const next = (field: keyof AccountDay) => cents((row?.[field] ?? 0) + (add[field] ?? 0));
+  const fields = { ownUsd: next("ownUsd"), ownHeldUsd: next("ownHeldUsd"), intakeUsd: next("intakeUsd"), intakeHeldUsd: next("intakeHeldUsd"), calls: (row?.calls ?? 0) + (add.calls ?? 0), updatedAt: now };
+  if (row) {
+    await ctx.db.patch(row._id, fields);
+    return;
+  }
+  for (const old of await ctx.db.query("accountSpendDays").withIndex("by_account_and_day", (q) => q.eq("account", account).lt("day", day)).take(PRUNE_DAYS)) {
+    await ctx.db.delete(old._id);
+  }
+  await ctx.db.insert("accountSpendDays", { account, day, ...fields });
+}
+
+/** Counts a model call the gate just let through at MODEL_CALL_HOLD_USD until its cost comes back (addModelSpend). */
+export async function holdModelCall(ctx: MutationCtx, account: string, share: "own" | "intake", holdUsd: number) {
+  await addToAccountDay(ctx, account, share === "own" ? { ownHeldUsd: holdUsd } : { intakeHeldUsd: holdUsd });
+}
+
 /** Counts a case opened from customer reports today, or says no when the project's daily cap is reached. */
 export async function openIntakeCase(ctx: MutationCtx, appId: Id<"apps">): Promise<boolean> {
   const opened = (await intakeDay(ctx, appId, dayKey(Date.now())))?.casesOpened ?? 0;
@@ -62,12 +98,23 @@ export async function openIntakeCase(ctx: MutationCtx, appId: Id<"apps">): Promi
 }
 
 // With appId the call read a project's customer reports and counts against that project's day (the intake
-// allowance); without it, against the account's month.
+// allowance); without it, against the account's month. Either way it counts against the account's day, in place of
+// the hold (`held`) the gate counted it at when it let the call through.
 export const addModelSpend = internalMutation({
-  args: { account: v.string(), costUsd: v.number(), appId: v.optional(v.id("apps")) },
+  args: { account: v.string(), costUsd: v.number(), appId: v.optional(v.id("apps")), held: v.optional(v.number()) },
   returns: v.null(),
-  handler: async (ctx, { account, costUsd, appId }) => {
-    if (!Number.isFinite(costUsd) || costUsd <= 0) return null;
+  handler: async (ctx, { account, costUsd, appId, held }) => {
+    const cost = Number.isFinite(costUsd) && costUsd > 0 ? costUsd : 0;
+    const release = held !== undefined && Number.isFinite(held) && held > 0 ? held : 0;
+    if (cost > 0 || release > 0) {
+      await addToAccountDay(
+        ctx,
+        account,
+        appId ? { intakeUsd: cost, intakeHeldUsd: -release, calls: cost > 0 ? 1 : 0 } : { ownUsd: cost, ownHeldUsd: -release, calls: cost > 0 ? 1 : 0 },
+      );
+    }
+    if (cost === 0) return null;
+    costUsd = cost;
     // Every call counts toward the deployment's day too, whichever allowance it spent.
     await addDeploymentSpend(ctx, costUsd);
     if (appId) {

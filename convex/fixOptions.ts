@@ -6,7 +6,7 @@ import { modelId as diagnosisModelId } from "./diagnosis";
 import { fingerprint, pastDecisionLine, recommend, type TurnedDown } from "./learning/rules";
 import { codeChangeInstructions, instructionsToSend } from "./prTracking/capy";
 import type { Facts } from "./runner/handlers/journey";
-import { modelCost } from "./spend/limits";
+import { ASSUMED_OUTPUT_TOKENS, callEstimate, modelCost } from "./spend/limits";
 
 declare const process: { env: Record<string, string | undefined> };
 
@@ -198,9 +198,10 @@ export async function askJson(
 ): Promise<{ ok: true; json: Record<string, unknown> } | { ok: false; reason: string }> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) return { ok: false, reason: NO_MODEL_REASON };
-  const opened = await gate.open("openai");
-  if (!opened.ok) return { ok: false, reason: opened.reason };
   const model = fixesModelId();
+  const prompt = JSON.stringify(user);
+  const opened = await gate.open("openai", "send", callEstimate(model, system.length + prompt.length));
+  if (!opened.ok) return { ok: false, reason: opened.reason };
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), MODEL_TIMEOUT_MS);
   try {
@@ -210,9 +211,11 @@ export async function askJson(
       body: JSON.stringify({
         model,
         response_format: { type: "json_object" },
+        // The most it may write, which is what the gate held for it (convex/spend/limits.ts).
+        max_completion_tokens: ASSUMED_OUTPUT_TOKENS,
         messages: [
           { role: "system", content: system },
-          { role: "user", content: JSON.stringify(user) },
+          { role: "user", content: prompt },
         ],
       }),
       signal: controller.signal,

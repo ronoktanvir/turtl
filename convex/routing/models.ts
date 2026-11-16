@@ -1,5 +1,5 @@
 import type { Gate } from "../consent/gate";
-import { modelCost } from "../spend/limits";
+import { callEstimate, modelCost } from "../spend/limits";
 import { estimateCostUsd, PROVIDER_KEYS, type ModelRef, type Provider } from "./configs";
 
 declare const process: { env: Record<string, string | undefined> };
@@ -105,7 +105,7 @@ export async function callModel(gate: Gate, call: ModelCall): Promise<ModelAnswe
   const elapsed = () => Date.now() - started;
   const key = providerKey(call.ref.provider);
   if (!key) return { ok: false, infra: true, reason: `${PROVIDER_NAMES[call.ref.provider]} is not connected to turtl yet, so no request was sent`, durationMs: 0 };
-  const opened = await gate.open(call.ref.provider);
+  const opened = await gate.open(call.ref.provider, "send", callEstimate(call.ref.model, call.system.length + call.user.length, call.maxOutputTokens));
   if (!opened.ok) return { ok: false, infra: true, blocked: true, reason: opened.reason, durationMs: 0 };
   const { url, headers, body, read } = request(call, key);
   const controller = new AbortController();

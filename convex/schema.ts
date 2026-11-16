@@ -143,7 +143,9 @@ export default defineSchema({
       "provider",
       "providerEventId",
     ])
-    .index("by_case_and_requester", ["caseId", "fromRef"]),
+    .index("by_case_and_requester", ["caseId", "fromRef"])
+    // A case's reports by when they came, so a read takes the first or the newest few, however many there are.
+    .index("by_case_and_received", ["caseId", "receivedAt"]),
   // Mutations must check case/step/attempt ownership and preserve the observation's original environment and revision.
   evidence: defineTable(vEvidence)
     .index("by_case", ["caseId"])
@@ -197,7 +199,7 @@ export default defineSchema({
   pullRequests: defineTable(vPullRequestRow)
     .index("by_case", ["caseId"])
     .index("by_action", ["actionId"])
-    .index("by_settled", ["settledAt"]),
+    .index("by_settled_and_next_sync", ["settledAt", "nextSyncAt"]),
   bookingDemoSettings: defineTable({
     key: v.literal("demo"),
     recommendationsEnabled: v.boolean(),

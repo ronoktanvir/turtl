@@ -165,7 +165,8 @@ export async function examineWithCouncil(ctx: ActionCtx, request: CouncilRequest
   const where = { caseId: request.caseId, stepId: request.stepId, stepAttemptId: request.stepAttemptId };
   const row = await ctx.runQuery(internal.protectedApp.records.caseContext, { caseId: request.caseId });
   const appId = row.case.appId;
-  const gate = gateFor(ctx, { appId });
+  // A council on a diagnosis is part of finding an outage's cause; one on a structural hypothesis is not.
+  const gate = gateFor(ctx, { caseId: request.caseId }, request.purpose === "diagnosis" ? "outage" : "account");
   const refusals = new Map<string, string | null>();
   const refusalFor = async (member: CouncilMember) => {
     if (!refusals.has(member.provider)) refusals.set(member.provider, await gate.blocked(member.provider));
