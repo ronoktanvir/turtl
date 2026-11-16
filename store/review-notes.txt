@@ -1,7 +1,7 @@
 turtl is an on-call assistant for people who run a live app without an operations team. It watches the owner's app, opens a case when a check fails or a customer reports a problem, explains the likely cause, and proposes fixes. Nothing changes in the owner's app until the owner approves it.
 
 SIGNING IN
-Use the review account from this submission: on the first screen tap Log in and enter its email and password. The first screen also offers Sign in with Apple, GitHub, and Sign up with an email and password. Each makes its own account.
+Use the review account from this submission: on the first screen tap Log in and enter its email and password. The first screen also offers Sign in with Apple, GitHub, and Sign up, which emails a link and a code to the address given; the new account opens once the code is entered (tap the link on the iPhone, or paste the code). The review account is already confirmed.
 
 THE REVIEW ACCOUNT
 A new account starts empty: it can connect a GitHub repository and a live app, or try a practice app that turtl runs for it. The review account has one project, "Practice booking app", connected to a small booking app we run only for practice and review, with a case already open.
@@ -14,17 +14,17 @@ A new account starts empty: it can connect a GitHub repository and a live app, o
 This only ever touches the review account's own practice app.
 
 THIRD-PARTY AI (5.1.2)
-turtl sends parts of the owner's source code, case details, messages, and voice recordings to third-party AI services. After sign-in, before anything is sent, a screen titled "Before turtl uses AI" names each service (OpenAI, Supermemory, Capy, and Keiki), says what each receives, links to its privacy policy, and asks with Allow and Not now. The backend refuses every call to a service the owner has not allowed. After Not now, turtl still watches the app and explains problems with its own rules. Permission can be read again and taken back in Settings, under AI services. The privacy policy lists the same services.
+turtl sends parts of the owner's source code, case details, messages, and voice recordings to third-party AI services. After sign-in, before anything is sent, a screen titled "Before turtl uses AI" names each service (OpenAI, Supermemory, and Capy), says what each receives, links to its policy, and asks with Allow and Not now. The backend refuses every call to a service the owner has not allowed. After Not now, turtl still watches the app and explains problems with its own rules. It can be taken back in Settings, under AI services.
 
 MICROPHONE (2.5.14)
-Used only after the user taps Talk on a case, and the app shows that it is listening. A recording is at most 30 seconds. It is sent to OpenAI to be turned into text and is not stored. Typing does the same job if the user declines.
+Used only after the user taps Talk on a case, while the app shows it is listening, for at most 30 seconds. The recording is sent to OpenAI to be turned into text and is not stored. Typing does the same job.
 
 NOTIFICATIONS (4.5.4)
 Optional. The app asks only after the user taps Turn on notifications. A notification is sent only when a case needs the owner's decision or a fix the owner allowed has run, and is never promotional.
 
 ACCOUNT DELETION (5.1.1(v))
 On Projects, tap the profile picture at the top right, then Delete account, Continue, and Yes, delete my account. This deletes the account and everything turtl holds for it, including the copies at our search provider and turtl's access to GitHub, and revokes the Apple token of a Sign in with Apple account.
-Please try it on an account you create with Sign up, not the review account: deleting that would end the review.
+Please try it on an account you create with Sign up, with an address you can read, not the review account: deleting that would end the review.
 
 PURCHASES (3.1)
 turtl is free. It has no in-app purchases, subscriptions, or advertising, and no links to buy anything. Code changes are written by Capy, a separate coding service the owner connects with their own key in Settings.
