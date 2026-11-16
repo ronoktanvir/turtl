@@ -4,9 +4,10 @@ import { useTheme } from "../../theme";
 import { T } from "../ui";
 
 const projectImages: Record<string, ImageSourcePropType> = {
-  "still-booking-demo": require("../../assets/projects/still-booking.png"),
+  "listener-ladder": require("../../assets/projects/listener-ladder.png"),
+  orca: require("../../assets/projects/orca.png"),
+  superprediction: require("../../assets/projects/superprediction.png"),
   guardian: require("../../assets/projects/guardian.png"),
-  "tide-journal": require("../../assets/projects/tide-journal.png"),
 };
 
 export default function ProjectIcon({ project, size = 48 }: { project: Project; size?: number }) {
