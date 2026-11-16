@@ -15,13 +15,16 @@ import { emailService } from "./settings";
 
 export type Message = { subject: string; text: string; html: string };
 
-/** The link in an email: it opens turtl's reset or confirm screen with the code (and for a reset, the address) filled in.
+/**
+ * The link in an email: it opens turtl's reset or confirm screen with the code filled in, and nothing else. It never
+ * carries the address (finding 21): a reset link someone forwards from their own account must not be able to name
+ * whose password the person who taps it is about to set. The reset screen takes the address from this phone's own
+ * request, or from the person; the code works only for the address it was sent to.
  * The parameter is emailCode, not code: Convex Auth's provider in a browser takes a ?code= in the page's address for
- * its own sign-in codes. */
-export function codeLink(purpose: Purpose, code: string, email: string): string {
-  return purpose === "reset"
-    ? `${APP_LINK_PREFIX}reset-password?email=${encodeURIComponent(email)}&emailCode=${formatCode(code)}`
-    : `${APP_LINK_PREFIX}confirm-email?emailCode=${formatCode(code)}`;
+ * its own sign-in codes.
+ */
+export function codeLink(purpose: Purpose, code: string): string {
+  return `${APP_LINK_PREFIX}${purpose === "reset" ? "reset-password" : "confirm-email"}?emailCode=${formatCode(code)}`;
 }
 
 const escape = (text: string) => text.replace(/[&<>"']/g, (character) => `&#${character.charCodeAt(0)};`);
@@ -46,12 +49,12 @@ export function resetMessage(email: string, code: string): Message {
     subject: "Reset your turtl password",
     ...compose(
       {
-        intro: "Someone asked to reset the password of the turtl account for this email address. To choose a new password, open this link on the phone where you use turtl:",
+        intro: `Someone asked to reset the password of the turtl account for ${email}. To choose a new password, open this link on the phone where you asked:`,
         linkLabel: "Choose a new password in turtl",
         screen: "Reset your password",
-        after: `The code works once, for ${CODE_VALID_HOURS} hours. If you didn't ask for this, ignore this email: your password stays the same.`,
+        after: `The code works once, for ${CODE_VALID_HOURS} hours, and only for ${email}. If you didn't ask for this, ignore this email: your password stays the same.`,
       },
-      codeLink("reset", code, email),
+      codeLink("reset", code),
       code,
     ),
   };
@@ -68,7 +71,7 @@ export function confirmMessage(email: string, code: string): Message {
         screen: "Check your email",
         after: `The code works for ${CODE_VALID_HOURS} hours. If you didn't make a turtl account, ignore this email: the account can't do anything, and turtl deletes it after ${UNCONFIRMED_DAYS} days.`,
       },
-      codeLink("confirm", code, email),
+      codeLink("confirm", code),
       code,
     ),
   };

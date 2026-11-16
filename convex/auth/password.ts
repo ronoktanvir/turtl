@@ -107,13 +107,13 @@ export function password() {
           const problem = passwordProblem(params.newPassword, email);
           if (problem) throw refuse(problem);
           const code = normalizeCode(params.code);
-          if (!code) throw refuse(words.wrongCode);
+          if (!code) throw refuse(words.wrongResetCode);
           // The code is used first, in one transaction, so it works once. A wrong one changes nothing and is counted
           // nowhere: there is nothing for a stranger's guesses to use up.
           const used = await ctx.runMutation(internal.auth.codes.redeem, { addressHash: await addressHash(email), purpose: "reset", codeHash: await codeHash(code) });
-          if (!used) throw refuse(words.wrongCode);
+          if (!used) throw refuse(words.wrongResetCode);
           const account = await findPasswordAccount(ctx, email);
-          if (!account) throw refuse(words.wrongCode);
+          if (!account) throw refuse(words.wrongResetCode);
           await modifyAccountCredentials(ctx, { provider: PASSWORD_PROVIDER_ID, account: { id: email, secret: params.newPassword as string } });
           // The new password works at once, on every device, whatever wrong passwords someone tried before.
           await ctx.runMutation(internal.auth.codes.forgetWrongPasswords, { accountId: account._id });

@@ -26,10 +26,12 @@ export default function ConfirmEmail() {
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
 
-  // A link fills the code in: here, or, when it opened while nobody was signed in on this phone, after logging in.
+  // A link fills the code in: here, or, when it opened while nobody was signed in on this phone, after logging in. A
+  // confirmed account has nothing to confirm, so a link it opens is dropped. A code works only for the address it was
+  // sent to, so one sent to someone else confirms nothing here (convex/auth/confirmation.ts).
   useEffect(() => {
     const given = typeof linked === "string" ? normalizeCode(linked) : null;
-    if (given && status !== "unconfirmed") rememberLinkedCode(given);
+    if (given && (status === "signedOut" || status === "checking")) rememberLinkedCode(given);
     const filled = given ?? (status === "unconfirmed" ? takeLinkedCode() : null);
     if (!filled) return;
     setCode(formatCode(filled));
@@ -66,8 +68,9 @@ export default function ConfirmEmail() {
       <T>turtl sent a link and a code to confirm your email address. Open the email on this phone and tap the link, or copy the code into the box below.</T>
       {email && (
         <Card testID="confirm-address" style={{ paddingVertical: 14, paddingHorizontal: 16, gap: 2 }}>
-          <T variant="small" color="textMuted">Sent to</T>
+          <T variant="small" color="textMuted">Your account</T>
           <T variant="strong" font="text" selectable>{email}</T>
+          <T variant="small" color="textMuted">The code works only if turtl sent it to this address.</T>
         </Card>
       )}
       <Field

@@ -132,14 +132,14 @@ try {
     const code = standIn.lastCode(owner);
     for (let n = 0; n < 20; n++) await stranger.action(ref("auth:signIn"), { provider: "password", params: { email: owner, flow: "reset" } });
     for (let n = 0; n < 300; n++) {
-      await assert.rejects(stranger.action(ref("auth:signIn"), { provider: "password", params: { email: owner, code: guess(), newPassword: "stranger's pick", flow: "reset-verification" } }), refusedWith(/That code didn't work/));
+      await assert.rejects(stranger.action(ref("auth:signIn"), { provider: "password", params: { email: owner, code: guess(), newPassword: "stranger's pick", flow: "reset-verification" } }), refusedWith(/doesn't work for this email address/));
     }
     assert.deepEqual(subjects(owner).filter((subject) => subject === "Reset your turtl password").length, 1, "21 requests in a minute, one email");
     const back = await signIn({ email: owner, code, newPassword: "the owner's new password", flow: "reset-verification" });
     assert.ok(back.tokens, "the owner is signed in");
     assert.equal(await first.client.query(ref("users:viewer"), {}), null, "the session from before the reset has ended");
     assert.ok((await signIn({ email: owner, password: "the owner's new password", flow: "signIn" })).tokens, "the lock is cleared: the new password works at once");
-    await assert.rejects(signIn({ email: owner, code, newPassword: "a third password", flow: "reset-verification" }), refusedWith(/That code didn't work/), "a code works once");
+    await assert.rejects(signIn({ email: owner, code, newPassword: "a third password", flow: "reset-verification" }), refusedWith(/doesn't work for this email address/), "a code works once");
   });
 
   await step("Start over throws an unconfirmed account away and frees its address at once", async () => {
