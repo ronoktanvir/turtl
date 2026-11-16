@@ -9,7 +9,7 @@ import { ago, Button, Card, Chip, devToolsOn, HealthWord, Icon, Reveal, T, Turtl
 import { CouncilView } from "./CouncilView";
 import { CodeBox, LogRow, SpanText, Viz } from "./Evidence";
 import { ApproveSheet, DeclineSheet, FixCard } from "./FixCard";
-import { StructuralFindingCard } from "./StructuralFinding";
+import { PreventionCheckCard, StructuralFindingCard } from "./StructuralFinding";
 import { WorkflowGraph } from "../execution/WorkflowGraph";
 
 const tabs = ["Overview", "Logs", "Code"] as const;
@@ -121,7 +121,6 @@ export function CasePage({ caseId, current }: { caseId: string; current: boolean
                   </View>
                 ),
               )}
-              <CouncilView caseId={c.id} prefix={id("")} />
               <View style={{ gap: 12 }}>
                 <T variant="heading">Screenshots from app</T>
                 {c.screenshots.length === 0 && <T color="textMuted">No screenshots have been collected yet.</T>}
@@ -146,6 +145,7 @@ export function CasePage({ caseId, current }: { caseId: string; current: boolean
           )}
           {tab === "Logs" && (
             <>
+              <CouncilView caseId={c.id} prefix={id("")} />
               {c.logs.length === 0 && <T color="textMuted" testID={id("logs-empty")}>No logs have been collected yet.</T>}
               <View style={{ gap: 20 }}>
               {c.logs.map((line) => (
@@ -213,6 +213,7 @@ export function CasePage({ caseId, current }: { caseId: string; current: boolean
               onApprove={setApproving}
             />
           ))}
+          {c.structural?.check && <PreventionCheckCard finding={c.structural} id={id} />}
           {c.status === "declined" && <View style={{ flexDirection: "row", gap: 8 }} testID={id("fixes-declined")}><Icon name="X" size={18} color="textMuted" /><T color="textMuted" style={{ flex: 1 }}>You declined these fixes. Nothing was changed, and this case is closed.</T></View>}
           {c.fixes.length > 0 && !active && !closed && <Button label="Decline these fixes" kind="plain" onPress={() => setDeclining(true)} testID={id("fixes-decline")} />}
           <Card
