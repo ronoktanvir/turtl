@@ -8,8 +8,10 @@ delete and refuses.
 
 ## Files
 
-- `deletion.ts`: `request` (the app's one entry point), the job (`run`, an action, driving `next`, a mutation), the
-  cron's `resumeStalled`, and for operators `lookup` and `hurry`.
+- `deletion.ts`: `request` (the app's entry point for a signed-in account), `beginDeletion` (what `request` does,
+  also used by `convex/auth/confirmation.ts` for a password account that never confirmed its email address: when its
+  owner starts again with another address, and when the hourly sweep finds one older than 7 days), the job (`run`, an
+  action, driving `next`, a mutation), the cron's `resumeStalled`, and for operators `lookup` and `hurry`.
 - `registry.ts`: what is removed, a line per table or per module's eraser. Read it first.
 - `erasers.ts`: the deleting itself, a bounded batch at a time: rows by index, files in storage, the report form's
   rate-limit windows, sign-in records.
@@ -22,8 +24,11 @@ delete and refuses.
 
 - every session of the account ends (`expirationTime: 0`). `convex/access.ts` reads the session, so the app's token,
   though valid for up to an hour more, signs nobody in from that commit on, on every phone;
-- its ways to sign in are removed (password, Apple, GitHub, with reset codes, resets under way and rate limits), so
-  nobody can sign in to it again. Signing up again with the same address makes a new, empty account;
+- its ways to sign in are removed (password, Apple, GitHub, with any codes Convex Auth keeps for them and their rate
+  limits), so nobody can sign in to it again. Signing up again with the same address makes a new, empty account. The
+  codes turtl emailed are filed under a hash of the address, not the account (`convex/auth/codes.ts`): they stay until
+  the hourly sweep deletes each a day after it was sent, so deleting and signing up again cannot send an address more
+  than five emails a day;
 - its AI permission is taken back, so the gate (`convex/consent`) refuses every model, Supermemory, Capy and Keiki
   call for its projects from then on;
 - its phones are removed (`internal.push.devices.removeAccount`), so no push goes out;
