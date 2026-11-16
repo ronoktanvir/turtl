@@ -36,6 +36,25 @@ export function appleKeysUrl(): string {
   return standIn ? `${standIn}/apple/auth/keys` : "https://appleid.apple.com/auth/keys";
 }
 
+/** Where Apple's token endpoints live (/auth/token, /auth/revoke). */
+export function appleAuthBase(): string {
+  const standIn = standInUrl();
+  return standIn ? `${standIn}/apple` : "https://appleid.apple.com";
+}
+
+export type AppleClient = { clientId: string; teamId: string; keyId: string; privateKey: string; base: string };
+
+/** What talking to Apple's token endpoints needs: the Apple Developer team, and the id and contents of a Sign in with
+ * Apple key (a .p8 file) made in that account. turtl uses it to keep a person's Apple refresh token at sign-in and to
+ * revoke it when they delete their account. Null until all three are set. */
+export function appleClient(): AppleClient | null {
+  const teamId = process.env.AUTH_APPLE_TEAM_ID?.trim();
+  const keyId = process.env.AUTH_APPLE_KEY_ID?.trim();
+  const privateKey = process.env.AUTH_APPLE_PRIVATE_KEY;
+  if (!teamId || !keyId || !privateKey) return null;
+  return { clientId: appleAudience(), teamId, keyId, privateKey, base: appleAuthBase() };
+}
+
 /** The reset email goes out only when both the key and a sender are set. */
 export function resetEmail(): { key: string; from: string; endpoint: string } | null {
   const key = process.env.AUTH_RESEND_KEY;
@@ -61,6 +80,7 @@ export const check = internalQuery({
     missing: v.array(v.string()),
     passwordReset: v.boolean(),
     appleAudience: v.string(),
+    appleRevocation: v.boolean(),
     standIn: v.boolean(),
     knobs: v.array(v.string()),
   }),
@@ -68,6 +88,7 @@ export const check = internalQuery({
     missing: missingSettings(),
     passwordReset: resetEmail() !== null,
     appleAudience: appleAudience(),
+    appleRevocation: appleClient() !== null,
     standIn: standInUrl() !== undefined,
     knobs: LIBRARY_KNOBS.filter(isSet),
   }),

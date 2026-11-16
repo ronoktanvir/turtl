@@ -9,8 +9,13 @@
  */
 
 import type * as access from "../access.js";
+import type * as account_deletion from "../account/deletion.js";
+import type * as account_erasers from "../account/erasers.js";
+import type * as account_registry from "../account/registry.js";
+import type * as account_vendors from "../account/vendors.js";
 import type * as auth from "../auth.js";
 import type * as auth_apple from "../auth/apple.js";
+import type * as auth_appleTokens from "../auth/appleTokens.js";
 import type * as auth_email from "../auth/email.js";
 import type * as auth_password from "../auth/password.js";
 import type * as auth_review from "../auth/review.js";
@@ -162,8 +167,13 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   access: typeof access;
+  "account/deletion": typeof account_deletion;
+  "account/erasers": typeof account_erasers;
+  "account/registry": typeof account_registry;
+  "account/vendors": typeof account_vendors;
   auth: typeof auth;
   "auth/apple": typeof auth_apple;
+  "auth/appleTokens": typeof auth_appleTokens;
   "auth/email": typeof auth_email;
   "auth/password": typeof auth_password;
   "auth/review": typeof auth_review;

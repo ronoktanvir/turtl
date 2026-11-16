@@ -42,10 +42,21 @@ export function accessEnforced(): boolean {
   return process.env.AUTH_REQUIRED === "true";
 }
 
-/** The signed-in account's id, or null. Convex Auth writes "<users id>|<session id>" as the token's subject. */
+/** The signed-in account's id, or null. Convex Auth writes "<users id>|<session id>" as the token's subject. A token
+ * stays valid for up to an hour after its session ends (signed out elsewhere, or the account is being deleted), so
+ * where there is a database the session must still be live. Actions have none; they ask through internal.access.*. */
 export async function signedInAccount(ctx: AuthCtx): Promise<string | null> {
   const identity = await ctx.auth.getUserIdentity();
-  return identity ? identity.subject.split("|")[0] : null;
+  if (!identity) return null;
+  const [account, session] = identity.subject.split("|");
+  // Only a subject naming a real session id is checked; one that names none (an admin's test identity) reads as before.
+  const db = (ctx as Partial<ReadCtx>).db;
+  const sessionId = db?.normalizeId && session ? db.normalizeId("authSessions", session) : null;
+  if (db && sessionId) {
+    const row = await db.get(sessionId);
+    if (!row || row.expirationTime <= Date.now()) return null;
+  }
+  return account;
 }
 
 /** The account that owned records are filed under. With accounts on, throws unless someone is signed in. */

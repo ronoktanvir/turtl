@@ -15,4 +15,7 @@ crons.interval("settle agent run outcomes", { minutes: 2 }, internal.routing.log
 // Keeps onboarding preparation pull requests fresh; it does nothing while there are none.
 crons.interval("refresh onboarding pull requests", { minutes: 1 }, internal.onboarding.prepare.refreshActive, {});
 
+// Starts again an account deletion whose run stopped (convex/account); it does nothing while none has.
+crons.interval("resume account deletions", { minutes: 15 }, internal.account.deletion.resumeStalled, {});
+
 export default crons;
