@@ -127,6 +127,8 @@ import type * as practice_review from "../practice/review.js";
 import type * as practice_rules from "../practice/rules.js";
 import type * as protectedApp_address from "../protectedApp/address.js";
 import type * as protectedApp_client from "../protectedApp/client.js";
+import type * as protectedApp_localProof from "../protectedApp/localProof.js";
+import type * as protectedApp_notAnswering from "../protectedApp/notAnswering.js";
 import type * as protectedApp_records from "../protectedApp/records.js";
 import type * as protectedApp_registry from "../protectedApp/registry.js";
 import type * as protectedApp_switches from "../protectedApp/switches.js";
@@ -317,6 +319,8 @@ declare const fullApi: ApiFromModules<{
   "practice/rules": typeof practice_rules;
   "protectedApp/address": typeof protectedApp_address;
   "protectedApp/client": typeof protectedApp_client;
+  "protectedApp/localProof": typeof protectedApp_localProof;
+  "protectedApp/notAnswering": typeof protectedApp_notAnswering;
   "protectedApp/records": typeof protectedApp_records;
   "protectedApp/registry": typeof protectedApp_registry;
   "protectedApp/switches": typeof protectedApp_switches;

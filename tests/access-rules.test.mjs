@@ -906,7 +906,8 @@ test("ATTACK (review): a project cannot give turtl's own site or API as its live
   await w.backend.db.patch(alice.appId, { productionUrl: OWN.CONVEX_SITE_URL, ownerId: owner });
   await w.backend.db.insert("journeys", { appId: alice.appId, name: "Book", description: "Book.", checkVersion: "v1", check: { kind: "http", config: { url: `${OWN.CONVEX_SITE_URL}/journey-check`, method: "POST", expectedStatus: 200 } } });
   const plan = await w.load("convex/protectedApp/watching.ts").planFor(w.ctxFor(null), w.backend.rows("apps").find((app) => app._id === alice.appId));
-  assert.deepEqual(plan, { kind: "skip", reason: own });
+  // unanswered: no check of it has tries with no answer on record (convex/protectedApp/notAnswering.ts).
+  assert.deepEqual(plan, { kind: "skip", reason: own, unanswered: false });
   const ctx = w.ctxFor(owner).actionCtx;
   const app = await w.load("convex/protectedApp/watched.ts").watchedApp(ctx, { appId: alice.appId });
   const client = w.load("convex/protectedApp/client.ts");
