@@ -8,7 +8,8 @@ import { setStarred, useCase, useCases, useDataStatus, useProject } from "../../
 import { useTheme } from "../../../theme";
 
 export default function Review() {
-  const { caseId } = useLocalSearchParams<{ caseId: string }>();
+  // ?part=fixes opens the issue on its Fixes page (the practice sheet's "Look at the fix").
+  const { caseId, part } = useLocalSearchParams<{ caseId: string; part?: string }>();
   const first = useCase(caseId);
   const practice = useProject(first?.projectId ?? "")?.practice === true;
   const { errors } = useDataStatus();
@@ -147,7 +148,7 @@ export default function Review() {
           >
             {ids.map((id, i) => (
               <View key={id} style={{ width, height: size.height }}>
-                {Math.abs(i - page) <= 1 && <CasePage caseId={id} current={i === page} />}
+                {Math.abs(i - page) <= 1 && <CasePage caseId={id} current={i === page} startOn={part === "fixes" && id === caseId ? "fixes" : "case"} />}
               </View>
             ))}
           </ScrollView>

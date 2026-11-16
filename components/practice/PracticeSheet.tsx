@@ -117,7 +117,7 @@ export default function PracticeSheet({ visible, onClose, project }: { visible: 
     const stage = STAGE_WORDS[project.caseStage ?? "working"];
     return (
       <Sheet visible={visible} onClose={onClose} title={stage.title} testID="practice-sheet" footer={<View style={{ gap: 10 }}>
-        <Button label={stage.button} onPress={() => { onClose(); router.push(("/review/" + caseId + (stage.enacting ? "/enacting" : "")) as Href); }} testID="practice-open-issue" />
+        <Button label={stage.button} onPress={() => { onClose(); router.push(("/review/" + caseId + (stage.enacting ? "/enacting" : project.caseStage === "waiting" ? "?part=fixes" : "")) as Href); }} testID="practice-open-issue" />
         <Button label="Close" kind="plain" onPress={onClose} testID="practice-sheet-close" />
       </View>}>
         <T testID="practice-stage">{`${FAILURE_WORDS[project.failure].title}. ${stage.line}`}</T>

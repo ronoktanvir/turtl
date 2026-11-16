@@ -43,3 +43,9 @@ test("at the day's limit the sheet leads with it and when it resets, and offers 
   assert.match(limit, /You have broken your practice app as often as one day allows\. You can break it again \$\{/);
   assert.doesNotMatch(limit, /<Choice|practice-break-confirm/, "no choice and no Break button at the limit");
 });
+
+test("a waiting fix's button opens the issue on its Fixes page", () => {
+  assert.match(read("components/practice/PracticeSheet.tsx"), /project\.caseStage === "waiting" \? "\?part=fixes" : ""/);
+  assert.match(read("app/review/[caseId]/index.tsx"), /startOn=\{part === "fixes" && id === caseId \? "fixes" : "case"\}/);
+  assert.match(read("components/fix/CasePage.tsx"), /useState<Part>\(startOn\)/);
+});
