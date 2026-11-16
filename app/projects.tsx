@@ -5,7 +5,7 @@ import ProfileButton from "../components/account/ProfileButton";
 import { nameSize } from "../components/project/nameSize";
 import ProjectIcon from "../components/project/ProjectIcon";
 import FirstRun from "../components/project/FirstRun";
-import { Card, Chip, HealthWord, Icon, Reveal, Screen, T, Turtle } from "../components/ui";
+import { Card, Chip, HealthWord, Icon, Logo, Reveal, Screen, T, Turtle } from "../components/ui";
 import { useDevToolsOn } from "../components/ui/devTools";
 import { useDataStatus, useProjects } from "../data";
 import { approvalLabel, healthOrder, healthToken, useTheme } from "../theme";
@@ -30,7 +30,7 @@ export default function Projects() {
           <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
             <T variant="display" accessibilityRole="header">Projects</T>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-              <Turtle health="clear" size={48} label="turtl" />
+              <Logo health="clear" width={narrow ? 76 : 100} />
               <ProfileButton />
             </View>
           </View>
