@@ -7,3 +7,5 @@ The citation check uses Chromium at a 390px viewport. Set `CHROME_PATH` when Chr
 Timing tests check the accelerated example clock independently of a browser.
 
 The live mapping, network, action and query-client tests run without a server. They cover recorded evidence and verification, exact repository identity, owner decisions, scoped permissions, the displayed merge head, and readable failures on a lagging deployment. Their mocked action responses are not proof that an external service ran.
+
+The voice tests load the voice rules, the talk action and the hands-free turn taking without a server. They check that a spoken approve, decline, merge or stop is answered with where its button is and never reaches a decision, the refusals (switch off, missing key, long clip, rate limit), and the work state the case chat answers "what are you stuck on" from.

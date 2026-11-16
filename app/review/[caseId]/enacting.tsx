@@ -7,6 +7,7 @@ import { PlanGraph } from "../../../components/execution/PlanGraph";
 import { formatDuration, remainingDuration } from "../../../components/execution/timing";
 import { ApproveSheet, FixCard, kindLabel } from "../../../components/fix/FixCard";
 import { Button, Card, Header, Icon, Reveal, Screen, T, Turtle } from "../../../components/ui";
+import { useTalkSession } from "../../../components/voice/useTalkSession";
 import { mergePullRequest, stopEnactment, useCase, useChat, useDataStatus, useEnactmentNow, useProject } from "../../../data";
 import type { Enactment, FixOption, Health } from "../../../data/types";
 import { healthToken, useTheme } from "../../../theme";
@@ -33,6 +34,7 @@ export default function Enacting() {
   const insets = useSafeAreaInsets();
   const [question, setQuestion] = useState("");
   const [asked, setAsked] = useState(false);
+  const talk = useTalkSession(caseId, () => setAsked(true));
   const [approving, setApproving] = useState<FixOption | null>(null);
   const [refused, setRefused] = useState<string | null>(null);
   const controlPending = useRef(false);
@@ -213,7 +215,7 @@ export default function Enacting() {
             </View>
           )}
           <View style={{ gap: 12 }}>
-            <AskBar value={question} onChangeText={setQuestion} onSend={() => void ask()} busy={chat.busy || sending} placeholder="Any questions?" inputID="enacting-ask-input" sendID="enacting-ask-send" />
+            <AskBar value={question} onChangeText={setQuestion} onSend={() => void ask()} busy={chat.busy || sending} placeholder="Any questions?" inputID="enacting-ask-input" sendID="enacting-ask-send" talk={talk} talkID="enacting-talk" />
             {chatError && <T color="statusAffected" accessibilityRole="alert" testID="enacting-chat-error">{chatError}</T>}
             {asked && chat.messages.slice(-2).map((m) => (
               <View key={m.id} style={{ paddingLeft: 12, borderLeftWidth: 2, borderLeftColor: m.role === "owner" ? colors.border : colors.brandDeep, gap: 4 }}>

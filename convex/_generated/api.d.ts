@@ -72,6 +72,11 @@ import type * as runner_run from "../runner/run.js";
 import type * as screens_network from "../screens/network.js";
 import type * as screens_projects from "../screens/projects.js";
 import type * as supermemory from "../supermemory.js";
+import type * as voice_openai from "../voice/openai.js";
+import type * as voice_progress from "../voice/progress.js";
+import type * as voice_rules from "../voice/rules.js";
+import type * as voice_runs from "../voice/runs.js";
+import type * as voice_turn from "../voice/turn.js";
 import type * as workflow from "../workflow.js";
 
 import type {
@@ -145,6 +150,11 @@ declare const fullApi: ApiFromModules<{
   "screens/network": typeof screens_network;
   "screens/projects": typeof screens_projects;
   supermemory: typeof supermemory;
+  "voice/openai": typeof voice_openai;
+  "voice/progress": typeof voice_progress;
+  "voice/rules": typeof voice_rules;
+  "voice/runs": typeof voice_runs;
+  "voice/turn": typeof voice_turn;
   workflow: typeof workflow;
 }>;
 
