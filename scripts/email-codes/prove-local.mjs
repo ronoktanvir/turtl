@@ -55,7 +55,8 @@ const plain = {
   AUTH_RESEND_KEY: "stand-in-key",
   AUTH_EMAIL_FROM: "turtl <no-reply@example.com>",
 };
-const VARIABLES = [...Object.keys(fromFile), ...Object.keys(plain)];
+// EMAILS_PER_DAY is set by one step below, and removed with the rest at the end.
+const VARIABLES = [...Object.keys(fromFile), ...Object.keys(plain), "EMAILS_PER_DAY"];
 const cleanUp = async () => {
   for (const name of VARIABLES) await convex("env", "remove", name).catch(() => {});
   rmSync(scratch, { recursive: true, force: true });
@@ -169,6 +170,24 @@ try {
     for (let n = 0; n < 4; n++) await signIn({ email: `s${n}@${n % 2 ? "mail." : ""}${domain}`, password: secret, flow: "signUp" });
     await assert.rejects(signIn({ email: `s4@${domain}`, password: secret, flow: "signUp" }), refusedWith(/addresses at this email domain/));
     assert.ok((await signIn({ email: `real-${randomBytes(3).toString("hex")}@acme.example`, password: secret, flow: "signUp" })).tokens);
+  });
+
+  await step("with the day's pool used up, a confirmed owner's first reset of the day still goes out, and a sign-up is refused in plain words", async () => {
+    const owner2 = `second@pool-${run}.example`;
+    const made = await signIn({ email: owner2, password: secret, flow: "signUp" });
+    await made.client.mutation(ref("auth/confirmation:confirm"), { code: standIn.lastCode(owner2) });
+    // Every email so far today is more than a pool of one.
+    await convex("env", "set", "EMAILS_PER_DAY", "1");
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    const resets = () => subjects(owner2).filter((subject) => subject === "Reset your turtl password").length;
+    await new ConvexHttpClient(convexUrl).action(ref("auth:signIn"), { provider: "password", params: { email: owner2, flow: "reset" } });
+    assert.equal(resets(), 1, "the first reset of the day, outside the pool");
+    await new Promise((resolve) => setTimeout(resolve, 61_000));
+    await new ConvexHttpClient(convexUrl).action(ref("auth:signIn"), { provider: "password", params: { email: owner2, flow: "reset" } });
+    assert.equal(resets(), 1, "a second one waits for the pool");
+    await assert.rejects(signIn({ email: `late@pool-${run}.example`, password: secret, flow: "signUp" }), refusedWith(/You can sign up with Apple or GitHub now, or with an email address tomorrow/));
+    assert.ok((await signIn({ email: owner2, code: standIn.lastCode(owner2), newPassword: "after the pool", flow: "reset-verification" })).tokens, "the code sent works");
+    await convex("env", "remove", "EMAILS_PER_DAY");
   });
 
   if (slow) {

@@ -105,16 +105,34 @@ export async function emailCode(
   purpose: Purpose,
   { side = "signup", fetcher }: { side?: Side; fetcher?: typeof fetch } = {},
 ): Promise<Allowed> {
+  const filed = await fileCode(ctx, email, purpose, side);
+  if (filed.allowed.ok) await sendFiled(ctx, email, filed, fetcher);
+  return filed.allowed;
+}
+
+export type Filed = { allowed: Allowed; code: string; row: { addressHash: string; purpose: Purpose; codeHash: string; domain: string; side: Side } };
+
+/** The first half of emailCode: makes a code and files it, when the limits allow. Sign-up files the code before it makes
+ * the account, so no account is made that today's emails could not reach. */
+export async function fileCode(ctx: Pick<ActionCtx, "runMutation">, email: string, purpose: Purpose, side: Side): Promise<Filed> {
   if (!emailService()) throw new ConvexError(purpose === "reset" ? words.resetOff : words.signUpOff);
   const code = randomCode();
-  const filed = { addressHash: await addressHash(email), purpose, codeHash: await codeHash(code), domain: emailDomain(email), side };
-  const allowed: Allowed = await ctx.runMutation(internal.auth.codes.reserve, filed);
-  if (!allowed.ok) return allowed;
+  const row = { addressHash: await addressHash(email), purpose, codeHash: await codeHash(code), domain: emailDomain(email), side };
+  const allowed: Allowed = await ctx.runMutation(internal.auth.codes.reserve, row);
+  return { allowed, code, row };
+}
+
+/** The second half: sends a filed code. A send that fails takes the code back first. */
+export async function sendFiled(ctx: Pick<ActionCtx, "runMutation">, email: string, filed: Filed, fetcher?: typeof fetch): Promise<void> {
   try {
-    await sendEmail(email, purpose === "reset" ? resetMessage(email, code) : confirmMessage(email, code), fetcher);
+    await sendEmail(email, filed.row.purpose === "reset" ? resetMessage(email, filed.code) : confirmMessage(email, filed.code), fetcher);
   } catch (error) {
-    await ctx.runMutation(internal.auth.codes.release, filed);
+    await ctx.runMutation(internal.auth.codes.release, filed.row);
     throw error;
   }
-  return allowed;
+}
+
+/** Takes back a filed code whose email will not be sent. */
+export async function unfile(ctx: Pick<ActionCtx, "runMutation">, filed: Filed): Promise<void> {
+  if (filed.allowed.ok) await ctx.runMutation(internal.auth.codes.release, filed.row);
 }

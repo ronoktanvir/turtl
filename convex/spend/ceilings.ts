@@ -78,8 +78,8 @@ const CEILINGS: Record<Admission, { hour: Name; day: Name; perHour: () => number
     day: "password_signups_day",
     perHour: passwordSignUpsPerHour,
     perDay: passwordSignUpsPerDay,
-    thisHour: ceilingRefusal.passwordSignUpsThisHour,
-    today: ceilingRefusal.passwordSignUpsToday,
+    thisHour: domainRefusal.passwordSignUpsThisHour,
+    today: domainRefusal.passwordSignUpsToday,
   },
   confirmation: {
     hour: "confirmations_hour",

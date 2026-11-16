@@ -34,6 +34,8 @@ export const accountTables = {
     sentAt: v.number(),
     expiresAt: v.number(),
     usedAt: v.optional(v.number()),
+    /** A confirmed address's first reset email of the day, sent outside the day's pool (convex/auth/codes.ts). */
+    firstOfDay: v.optional(v.boolean()),
   })
     .index("by_address_purpose_and_sent", ["addressHash", "purpose", "sentAt"])
     .index("by_sent", ["sentAt"]),
@@ -54,6 +56,8 @@ export const accountTables = {
       v.literal("emails_day"),
       v.literal("signup_emails_day"),
       v.literal("domain_signup_emails_day"),
+      v.literal("domain_reset_emails_day"),
+      v.literal("first_resets_day"),
     ),
     key: v.string(),
     window: v.string(),
