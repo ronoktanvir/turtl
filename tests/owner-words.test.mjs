@@ -93,3 +93,13 @@ test("a journey check's stored words carry no error code or run id", () => {
   assert.match(journeyBody({ ...failed, error: undefined, cleanup: { ok: true, deletedBookings: 0 } }), /Cleanup succeeded \(0 test bookings deleted\)\.$/);
   for (const text of [describeJourney(failed), journeyBody(failed)]) for (const raw of ["RECOMMENDATIONS_TIMEOUT", "6198e797", "local-qa"]) assert.ok(!text.includes(raw), raw);
 });
+
+test("a setting change is reported with the setting's name in words", () => {
+  const { settingName } = createLoader()("convex/constants.ts");
+  assert.equal(settingName("recommendationsEnabled"), "recommendations");
+  assert.equal(settingName("dark_mode_enabled"), "dark mode");
+  assert.equal(settingName("checkoutV2"), "checkout v2");
+  const source = read("convex/runner/handlers/authorize_and_execute.ts");
+  assert.match(source, /Turned \$\{settingName\(flag\)\} \$\{value \? "on" : "off"\}, and the booking app confirmed the change\./);
+  assert.doesNotMatch(source, /label: action\.type \}/);
+});

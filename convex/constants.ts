@@ -630,5 +630,9 @@ export type OutputRef = Infer<typeof vOutputRef>;
 // reasons a case shows, so they never name a setting: the operator finds those in convex/README and the logs.
 export const NO_MODEL_REASON = "no AI model is connected to turtl yet, so none was asked";
 export const NO_SUPERMEMORY = "Supermemory is not connected to turtl";
+/** A flag's name as the owner says it: "recommendationsEnabled" is "recommendations". */
+export function settingName(flag: string): string {
+  return flag.replace(/(Enabled|_enabled|Flag)$/, "").replace(/([a-z])([A-Z])/g, "$1 $2").replace(/_+/g, " ").toLowerCase().trim() || flag;
+}
 /** For a step that stopped on a thrown error: what the owner reads. The error itself goes to the backend's log. */
 export const UNEXPECTED_STOP = "This step stopped on an unexpected problem, so turtl could not finish it.";
