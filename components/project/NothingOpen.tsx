@@ -27,7 +27,7 @@ export default function NothingOpen({ type, projectId }: { type: CaseType; proje
   const w = words[type];
   return (
     <Screen testID={`begin-${type}`}>
-      <Pressable accessibilityRole="button" accessibilityLabel="Back to project" testID="header-back" onPress={() => router.canGoBack() ? router.back() : router.replace(`/project/${projectId}` as Href)} style={{ marginLeft: 12, marginTop: 4, width: 44, height: 44, alignItems: "center", justifyContent: "center" }}>
+      <Pressable accessibilityRole="button" accessibilityLabel="Back to project" testID="header-back" onPress={() => router.canGoBack() ? router.back() : router.replace(`/project/${projectId}` as Href)} style={{ marginLeft: 8, marginTop: 4, width: 44, height: 44, alignItems: "center", justifyContent: "center" }}>
         <Icon name="ArrowLeft" color="textMuted" />
       </Pressable>
       <T variant="heading" accessibilityRole="header" style={{ textAlign: "center", marginTop: 8, marginBottom: 16 }}>{w.title}</T>

@@ -3,21 +3,21 @@ import { useCallback, useRef, useState } from "react";
 import { Animated, Image, Pressable, ScrollView, View, useWindowDimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useCases, useDataStatus, useProject } from "../../data";
-import type { CaseSummary, CaseType } from "../../data/types";
-import { labels, useTheme, type TokenName } from "../../theme";
+import type { CaseType } from "../../data/types";
+import { labels, useTheme } from "../../theme";
 import { Button, EdgeFade, Icon, Screen, T, Turtle, ZoomPressable, useReducedMotion } from "../ui";
 import { DROP_FULL, Droplet, dropBack, fillDrop, handOffPulse, usePull, useWheelPull } from "../ui/pulse";
 import { swipeTravel } from "../ui/swipe";
+import { issueState, type IssueTurtle } from "./issueState";
 
-function issueState(item: CaseSummary): { label: string; color: TokenName; image: number } {
-  if (item.status === "resolved") return { label: "Resolved", color: "statusClear", image: require("../../assets/turtle/clear.png") };
-  if (item.status === "declined") return { label: "Declined", color: "textMuted", image: require("../../assets/turtle/needs_you.png") };
-  if (item.status === "unresolved") return { label: "Unresolved", color: "statusAffected", image: require("../../assets/turtle/affected-laptop.png") };
-  if (item.health === "affected") return { label: "Urgent issue", color: "statusAffected", image: require("../../assets/turtle/affected-laptop.png") };
-  if (item.status === "needs_approval" || item.status === "ready_to_merge") return { label: "Needs review", color: "statusReview", image: require("../../assets/turtle/review.png") };
-  if (item.status === "new") return { label: "New issue", color: "statusNew", image: require("../../assets/turtle/new.png") };
-  return { label: "Currently working", color: "statusWorking", image: require("../../assets/turtle/working-laptop.png") };
-}
+const turtles: Record<IssueTurtle, number> = {
+  affected: require("../../assets/turtle/affected-laptop.png"),
+  needs_you: require("../../assets/turtle/needs_you.png"),
+  working: require("../../assets/turtle/working-laptop.png"),
+  clear: require("../../assets/turtle/clear.png"),
+  review: require("../../assets/turtle/review.png"),
+  new: require("../../assets/turtle/new.png"),
+};
 
 function exactTime(at: number) {
   return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(at);
@@ -121,7 +121,7 @@ export default function BeginScreen({ type }: { type: CaseType }) {
                     style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 12, minHeight: 64, paddingVertical: 10, paddingLeft: 12, paddingRight: 16, borderRadius: 16, borderWidth: 1, borderColor: colors[state.color], backgroundColor: pressed ? colors.surfaceRaised : colors.surface })}
                   >
                     <View testID={`begin-status-${item.id}`}>
-                      <Image source={state.image} style={{ width: 36, height: 36 }} resizeMode="contain" accessibilityLabel={state.label} />
+                      <Image source={turtles[state.turtle]} style={{ width: 36, height: 36 }} resizeMode="contain" accessibilityLabel={state.label} />
                     </View>
                     <View style={{ flex: 1, gap: 2 }}>
                       <T variant="heading" numberOfLines={2}>{item.title}</T>

@@ -10,6 +10,7 @@ import { editableStages, inspectableStages, rulesNote, stageLine } from "../../.
 import { CodingAgentNotice, useCodingAgentMissing } from "../../../components/secrets/CodingAgentNotice";
 import ControlTokenSettings from "../../../components/secrets/ControlTokenSettings";
 import { Button, Header, Icon, Reveal, Screen, Sheet, T, Turtle } from "../../../components/ui";
+import { Empty } from "../../../components/ui/Empty";
 import { approvePreparation, checkLiveAgain, inspectAgain, mergePreparation, refreshPreparation, saveNeverBreak, useDataStatus, useOnboarding, useProject } from "../../../data";
 import type { NeverBreakAnswer } from "../../../data/onboarding/types";
 import { healthToken, useTheme } from "../../../theme";
@@ -42,7 +43,7 @@ export default function Prepare() {
         <Header title="Project not found" fallback="/projects" />
         <View style={{ padding: 20, gap: 16 }}>
           <T testID="prepare-not-found">This project is no longer available.</T>
-          <Button label="Back to projects" onPress={() => router.replace("/projects")} testID="prepare-not-found-back" />
+          <Button label="Back to Projects" onPress={() => router.replace("/projects")} testID="prepare-not-found-back" />
         </View>
       </Screen>
     );
@@ -52,7 +53,9 @@ export default function Prepare() {
     return (
       <Screen testID="prepare">
         <Header title={title} fallback={back} />
-        {(onboarding === null || errors.length === 0) && <T color="textMuted" style={{ padding: 20 }}>{onboarding === undefined ? "Loading…" : "turtl has not read this project's repository yet."}</T>}
+        {onboarding === undefined
+          ? errors.length === 0 && <T color="textMuted" style={{ padding: 20 }}>Loading…</T>
+          : <Empty testID="prepare-empty" message="turtl has not read this project yet." hint="When it has, what it found and what it will watch for you show here." action={{ label: "Back to project", onPress: () => (router.canGoBack() ? router.back() : router.replace(back)), testID: "prepare-empty-back" }} />}
       </Screen>
     );
   }

@@ -242,7 +242,7 @@ export function Constellation({ network, selection, onSelect }: { network: CodeN
           const p = layout.clusters.get(cluster.id)!;
           const screen = projected({ x: p.x, y: p.y - 130 });
           const labelWidth = cluster.name.length > 13 ? 176 : 120;
-          return <Pressable key={cluster.id} testID={`network-cluster-${cluster.id}`} accessibilityRole="button" accessibilityLabel={`Cluster ${cluster.name}`} accessibilityState={{ selected: clusterId === cluster.id }} onPress={() => select({ kind: "cluster", id: cluster.id }, p)} style={{ position: "absolute", left: screen.x - labelWidth / 2, top: screen.y - 18, width: labelWidth, minHeight: 44, alignItems: "center", justifyContent: "center", opacity: !selection || clusterId === cluster.id ? 1 : 0.45 }}>
+          return <Pressable key={cluster.id} testID={`network-cluster-${cluster.id}`} accessibilityRole="button" accessibilityLabel={`Group ${cluster.name}`} accessibilityState={{ selected: clusterId === cluster.id }} onPress={() => select({ kind: "cluster", id: cluster.id }, p)} style={{ position: "absolute", left: screen.x - labelWidth / 2, top: screen.y - 18, width: labelWidth, minHeight: 44, alignItems: "center", justifyContent: "center", opacity: !selection || clusterId === cluster.id ? 1 : 0.45 }}>
             <View style={{ backgroundColor: colors.surface, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12, borderWidth: 1, borderColor: colors.border }}><T variant="small" style={{ fontSize: 13, textAlign: "center" }}>{cluster.name}</T></View>
           </Pressable>;
         })}
@@ -258,11 +258,11 @@ export function Constellation({ network, selection, onSelect }: { network: CodeN
         })}
       </View>
       <View pointerEvents="box-none" style={{ position: "absolute", bottom: 12, left: 20, right: 20, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-        <View pointerEvents="none" style={{ flex: 1 }}><T variant="small" color="textMuted" style={{ fontSize: 12 }}>{selection ? "Follow the connections" : "Drag to explore · pinch to zoom"}</T></View>
+        <View pointerEvents="none" style={{ flex: 1 }}><T variant="small" color="textMuted" numberOfLines={1} style={{ fontSize: 12 }}>{selection ? "Follow the connections" : "Drag to explore"}</T></View>
         <View style={{ flexDirection: "row", borderRadius: 24, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border }}>
-          <Pressable testID="network-zoom-out" accessibilityRole="button" accessibilityLabel="Zoom out" onPress={() => zoom(1 / 1.3)} style={{ width: 40, height: 44, alignItems: "center", justifyContent: "center" }}><Icon name="ZoomOut" size={18} color="textMuted" /></Pressable>
-          <Pressable testID="network-reset" accessibilityRole="button" accessibilityLabel="Reset network view" onPress={() => { touched.current = false; onSelect(null); moveTo(fit()); }} style={{ width: 40, height: 44, alignItems: "center", justifyContent: "center" }}><Icon name="Network" size={18} color="brandDeep" /></Pressable>
-          <Pressable testID="network-zoom-in" accessibilityRole="button" accessibilityLabel="Zoom in" onPress={() => zoom(1.3)} style={{ width: 40, height: 44, alignItems: "center", justifyContent: "center" }}><Icon name="ZoomIn" size={18} color="textMuted" /></Pressable>
+          <Pressable testID="network-zoom-out" accessibilityRole="button" accessibilityLabel="Zoom out" onPress={() => zoom(1 / 1.3)} style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}><Icon name="ZoomOut" size={18} color="textMuted" /></Pressable>
+          <Pressable testID="network-reset" accessibilityRole="button" accessibilityLabel="Show the whole map" onPress={() => { touched.current = false; onSelect(null); moveTo(fit()); }} style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}><Icon name="Network" size={18} color="brandDeep" /></Pressable>
+          <Pressable testID="network-zoom-in" accessibilityRole="button" accessibilityLabel="Zoom in" onPress={() => zoom(1.3)} style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}><Icon name="ZoomIn" size={18} color="textMuted" /></Pressable>
         </View>
       </View>
     </View>
