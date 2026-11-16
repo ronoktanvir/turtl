@@ -35,9 +35,16 @@ export const CRITERIA = {
     id: "recommendations_off",
     description: "The booking app reports recommendations turned off.",
   },
+  // Only a practice app (convex/practice) has a backup store.
+  backupStoreOn: {
+    id: "backup_store_on",
+    description: "The booking app reports new bookings going to its backup store.",
+  },
 } satisfies Record<string, Criterion>;
 
 export const DONE_MEANS: Criterion[] = [CRITERIA.health, CRITERIA.journey, CRITERIA.device];
+/** A practice app (convex/practice) has no booking screen, so a device run is not part of what done means there. */
+export const PRACTICE_DONE_MEANS: Criterion[] = [CRITERIA.health, CRITERIA.journey];
 
 export const DEVICE_NOT_COVERED =
   "Not covered: no Revyl run of the booking screen on a device is wired up yet, so this was not checked.";

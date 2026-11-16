@@ -82,6 +82,7 @@ This is every variable the backend reads, taken from the code. "Required" stops 
 | `INTAKE_KEYS_PER_PROJECT` | Optional | With accounts on, how many intake keys one project may have taking reports at once, since each key carries its own report limits. A stopped key makes room. Default 3. |
 | `INTAKE_SPEND_PER_DAY_USD` | Optional | With accounts on, the estimated model spend in US dollars that reading one project's customer reports may reach in a calendar day (UTC): triage, and investigating and planning the cases they open. It is separate from MODEL_SPEND_LIMIT_USD, so customers cannot spend what diagnosing the owner's outages needs; past it triage uses its rules and those cases a rule-based reading until the next day. Default 0.5. No limit in the single-owner demo. |
 | `INTAKE_CASES_PER_DAY` | Optional | With accounts on, how many new cases customer reports may open on one project in a calendar day (UTC). A report past it is kept on no case and says why; one that matches an open case still joins it. Default 5. No limit in the single-owner demo. |
+| `PRACTICE_BREAKS_PER_DAY` | Optional | With accounts on, how many times one account may break its practice app on purpose in a calendar day (UTC). Each break starts one check and, through the case it opens, the ordinary model calls, which the account's spend limit still bounds. Default 10. The operator's setup of the review account (practice/review:prepare) does not count. |
 | `REVYL_API_KEY` (secret) | Optional | Runs a fix's device check on a Revyl cloud phone. Without it a device check reports that it is not set up. |
 | `REVYL_BASE_URL` | Optional | Revyl API address. Default https://backend.revyl.ai. |
 | `KEIKI_API_KEY` (secret) | Optional | Keiki key for owner alerts by text. Does nothing without KEIKI_AGENT_ID and KEIKI_OWNER_CONTACT. |
@@ -131,12 +132,35 @@ CONVEX_DEPLOY_KEY='the production deploy key' npx convex deploy
 
 Convex keeps no "previous version" button. To undo a deploy, revert the commit on `main` and run the release workflow again with "Send" off, or deploy an older commit by hand as in step 4. Take a backup before a risky deploy: the dashboard's **Backups** page, or `npx convex export --path backup.zip` with the deploy key set.
 
+## 6. Give the review account its practice project
+
+App Review signs in with an email-and-password account and expects one project with a case already open (`store/review-notes.txt`, checklist RC-02). That project is the account's practice project: a small booking app the backend serves itself, under `/practice/<project id>/` on its own `.convex.site` address, which only that account's breaks and fixes touch (`convex/practice/`). It needs `AUTH_REQUIRED=true` and `SECRETS_ENCRYPTION_KEY`, which production has anyway, and nothing else.
+
+1. Make the review account, if it does not exist yet: sign up with its email and password in the app, or from a terminal with the password typed there and never saved in a file:
+
+   ```sh
+   CONVEX_DEPLOY_KEY='the production deploy key' npx convex run auth/review:ensureAccount '{"email":"the review email","password":"the review password"}'
+   ```
+
+2. Give it its practice project with a case open:
+
+   ```sh
+   CONVEX_DEPLOY_KEY='the production deploy key' npx convex run practice/review:prepare '{"email":"the review email"}'
+   ```
+
+   It prints `projectId`, `caseId` and `created`. It makes the practice project if the account has none, breaks it (recommendations time out), and runs the monitor's check of it at once, which opens the case. About 15 seconds later the case is waiting for the reviewer's approval. That break does not count against the account's daily allowance (`PRACTICE_BREAKS_PER_DAY`). Running it again while a case is open changes nothing and prints the same case (`created: false`).
+
+3. Sign in as the review account in the build being submitted and follow `store/review-notes.txt` to the open case.
+
+After the review account approves a fix, the reviewer can break the practice app again themselves (Break it, on the project page). If a case was declined and left the practice app broken, run step 2 again: it puts the practice app back, checks it, and breaks it again, so a new case opens.
+
 ## What the production backend does not do yet
 
 These are limits of the product today, not of this runbook. Each is why a row above says "Never set".
 
-- **It watches no app.** The only app turtl can watch is the booking demo, wired through the `PROTECTED_APP_*` variables for the whole deployment. Production leaves them unset until each account can connect its own app.
+- **It never watches the booking demo.** The booking demo is wired through the `PROTECTED_APP_*` variables for the whole deployment, and production leaves them unset. It watches each account's own projects, each with its own control token, and each account's practice app, which it serves itself.
 - **It alerts nobody by text.** `KEIKI_OWNER_CONTACT` is one phone number for every case in the deployment. Production leaves it unset until alerts go to each account's owner.
 - **The booking demo ships inside it.** `convex/bookingDemo/` deploys with the rest. Its control routes answer 503 while `PROTECTED_APP_CONTROL_SECRET_SHA256` is unset, but its public functions (`bookingDemo/booking:getCatalog`, `getFlags`, `recommendations`, `submit`) and the routes `/booking-demo/health` and `/booking-demo/revision` answer anyone.
+- **Every account's practice app answers on its own site address.** `/practice/<project id>/health` and `/revision` answer anyone; every other practice route answers only to that project's own control token, which turtl made and keeps sealed, and none of them breaks a practice app (only its owner does, from the app).
 - **It reaches GitHub only through the GitHub App.** `GITHUB_TOKEN` is the demo's one token for every repository, and production never sets it. Until turtl#54 has merged, that leaves a production backend unable to read or merge a pull request or to fetch a repository for the code map.
 - **One Capy key serves every account**, if `CAPY_API_KEY` is set.

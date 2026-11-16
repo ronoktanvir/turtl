@@ -1,6 +1,7 @@
 import { internal } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
-import { CRITERIA, DONE_MEANS, ENVIRONMENT } from "../../protectedApp/client";
+import { CRITERIA, DONE_MEANS, ENVIRONMENT, PRACTICE_DONE_MEANS } from "../../protectedApp/client";
+import { switchOf } from "../../protectedApp/switches";
 import type { ProposalOption } from "../../constants";
 import { gateFor } from "../../consent/gate";
 import { fixesModelId, planFixes } from "../../fixOptions";
@@ -17,7 +18,8 @@ type Diagnosis = {
   supportingEvidenceIds: Id<"evidence">[];
 };
 
-// Writes proposal version 1: the catalog option, plus up to three code changes a model proposes (fixOptions.ts).
+// Writes proposal version 1: the catalog option, plus up to three code changes a model proposes (fixOptions.ts) when the
+// catalog can open a pull request (a practice app's cannot: it has no repository).
 export const handler: StepHandler = {
   timeoutMs: 60_000,
   run: async (ctx, input) => {
@@ -65,31 +67,28 @@ export const handler: StepHandler = {
           "There is no diagnosis or applicable recovery memory to plan from.",
       };
 
-    const entry = catalog.find(
-      (e) =>
-        e.type === "set_feature_flag" &&
-        (!remembered ||
-          e._id === remembered.action.executionPayload.actionCatalogId) &&
-        e.parameterConstraints.some(
-          (c) =>
-            c.name === "flag" &&
-            c.allowedValues?.includes("recommendationsEnabled"),
-        ),
-    );
-    if (!entry || entry.config.kind !== "http") {
+    // The catalog's switches turtl knows (protectedApp/switches.ts): the remembered one, else the one the facts point
+    // at, else turning off recommendations, as before there were others.
+    const switches = catalog.flatMap((e) => {
+      const known = switchOf(e);
+      return known ? [{ entry: e, known }] : [];
+    });
+    const chosen = remembered
+      ? switches.find((s) => s.entry._id === remembered.action.executionPayload.actionCatalogId)
+      : (switches.find((s) => s.known.fits(facts)) ?? switches.find((s) => s.known.flag === "recommendationsEnabled"));
+    const entry = chosen?.entry;
+    if (!chosen || !entry || entry.config.kind !== "http") {
       return {
         status: "failed",
         error:
           "This app's action catalog has no action that fits, so nothing can be proposed.",
       };
     }
+    const { known } = chosen;
+    // A practice app has no booking screen, so a device run is not one of what done means there.
+    const doneMeans = loaded.context.app?.practice ? PRACTICE_DONE_MEANS : DONE_MEANS;
 
-    const recommended =
-      !!remembered ||
-      (facts["journey.verdict"] === "failed" &&
-        facts["journey.failedStep"] === "recommendations" &&
-        facts["journey.errorCode"] === "RECOMMENDATIONS_TIMEOUT" &&
-        facts["flags.recommendationsEnabled"] === true);
+    const recommended = !!remembered || known.fits(facts);
     const history = remembered
       ? `This recovery worked before and was checked ${remembered.memory.timesVerified} time${remembered.memory.timesVerified === 1 ? "" : "s"}. Its conditions were rechecked against this case's fresh observations, and the service is checked again after the change.`
       : "";
@@ -129,7 +128,7 @@ export const handler: StepHandler = {
     ];
 
     const catalogOption: ProposalOption = {
-            key: "turn_off_recommendations",
+            key: known.key,
             title: remembered
               ? `Use the recovery that worked before: ${entry.name}`
               : entry.name,
@@ -138,24 +137,24 @@ export const handler: StepHandler = {
             actionCatalogId: entry._id,
             target: {
               environment: ENVIRONMENT,
-              resourceRef: `${entry.config.url}#recommendationsEnabled`,
+              resourceRef: `${entry.config.url}#${known.flag}`,
             },
             parameters: remembered
               ? remembered.action.executionPayload.parameters
               : [
-                  { name: "flag", value: "recommendationsEnabled" },
-                  { name: "value", value: false },
+                  { name: "flag", value: known.flag },
+                  { name: "value", value: known.value },
                 ],
-            acceptanceCriteria: [CRITERIA.recommendationsOff, ...DONE_MEANS],
+            acceptanceCriteria: [known.criterion, ...doneMeans],
             checkRefs: [
               { journeyId: journey._id, version: journey.checkVersion },
             ],
             usersCantNow,
-            whatChanges: `Turns off service suggestions in the booking app, so booking stops waiting for the recommendations provider.${history ? ` ${history}` : ""}`,
-            whatMightBeLost:
-              "Customers won't see suggested services until recommendations are turned back on. Bookings already made don't change, and the slow provider itself is not fixed.",
-            howChecked:
-              "turtl checks that the booking app answers, that recommendations read as off, and then runs the booking check: a test booking must be saved and match its confirmation. The booking screen on a real device is not checked yet.",
+            whatChanges: `${known.whatChanges}${history ? ` ${history}` : ""}`,
+            whatMightBeLost: known.whatMightBeLost,
+            howChecked: doneMeans.includes(CRITERIA.device)
+              ? `${known.howChecked} The booking screen on a real device is not checked yet.`
+              : known.howChecked,
             evidenceIds,
             recommended,
             confidence: remembered
@@ -191,14 +190,15 @@ export const handler: StepHandler = {
       catalog,
       basis: {
         journey,
-        doneMeans: DONE_MEANS,
+        doneMeans,
         evidenceIds,
         usersCantNow,
       },
+      baseReason: known.reason,
       appName: loaded.context.app?.name ?? "the app",
       caseRow: loaded.context.case,
       facts,
-      cause: diagnosis?.cause ?? null,
+      cause: diagnosis?.source === "rules" && known.factsSay && known.fits(facts) ? known.factsSay : (diagnosis?.cause ?? null),
       evidence,
       preferences: applied.preferences,
       feedback: { turnedDown: feedback.turnedDown, conditionsText: conditions.text, recent: feedback.recent },
@@ -225,7 +225,7 @@ export const handler: StepHandler = {
       {
         caseId: input.case._id,
         stepId: input.step._id,
-        doneMeans: DONE_MEANS,
+        doneMeans,
         options: planned.options,
       },
     );
@@ -235,8 +235,8 @@ export const handler: StepHandler = {
       summary: `${remembered
         ? `Offered recovery memory ${remembered.memory._id} directly. ${history}`
         : recommended
-          ? "Proposed turning off recommendations to restore booking."
-          : "Proposed turning off recommendations, but the facts don't point to recommendations."} ${pick ? `Recommended: "${pick.title}". Waiting for the owner's decision.` : "Nothing is recommended."} ${planned.note} ${learnedNote}`,
+          ? known.proposed.fits
+          : known.proposed.doesNotFit} ${pick ? `Recommended: "${pick.title}". Waiting for the owner's decision.` : "Nothing is recommended."} ${planned.note} ${learnedNote}`,
       handoff: {
         note: "Proposal version 1 is ready for the owner.",
         refs: [{ kind: "proposal", id: proposalId, label: "v1" }],

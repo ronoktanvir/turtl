@@ -5,7 +5,7 @@ import ProfileButton from "../components/account/ProfileButton";
 import { nameSize } from "../components/project/nameSize";
 import ProjectIcon from "../components/project/ProjectIcon";
 import FirstRun from "../components/project/FirstRun";
-import { Card, HealthWord, Icon, Reveal, Screen, T, Turtle } from "../components/ui";
+import { Card, Chip, HealthWord, Icon, Reveal, Screen, T, Turtle } from "../components/ui";
 import { useDevToolsOn } from "../components/ui/devTools";
 import { useDataStatus, useProjects } from "../data";
 import { approvalLabel, healthOrder, healthToken, useTheme } from "../theme";
@@ -45,7 +45,10 @@ export default function Projects() {
                     <ProjectIcon project={p} size={narrow ? 36 : 44} />
                     <View style={{ flex: 1, gap: 3 }}>
                       <T variant="heading" numberOfLines={2} style={{ fontSize: nameSize(p.name, nameColumn), lineHeight: nameSize(p.name, nameColumn) + 6 }} testID={`project-name-${p.id}`}>{p.name}</T>
-                      <HealthWord health={p.health} />
+                      <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: 10, rowGap: 4 }}>
+                        <HealthWord health={p.health} />
+                        {p.practice && <Chip label="Practice" tone="brandDeep" testID={`project-practice-${p.id}`} />}
+                      </View>
                     </View>
                     <Turtle health={p.health} size={narrow ? 30 : 38} outlined={urgent} />
                   </View>

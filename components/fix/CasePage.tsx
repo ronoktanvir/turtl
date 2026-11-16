@@ -2,7 +2,7 @@ import { useRouter } from "expo-router";
 import { useEffect, useRef, useState, type ComponentRef, type RefObject } from "react";
 import { AccessibilityInfo, Animated, Easing, Image, Platform, Pressable, ScrollView, StyleSheet, View, type LayoutChangeEvent, type NativeScrollEvent, type NativeSyntheticEvent } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { isLiveData, useCase, useDataStatus, useWorkflow } from "../../data";
+import { isLiveData, useCase, useDataStatus, useProject, useWorkflow } from "../../data";
 import type { FixOption, Screenshot } from "../../data/types";
 import { useTheme } from "../../theme";
 import { ago, Button, Card, Chip, HealthWord, Icon, Reveal, T, Turtle, useReducedMotion } from "../ui";
@@ -73,6 +73,8 @@ export function CasePage({ caseId, current }: { caseId: string; current: boolean
   const devToolsOn = useDevToolsOn();
   const c = useCase(caseId);
   const workflow = useWorkflow(caseId);
+  // A practice app has no repository: no code to show, and no code change to offer.
+  const practice = useProject(c?.projectId ?? "")?.practice === true;
   const { errors } = useDataStatus();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
@@ -247,7 +249,7 @@ export function CasePage({ caseId, current }: { caseId: string; current: boolean
           )}
           {tab === "Code" && (
             <>
-              {c.code.length === 0 && <T color="textMuted" testID={id("code-empty")}>No code evidence has been collected yet.</T>}
+              {c.code.length === 0 && <T color="textMuted" testID={id("code-empty")}>{practice ? "The practice app has no repository, so turtl has no code to map, show or change. Code changes need a connected repository." : "No code evidence has been collected yet."}</T>}
               {c.code.map((code) => (
                 <View key={code.id}>
                   <CodeBox code={code} />
@@ -334,6 +336,7 @@ export function CasePage({ caseId, current }: { caseId: string; current: boolean
               onApprove={setApproving}
             />
           ))}
+          {practice && c.fixes.length > 0 && <T variant="small" color="textMuted" testID={id("fixes-practice")}>turtl offers only the switches it can flip on your practice app. Code changes need a connected repository, and the practice app has none.</T>}
           {c.structural?.check && <PreventionCheckCard finding={c.structural} id={id} />}
           {c.status === "declined" && <View style={{ flexDirection: "row", gap: 8 }} testID={id("fixes-declined")}><Icon name="X" size={18} color="textMuted" /><T color="textMuted" style={{ flex: 1 }}>You declined these fixes. Nothing was changed, and this case is closed.</T></View>}
           {c.fixes.length > 0 && !active && !closed && <Button label="Decline these fixes" kind="plain" onPress={() => setDeclining(true)} testID={id("fixes-decline")} />}

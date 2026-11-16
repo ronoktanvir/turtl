@@ -3,6 +3,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import { internalMutation, internalQuery, type MutationCtx, type QueryCtx } from "../_generated/server";
 import { NOT_AVAILABLE } from "../access";
 import { vSecretKind, type SecretKind } from "./schema";
+import { MANAGED_TOKEN } from "./words";
 
 // The rows behind convex/secrets. Internal only: the public functions in project.ts and account.ts answer whether a
 // secret is set and when, and nothing here is reachable from a client.
@@ -55,14 +56,18 @@ export async function clearSlot(ctx: Pick<MutationCtx, "db">, kind: SecretKind, 
 }
 
 // Stores a sealed secret, replacing whatever the slot held. A project's secret is stored only for the account that
-// owns the project now, so a guard passed a moment earlier cannot be raced by a change of owner or a deletion.
+// owns the project now, so a guard passed a moment earlier cannot be raced by a change of owner or a deletion. A practice
+// app's control token is turtl's own (managed.ts): only turtl stores it, and nothing an owner sends replaces it.
 export const put = internalMutation({
-  args: { kind: vSecretKind, account: v.string(), appId: v.optional(v.id("apps")), sealed: v.string(), keyId: v.string() },
+  args: { kind: vSecretKind, account: v.string(), appId: v.optional(v.id("apps")), sealed: v.string(), keyId: v.string(), managed: v.optional(v.boolean()) },
   returns: v.object({ setAt: v.number() }),
-  handler: async (ctx, { kind, account, appId, sealed, keyId }) => {
+  handler: async (ctx, { kind, account, appId, sealed, keyId, managed }) => {
     if (appId) {
       const app = await ctx.db.get(appId);
       if (!app || app.ownerId !== account) throw new ConvexError(NOT_AVAILABLE);
+      if (Boolean(app.practice) !== Boolean(managed)) throw new ConvexError(app.practice ? MANAGED_TOKEN : NOT_AVAILABLE);
+    } else if (managed) {
+      throw new ConvexError(NOT_AVAILABLE);
     }
     await clearSlot(ctx, kind, appId ? { appId } : { account });
     const setAt = Date.now();

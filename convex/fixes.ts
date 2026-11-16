@@ -167,9 +167,11 @@ export const chatContext = internalQuery({
       .withIndex("by_case", (q) => q.eq("caseId", caseId))
       .order("desc")
       .take(HISTORY_LENGTH);
+    const app = await ctx.db.get(row.appId);
     return {
       case: row,
-      appName: (await ctx.db.get(row.appId))?.name ?? "the app",
+      appName: app?.name ?? "the app",
+      practice: app?.practice === true,
       hasJourney: !!row.journeyId,
       work: await caseWork(ctx, row, steps),
       hasPullRequestAction: !!pullRequestEntry(catalog),
@@ -252,6 +254,9 @@ export const appendChatFix = internalMutation({
       .withIndex("by_app_and_type", (q) => q.eq("appId", row.appId))
       .collect();
     const entry = pullRequestEntry(catalog);
+    if ((await ctx.db.get(row.appId))?.practice) {
+      return { ok: false, reason: "The practice app has no repository, and code changes need a connected repository, so the fix was not added." };
+    }
     if (!journey || !entry) {
       return { ok: false, reason: "This app cannot ship code changes through turtl yet, so the fix was not added." };
     }
@@ -317,7 +322,9 @@ export const investigate = action({
 
     const { proposal } = context;
     const feature = context.case.kind === "feature_request";
-    const blocked = !context.hasJourney || !context.hasPullRequestAction
+    const blocked = context.practice
+      ? "the practice app has no repository, and code changes need a connected repository"
+      : !context.hasJourney || !context.hasPullRequestAction
       ? "this app cannot ship code changes through turtl yet"
       : !proposal || proposal.decisionStatus !== "pending" || context.case.status !== "waiting_for_owner"
         ? "the case is not waiting on the owner to choose a fix"

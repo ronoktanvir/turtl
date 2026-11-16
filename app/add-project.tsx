@@ -3,6 +3,7 @@ import { useRef, useState } from "react";
 import { KeyboardAvoidingView, Platform, ScrollView, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import ConnectGithub from "../components/github/ConnectGithub";
+import PracticeStart from "../components/practice/PracticeStart";
 import { Button, Header, Screen, T } from "../components/ui";
 import { addProject } from "../data";
 import { useTheme } from "../theme";
@@ -76,6 +77,7 @@ export default function AddProject() {
           ))}
           {error && <T font="text" color="statusAffected" accessibilityRole="alert" testID="add-project-error">{error}</T>}
           <Button label={busy ? "Adding…" : "Add project"} icon="Plus" disabled={busy || !repoUrl.trim()} onPress={() => void submit()} testID="add-project-submit" />
+          <PracticeStart testID="add-project-practice" card disabled={busy} />
         </ScrollView>
       </KeyboardAvoidingView>
     </Screen>

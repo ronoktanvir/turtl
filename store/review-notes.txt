@@ -1,18 +1,20 @@
 turtl is an on-call assistant for people who run a live app without an operations team. It watches the owner's app, opens a case when a check fails or a customer reports a problem, explains the likely cause, and proposes fixes. Nothing changes in the owner's app until the owner approves it.
 
 SIGNING IN
-Use the review account in the sign-in fields of this submission: on the first screen tap Log in and enter its email and password. The first screen also offers Sign in with Apple and GitHub, and Sign up makes a new email and password account. Each way makes its own account.
+Use the review account from this submission: on the first screen tap Log in and enter its email and password. The first screen also offers Sign in with Apple, GitHub, and Sign up with an email and password. Each makes its own account.
 
-WHAT THE REVIEW ACCOUNT CONTAINS
-A new account starts empty and needs a GitHub repository and a live app. The review account skips that: it opens on one project that is connected to a small demo app we run only for testing and review, with a case already open.
-1. Projects: open the project, then Fix, then the open case.
-2. Read Overview, Logs, and Code, then swipe up to review.
-3. Tap "Look at potential fixes", open one, and tap Approve. turtl carries it out against the demo app, then runs the app's key journey again to confirm it works.
-4. Back on the project page, tap the gear for Settings: who approves fixes, AI services, Privacy policy, Terms, Support, and Account.
-You can repeat this as often as you like. It only ever touches the demo app.
+THE REVIEW ACCOUNT
+A new account starts empty: it can connect a GitHub repository and a live app, or try a practice app that turtl runs for it. The review account has one project, "Practice booking app", connected to a small booking app we run only for practice and review, with a case already open.
+1. If turtl asks about AI services, tap Allow or Not now. The case works either way.
+2. On Projects tap Practice booking app, then Fix, then the issue "Booking is failing" (or swipe up).
+3. Read Overview, Logs, and Code. The practice app has no repository, so Code says so.
+4. Tap "Look at potential fixes", then Approve on "Turn off recommendations", then Approve on the sheet. turtl turns recommendations off in the practice app and runs its booking check again to confirm bookings work.
+5. To repeat: on the project page tap Break it, choose what goes wrong, and tap Break it. A new issue opens under Fix within a minute or two; approve its fix as in step 4. This works up to 10 times a day.
+6. On the project page, tap the gear for Settings: who approves fixes, AI services, Privacy policy, Terms, Support, and Account.
+This only ever touches the review account's own practice app.
 
 THIRD-PARTY AI (5.1.2)
-turtl sends parts of the owner's source code, case details, messages, and voice recordings to third-party AI services. After sign-in, before anything is sent, a screen titled "Before turtl uses AI" names each service (OpenAI, Supermemory, Capy, and Keiki), says what each receives, links to its privacy policy, and asks with Allow and Not now. The backend refuses every call to a service the owner has not allowed. After Not now, turtl still watches the app and runs its checks with its own rules. The list can be read again and permission taken back in Settings (the gear on a project), under AI services. The privacy policy lists the same services.
+turtl sends parts of the owner's source code, case details, messages, and voice recordings to third-party AI services. After sign-in, before anything is sent, a screen titled "Before turtl uses AI" names each service (OpenAI, Supermemory, Capy, and Keiki), says what each receives, links to its privacy policy, and asks with Allow and Not now. The backend refuses every call to a service the owner has not allowed. After Not now, turtl still watches the app and explains problems with its own rules. Permission can be read again and taken back in Settings, under AI services. The privacy policy lists the same services.
 
 MICROPHONE (2.5.14)
 Used only after the user taps Talk on a case, and the app shows that it is listening. A recording is at most 30 seconds. It is sent to OpenAI to be turned into text and is not stored. Typing does the same job if the user declines.
@@ -21,8 +23,8 @@ NOTIFICATIONS (4.5.4)
 Optional. The app asks only after the user taps Turn on notifications. A notification is sent only when a case needs the owner's decision or a fix the owner allowed has run, and is never promotional.
 
 ACCOUNT DELETION (5.1.1(v))
-On Projects, tap the profile picture at the top right, then Delete account, Continue, and Yes, delete my account. It is also at the bottom of a project's Settings (the gear), under Account. This deletes the account and everything turtl holds for it, including the copies held by our search provider, turtl's access to GitHub, and, for Sign in with Apple, the Apple token, which is revoked.
-Please try it on a throwaway account you create with Sign up, not on the review account: deleting the review account would end the review.
+On Projects, tap the profile picture at the top right, then Delete account, Continue, and Yes, delete my account. This deletes the account and everything turtl holds for it, including the copies at our search provider and turtl's access to GitHub, and revokes the Apple token of a Sign in with Apple account.
+Please try it on an account you create with Sign up, not the review account: deleting that would end the review.
 
 PURCHASES (3.1)
 turtl is free. It has no in-app purchases, subscriptions, or advertising, and no links to buy anything. Code changes are written by Capy, a separate coding service the owner connects with their own key in Settings.

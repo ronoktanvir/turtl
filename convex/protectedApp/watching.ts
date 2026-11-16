@@ -88,25 +88,39 @@ export const claim = internalMutation({
     const started: Id<"apps">[] = [];
     const skipped: { appId: Id<"apps">; reason: string }[] = [];
     for (const app of apps) {
-      const plan = await planFor(ctx, app);
-      if (plan.kind === "none") continue;
-      const row = await stateOf(ctx, app._id);
-      if (plan.kind === "skip") {
-        skipped.push({ appId: app._id, reason: plan.reason });
-        if (!sameNotice(row, plan.reason)) await writeState(ctx, app._id, row, { notice: { reason: plan.reason, at: now, partial: false } });
-        continue;
-      }
-      if (row?.runningSince !== undefined && now - row.runningSince < LEASE_MS) continue;
-      await writeState(ctx, app._id, row, {
-        runningSince: now,
-        ...(!sameNotice(row, plan.partial) && { notice: plan.partial ? { reason: plan.partial, at: now, partial: true } : undefined }),
-      });
-      await ctx.scheduler.runAfter(0, internal.monitor.checkProject, { appId: app._id });
-      started.push(app._id);
+      const turn = await takeTurn(ctx, app, now);
+      if (turn.kind === "started") started.push(app._id);
+      if (turn.kind === "skipped") skipped.push({ appId: app._id, reason: turn.reason });
     }
     return { started, skipped, wrapped };
   },
 });
+
+/**
+ * One project's turn: records why it cannot be checked, or starts its check (monitor:checkProject) unless one is
+ * already running. The tick gives every project its turn in order; a practice app's owner who has just broken it gets
+ * that project's turn at once (convex/practice/projects.ts), through the same lease.
+ */
+export async function takeTurn(
+  ctx: Pick<MutationCtx, "db" | "scheduler">,
+  app: Doc<"apps">,
+  now: number,
+): Promise<{ kind: "none" } | { kind: "skipped"; reason: string } | { kind: "running" } | { kind: "started" }> {
+  const plan = await planFor(ctx, app);
+  if (plan.kind === "none") return { kind: "none" };
+  const row = await stateOf(ctx, app._id);
+  if (plan.kind === "skip") {
+    if (!sameNotice(row, plan.reason)) await writeState(ctx, app._id, row, { notice: { reason: plan.reason, at: now, partial: false } });
+    return { kind: "skipped", reason: plan.reason };
+  }
+  if (row?.runningSince !== undefined && now - row.runningSince < LEASE_MS) return { kind: "running" };
+  await writeState(ctx, app._id, row, {
+    runningSince: now,
+    ...(!sameNotice(row, plan.partial) && { notice: plan.partial ? { reason: plan.partial, at: now, partial: true } : undefined }),
+  });
+  await ctx.scheduler.runAfter(0, internal.monitor.checkProject, { appId: app._id });
+  return { kind: "started" };
+}
 
 // What one project's check runs now: its live address and the checks it can run. Null when it cannot be checked.
 export const plan = internalQuery({

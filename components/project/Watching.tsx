@@ -1,6 +1,7 @@
 import { useRouter, type Href } from "expo-router";
 import { Pressable, View } from "react-native";
 import { Glyph } from "../onboarding/Glyph";
+import { useProject } from "../../data";
 import { useOverview, type WatchedCheck } from "../../data/overview";
 import { useTheme, type TokenName } from "../../theme";
 import { Icon, T, ago } from "../ui";
@@ -32,6 +33,7 @@ export function watchingSummary(checks: WatchedCheck[]): string {
 
 export default function Watching({ projectId, rows = 4, brief = false, testID = "watching" }: { projectId: string; rows?: number; brief?: boolean; testID?: string }) {
   const overview = useOverview(projectId);
+  const practice = useProject(projectId)?.practice === true;
   const router = useRouter();
   const { colors } = useTheme();
   if (!overview || (brief && !overview.checks.length && (overview.preparation === "in_progress" || overview.preparation === "unreadable"))) return null;
@@ -73,7 +75,7 @@ export default function Watching({ projectId, rows = 4, brief = false, testID = 
       ) : (
         <View style={{ ...row, paddingVertical: 10 }}><T variant="small" color="textMuted" style={{ flex: 1 }} testID={testID + "-none"}>turtl has no checks for this project yet.</T></View>
       ))}
-      {!brief && (
+      {!brief && !practice && (
         <Pressable testID={testID + "-map"} accessibilityRole="link" accessibilityLabel="Open the map of your code" onPress={() => router.push(("/project/" + projectId + "/investigate") as Href)} style={({ pressed }) => ({ ...row, paddingVertical: 10, backgroundColor: pressed ? colors.surfaceRaised : "transparent" })}>
           <Icon name="Network" size={17} color="brandDeep" />
           <View style={{ flex: 1 }}>

@@ -277,6 +277,8 @@ export type PlanInput = {
   base: ProposalOption;
   baseRecommended: boolean;
   remembered: boolean;
+  /** Why the catalog option would work, after the cause, when no model wrote it. Default: the recommendations switch's. */
+  baseReason?: string;
   catalog: Doc<"actionCatalog">[];
   basis: PlanBasis;
   appName: string;
@@ -313,7 +315,7 @@ export async function planFixes(
     {
       text: input.remembered
         ? "This exact recovery restored service before, and its conditions were checked again against this case."
-        : `${input.cause ?? "The cause is not established."} Turning off recommendations removes that wait, so customers can finish booking again.`,
+        : `${input.cause ?? "The cause is not established."} ${input.baseReason ?? "Turning off recommendations removes that wait, so customers can finish booking again."}`,
     },
   ];
   const prefRef = (i: number) => `P${i + 1}`;
