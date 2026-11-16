@@ -67,7 +67,9 @@ export default function Review() {
   return (
     <Screen testID="review">
       <Header
-        title={(project?.name ?? "") + (current.number > 0 ? (feature ? ": request #" : ": error #") + current.number : feature ? ": Request" : ": Case")}
+        title={project?.name
+          ? project.name + (current.number > 0 ? (feature ? ": request #" : ": error #") + current.number : feature ? ": Request" : ": Case")
+          : current.number > 0 ? (feature ? "Request #" : "Error #") + current.number : feature ? "Request" : "Case"}
         fallback={("/project/" + current.projectId + (feature ? "/features" : "/fix")) as never}
         testID="review-title"
         right={

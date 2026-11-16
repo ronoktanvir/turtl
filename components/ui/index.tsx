@@ -281,12 +281,14 @@ export function Sheet({
   title,
   children,
   testID,
+  footer,
 }: {
   visible: boolean;
   onClose: () => void;
   title: string;
   children: ReactNode;
   testID: string;
+  footer?: ReactNode; // stays below the scrolling content, so a confirm button is never scrolled away
 }) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
@@ -316,6 +318,7 @@ export function Sheet({
           <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: colors.border, alignSelf: "center" }} />
           <T variant="title">{title}</T>
           <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 20 }}>{children}</ScrollView>
+          {footer}
         </View>
       </View>
     </Modal>

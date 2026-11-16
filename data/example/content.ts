@@ -1,6 +1,7 @@
 import type { CaseDetail, CodeNetwork, FixOption, Project, PullRequest, Screenshot } from "../types";
 import { listenerProject, listenerCases, listenerNetwork, listenerPlans, listenerProposals, listenerReplies, listenerAfterShots } from "./listener-ladder";
 import { listenerFeatures, featurePlans, featureReplies, featureAfterShots } from "./listener-features";
+import { withExampleInstructions, withExampleSends } from "./instructions";
 import { listenerStructural } from "./structural";
 
 export type ProjectSeed = Pick<Project, "id" | "name" | "iconUrl" | "summary" | "repoUrl" | "productionUrl" | "approvals">;
@@ -26,8 +27,8 @@ const request = (projectId: string, number: number, title: string, summary: stri
 });
 
 export const caseSeeds: CaseDetail[] = [
-  ...listenerCases.map((item) => (item.id === listenerStructural.caseId ? { ...item, structural: listenerStructural } : item)),
-  ...listenerFeatures,
+  ...listenerCases.map((item) => withExampleSends(item.id === listenerStructural.caseId ? { ...item, structural: listenerStructural } : item)),
+  ...listenerFeatures.map(withExampleSends),
   request("orca", 1, "Compare agent team performance", "A request to compare team outcomes across tasks. No implementation plan has been prepared yet."),
   request("superprediction", 1, "Compare forecast revisions", "A request to see how a forecast changes as new evidence arrives. No implementation plan has been prepared yet."),
   request("superprediction", 2, "Explain a missed prediction", "A request to review the evidence behind an incorrect forecast. No implementation plan has been prepared yet."),
@@ -35,7 +36,7 @@ export const caseSeeds: CaseDetail[] = [
 ];
 
 export const networks: Record<string, CodeNetwork> = { "listener-ladder": listenerNetwork };
-export const proposals = listenerProposals;
+export const proposals = Object.fromEntries(Object.entries(listenerProposals).map(([id, proposal]) => [id, { ...proposal, fix: withExampleInstructions(proposal.fix) }]));
 export const caseReplies: Record<string, string[]> = { ...listenerReplies, ...featureReplies, default: ["This request has not been investigated yet. There is no implementation plan to approve."] };
 export const headChangesOnce = listenerCases.filter((item) => item.health === "needs_you").flatMap((item) => item.fixes.slice(0, 1).map((fix) => fix.key));
 

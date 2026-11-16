@@ -71,7 +71,7 @@ test("missing dependencies and cycles remain unordered with recorded states and 
   const graph = layoutWorkflow(workflow.steps);
   assert.deepEqual(graph.layers, []);
   assert.deepEqual(graph.unresolved, workflow.steps);
-  assert.match(graph.issues.join(" "), /missing dependency not-recorded/);
+  assert.match(graph.issues.join(" "), /“Missing dependency” waits for “not recorded”, a step that was never recorded/);
   assert.match(graph.issues.join(" "), /cycle/);
   assert.deepEqual(graph.edges, [{ from: "step-b", to: "step-a" }, { from: "step-a", to: "step-b" }]);
   assert.deepEqual(graph.unresolved.map((s) => s.status), ["waiting", "failed", "skipped"]);
@@ -87,7 +87,7 @@ test("partial graphs order only provable roots and do not attach a missing paren
   const ambiguous = layoutWorkflow([root, duplicate, { ...malformed.steps[0], dependsOn: [root.key] }]);
   assert.equal(ambiguous.edges.length, 0);
   assert.equal(ambiguous.unresolved.length, 3);
-  assert.match(ambiguous.issues.join(" "), /Duplicate step key/);
+  assert.match(ambiguous.issues.join(" "), /Two steps are both recorded as “Receive report”/);
 });
 
 test("dedicated live hook and Overview do not depend on approval or example timers", () => {

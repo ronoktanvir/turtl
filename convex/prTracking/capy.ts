@@ -25,6 +25,42 @@ export function capyConfig(): CapyConfig {
   };
 }
 
+// The coding agent's full instructions for one approved code change (TUR-68). pullRequestOption stores this
+// text as the option's "change" parameter when turtl proposes the fix, the Approve sheet shows that stored
+// text, and runCodeChange sends the frozen copy of it word for word: one source, never rendered twice.
+const openingFor = (repo: string, baseBranch: string, title: string) =>
+  `Make this change in ${repo}, on a new branch from ${baseBranch}. The owner approved it in turtl as "${title}".`;
+
+export function codeChangeInstructions(fix: { repo: string; baseBranch: string; title: string; change: string }): string {
+  return [
+    openingFor(fix.repo, fix.baseBranch, fix.title),
+    fix.change.trim(),
+    `Open one pull request against ${fix.baseBranch} titled "${fix.title}" with only this change, and reply with the pull request's URL. Do not merge it: the owner merges it from turtl once its checks pass.`,
+  ].join("\n\n");
+}
+
+type Value = string | number | boolean | null;
+
+// The text a code-change option sends. Options proposed before TUR-68 stored only the change itself; for those the
+// same frame is added here, from the same stored values, so what the owner reads and what is sent still match.
+export function instructionsToSend(
+  parameters: { name: string; value: Value }[],
+  target: { resourceRef: string },
+): string | null {
+  const read = (name: string) => {
+    const value = parameters.find((p) => p.name === name)?.value;
+    return typeof value === "string" && value.trim() ? value.trim() : null;
+  };
+  const title = read("title");
+  const change = read("change");
+  if (!title || !change) return null;
+  const at = target.resourceRef.lastIndexOf("@");
+  const repo = at > 0 ? target.resourceRef.slice(0, at) : target.resourceRef;
+  const baseBranch = at > 0 ? target.resourceRef.slice(at + 1) : "main";
+  if (change.startsWith(openingFor(repo, baseBranch, title))) return change;
+  return codeChangeInstructions({ repo, baseBranch, title, change });
+}
+
 type CapyResult<T> = { ok: true; body: T } | { ok: false; message: string };
 
 async function capy<T>(apiKey: string, path: string, body?: unknown): Promise<CapyResult<T>> {

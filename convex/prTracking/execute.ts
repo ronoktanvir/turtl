@@ -2,7 +2,7 @@ import { internal } from "../_generated/api";
 import type { Doc } from "../_generated/dataModel";
 import type { ActionCtx } from "../_generated/server";
 import type { HandlerInput, HandlerResult } from "../runner/contract";
-import { capyConfig, startCapyThread } from "./capy";
+import { capyConfig, instructionsToSend, startCapyThread } from "./capy";
 import { repoFromUrl } from "./github";
 
 const textParameter = (action: Doc<"actions">, name: string) => {
@@ -44,9 +44,10 @@ export async function runCodeChange(ctx: ActionCtx, input: HandlerInput, action:
 
   const repo = repoFromUrl(config.repoUrl);
   const title = textParameter(action, "title");
-  const change = textParameter(action, "change");
+  // Exactly the text the owner read on the Approve sheet: the frozen copy of the option's stored instructions.
+  const message = instructionsToSend(action.executionPayload.parameters, action.executionPayload.target);
   if (!repo) return fail(`"${config.repoUrl}" is not a GitHub repository; nothing was sent to Capy.`);
-  if (!title || !change) return fail("The approved fix has no title or change to make; nothing was sent to Capy.");
+  if (!title || !message) return fail("The approved fix has no title or change to make; nothing was sent to Capy.");
   const capy = capyConfig();
   if (!capy.ok) {
     return fail(`Not configured: set ${capy.missing.join(" and ")} on the Convex deployment so Capy can write this change. Nothing was sent.`);
@@ -56,12 +57,7 @@ export async function runCodeChange(ctx: ActionCtx, input: HandlerInput, action:
     repo,
     requestId: `turtl:${action.idempotencyKey}`,
     title: `turtl: ${title}`.slice(0, 120),
-    message: [
-      `turtl case "${input.case.title}" needs a code change, and the owner approved this fix: "${title}".`,
-      `Make this change in ${repo}, on a new branch from ${config.baseBranch}:`,
-      change,
-      `Open one pull request against ${config.baseBranch} titled "${title}" with only this change, and reply with the pull request's URL. Do not merge it: the owner merges it from turtl once its checks pass.`,
-    ].join("\n\n"),
+    message,
   });
   if (!started.ok) return fail(`Could not ask Capy to write the change: ${started.message}`);
   const { threadId } = started.body;

@@ -48,6 +48,58 @@ export function mapCaseSummary(row: Doc<"cases">, number: number, pullRequest?: 
   };
 }
 
+// Owners never read raw ids (TUR-72). data/workflow.ts keeps the same two helpers for the Plan graph; this file
+// stays free of runtime imports so the node tests can load it directly.
+export function plainWords(id: string): string {
+  return id.replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
+}
+
+export function nameSteps(text: string, steps: { key: string; purpose?: string; title: string }[]): string {
+  const names = new Map<string, string>();
+  for (const step of steps) {
+    for (const id of [step.key, step.purpose]) if (id && /[_-]/.test(id) && !names.has(id)) names.set(id, step.title);
+  }
+  if (!names.size) return text;
+  const ids = [...names.keys()].sort((a, b) => b.length - a.length).map((id) => id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  return text.replace(new RegExp(`(?<![\\w-])(${ids.join("|")})(?![\\w-])`, "g"), (id) => `“${names.get(id)}”`);
+}
+
+const evidenceWords: Record<string, string> = {
+  journey_check: "Journey check",
+  http_check: "Web check",
+  health: "App health",
+  flags: "App settings",
+  revision: "App version",
+  errors: "Error window",
+  customer_report: "Customer report",
+  memory_match: "What turtl remembered",
+  diagnosis: "Diagnosis",
+  agent_handoff: "Handed up",
+  council: "Other models",
+  action: "Action",
+  verification: "Check after the fix",
+};
+const taskWords: Record<string, string> = {
+  diagnose_outage: "diagnosis",
+  council_member: "second opinion",
+  council_consolidation: "second opinions combined",
+  propose_fixes: "fix ideas",
+  examine_broader_causes: "deeper cause",
+  triage_customer_report: "customer report",
+  case_chat_answer: "chat answer",
+};
+const actionWords: Record<string, string> = {
+  set_feature_flag: "Change an app setting",
+  open_pull_request: "Open a pull request",
+};
+const verdictWords: Record<string, string> = { passed: "passed", failed: "failed", inconclusive: "could not tell" };
+const capitalized = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
+const named = (words: Record<string, string>, id: string) => words[id] ?? capitalized(plainWords(id));
+const criterionLine = (status: string, id: string, summary?: string) =>
+  `${status === "uncovered" ? "Not covered" : status === "passed" ? "Passed" : "Failed"} — ${plainWords(id)}${summary ? ": " + summary : ""}`;
+// A model reason that names a deployment setting reads as "no model is connected" to an owner.
+const plainModelReason = (reason: string) => (/_API_KEY|_KEY\b/.test(reason) ? "turtl has no model connected yet" : reason);
+
 function record(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
@@ -76,8 +128,8 @@ function enactmentOf(cards: CaseCards, fixes: CaseFixes | undefined, pullRequest
       key: step.key,
       title: step.title,
       status: step.status === "waiting" ? "pending" : step.status,
-      detail: [step.status === "waiting" ? "Waiting." : "", step.skipReason, attempt?.handoff, attempt?.error].filter(Boolean).join(" ") || undefined,
-      summary: attempt?.summary,
+      detail: nameSteps([step.status === "waiting" ? "Waiting." : "", step.skipReason, attempt?.handoff, attempt?.error].filter(Boolean).join(" "), cards.steps) || undefined,
+      summary: attempt?.summary && nameSteps(attempt.summary, cards.steps),
       startedAt: attempt?.startedAt,
       finishedAt: attempt?.finishedAt,
     };
@@ -133,7 +185,9 @@ export function mapCaseDetail(
   const bookingDemo = httpCheck?.kind === "http" && /\/booking-demo(?:\/|$)/.test(httpCheck.config.url);
   const staged = bookingDemo || cards.case.isSample || /staged|fixture/i.test(cards.case.title)
     || cards.steps.some((step) => step.staged || /staged|fixture/i.test(step.currentAttempt?.summary ?? ""));
-  if (staged && cards.case.raisedBy !== "customer") paragraph([{ text: "Staged/demo case: these observations are not evidence of a real customer incident." }]);
+  if (staged && cards.case.raisedBy !== "customer") paragraph([{ text: "This case came from a staged practice failure on the demo app. What it shows is not a real customer problem." }]);
+  const names = cards.steps.map((step) => ({ key: step.key, purpose: step.purpose, title: step.title }));
+  const plain = (value: string) => nameSteps(value, names);
   const permission = cards.runPermission;
   if (permission && cards.action?.requestedBy === "auto" && cards.action.permissionId === permission._id) {
     const handled = cards.action.status === "completed" && (cards.case.status === "restored" || cards.case.status === "resolved");
@@ -159,7 +213,7 @@ export function mapCaseDetail(
   if (text(diagnosis.cause)) {
     const label = diagnosis.source === "rules" ? "Rule-based reading, not a model diagnosis: " : feature ? "What customers ask for: " : "Likely cause: ";
     paragraph([{ text: label + text(diagnosis.cause) }]);
-    if (diagnosis.source === "rules") paragraph([{ text: "No model answered" + (text(diagnosis.noModelReason) ? ": " + text(diagnosis.noModelReason) : ".") }]);
+    if (diagnosis.source === "rules") paragraph([{ text: "No model answered" + (text(diagnosis.noModelReason) ? ": " + plainModelReason(text(diagnosis.noModelReason)) : ".") }]);
     if (Array.isArray(diagnosis.supportingEvidenceIds)) {
       const supporting = diagnosis.supportingEvidenceIds.filter((id): id is string => typeof id === "string");
       for (const id of supporting) {
@@ -178,7 +232,7 @@ export function mapCaseDetail(
   } : undefined;
 
   for (const evidence of cards.evidence) {
-    logs.push({ id: evidence._id, at: evidence.observedAt, level: "info", source: `Evidence · ${evidence.kind} · ${evidence.environment}`, text: [evidence.title, evidence.body, evidence.sourceRef && `Source: ${evidence.sourceRef}`].filter(Boolean).join("\n") });
+    logs.push({ id: evidence._id, at: evidence.observedAt, level: "info", source: `Evidence · ${named(evidenceWords, evidence.kind)}`, text: [evidence.title, evidence.body, evidence.sourceRef && `Source: ${evidence.sourceRef}`].filter(Boolean).join("\n") });
     citations.push({ id: evidence._id, kind: "log", logId: evidence._id });
     if (evidence.kind === "customer_report" && customerReports?.reports.length) continue;
     paragraph([sourceSpan(evidence.title, evidence._id)]);
@@ -188,19 +242,19 @@ export function mapCaseDetail(
     const attempts = step.purpose === "authorize_and_execute" && cards.executeAttempts.length
       ? cards.executeAttempts : step.currentAttempt ? [step.currentAttempt] : [];
     for (const attempt of attempts) {
-      const note = [attempt.summary, attempt.error, attempt.handoff].filter(Boolean).join("\n");
+      const note = plain([attempt.summary, attempt.error, attempt.handoff].filter(Boolean).join("\n"));
       if (!note) continue;
       const id = `attempt:${attempt._id}`;
       logs.push({ id, at: attempt.finishedAt ?? attempt.startedAt ?? attempt._creationTime, level: attempt.error || attempt.status === "failed" ? "error" : "info", source: `Workflow · ${step.title} · attempt ${attempt.attempt}`, text: note });
       citations.push({ id, kind: "log", logId: id });
-      paragraph([{ text: `${step.title} (attempt ${attempt.attempt}): ${attempt.summary ?? attempt.error ?? attempt.handoff}`, cite: id }]);
+      paragraph([{ text: `${step.title} (attempt ${attempt.attempt}): ${plain(attempt.summary ?? attempt.error ?? attempt.handoff ?? "")}`, cite: id }]);
     }
-    if (step.status === "skipped" && step.skipReason) paragraph([{ text: `${step.title}: skipped. ${step.skipReason}` }]);
+    if (step.status === "skipped" && step.skipReason) paragraph([{ text: `${step.title}: skipped. ${plain(step.skipReason)}` }]);
   }
 
   for (const run of cards.agentRuns) {
     const id = `agent:${run._id}`;
-    logs.push({ id, at: run._creationTime, level: run.status === "failed" ? "error" : "info", source: `Agent run · ${run.taskType}`, text: [`${run.status} (${run.config.modelId})`, run.error].filter(Boolean).join("\n") });
+    logs.push({ id, at: run._creationTime, level: run.status === "failed" ? "error" : "info", source: `Agent run · ${named(taskWords, run.taskType)}`, text: [`${run.status} (${run.config.modelId})`, run.error].filter(Boolean).join("\n") });
     citations.push({ id, kind: "log", logId: id });
     if (run.error) paragraph([{ text: run.error, cite: id }]);
   }
@@ -208,29 +262,30 @@ export function mapCaseDetail(
   if (cards.action) {
     const action = cards.action;
     const id = `action:${action._id}`;
-    logs.push({ id, at: action.completedAt ?? action.startedAt ?? action.requestedAt, level: action.status === "failed" ? "error" : action.status === "unknown" ? "warn" : "info", source: `Action · ${action.type}`, text: [action.status, action.result].filter(Boolean).join("\n") });
+    logs.push({ id, at: action.completedAt ?? action.startedAt ?? action.requestedAt, level: action.status === "failed" ? "error" : action.status === "unknown" ? "warn" : "info", source: `Action · ${named(actionWords, action.type)}`, text: [action.status, action.result].filter(Boolean).join("\n") });
     citations.push({ id, kind: "log", logId: id });
-    if (action.result) paragraph([{ text: `Action (${action.status}): ${action.result}`, cite: id }]);
+    if (action.result) paragraph([{ text: `${named(actionWords, action.type)} (${action.status}): ${action.result}`, cite: id }]);
   }
 
   for (const verification of [...cards.verifications].sort((a, b) => a.completedAt - b.completedAt)) {
     const phase = verification.phase === "before" ? "Before any change" : verification.phase === "after_fix" ? "After the action" : "After deployment";
     const id = `verification:${verification._id}`;
-    const criteria = verification.criterionResults.map((result) => `${result.status === "uncovered" ? "Not covered" : result.status === "passed" ? "Passed" : "Failed"} — ${result.criterionId}: ${result.summary}`);
+    const criteria = verification.criterionResults.map((result) => criterionLine(result.status, result.criterionId, result.summary));
     const missing = verification.coverage.uncoveredCriterionIds.filter((criterionId) => !verification.criterionResults.some((result) => result.criterionId === criterionId));
-    for (const criterionId of missing) criteria.push(`Not covered — ${criterionId}`);
-    logs.push({ id, at: verification.completedAt, level: verification.verdict === "failed" ? "error" : verification.verdict === "inconclusive" ? "warn" : "info", source: `Verification · ${verification.environment}`, text: [`${phase} — ${verification.verdict}: ${verification.summary}`, ...criteria].join("\n") });
+    for (const criterionId of missing) criteria.push(criterionLine("uncovered", criterionId));
+    const verdict = verdictWords[verification.verdict] ?? verification.verdict;
+    logs.push({ id, at: verification.completedAt, level: verification.verdict === "failed" ? "error" : verification.verdict === "inconclusive" ? "warn" : "info", source: `Check · ${phase}`, text: [`${phase} — ${verdict}: ${verification.summary}`, ...criteria].join("\n") });
     citations.push({ id, kind: "log", logId: id });
-    paragraph([{ text: `${phase} — ${verification.verdict}: ${verification.summary}`, cite: id }]);
+    paragraph([{ text: `${phase} — ${verdict}: ${verification.summary}`, cite: id }]);
     for (const result of verification.criterionResults) {
-      const spans: Span[] = [{ text: `${result.status === "uncovered" ? "Not covered" : result.status === "passed" ? "Passed" : "Failed"} — ${result.criterionId}: ${result.summary}` }];
+      const spans: Span[] = [{ text: criterionLine(result.status, result.criterionId, result.summary) }];
       for (const evidenceId of result.evidenceIds) {
         const evidence = cards.evidence.find((row) => row._id === evidenceId);
         if (evidence) spans.push(sourceSpan(` ${evidence.title}`, evidenceId));
       }
       paragraph(spans);
     }
-    for (const criterionId of missing) paragraph([{ text: `Not covered — ${criterionId}` }]);
+    for (const criterionId of missing) paragraph([{ text: criterionLine("uncovered", criterionId) }]);
   }
   if (!cards.verifications.some((verification) => verification.phase !== "before")) paragraph([{ text: "Not covered: no after-action verification has been recorded. A completed step or a passing pull-request check is not proof of recovery." }]);
   paragraph([{ text: "Source code is not available in the recorded case evidence." }]);
@@ -247,7 +302,7 @@ export function mapCaseDetail(
   const caseNote = text(learnOutput.note) || text(learnOutput.summary) || learnAttempt?.summary;
   const memory = cards.learnedMemory;
   const learned = memory ? [
-    staged ? "Staged/demo case — recorded recovery memory." : "Recorded recovery memory.",
+    staged ? "What turtl remembers from this staged practice failure:" : "What turtl remembers:",
     `Cause: ${memory.cause}`,
     ...(memory.conditions.length ? [`Conditions: ${memory.conditions.join("; ")}`] : []),
     ...(memory.notWhen.length ? [`Do not use when: ${memory.notWhen.join("; ")}`] : []),
@@ -266,5 +321,6 @@ export function mapCaseDetail(
     ...(enactment && { enactment }),
     ...(learned && { learned }),
     ...(structural && { structural }),
+    ...(cards.case.raisedBy === "customer" && { raisedByCustomers: true }),
   };
 }

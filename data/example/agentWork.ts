@@ -51,8 +51,6 @@ export const exampleAgentWork: Record<string, AgentWork> = {
         { label: "gpt-6.1-sol (medium reasoning)", status: "answered", confidence: 0.8, hypothesis: "Each answer ranks the player by reading the full score history, which takes longer than the two-second deadline once the history is large." },
         { label: "gpt-5.5 (medium reasoning)", status: "answered", confidence: 0.75, hypothesis: "The answer path scans every saved score to compute a rank; with 1.6 million scores this outlasts the deadline." },
         { label: "gpt-6.1-terra (medium reasoning)", status: "answered", confidence: 0.6, hypothesis: "The full-history read is slow, and answers may also wait for a database connection from the pool of five." },
-        { label: "claude-sonnet-4-5", status: "not_run", note: "Joins when ANTHROPIC_API_KEY is set on the deployment." },
-        { label: "gemini-2.5-pro", status: "not_run", note: "Joins when GEMINI_API_KEY is set on the deployment." },
       ],
     },
   },

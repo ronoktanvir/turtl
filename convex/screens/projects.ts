@@ -57,7 +57,7 @@ export const approvalSettings = query({
     const scopes = (active.length ? active : candidates.slice(0, 1)).map((chosen) => {
       const target = chosen.source?.executionPayload.target;
       const values = chosen.source?.executionPayload.parameters.map((p) => `${p.name}=${JSON.stringify(p.value)}`).join(", ");
-      return `${chosen.memory.actionType} on ${target?.resourceRef ?? "the recorded target"} (${target?.environment ?? "recorded environment"}); ${values || "no parameters"}. Up to 3 uses, only on app version ${chosen.memory.appRevision}. Fresh conditions are checked before every use.`;
+      return `turtl may ${chosen.memory.actionType.replace(/_/g, " ")} on ${target?.resourceRef ?? "the recorded target"} (${target?.environment ?? "the recorded environment"}) with ${values || "no values"}, at most 3 times, and only while the app runs version ${chosen.memory.appRevision}. Before each run it checks again that the conditions still hold.`;
     });
     return {
       active: active.length > 0,

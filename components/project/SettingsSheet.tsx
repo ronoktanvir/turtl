@@ -47,9 +47,14 @@ export default function SettingsSheet({ visible, onClose, projectId }: { visible
         <Choice label="You" icon={UserRound} selected={!settings.active} disabled={settings.loading || busy} onPress={() => void choose("you")} testID="approvals-you" />
         <Choice label="Auto" icon={Zap} selected={settings.active} disabled={settings.loading || busy || (!settings.active && !settings.canEnable)} onPress={() => void choose("auto")} testID="approvals-auto" />
       </View>
-      <T color="textMuted">{busy ? "Updating permission…" : settings.loading ? "Checking permission…" : settings.reason}</T>
-      {settings.scope && <T testID="approvals-scope">{settings.scope}</T>}
-      <T color="textMuted">Each Auto permission permits one action with its pinned values, bound to this app version, for at most 3 uses. It requires 2 verified recoveries. Every other fix still needs your approval.</T>
+      <T color="textMuted">{busy ? "Updating permission…" : settings.loading ? "Checking permission…" : settings.active ? settings.reason : "You decide which fix goes ahead."}</T>
+      {!busy && !settings.loading && !settings.active && !settings.canEnable && settings.reason && <T variant="small" color="textMuted" testID="approvals-unavailable">{settings.reason}</T>}
+      {settings.scope && (
+        <View style={{ gap: 4, borderLeftWidth: 2, borderLeftColor: colors.brandDeep, paddingLeft: 12 }}>
+          <T variant="small" color="textMuted">{settings.active ? "What Auto may do on its own" : "What Auto would allow"}</T>
+          <T testID="approvals-scope">{settings.scope}</T>
+        </View>
+      )}
       {error && <T color="statusAffected" accessibilityRole="alert">{error}</T>}
     </View>
     <PreferencesSettings projectId={projectId} />
