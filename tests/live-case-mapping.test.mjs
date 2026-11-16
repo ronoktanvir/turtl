@@ -352,3 +352,14 @@ test("a journey check's log names its steps in words, and shows no error code or
   assert.ok(line.includes("Load catalog: passed. Selected a service.\nRecommendations: failed. Provider timed out.\nError: Provider timed out.\nCleanup succeeded (0 test booking(s) deleted)."), line);
   for (const raw of ["load_catalog", "RECOMMENDATIONS_TIMEOUT", "6198e797", "Run "]) assert.ok(!line.includes(raw), raw);
 });
+
+test("a case closed because turtl could not reach the app says what to fix and what happens next", () => {
+  const refused = "Could not read the booking app: the booking check (no control token is set for this project yet (add it in the project's Settings, under Control token), so turtl sent nothing).";
+  const gather = step({ key: "gather_context", title: "Gather context", purpose: "gather_context", status: "failed", currentAttempt: attempt({ attempt: 3, status: "failed", error: refused, summary: undefined }) });
+  const stopped = content(map(cards({ case: row({ status: "unresolved" }), steps: [gather] })));
+  assert.ok(stopped.startsWith("turtl stopped this case because it could not reach your app, so it sent nothing. The reason is under \"Gather context\" below"), stopped);
+  assert.match(stopped, /Fix it in this project's Settings\. turtl's next check opens a new case if the problem is still there/);
+  assert.ok(!content(map(cards({ case: row({ status: "investigating" }), steps: [gather] }))).includes("turtl stopped this case"), "only once it has stopped");
+  const other = step({ status: "failed", currentAttempt: attempt({ status: "failed", error: "The model did not answer." }) });
+  assert.ok(!content(map(cards({ case: row({ status: "unresolved" }), steps: [other] }))).includes("turtl stopped this case"), "not for other failures");
+});

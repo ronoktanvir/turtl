@@ -145,6 +145,11 @@ export function journeyBodyWords(body: string): string {
     .join("\n");
 }
 
+/** What an unresolved case says when it stopped because turtl could not reach the app at all. */
+export function unreachableStop(stepTitle: string): string {
+  return `turtl stopped this case because it could not reach your app, so it sent nothing. The reason is under "${stepTitle}" below: usually the project's control token is missing, or its live address is one turtl may not send to. Fix it in this project's Settings. turtl's next check opens a new case if the problem is still there, and a new report from a customer does too. This case stays closed.`;
+}
+
 // A model reason that names a deployment setting reads as "no model is connected" to an owner.
 const plainModelReason = (reason: string) => (/_API_KEY|_KEY\b/.test(reason) ? "turtl has no model connected yet" : reason);
 
@@ -235,6 +240,12 @@ export function mapCaseDetail(
   const bookingDemo = httpCheck?.kind === "http" && /\/booking-demo(?:\/|$)/.test(httpCheck.config.url);
   const staged = bookingDemo || cards.case.isSample || /staged|fixture/i.test(cards.case.title)
     || cards.steps.some((step) => step.staged || /staged|fixture/i.test(step.currentAttempt?.summary ?? ""));
+  // A step that could not reach the app (no control token, an address turtl may not send to) fails every retry within
+  // minutes, and the case closes as unresolved. Closed cases do not run again, so it says what to fix and what happens next.
+  const unreachable = cards.case.status === "unresolved"
+    ? cards.steps.find((step) => step.status === "failed" && /so turtl sent nothing/.test(step.currentAttempt?.error ?? ""))
+    : undefined;
+  if (unreachable) paragraph([{ text: unreachableStop(unreachable.title) }]);
   if (staged && cards.case.raisedBy !== "customer") paragraph([{ text: "This case came from a staged practice failure on the demo app. What it shows is not a real customer problem." }]);
   const names = cards.steps.map((step) => ({ key: step.key, purpose: step.purpose, title: step.title }));
   const plain = (value: string) => ownerWords(nameSteps(value, names));
