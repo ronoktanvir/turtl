@@ -24,6 +24,7 @@ import {
   vPermission,
   vAgentRun,
   vContextSource,
+  vOwnerNotice,
 } from "./constants";
 import { revylTables } from "./revyl/schema";
 
@@ -54,6 +55,7 @@ export default defineSchema({
     resolvedAt: v.optional(v.number()),
     isSample: v.optional(v.boolean()),
   }).index("by_app_and_signature", ["appId", "signature"]),
+  ownerNotices: defineTable(vOwnerNotice).index("by_case_and_event", ["caseId", "event"]),
   // Mutations must maintain one workflow per case, unique step keys, acyclic validated additions, and completed history; memory skips require fresh applicability and executed changes require verification.
   steps: defineTable({
     caseId: v.id("cases"),

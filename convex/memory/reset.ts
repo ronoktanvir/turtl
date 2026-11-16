@@ -50,17 +50,19 @@ async function cancelCaseJobs(
   ctx: MutationCtx,
   caseIds: Set<string>,
   attemptIds: Set<string>,
+  runIds: Set<string>,
 ) {
   const jobs = await ctx.db.system.query("_scheduled_functions").collect();
   let cancelled = 0;
   for (const job of jobs) {
     const args = job.args[0] as
-      | { caseId?: string; attemptId?: string }
+      | { caseId?: string; attemptId?: string; runId?: string }
       | undefined;
     if (
       job.state.kind === "pending" &&
       ((args?.caseId && caseIds.has(args.caseId)) ||
-        (args?.attemptId && attemptIds.has(args.attemptId)))
+        (args?.attemptId && attemptIds.has(args.attemptId)) ||
+        (args?.runId && runIds.has(args.runId)))
     ) {
       await ctx.scheduler.cancel(job._id);
       cancelled++;
@@ -86,12 +88,18 @@ export const prepare = internalMutation({
     if (!journeys.length)
       throw new Error("Register the booking journey before resetting it.");
     const attemptIds = new Set<string>();
+    const runIds = new Set<string>();
     for (const row of scope.cases) {
       for (const attempt of await ctx.db
         .query("stepAttempts")
         .withIndex("by_case", (q) => q.eq("caseId", row._id))
         .collect())
         attemptIds.add(attempt._id);
+      for (const run of await ctx.db
+        .query("revylRuns")
+        .withIndex("by_case", (q) => q.eq("caseId", row._id))
+        .collect())
+        runIds.add(run._id);
       if (!(CLOSED_CASE_STATUSES as readonly string[]).includes(row.status))
         await setCaseStatus(ctx, row._id, "declined");
     }
@@ -99,6 +107,7 @@ export const prepare = internalMutation({
       ctx,
       new Set(scope.cases.map((row) => row._id)),
       attemptIds,
+      runIds,
     );
     const permissions = await ctx.db
       .query("permissions")
@@ -145,10 +154,26 @@ export const clear = internalMutation({
       agentRuns: 0,
       recoveryMemories: 0,
       permissions: 0,
+      ownerNotices: 0,
+      pullRequests: 0,
+      fixChatMessages: 0,
+      revylRuns: 0,
+      revylScreenshots: 0,
+      screenshotBlobs: 0,
       cancelledScheduled: 0,
     };
     const attemptIds = new Set<string>();
+    const runIds = new Set<string>();
+    const screenshotIds = new Set<Id<"_storage">>();
     for (const row of cases) {
+      const notices = await ctx.db
+        .query("ownerNotices")
+        .withIndex("by_case_and_event", (q) => q.eq("caseId", row._id))
+        .collect();
+      for (const notice of notices) {
+        await ctx.db.delete(notice._id);
+        counts.ownerNotices++;
+      }
       for (const table of [
         "evidence",
         "proposals",
@@ -157,6 +182,10 @@ export const clear = internalMutation({
         "agentRuns",
         "stepAttempts",
         "steps",
+        "pullRequests",
+        "fixChatMessages",
+        "revylRuns",
+        "revylScreenshots",
       ] as const) {
         const children = await ctx.db
           .query(table)
@@ -164,16 +193,23 @@ export const clear = internalMutation({
           .collect();
         for (const child of children) {
           if (table === "stepAttempts") attemptIds.add(child._id);
+          if (table === "revylRuns") runIds.add(child._id);
+          if ("storageId" in child) screenshotIds.add(child.storageId);
           await ctx.db.delete(child._id);
           counts[table]++;
         }
       }
       await ctx.db.delete(row._id);
     }
+    for (const storageId of screenshotIds) {
+      await ctx.storage.delete(storageId);
+      counts.screenshotBlobs++;
+    }
     counts.cancelledScheduled = await cancelCaseJobs(
       ctx,
       new Set(cases.map((row) => row._id)),
       attemptIds,
+      runIds,
     );
     const memories = await ctx.db
       .query("recoveryMemories")

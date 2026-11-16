@@ -104,7 +104,9 @@ export const openCase = internalMutation({
     });
     await ctx.db.patch(caseId, { journeyId });
     const app = await ctx.db.get(journey.appId);
-    await ctx.scheduler.runAfter(0, internal.keiki.notifyOwner, {
+    await ctx.scheduler.runAfter(0, internal.notices.notifyOwner, {
+      caseId,
+      event: "opened",
       text: `Something is wrong with ${app?.name ?? "your app"}: ${title}. turtl is looking into it now.`,
     });
     return { opened: true as const, caseId };
