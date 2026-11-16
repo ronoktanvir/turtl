@@ -14,6 +14,11 @@ test("citations wrap as text, not atomic boxes, at 390px", async () => {
     await page.evaluate(() => document.fonts.ready);
     await page.waitForTimeout(400);
     for (const id of ["overview-2-paragraph", "overview-3-paragraph", "fix-listener_database_ranking-paragraph"]) {
+      // Fixes is its own page under the issue: open it before checking a fix's paragraph.
+      if (id.startsWith("fix-")) {
+        await page.getByTestId("look-at-fixes").click();
+        await page.getByTestId(id).first().waitFor();
+      }
       const paragraph = page.getByTestId(id).first();
       await paragraph.scrollIntoViewIfNeeded();
       const result = await paragraph.evaluate((element) => {
@@ -34,6 +39,8 @@ test("citations wrap as text, not atomic boxes, at 390px", async () => {
       }
       assert.ok(Math.abs(result.actualHeight - result.plainHeight) <= 1, `${id}: linked paragraph ${result.actualHeight}px, natural text ${result.plainHeight}px`);
     }
+    await page.getByTestId("fixes-back").click();
+    await page.getByTestId("overview-2-paragraph").first().waitFor();
     const link = page.getByTestId("overview-2-cite-cite-rank-wait").first();
     await link.scrollIntoViewIfNeeded();
     await link.focus();
