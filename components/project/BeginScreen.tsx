@@ -96,7 +96,7 @@ export default function BeginScreen({ type }: { type: CaseType }) {
         ) : cases === undefined || project === undefined ? (
           <View>{errors.length === 0 && <T color="textMuted" style={{ textAlign: "center", padding: 20 }}>Loading…</T>}</View>
         ) : cases.length === 0 ? (
-          <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 12, padding: 24 }}><Turtle health="clear" size={96} /><T color="textMuted">{type === "fix" ? "Nothing to fix." : "No feature requests."}</T></View>
+          <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 12, padding: 24 }}><Turtle health="clear" size={96} alive /><T color="textMuted">{type === "fix" ? "Nothing to fix." : "No feature requests."}</T></View>
         ) : (
           <View style={{ flex: 1 }}>
             <ScrollView

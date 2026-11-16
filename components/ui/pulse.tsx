@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentRef } from "react";
 import { Animated, Easing, PanResponder, Platform, StyleSheet, View, type GestureResponderEvent, type PanResponderGestureState } from "react-native";
 import { useTheme } from "../../theme";
+import { nativeDriver } from "./motion";
 import { DEAD_ZONE, isVerticalPull, restingWheel, shouldComplete, swipeProgress, wheelPixels, wheelProgress, wheelStep, WHEEL_SETTLE } from "./swipe";
 
 // turtl's one way of moving from a summary to what you do about it: a drop of green that spreads from where you
 // pulled until it fills the screen, and the next screen surfacing out of it. The issues list uses it to open the
 // first issue; an issue uses it to move to its fixes and back.
 
-/** Animated drivers: the native one where there is one. The web has none, and warns if asked. */
-export const nativeDriver = Platform.OS !== "web";
+export { nativeDriver };
 
 /** The drop's value when its deep green covers every corner. 0 is no drop, 1 a full pull, between them the pull. */
 export const DROP_FULL = 1.1;
@@ -63,7 +63,8 @@ export function handOffPulse() {
   handedOffAt = Date.now();
 }
 
-function pulseWaiting() {
+/** Whether a screen opening now arrives out of the green, so it should not also slide in. */
+export function pulseWaiting() {
   return Date.now() - handedOffAt < 1500;
 }
 

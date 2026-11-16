@@ -7,6 +7,7 @@ import ProjectIcon from "../components/project/ProjectIcon";
 import FirstRun from "../components/project/FirstRun";
 import { Card, Chip, HealthWord, Icon, Logo, Reveal, Screen, T, Turtle } from "../components/ui";
 import { useDevToolsOn } from "../components/ui/devTools";
+import { stagger } from "../components/ui/motion";
 import { useDataStatus, useProjects } from "../data";
 import { approvalLabel, healthOrder, healthToken, useTheme } from "../theme";
 
@@ -39,7 +40,7 @@ export default function Projects() {
           {sorted?.map((p, index) => {
             const urgent = p.health === "affected" || p.health === "needs_you";
             return (
-              <Reveal key={p.id} delay={index * 60}>
+              <Reveal key={p.id} delay={stagger(index)}>
                 <Card testID={`project-card-${p.id}`} onPress={() => router.push(`/project/${p.id}` as Href)} style={{ overflow: "hidden", borderColor: urgent ? colors[healthToken[p.health]] : colors.border }}>
                   <View style={{ flexDirection: "row", alignItems: "center", gap: narrow ? 8 : 12 }}>
                     <ProjectIcon project={p} size={narrow ? 36 : 44} />

@@ -40,7 +40,7 @@ export default function Investigate() {
           <View style={{ padding: 20 }}>{errors.length === 0 && <T color="textMuted">Loading the map of your code…</T>}</View>
         ) : !network || network.nodes.length === 0 ? (
           <View style={{ flex: 1, padding: 28, justifyContent: "center", alignItems: "center", gap: 20 }}>
-            <Turtle health="clear" size={72} />
+            <Turtle health="clear" size={72} alive />
             <T style={{ textAlign: "center" }}>turtl has not mapped this project's code yet.</T>
           </View>
         ) : (

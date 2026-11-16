@@ -1,14 +1,17 @@
 import { useRouter, type Href } from "expo-router";
-import { createContext, useContext, useEffect, useId, useState, type ComponentRef, type ReactNode, type Ref } from "react";
+import { createContext, useContext, useEffect, useId, useRef, useState, type ComponentRef, type ReactNode, type Ref } from "react";
 import {
+  Animated,
   Image,
   Modal,
+  PanResponder,
   ScrollView,
   Platform,
   Pressable,
   StyleSheet,
   Text,
   View,
+  useWindowDimensions,
   type StyleProp,
   type TextProps,
   type TextStyle,
@@ -20,12 +23,14 @@ import { devToolsAllowed } from "../../data/source";
 import type { Health } from "../../data/types";
 import { healthToken, healthWord, useTheme, type TokenName } from "../../theme";
 import { Icon, type IconName } from "./Icon";
-import { Reveal, ZoomPressable } from "./motion";
+import { Breathe, Pop, ZoomPressable, ease, nativeDriver, springs, time, usePressScale, useReducedMotion } from "./motion";
 import { PulseArrival } from "./pulse";
+import { ScreenEnter } from "./screenEnter";
+import { sheetDrag, sheetLetsGo } from "./sheetDrag";
 import { useSheetCover } from "./sheetCover";
 import { faceFor, textOf, type Face } from "./typeface";
 export { Icon, type IconName } from "./Icon";
-export { Reveal, ZoomPressable, useReducedMotion } from "./motion";
+export { Breathe, Pop, Reveal, ZoomPressable, usePressScale, useReducedMotion } from "./motion";
 export { caseTitle } from "./caseTitle";
 export { BrandIcon } from "./BrandIcon";
 
@@ -96,7 +101,7 @@ export function Screen({ children, testID }: { children: ReactNode; testID?: str
   const insets = useSafeAreaInsets();
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg, paddingTop: insets.top }} testID={testID}>
-      <Reveal style={{ flex: 1 }} progress>{children}</Reveal>
+      <ScreenEnter>{children}</ScreenEnter>
       <PulseArrival />
     </View>
   );
@@ -225,6 +230,11 @@ function ScrollingTitle({ title, testID }: { title: string; testID?: string }) {
   );
 }
 
+const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
+// A button answers the instant it is touched. A phone's Pressable already does; the web's waits 50 ms before it
+// calls a press a press unless told not to, under a prop of its own.
+const instantPress = (Platform.OS === "web" ? { delayPressIn: 0 } : { unstable_pressDelay: 0 }) as { unstable_pressDelay?: number };
+
 export function Button({
   label,
   onPress,
@@ -252,15 +262,19 @@ export function Button({
     plain: { bg: colors.surfaceRaised, border: colors.border, text: "text" },
     danger: { bg: "transparent", border: colors.statusAffected, text: "statusAffected" },
   };
+  const press = usePressScale(0.97);
   return (
-    <Pressable
+    <AnimatedPressable
       ref={ref}
       onPress={onPress}
+      onPressIn={press.onPressIn}
+      onPressOut={press.onPressOut}
+      {...instantPress}
       disabled={disabled}
       accessibilityRole="button"
       accessibilityState={{ disabled: !!disabled }}
       testID={testID}
-      style={({ pressed }) => [
+      style={[
         {
           minHeight: 48,
           paddingHorizontal: 18,
@@ -272,8 +286,8 @@ export function Button({
           justifyContent: "center",
           backgroundColor: disabled ? colors.surfaceRaised : look[kind].bg,
           borderColor: disabled ? colors.border : look[kind].border,
-          opacity: disabled ? 0.65 : pressed ? 0.8 : 1,
-          transform: [{ scale: pressed ? 0.98 : 1 }],
+          opacity: disabled ? 0.65 : press.pressed.interpolate({ inputRange: [0, 1], outputRange: [1, 0.84] }),
+          transform: [{ scale: press.scale }],
         },
         style,
       ]}
@@ -282,7 +296,7 @@ export function Button({
       <T variant="strong" font="title" color={disabled ? "textMuted" : look[kind].text} style={{ textAlign: "center" }}>
         {label}
       </T>
-    </Pressable>
+    </AnimatedPressable>
   );
 }
 
@@ -345,9 +359,9 @@ export function Card({
   );
 }
 
-export function Turtle({ health, size = 40, outlined, label }: { health: Health; size?: number; outlined?: boolean; label?: string }) {
+export function Turtle({ health, size = 40, outlined, label, alive }: { health: Health; size?: number; outlined?: boolean; label?: string; /** Breathes slowly: for a large turtle with the screen to itself. */ alive?: boolean }) {
   const { colors } = useTheme();
-  const image = (
+  const picture = (
     <Image
       source={turtles[health]}
       style={{ width: size, height: size }}
@@ -355,11 +369,12 @@ export function Turtle({ health, size = 40, outlined, label }: { health: Health;
       accessibilityLabel={label ?? "turtl: " + healthWord[health]}
     />
   );
-  if (!outlined) return <Reveal replayKey={health}>{image}</Reveal>;
+  const image = alive ? <Breathe>{picture}</Breathe> : picture;
+  if (!outlined) return <Pop on={health}>{image}</Pop>;
   return (
-    <Reveal replayKey={health}><View style={{ borderWidth: 2, borderColor: colors[healthToken[health]], borderRadius: size, padding: 6 }}>
+    <Pop on={health}><View style={{ borderWidth: 2, borderColor: colors[healthToken[health]], borderRadius: size, padding: 6 }}>
       {image}
-    </View></Reveal>
+    </View></Pop>
   );
 }
 
@@ -406,17 +421,58 @@ export function Sheet({
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const cover = useSheetCover();
+  const reduced = useReducedMotion();
+  const screen = useWindowDimensions().height;
+  const [mounted, setMounted] = useState(visible);
+  const [height, setHeight] = useState(0);
+  const open = useRef(new Animated.Value(0)).current; // 0 closed, 1 open
+  const drag = useRef(new Animated.Value(0)).current; // how far a finger has pulled the sheet down
+  const now = useRef({ visible, onClose, height });
+  now.current = { visible, onClose, height };
+  const measured = height > 0;
+
+  // Rises in on the curve a sheet rises on; leaves in about half the time. With Reduce Motion it only fades.
+  useEffect(() => {
+    if (visible) {
+      setMounted(true);
+      drag.setValue(0);
+      if (!measured && !reduced) return; // it starts once its height is known, so it travels exactly its own height
+      const rise = Animated.timing(open, { toValue: 1, duration: reduced ? time.quick : time.sheetIn, easing: ease.sheet, useNativeDriver: nativeDriver });
+      rise.start();
+      return () => rise.stop();
+    }
+    const leave = Animated.timing(open, { toValue: 0, duration: reduced ? time.quick : time.sheetOut, easing: ease.away, useNativeDriver: nativeDriver });
+    leave.start(({ finished }) => { if (finished) setMounted(false); });
+    return () => leave.stop();
+  }, [visible, reduced, measured, open, drag]);
+
+  // Pulling the handle or the title down drags the sheet; far or fast enough and it closes, otherwise it settles back.
+  const pan = useRef(PanResponder.create({
+    onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dy) > 4 && Math.abs(g.dy) > Math.abs(g.dx),
+    onPanResponderMove: (_, g) => drag.setValue(sheetDrag(g.dy)),
+    onPanResponderRelease: (_, g) => {
+      const settle = () => Animated.spring(drag, { toValue: 0, ...springs.settle, useNativeDriver: nativeDriver }).start();
+      if (!sheetLetsGo(g.dy, g.vy, now.current.height)) return settle();
+      Animated.timing(drag, { toValue: now.current.height || 600, duration: time.sheetOut, easing: ease.away, useNativeDriver: nativeDriver }).start(() => {
+        now.current.onClose();
+        // A sheet that may not close just now (it is saving) comes back up.
+        setTimeout(() => { if (now.current.visible) settle(); }, 80);
+      });
+    },
+    onPanResponderTerminate: () => Animated.spring(drag, { toValue: 0, ...springs.settle, useNativeDriver: nativeDriver }).start(),
+  })).current;
+
+  const travel = reduced ? 0 : height || screen;
+  const pulled = drag.interpolate({ inputRange: [0, Math.max(1, height)], outputRange: [1, 0], extrapolate: "clamp" });
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+    <Modal visible={mounted} transparent animationType="none" onRequestClose={onClose}>
       <View style={{ flex: 1, justifyContent: "flex-end" }}>
-        <Pressable
-          onPress={onClose}
-          accessibilityLabel="Close"
-          testID={testID + "-backdrop"}
-          style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0, backgroundColor: colors.bg, opacity: 0.8 }}
-        />
-        <View
+        <Animated.View style={[StyleSheet.absoluteFill, { opacity: Animated.multiply(open, pulled).interpolate({ inputRange: [0, 1], outputRange: [0, 0.8] }) }]}>
+          <Pressable onPress={onClose} accessibilityLabel="Close" testID={testID + "-backdrop"} style={{ flex: 1, backgroundColor: colors.bg }} />
+        </Animated.View>
+        <Animated.View
           testID={testID}
+          onLayout={(event) => setHeight(event.nativeEvent.layout.height)}
           style={{
             backgroundColor: colors.surface,
             borderColor: colors.border,
@@ -427,13 +483,17 @@ export function Sheet({
             paddingBottom: insets.bottom + 20,
             gap: 16,
             maxHeight: "90%",
+            opacity: reduced ? open : 1,
+            transform: [{ translateY: Animated.add(open.interpolate({ inputRange: [0, 1], outputRange: [travel, 0] }), drag) }],
           }}
         >
-          <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: colors.border, alignSelf: "center" }} />
-          <T variant="title" font="title">{title}</T>
+          <View {...pan.panHandlers} style={{ gap: 16, marginTop: -8, paddingTop: 8 }}>
+            <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: colors.border, alignSelf: "center" }} />
+            <T variant="title" font="title" selectable={false}>{title}</T>
+          </View>
           <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 20 }}>{children}</ScrollView>
           {footer}
-        </View>
+        </Animated.View>
         {cover}
       </View>
     </Modal>

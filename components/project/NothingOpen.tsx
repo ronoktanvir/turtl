@@ -60,7 +60,7 @@ export default function NothingOpen({ type, projectId }: { type: CaseType; proje
       <T variant="heading" accessibilityRole="header" style={{ textAlign: "center", marginTop: 8, marginBottom: 16 }}>{w.title}</T>
       <ScrollView testID={`begin-${type}-empty`} contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 8, paddingBottom: insets.bottom + 32, gap: 28 }}>
         <View style={{ alignItems: "center", gap: 12 }}>
-          <Turtle health={broken ? "needs_you" : "clear"} size={96} />
+          <Turtle health={broken ? "needs_you" : "clear"} size={96} alive />
           <T variant="strong" color={broken ? "statusAffected" : "textMuted"} style={{ textAlign: "center", maxWidth: 320 }} testID={`begin-${type}-empty-line`}>{w.empty}</T>
           <T variant="small" color="textMuted" style={{ textAlign: "center", maxWidth: 320 }}>{w.note}</T>
         </View>

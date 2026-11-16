@@ -1,8 +1,8 @@
 import { useEffect, useRef } from "react";
-import { Animated, Easing, Pressable, View } from "react-native";
+import { Animated, Pressable, View } from "react-native";
 import { useTheme } from "../../theme";
 import { T } from ".";
-import { useReducedMotion } from "./motion";
+import { nativeDriver, springs, useReducedMotion } from "./motion";
 
 /**
  * An on/off switch. The label and the switch are one target, at least 44 pt each way, so the switch itself
@@ -21,7 +21,7 @@ export function Toggle({ value, onChange, label, accessibilityLabel, disabled, t
   const at = useRef(new Animated.Value(value ? 1 : 0)).current;
   useEffect(() => {
     if (reduced) { at.setValue(value ? 1 : 0); return; }
-    const slide = Animated.timing(at, { toValue: value ? 1 : 0, duration: 140, easing: Easing.out(Easing.cubic), useNativeDriver: true });
+    const slide = Animated.spring(at, { toValue: value ? 1 : 0, ...springs.toggle, useNativeDriver: nativeDriver });
     slide.start();
     return () => slide.stop();
   }, [value, reduced, at]);

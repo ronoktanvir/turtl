@@ -16,7 +16,7 @@ export function Empty({ health = "clear", message, hint, action, testID }: {
 }) {
   return (
     <View testID={testID} style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 12, paddingHorizontal: 28, paddingBottom: 40 }}>
-      <Turtle health={health} size={96} />
+      <Turtle health={health} size={96} alive />
       <T variant="strong" color="textMuted" style={{ textAlign: "center", maxWidth: 320 }}>{message}</T>
       {hint && <T variant="small" color="textMuted" style={{ textAlign: "center", maxWidth: 320 }}>{hint}</T>}
       {action && <Button label={action.label} kind="outline" onPress={action.onPress} testID={action.testID} style={{ width: "100%", maxWidth: 340, marginTop: 8 }} />}

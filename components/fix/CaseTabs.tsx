@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { Animated, Easing, Pressable, View } from "react-native";
+import { Animated, Pressable, View } from "react-native";
 import { useTheme, type TokenName } from "../../theme";
 import { Icon, T, useReducedMotion } from "../ui";
-import { nativeDriver } from "../ui/pulse";
+import { ease, nativeDriver, time } from "../ui/motion";
 import { tabPositions } from "./tabLayout";
 
 export const caseTabs = ["Overview", "Logs", "Code"] as const;
@@ -35,7 +35,7 @@ export function CaseTabs({ tab, onSelect, id }: { tab: CaseTab; onSelect: (tab: 
       placed.current = true;
       return;
     }
-    const slide = Animated.parallel(xs.map((x, i) => Animated.timing(offsets[i], { toValue: x, duration: 300, easing: Easing.out(Easing.cubic), useNativeDriver: nativeDriver })));
+    const slide = Animated.parallel(xs.map((x, i) => Animated.timing(offsets[i], { toValue: x, duration: time.tab, easing: ease.move, useNativeDriver: nativeDriver })));
     slide.start();
     return () => slide.stop();
   }, [key, reduced, offsets]); // xs is a new array on every render; its positions, in `key`, are what matter
