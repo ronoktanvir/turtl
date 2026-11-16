@@ -11,7 +11,7 @@
 - **Auth:** Convex Auth (`@convex-dev/auth` 0.0.98): email and password (with the address confirmed by an emailed code), Sign in with Apple, and GitHub, whenever `AUTH_REQUIRED` is set to anything but empty or `false`. Unset, empty or `false`, the deployment is the single-owner demo: nobody signs in, and it refuses to run if it holds any account
 - **AI models:** gpt-5.4-mini (Quick look diagnosis, and by default fix proposals, case chat, report triage and preference reading; `DIAGNOSIS_MODEL` and `FIXES_MODEL` override it), gpt-6.1-sol (Careful review diagnosis and council consolidation), gpt-5.5 and gpt-6.1-terra (council members), gpt-5.4 (broader-cause examination, `STRUCTURAL_MODEL` overrides it), gpt-6-luna (assistant chat, code network and onboarding inspection, `OPENAI_MODEL` overrides it), gpt-4o-mini-transcribe and gpt-4o-mini-tts (voice); claude-sonnet-4-5 and gemini-2.5-pro join the council only when `ANTHROPIC_API_KEY` or `GEMINI_API_KEY` is set. All are called through each provider's API, not the Convex AI Gateway
 - **Started:** 2026-11-15T20:37:34Z
-- **Last updated:** 2026-11-16T19:20:18Z
+- **Last updated:** 2026-11-16T20:28:23Z
 
 ## Log
 
@@ -365,3 +365,9 @@ Stopped health and readiness checks from raising false alarms: only a journey ch
 
 ### 2026-11-16 - 1fccf26
 Brought every document to not-answering cases and pinned the App Store pack's audit to `c38bf0e`: the README, the support page, the privacy policy and terms, the data practices and review checklist, the review notes, the runbook's new log section, and the data model, with what is not examined and the gap that no check is retired stated plainly.
+
+### 2026-11-16 - fb424d5
+Made a not-answering case mean what its title says: the app gives turtl nothing at all. A try is quiet only with no response or a reply of 500 or above with no check result; any reply below 500 (a 404, a 401, a 429, a redirect) is an answer, so a removed route or a rotated token no longer reads as an outage. A case opens only when every countable check sent is quiet three times in a row and no check in the round answered, and closes as soon as any check answers. The project records its open case (`apps.notAnsweringCase`), practice projects are no evidence in the fleet check, and a fleet hold ends once the project has been quiet for 30 minutes (`convex/protectedApp/notAnswering.ts`, `convex/monitor.ts`, `convex/schema.ts`).
+
+### 2026-11-16 - 8b4f4da
+Brought the documents to that revision: what counts as quiet, when a case opens and closes, the new field, and what the rule gives up (a check whose route is gone, an app that answers everything below 500, one check failing while another answers, projects with no journey that has passed).
