@@ -229,8 +229,9 @@ test("R3, R5: the third try in a row with no answer opens one case for the proje
     { kind: "outage", raisedBy: "monitor", journeyId: undefined, signature: `not_answering:${appId}`, status: "waiting_for_app", passingForMs: undefined },
   );
   assert.match(opened.title, /not answering/);
-  assert.match(opened.impact, /turtl's last 3 tries of 3 checks \("Check 0", "Check 1" and "Check 2"\) got no usable answer: turtl could not connect to the app\./);
-  assert.match(opened.impact, /cannot propose a fix for an app it cannot reach/);
+  // What turtl saw, and only that: the case page says the rest while the case is open, and shows this line again once
+  // it is closed, when "it keeps checking" would no longer be true.
+  assert.equal(opened.impact, "turtl's last 3 tries of 3 checks (\"Check 0\", \"Check 1\" and \"Check 2\") got no usable answer: turtl could not connect to the app.");
   for (const raw of ["TypeError", "fetch failed", "not_answering", "no_response"]) assert.ok(!opened.impact.includes(raw), raw);
   // One step, parked from the start, and nothing ever scheduled to run it.
   const steps = w.rows("steps").filter((step) => step.caseId === opened._id);

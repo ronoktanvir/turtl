@@ -111,7 +111,9 @@ function impactOf(quiet: Doc<"journeys">[]): string {
   const latest = quiet.reduce((newest, journey) => (journey.unanswered!.at > newest.unanswered!.at ? journey : newest)).unanswered!.latest;
   const names = quiet.map((journey) => journey.name);
   const which = names.length === 1 ? `the ${quoted(names)} check` : `${names.length} checks (${quoted(names)})`;
-  return `turtl's last ${tries} tries of ${which} got no usable answer: ${sawWords(latest)}. turtl cannot propose a fix for an app it cannot reach. It keeps checking, and closes this case when the app answers again.`;
+  // What turtl saw, and only that: the case page says what happens next while the case is open, and shows this line
+  // again once it is closed (data/live/caseMapping.ts), when "it keeps checking" would no longer be true.
+  return `turtl's last ${tries} tries of ${which} got no usable answer: ${sawWords(latest)}.`;
 }
 
 /** How the checks stand now that the app answered: the ones that fail, and the ones still with no answer. */
