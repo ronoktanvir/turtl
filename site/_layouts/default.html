@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% if page.title %}{{ page.title }} · {% endif %}{{ site.title }}</title>
+<meta name="description" content="{{ page.description | default: site.description }}">
+<link rel="icon" href="{{ page.root }}assets/turtle.png">
+<link rel="stylesheet" href="{{ page.root }}assets/site.css">
+</head>
+<body>
+<header class="top">
+<a class="brand" href="{{ page.root }}"><img src="{{ page.root }}assets/turtle.png" alt="" width="36" height="36"><span>turtl</span></a>
+<nav aria-label="Pages">
+<a href="{{ page.root }}privacy/"{% if page.url == "/privacy/" %} aria-current="page"{% endif %}>Privacy</a>
+<a href="{{ page.root }}terms/"{% if page.url == "/terms/" %} aria-current="page"{% endif %}>Terms</a>
+<a href="{{ page.root }}support/"{% if page.url == "/support/" %} aria-current="page"{% endif %}>Support</a>
+</nav>
+</header>
+<main>
+{% if page.title %}<h1>{{ page.title }}</h1>{% endif %}
+{% if page.dated %}<p class="dated">In effect from {% include blank.html value=site.data.operator.effective_date label="effective date" %}</p>{% endif %}
+{{ content }}
+</main>
+<footer>
+<p>turtl is run by {% include blank.html value=site.data.operator.legal_name label="legal name" %}. Write to {% if site.data.operator.contact_email != "" %}<a href="mailto:{{ site.data.operator.contact_email }}">{{ site.data.operator.contact_email }}</a>{% else %}<mark class="blank">[contact email]</mark>{% endif %}.</p>
+</footer>
+</body>
+</html>

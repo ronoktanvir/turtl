@@ -5,6 +5,7 @@ import { isLiveData, setApprovals, useApprovalSettings } from "../../data";
 import type { ApprovalMode } from "../../data/types";
 import { useTheme, type ThemeMode } from "../../theme";
 import { Button, Icon, Sheet, T } from "../ui";
+import LegalLinks from "../legal/LegalLinks";
 import OwnerPasscodeSettings from "./OwnerPasscodeSettings";
 import PreferencesSettings from "./PreferencesSettings";
 
@@ -56,6 +57,7 @@ export default function SettingsSheet({ visible, onClose, projectId }: { visible
       <T variant="heading">Theme</T>
       <View accessibilityRole="radiogroup" style={{ flexDirection: "row", gap: 4, padding: 4, borderRadius: 16, backgroundColor: colors.surfaceRaised }}>{modes.map((m) => <Choice key={m.mode} label={m.label} icon={m.icon} selected={mode === m.mode} onPress={() => setMode(m.mode)} testID={`theme-${m.mode}`} />)}</View>
     </View>
+    {isLiveData && <LegalLinks />}
     <Button label="Done" onPress={onClose} testID="settings-done" />
   </Sheet>;
 }

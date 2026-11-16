@@ -1,0 +1,29 @@
+turtl is an on-call assistant for people who run a live app without an operations team. It watches the owner's app, opens a case when a check fails or a customer reports a problem, explains the likely cause, and proposes fixes. Nothing changes in the owner's app until the owner approves it.
+
+SIGNING IN
+Use the review account in the sign-in fields of this submission. It is an email and password account. New accounts can also be created with Sign in with Apple or GitHub.
+
+WHAT THE REVIEW ACCOUNT CONTAINS
+A new account starts empty and needs a GitHub repository and a live app. The review account skips that: it opens on one project that is connected to a small demo app we run only for testing and review, with a case already open.
+1. Projects: open the project, then Fix, then the open case.
+2. Read Overview, Logs, and Code, then swipe up to review.
+3. Tap "Look at potential fixes", open one, and tap Approve. turtl carries it out against the demo app, then runs the app's key journey again to confirm it works.
+4. Back on the project page, tap the gear for Settings: who approves fixes, AI services, Privacy policy, Terms, Support, and Account.
+You can repeat this as often as you like. It only ever touches the demo app.
+
+THIRD-PARTY AI (5.1.2)
+turtl sends parts of the owner's source code, case details, messages, and voice recordings to third-party AI services: OpenAI, Supermemory, Capy, and Keiki. Before anything is sent, the app shows a screen that names each service and what it receives, and asks for permission. Permission can be withdrawn in Settings. The privacy policy lists the same services.
+
+MICROPHONE (2.5.14)
+Used only after the user taps Talk on a case, and the app shows that it is listening. A recording is at most 30 seconds. It is sent to OpenAI to be turned into text and is not stored. Typing does the same job if the user declines.
+
+ACCOUNT DELETION (5.1.1(v))
+Project page, gear, Account, Delete account. This deletes the account and its data, including the copies held by our search provider.
+
+PURCHASES (3.1)
+turtl is free. It has no in-app purchases, subscriptions, or advertising, and no links to buy anything.
+
+OTHER
+- Code changes are written on our servers and arrive as a pull request on GitHub. The app does not download or run code.
+- People who use turtl cannot message each other, and nothing they write is shown to other users.
+- The app needs a network connection. Our backend is running for the review.

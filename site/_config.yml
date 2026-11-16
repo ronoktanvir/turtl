@@ -1,0 +1,6 @@
+title: turtl
+description: turtl is on call for your app. Privacy policy, terms of use, and support.
+markdown: kramdown
+permalink: pretty
+exclude:
+  - README.md

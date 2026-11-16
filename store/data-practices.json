@@ -1,0 +1,228 @@
+{
+  "auditedCommit": "3d01f6404fede6e87f619bfd6cb5ae521b12b64a",
+  "auditedOn": "2026-11-15",
+  "scope": [
+    "app",
+    "components",
+    "data",
+    "theme",
+    "convex",
+    "protected-app",
+    "app.config.ts",
+    "app.json",
+    "package.json"
+  ],
+  "services": [
+    {
+      "id": "convex",
+      "name": "Convex",
+      "kind": "host",
+      "inPrivacyPolicy": true,
+      "needsPermission": false,
+      "does": "Hosts turtl's backend, database, and file storage",
+      "receives": [
+        "Everything turtl stores"
+      ],
+      "hosts": [],
+      "settings": [
+        "EXPO_PUBLIC_CONVEX_URL"
+      ],
+      "policy": "https://www.convex.dev/legal/privacy"
+    },
+    {
+      "id": "openai",
+      "name": "OpenAI",
+      "kind": "ai",
+      "inPrivacyPolicy": true,
+      "needsPermission": true,
+      "does": "Names the parts of the code, diagnoses a problem, proposes fixes, answers questions, sorts customers' reports, and turns speech into text and text into speech",
+      "receives": [
+        "Excerpts of source code",
+        "Case details",
+        "Messages",
+        "Customers' reports",
+        "Voice recordings"
+      ],
+      "hosts": [
+        "api.openai.com"
+      ],
+      "settings": [
+        "OPENAI_API_KEY",
+        "OPENAI_MODEL",
+        "DIAGNOSIS_MODEL",
+        "FIXES_MODEL",
+        "VOICE_TRANSCRIBE_MODEL",
+        "VOICE_SPEECH_MODEL"
+      ],
+      "policy": "https://openai.com/policies/privacy-policy/",
+      "dataUse": "https://developers.openai.com/api/docs/guides/your-data"
+    },
+    {
+      "id": "supermemory",
+      "name": "Supermemory",
+      "kind": "ai",
+      "inPrivacyPolicy": true,
+      "needsPermission": true,
+      "does": "Finds the code and the past cases that matter to a question or a new problem",
+      "receives": [
+        "Up to 30,000 characters of each source file",
+        "Notes on past cases",
+        "Questions about the code",
+        "Customers' reports"
+      ],
+      "hosts": [],
+      "libraries": [
+        "supermemory"
+      ],
+      "settings": [
+        "SUPERMEMORY_API_KEY",
+        "INTAKE_NAMESPACE_PREFIX"
+      ],
+      "policy": "https://supermemory.ai/privacy/"
+    },
+    {
+      "id": "capy",
+      "name": "Capy",
+      "kind": "ai",
+      "inPrivacyPolicy": true,
+      "needsPermission": true,
+      "does": "Writes an approved code change and opens a pull request",
+      "receives": [
+        "The title of a case",
+        "The instructions for an approved code change",
+        "The repository's name",
+        "The repository itself, through Capy's own connection to GitHub"
+      ],
+      "hosts": [
+        "api.capy.ai"
+      ],
+      "settings": [
+        "CAPY_API_KEY",
+        "CAPY_PROJECT_ID",
+        "CAPY_MODEL_ID",
+        "CAPY_REASONING"
+      ],
+      "policy": "https://capy.ai/privacy-policy"
+    },
+    {
+      "id": "keiki",
+      "name": "Keiki",
+      "kind": "ai",
+      "inPrivacyPolicy": true,
+      "needsPermission": true,
+      "does": "Texts the owner when a case needs them",
+      "receives": [
+        "A notice of one or two sentences, such as the app's name and a case title",
+        "The phone number alerts go to"
+      ],
+      "hosts": [
+        "onkeiki.com"
+      ],
+      "settings": [
+        "KEIKI_API_KEY",
+        "KEIKI_AGENT_ID",
+        "KEIKI_OWNER_CONTACT",
+        "KEIKI_BASE_URL"
+      ],
+      "policy": "https://onkeiki.com/privacy"
+    },
+    {
+      "id": "github",
+      "name": "GitHub",
+      "kind": "tool",
+      "inPrivacyPolicy": true,
+      "needsPermission": false,
+      "does": "Holds the repository turtl reads, and the pull requests it follows and merges",
+      "receives": [
+        "Requests to read the repository and its pull requests",
+        "A merge, when the owner taps Merge"
+      ],
+      "hosts": [
+        "api.github.com",
+        "raw.githubusercontent.com",
+        "github.com"
+      ],
+      "settings": [
+        "GITHUB_TOKEN"
+      ],
+      "policy": "https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement"
+    },
+    {
+      "id": "revyl",
+      "name": "Revyl",
+      "kind": "tool",
+      "inPrivacyPolicy": true,
+      "needsPermission": false,
+      "does": "Runs the owner's app on a phone in its cloud to check a fix, and sends back screenshots",
+      "receives": [
+        "The id of the test to run"
+      ],
+      "hosts": [
+        "backend.revyl.ai"
+      ],
+      "settings": [
+        "REVYL_API_KEY",
+        "REVYL_BOOKING_WORKFLOW_ID",
+        "REVYL_BASE_URL"
+      ],
+      "policy": "https://revyl.com/privacy/"
+    },
+    {
+      "id": "owner-app",
+      "name": "The owner's own app",
+      "kind": "owner",
+      "inPrivacyPolicy": false,
+      "needsPermission": false,
+      "does": "Answers turtl's health checks and carries out an approved recovery",
+      "receives": [
+        "Health checks and the approved recovery action, signed with a control secret"
+      ],
+      "hosts": [],
+      "settings": [
+        "PROTECTED_APP_URL",
+        "PROTECTED_APP_CONTROL_SECRET",
+        "PROTECTED_APP_CONTROL_SECRET_SHA256",
+        "PROTECTED_APP_REVISION"
+      ]
+    }
+  ],
+  "otherHosts": {
+    "ronoktanvir.github.io": "turtl's own privacy, terms, and support pages, opened in the browser from the gear sheet",
+    "app.invalid": "A placeholder address in a prompt. Nothing is sent to it",
+    "example.invalid": "A placeholder address in developer sample data. Nothing is sent to it"
+  },
+  "otherSettings": {
+    "VOICE_ENABLED": "Switches talking on. Off by default",
+    "CODE_NETWORK_CHAT_ENABLED": "Switches questions about the code on. Off by default",
+    "ASSISTANT_ENABLED": "Switches the unused assistant function on. Keep it off",
+    "DEV_TOOLS_ENABLED": "Switches the backend's developer tools on. Never set in production",
+    "EXPO_PUBLIC_DEV_TOOLS": "Shows the developer tools in the app. Never set in a store build",
+    "EXPO_PUBLIC_DATA_SOURCE": "Set to example, the app shows example data and calls no backend",
+    "EXPO_PUBLIC_TURTL_INTAKE_URL": "The demo app's report form: where it posts reports",
+    "EXPO_PUBLIC_TURTL_INTAKE_KEY": "The demo app's report form: which app the report is for",
+    "TURTL_PREVIEW_ORIGIN": "The address of a web preview, used when building one"
+  },
+  "libraries": {
+    "@expo-google-fonts/capriola": "The font, shipped inside the app. No request to Google",
+    "@expo/metro-runtime": "Build tooling",
+    "convex": "The client for turtl's own backend",
+    "expo": "The app framework",
+    "expo-audio": "Records and plays audio after the owner taps Talk",
+    "expo-constants": "Reads the app's own configuration",
+    "expo-file-system": "Reads the recording and deletes it; writes and deletes the spoken reply",
+    "expo-font": "Loads the font",
+    "expo-linking": "Opens links in the browser",
+    "expo-router": "Navigation",
+    "expo-secure-store": "Keeps the owner passcode in the iOS Keychain",
+    "expo-splash-screen": "The launch screen",
+    "lucide-react-native": "Icons",
+    "react": "The UI library",
+    "react-dom": "The UI library, for the web preview",
+    "react-native": "The UI library",
+    "react-native-safe-area-context": "Screen insets",
+    "react-native-screens": "Navigation",
+    "react-native-svg": "Draws icons and the map of the code",
+    "react-native-web": "The web preview",
+    "supermemory": "The client for Supermemory, used only in the backend"
+  }
+}

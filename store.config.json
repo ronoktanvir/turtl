@@ -1,0 +1,65 @@
+{
+  "configVersion": 0,
+  "apple": {
+    "version": "1.0.0",
+    "categories": [
+      "DEVELOPER_TOOLS",
+      "PRODUCTIVITY"
+    ],
+    "info": {
+      "en-US": {
+        "title": "turtl",
+        "subtitle": "On-call for your live app",
+        "promoText": "On-call for people who run a live app without an operations team. turtl spots the outage, explains the cause, and proposes the fix. You approve it.",
+        "description": "turtl is on call for your app, so you don't have to be.\n\nIf you run a live app without an operations team, turtl watches the journey your customers depend on. When it breaks, turtl tells you, works out why, and proposes a fix. You decide what happens next.\n\nWHEN SOMETHING BREAKS\n• turtl checks your live app about once a minute and opens a case when a check fails.\n• It gathers the facts: which step failed, what changed, and what it means for your customers.\n• It explains the likely cause in plain words, with the evidence behind it.\n• It proposes fixes, each with what it does and what it trades off.\n\nYOU STAY IN CHARGE\n• Nothing changes in your app until you approve it.\n• A code change arrives as a pull request on GitHub. It merges only when you tap Merge and its checks pass.\n• After a fix, turtl runs your app's key journey again to confirm it works.\n• If you choose, turtl may repeat one recovery it has already proven, a limited number of times. You can take that back whenever you like.\n\nHEAR FROM YOUR CUSTOMERS\n• Add turtl's report form to your app. Reports about the same problem are grouped into one case, so ten complaints read as one problem.\n\nUNDERSTAND YOUR OWN APP\n• See a map of your code in plain words: its parts, what each one does, and how they connect.\n• Ask about a case by typing or by voice.\n\nHOW TURTL USES AI\nturtl uses AI services from other companies to diagnose problems, propose fixes, write code changes, and understand speech. It asks your permission before it sends them anything, and the privacy policy names each service and what it receives. AI can be wrong, which is why every change waits for you.\n\nTo use turtl you need a GitHub repository and a live app to connect.",
+        "keywords": [
+          "on-call",
+          "incident",
+          "outage",
+          "uptime",
+          "monitoring",
+          "alerts",
+          "devops",
+          "bug reports",
+          "indie dev",
+          "pull request",
+          "downtime"
+        ],
+        "marketingUrl": "https://ronoktanvir.github.io/turtl/",
+        "supportUrl": "https://ronoktanvir.github.io/turtl/support/",
+        "privacyPolicyUrl": "https://ronoktanvir.github.io/turtl/privacy/",
+        "privacyChoicesUrl": "https://ronoktanvir.github.io/turtl/privacy/#your-choices"
+      }
+    },
+    "advisory": {
+      "alcoholTobaccoOrDrugUseOrReferences": "NONE",
+      "contests": "NONE",
+      "gamblingSimulated": "NONE",
+      "gunsOrOtherWeapons": "NONE",
+      "horrorOrFearThemes": "NONE",
+      "matureOrSuggestiveThemes": "NONE",
+      "medicalOrTreatmentInformation": "NONE",
+      "profanityOrCrudeHumor": "NONE",
+      "sexualContentGraphicAndNudity": "NONE",
+      "sexualContentOrNudity": "NONE",
+      "violenceCartoonOrFantasy": "NONE",
+      "violenceRealistic": "NONE",
+      "violenceRealisticProlongedGraphicOrSadistic": "NONE",
+      "advertising": false,
+      "ageAssurance": false,
+      "gambling": false,
+      "healthOrWellnessTopics": false,
+      "lootBox": false,
+      "messagingAndChat": false,
+      "parentalControls": false,
+      "unrestrictedWebAccess": false,
+      "userGeneratedContent": false,
+      "kidsAgeBand": null,
+      "ageRatingOverride": "NONE",
+      "koreaAgeRatingOverride": "NONE"
+    },
+    "release": {
+      "automaticRelease": false
+    }
+  }
+}
