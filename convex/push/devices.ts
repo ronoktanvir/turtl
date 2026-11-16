@@ -1,7 +1,8 @@
 import { ConvexError, v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Doc } from "../_generated/dataModel";
-import { internalMutation, mutation, query, type MutationCtx, type QueryCtx } from "../_generated/server";
+import { internalMutation, type MutationCtx, type QueryCtx } from "../_generated/server";
+import { mutation, query } from "../functions";
 import { accessEnforced, currentAccount, requireAccount } from "../access";
 import { vPushPlatform } from "./schema";
 

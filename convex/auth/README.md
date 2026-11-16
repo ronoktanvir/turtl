@@ -3,8 +3,9 @@
 Sign-in runs on [Convex Auth](https://labs.convex.dev/auth) (`@convex-dev/auth`, pinned at 0.0.98, the stable line),
 inside this backend. There is no separate sign-in service.
 
-It matters only with `AUTH_REQUIRED=true` ("accounts mode", see `convex/access.ts`). Without it the backend is the
-single-owner demo: the app's Login buttons go straight to Home and nobody signs in.
+It matters only with `AUTH_REQUIRED=true` ("accounts mode", see `convex/access.ts`). With it unset, empty or `false` the
+backend is the single-owner demo: the app's Login buttons go straight to Home, nobody signs in, and sign-up is refused,
+because a deployment that holds an account refuses to run as the demo. Any other value turns accounts on.
 
 ## Methods
 

@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { mutation } from "../_generated/server";
+import { mutation } from "../functions";
 import { requireDevTools } from "../access";
 
 // Dev tools: removes an app's structural findings and the prevention checks registered from them, so the

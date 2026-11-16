@@ -9,12 +9,16 @@ declare const process: { env: Record<string, string | undefined> };
 // Who is calling, and is this project theirs. Every public function asks here, so the rule lives in one file;
 // tests/access-coverage.test.mjs fails CI for a public function that does not.
 //
-// AUTH_REQUIRED on the deployment picks the mode:
-// - unset: the single-owner demo. Every caller is the one owner, as before accounts existed, and owner
-//   decisions are guarded by the owner passcode (convex/ownerPasscode.ts).
-// - "true": accounts. A caller must be signed in, and reaches only the projects whose ownerId is their account
-//   and what hangs off them. Owner decisions are authorised by being that owner; no passcode is asked for.
+// AUTH_REQUIRED on the deployment picks the mode, and fails closed:
+// - unset, empty, or exactly "false": the single-owner demo. Every caller is the one owner, as before accounts
+//   existed, and owner decisions are guarded by the owner passcode (convex/ownerPasscode.ts). The demo makes no
+//   accounts, and refuses to serve a deployment that holds any (refuseDemoWithAccounts): one that served accounts and
+//   then lost the variable closes, instead of handing every account's projects to anyone.
+// - anything else: accounts. "true", and also "TRUE", "1", " true" or a typo, each of which meant to turn them on.
+//   A caller must be signed in, and reaches only the projects whose ownerId is their account and what hangs off
+//   them. Owner decisions are authorised by being that owner; no passcode is asked for.
 //
+// Every public function is made with the builders in convex/functions.ts, which run refuseDemoWithAccounts first.
 // Identity does not travel with ctx.scheduler or a cron: check at the public function, then pass ids on.
 //
 // Two families of checks:
@@ -38,8 +42,40 @@ type DbCtx = Pick<QueryCtx, "db">;
 type ReadCtx = Pick<QueryCtx, "auth" | "db">;
 type AskCtx = Pick<ActionCtx, "runQuery">;
 
+/** Accounts mode, unless AUTH_REQUIRED is unset, empty, or exactly "false". */
 export function accessEnforced(): boolean {
-  return process.env.AUTH_REQUIRED === "true";
+  const value = process.env.AUTH_REQUIRED;
+  return value !== undefined && value !== "" && value !== "false";
+}
+
+// The single-owner demo on a deployment that holds accounts: every public function refuses.
+
+/** What the person sees. The backend log says why. */
+export const UNAVAILABLE = "turtl is unavailable right now. Please try again later.";
+const DEMO_WITH_ACCOUNTS =
+  'Refused a call: AUTH_REQUIRED is unset, empty or "false", which makes this deployment the single-owner demo, but it ' +
+  "holds accounts (rows in authAccounts), and the demo would hand every account's projects to anyone. Every public " +
+  "function refuses until AUTH_REQUIRED is set to true (or the accounts are deleted, to run the demo).";
+
+/** Refuses when this is the single-owner demo and the deployment holds any account. With accounts on: nothing, no
+ * read. In the demo: one read of at most one row. convex/functions.ts runs it before every public query and mutation. */
+export async function refuseDemoWithAccounts(ctx: DbCtx): Promise<void> {
+  if (accessEnforced() || (await ctx.db.query("authAccounts").first()) === null) return;
+  console.error(DEMO_WITH_ACCOUNTS);
+  throw new ConvexError(UNAVAILABLE);
+}
+
+/** The same before every public action, which has no database: one internal query in the demo, nothing with accounts on. */
+export async function refuseDemoWithAccountsInAction(ctx: AskCtx): Promise<void> {
+  if (!accessEnforced()) await ctx.runQuery(internal.access.demoOpen, {});
+}
+
+export const NO_SIGN_IN = "This turtl has no accounts, so there is nothing to sign in to.";
+
+/** For Convex Auth's callback inside the mutation that makes or updates an account's user (convex/auth.ts). The demo
+ * makes none: anyone may call sign-in, and a single account closes the demo (refuseDemoWithAccounts). */
+export function refuseSignInToDemo(): void {
+  if (!accessEnforced()) throw new ConvexError(NO_SIGN_IN);
 }
 
 /** The context's database, which checking a session needs. An action has none and asks through internal.access.*;
@@ -66,10 +102,17 @@ export async function signedInAccount(ctx: ReadCtx): Promise<string | null> {
   return account;
 }
 
+/** The demo's one owner, once the deployment is known to hold no account. These two answers are what everything else
+ * about the caller builds on, so they check it too, for a function not made with convex/functions.ts. */
+async function soloAccount(ctx: Partial<DbCtx>): Promise<string> {
+  await refuseDemoWithAccounts({ db: databaseOf(ctx) });
+  return SOLO_ACCOUNT;
+}
+
 /** The account that owned records are filed under. With accounts on, throws unless someone is signed in with a live
  * session, which needs the database: an action asks through internal.access.account instead. */
 export async function requireAccount(ctx: ReadCtx): Promise<string> {
-  if (!accessEnforced()) return SOLO_ACCOUNT;
+  if (!accessEnforced()) return await soloAccount(ctx);
   const account = await signedInAccount(ctx);
   if (!account) throw new ConvexError(SIGN_IN_REQUIRED);
   return account;
@@ -77,7 +120,7 @@ export async function requireAccount(ctx: ReadCtx): Promise<string> {
 
 /** The same answer without throwing: null when accounts are on and nobody is signed in. */
 export async function currentAccount(ctx: ReadCtx): Promise<string | null> {
-  return accessEnforced() ? await signedInAccount(ctx) : SOLO_ACCOUNT;
+  return accessEnforced() ? await signedInAccount(ctx) : await soloAccount(ctx);
 }
 
 export function ownsApp(app: Pick<Doc<"apps">, "ownerId">, account: string): boolean {
@@ -247,6 +290,16 @@ export const account = internalQuery({
   args: {},
   returns: v.string(),
   handler: async (ctx) => await requireAccount(ctx),
+});
+
+/** refuseDemoWithAccountsInAction's read. */
+export const demoOpen = internalQuery({
+  args: {},
+  returns: v.null(),
+  handler: async (ctx) => {
+    await refuseDemoWithAccounts(ctx);
+    return null;
+  },
 });
 
 export const app = internalQuery({

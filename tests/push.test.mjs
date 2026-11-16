@@ -105,6 +105,8 @@ function createBackend(load, identity) {
       found.rows.splice(found.index, 1);
     },
     query: (table) => ({
+      // The single-owner demo first checks that Convex Auth's accounts table is empty (convex/access.ts).
+      first: async () => structuredClone(rowsOf(table)[0] ?? null),
       withIndex: (name, build) => {
         const fields = schema[table]?.export().indexes.find((index) => index.indexDescriptor === name)?.fields ?? OTHER_INDEXES[table]?.[name];
         assert.ok(fields, `${table} has no index ${name}`);

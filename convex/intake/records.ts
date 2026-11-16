@@ -1,7 +1,8 @@
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
-import { internalMutation, internalQuery, query, type MutationCtx, type QueryCtx } from "../_generated/server";
+import { internalMutation, internalQuery, type MutationCtx, type QueryCtx } from "../_generated/server";
+import { query } from "../functions";
 import { canSeeApp, canSeeCase } from "../access";
 import { CLOSED_CASE_STATUSES, NO_SUPERMEMORY } from "../constants";
 import { startCaseRun } from "../runner/run";
@@ -9,7 +10,8 @@ import { HARNESS_VERSION, RATE_LIMITS, TRIAGE_PROMPT_VERSION, fingerprint, windo
 import { vReportHint, vTriageVerdict } from "./schema";
 // Deleting a report, and keeping a customer's contact only as a reference.
 import { ConvexError } from "convex/values";
-import { internalAction, mutation } from "../_generated/server";
+import { internalAction } from "../_generated/server";
+import { mutation } from "../functions";
 import { accessEnforced, requireCase } from "../access";
 import { requireOwnerPasscode } from "../ownerPasscode";
 import { gateFor } from "../consent/gate";

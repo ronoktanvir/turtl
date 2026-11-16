@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
-import { action, query } from "./_generated/server";
+import { action, query } from "./functions";
 import { accessEnforced, signedInAccount } from "./access";
 import { githubConfigured, resetEmail } from "./auth/settings";
 

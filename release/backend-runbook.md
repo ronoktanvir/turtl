@@ -30,7 +30,7 @@ This is every variable the backend reads, taken from the code. "Required" stops 
 <!-- variables:start -->
 | Variable | Production | What it does |
 | --- | --- | --- |
-| `AUTH_REQUIRED` | Required | Set it to "true". Every backend function then needs a signed-in account and reaches only that account's projects, owner decisions are authorised by the account instead of the shared owner passcode, and the dev tools stay closed. Unset, the backend is the single-owner demo, where anyone with its address acts as the one owner. The release check sees only the name, so check the value is "true". |
+| `AUTH_REQUIRED` | Required | Set it to exactly "true". Every backend function then needs a signed-in account and reaches only that account's projects, owner decisions are authorised by the account instead of the shared owner passcode, and the dev tools stay closed. Unset, empty or "false": the single-owner demo, where anyone with the backend's address acts as the one owner and nobody can sign up; a deployment that already holds accounts then refuses every call instead of opening them to anyone, and its log says why. Any other value ("TRUE", "1", " true") also turns accounts on, but the release check reads this value, which is not a secret, and stops on anything but "true". |
 | `OPENAI_API_KEY` (secret) | Required | Model calls: diagnosis, fix options, customer report triage, the case chat, the code map's labels and chat, and voice. Without it turtl falls back to rule-based text or refuses the feature. |
 | `SUPERMEMORY_API_KEY` (secret) | Required | Memory of past incidents, matching of customer reports, and the code map. Without it turtl reads only its recent notes in Convex and cannot build a code map. Use a key that is not the demo's, so production memory is separate. |
 | `DIAGNOSIS_MODEL` | Optional | Model for diagnosis. Default gpt-5.4-mini. |
@@ -113,7 +113,12 @@ The six GitHub App values are one app: turtl#54 reads its id, private key, slug,
 CONVEX_DEPLOY_KEY='the production deploy key' node release/check-backend-env.mjs
 ```
 
-It asks Convex for variable **names only** (`npx convex env list --names-only`) and compares them with the table: a required name that is missing, a "never set" name that is present, and a name the table does not list each fail the check. It never reads or prints a value. The release workflow runs the same check before every deploy.
+It asks Convex for variable **names** (`npx convex env list --names-only`) and compares them with the table: a required name that is missing, a "never set" name that is present, and a name the table does not list each fail the check. It reads one value, `AUTH_REQUIRED`'s (`npx convex env get AUTH_REQUIRED`), which is not a secret, and fails unless it is exactly `true`. It never reads a secret's value and never prints a value. The release workflow runs the same check before every deploy.
+
+What `AUTH_REQUIRED` means, so a typo cannot open production:
+
+- **Unset, empty, or exactly `false`**: the single-owner demo. Anyone with the backend's address acts as the one owner, and nobody can sign up. If the deployment already holds accounts, every call is refused instead: the person sees "turtl is unavailable right now", and the backend log says that `AUTH_REQUIRED` is missing on a deployment with accounts.
+- **Anything else**: accounts. `true` is the value production uses; `TRUE`, `1` or ` true` also turn accounts on, but the check above refuses them, so the setting always says what it means.
 
 To check another deployment you can reach with your own Convex login, pass the selection through: `node release/check-backend-env.mjs --deployment <name>`.
 

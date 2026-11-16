@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
-import { action, internalMutation } from "../_generated/server";
+import { internalMutation } from "../_generated/server";
+import { action } from "../functions";
 import type { Id } from "../_generated/dataModel";
 import { requireDevTools } from "../access";
 import {

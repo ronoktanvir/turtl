@@ -1,6 +1,7 @@
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
-import { internalMutation, internalQuery, mutation, type MutationCtx } from "../_generated/server";
+import { internalMutation, internalQuery, type MutationCtx } from "../_generated/server";
+import { mutation } from "../functions";
 import { accessEnforced, guardRow } from "../access";
 import { requireOwnerPasscode } from "../ownerPasscode";
 import { ROUTING_POLICY_VERSION } from "./configs";

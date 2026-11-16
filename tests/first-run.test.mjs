@@ -72,6 +72,8 @@ function overviewQuery({ visible = true } = {}) {
   return load("../convex/screens/overview.ts", {
     "convex/values": values,
     "../_generated/server": { query: (definition) => definition },
+    // The public builder, without its demo check (convex/functions.ts), which tests/access-rules.test.mjs covers.
+    "../functions": { query: (definition) => definition },
     // The single-owner demo's read: another project's map of the same repository may stand in. With accounts on only the
     // caller's own projects' maps do (tests/access-rules.test.mjs, review finding 9).
     "../access": { visibleApp: async (ctx, appId) => (visible ? await ctx.db.get(appId) : null), accessEnforced: () => false, visibleApps: async () => [] },

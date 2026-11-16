@@ -12,6 +12,7 @@ import ts from "typescript";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const convexDir = join(root, "convex");
 const ACCESS = join(convexDir, "access.ts");
+const GATED = join(convexDir, "functions");
 const BUILDERS = new Set(["query", "mutation", "action"]);
 
 // "convex/<file>.ts:<export>" -> why it needs no check. Empty today: every public function asks.
@@ -44,7 +45,8 @@ export function publicFunctions(file, text = readFileSync(file, "utf8")) {
       if (element.isTypeOnly) continue;
       const imported = (element.propertyName ?? element.name).text;
       const local = element.name.text;
-      if (from === join(convexDir, "_generated", "server") && BUILDERS.has(imported)) builders.set(local, imported);
+      if (from === join(convexDir, "_generated", "server") && BUILDERS.has(imported)) builders.set(local, { kind: imported, gated: false });
+      if (from === GATED && BUILDERS.has(imported)) builders.set(local, { kind: imported, gated: true });
       if (from === ACCESS.replace(/\.ts$/, "")) accessNames.add(local);
       if (from === join(convexDir, "_generated", "api") && imported === "internal") internals.add(local);
     }
@@ -76,7 +78,8 @@ export function publicFunctions(file, text = readFileSync(file, "utf8")) {
     let call = initializer;
     while (call && (ts.isParenthesizedExpression(call) || ts.isAsExpression(call) || ts.isSatisfiesExpression(call))) call = call.expression;
     if (!call || !ts.isCallExpression(call) || !ts.isIdentifier(call.expression) || !builders.has(call.expression.text)) return;
-    found.push({ name, kind: builders.get(call.expression.text), asks: asks(call) });
+    const { kind, gated } = builders.get(call.expression.text);
+    found.push({ name, kind, gated, asks: asks(call) });
   };
   for (const statement of source.statements) {
     const exported = ts.getModifiers?.(statement)?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword);
@@ -115,6 +118,22 @@ test("every public query, mutation and action asks convex/access.ts, or is allow
   );
 });
 
+// Review finding 13: the builders in convex/functions.ts refuse every call when the deployment is the single-owner demo
+// and holds accounts. A public function made with the builders in convex/_generated/server would skip that.
+const RAW_BUILDERS = {
+  // Its import line belongs to another branch tonight (GitHub permissions): switch it to ../functions once that merges.
+  "convex/github/connect.ts": "every public function here asks currentAccount, requireAccount or internal.access.account first, and in the demo those refuse a deployment that holds accounts just as the builders do",
+};
+
+test("every public function is made with the builders in convex/functions.ts, which refuse a demo deployment that holds accounts", () => {
+  const raw = all.filter((fn) => !fn.gated && !(fn.id.split(":")[0] in RAW_BUILDERS)).map((fn) => `${fn.id} (${fn.kind})`);
+  assert.deepEqual(raw, [], 'Import query, mutation and action from "convex/functions.ts", not from "convex/_generated/server".');
+  for (const [file, reason] of Object.entries(RAW_BUILDERS)) {
+    assert.ok(all.some((fn) => fn.id.startsWith(file + ":") && !fn.gated), `${file} no longer needs its place in RAW_BUILDERS.`);
+    assert.ok(reason.length >= 20);
+  }
+});
+
 test("every allowance names a public function that still exists and says why", () => {
   for (const [id, reason] of Object.entries(ALLOWED)) {
     assert.ok(all.some((fn) => fn.id === id), `${id} is allowed but is no longer a public function. Remove it from ALLOWED.`);
@@ -126,17 +145,19 @@ test("the tripwire catches a public function without a check, and accepts each w
   const file = join(convexDir, "example", "probe.ts");
   const scan = (body) => publicFunctions(file, [
     'import { v } from "convex/values";',
-    'import { query as q, mutation, action, internalQuery } from "../_generated/server";',
+    'import { query as q, mutation, internalQuery } from "../_generated/server";',
+    'import { action } from "../functions";',
     'import { internal } from "../_generated/api";',
     'import { canSeeApp, guardApp } from "../access";',
     'import * as access from "../access";',
     body,
   ].join("\n"));
-  assert.deepEqual(scan('export const open = q({ args: {}, handler: async (ctx) => ctx.db.query("apps").take(1) });'), [{ name: "open", kind: "query", asks: false }]);
-  assert.deepEqual(scan('export const write = mutation({ args: {}, handler: async (ctx) => { const o = { guardApp: 1 }; return o.guardApp; } });'), [{ name: "write", kind: "mutation", asks: false }]);
+  assert.deepEqual(scan('export const open = q({ args: {}, handler: async (ctx) => ctx.db.query("apps").take(1) });'), [{ name: "open", kind: "query", gated: false, asks: false }]);
+  assert.deepEqual(scan('export const write = mutation({ args: {}, handler: async (ctx) => { const o = { guardApp: 1 }; return o.guardApp; } });'), [{ name: "write", kind: "mutation", gated: false, asks: false }]);
   assert.deepEqual(scan('export const hidden = internalQuery({ args: {}, handler: async () => null });'), [], "internal functions are not public");
   assert.equal(scan('export const read = q({ args: { id: v.string() }, handler: async (ctx, { id }) => (await canSeeApp(ctx, id)) ? 1 : null });')[0].asks, true);
   assert.equal(scan('export const write = mutation({ args: {}, handler: async (ctx) => { await access.requireAccount(ctx); } });')[0].asks, true);
   assert.equal(scan('export const act = action({ args: {}, handler: async (ctx) => await ctx.runQuery(internal.access.account, {}) });')[0].asks, true);
-  assert.deepEqual(scan('export default mutation({ args: {}, handler: async () => null });'), [{ name: "default", kind: "mutation", asks: false }]);
+  assert.deepEqual(scan('export default mutation({ args: {}, handler: async () => null });'), [{ name: "default", kind: "mutation", gated: false, asks: false }]);
+  assert.equal(scan('export const act = action({ args: {}, handler: async () => null });')[0].gated, true, "made with convex/functions.ts");
 });

@@ -2,7 +2,8 @@ import { v } from "convex/values";
 import type { Infer } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
-import { internalAction, internalMutation, internalQuery, query, type ActionCtx } from "../_generated/server";
+import { internalAction, internalMutation, internalQuery, type ActionCtx } from "../_generated/server";
+import { query } from "../functions";
 import { canSeeCase } from "../access";
 import {
   TERMINAL_STATUSES,

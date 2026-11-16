@@ -1,7 +1,8 @@
 import { ConvexError, v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
-import { action, mutation, query, type MutationCtx } from "../_generated/server";
+import { type MutationCtx } from "../_generated/server";
+import { action, mutation, query } from "../functions";
 import { accessEnforced, canSeeApp, guardApp, guardAppInAction, requireAccount, visibleApps } from "../access";
 import { requireOwnerPasscode } from "../ownerPasscode";
 import { ceilingRefusal, projectsPerAccount } from "../spend/limits";

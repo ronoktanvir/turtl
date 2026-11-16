@@ -1,7 +1,8 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
-import { action, internalAction, mutation, query, type ActionCtx } from "./_generated/server";
+import { internalAction, type ActionCtx } from "./_generated/server";
+import { action, mutation, query } from "./functions";
 import { canSeeCase, guardCaseInAction, ownerActor, requireDevTools } from "./access";
 import { gateFor } from "./consent/gate";
 import { repositoryAccess } from "./github/access";

@@ -115,12 +115,14 @@ function demoOnly(node, boundNames) {
   return false;
 }
 
-// The public functions a file exports: the builder call of each.
+// The public functions a file exports: the builder call of each, from convex/functions.ts (which every public function
+// uses) or from convex/_generated/server.
 function publicDefinitions(file, source) {
   const builders = new Set();
   for (const statement of source.statements) {
     if (!ts.isImportDeclaration(statement) || !statement.importClause?.namedBindings || !ts.isNamedImports(statement.importClause.namedBindings)) continue;
-    if (!resolve(dirname(file), statement.moduleSpecifier.text).endsWith(join("convex", "_generated", "server"))) continue;
+    const from = resolve(dirname(file), statement.moduleSpecifier.text);
+    if (!from.endsWith(join("convex", "_generated", "server")) && from !== join(convexDir, "functions")) continue;
     for (const element of statement.importClause.namedBindings.elements) {
       if (BUILDERS.has((element.propertyName ?? element.name).text)) builders.add(element.name.text);
     }
@@ -176,6 +178,15 @@ test("no read of the scheduled jobs or of a whole shared table can be made to fa
       "through an index that picks one project, case or account (withIndex(..., q => q.eq(...))) with take(n). " +
       "If a read truly needs neither, add it to ALLOWED in this file with the reason.",
   );
+});
+
+test("the scan sees every public function, whichever module its builder comes from", () => {
+  const pattern = /^export const (\w+) = (query|mutation|action)\(/gm;
+  for (const file of sourceFiles(convexDir)) {
+    const text = readFileSync(file, "utf8");
+    const seen = publicDefinitions(file, ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)).map((definition) => definition.name);
+    for (const [, name] of text.matchAll(pattern)) assert.ok(seen.includes(name), `${relative(root, file)}:${name} is not seen`);
+  }
 });
 
 test("every allowance still names a read that exists, and says why", () => {

@@ -1,7 +1,7 @@
 import { ConvexError, v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
-import { action, mutation, query } from "../_generated/server";
+import { action, mutation, query } from "../functions";
 import { accessEnforced, canSeeApp, guardApp, guardAppInAction } from "../access";
 import { liveOrigin } from "../protectedApp/address";
 import { watchNotice } from "../protectedApp/watching";

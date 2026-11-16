@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
 import { test } from "node:test";
@@ -31,16 +31,16 @@ const SIGN_IN = "Sign in to continue.";
 const NOT_AVAILABLE = "That project is not available on this account.";
 
 const ref = (path) => new Proxy({ path }, { get: (target, key) => (key === "path" ? target.path : ref(path + "." + String(key))) });
-const registered = (kind) => (definition) => ({ kind, ...definition });
+const registered = (kind, visibility = "public") => (definition) => ({ kind, visibility, ...definition });
 const generated = {
   "convex/_generated/api": { api: ref("api"), internal: ref("internal"), components: ref("components") },
   "convex/_generated/server": {
     query: registered("query"),
     mutation: registered("mutation"),
     action: registered("action"),
-    internalQuery: registered("query"),
-    internalMutation: registered("mutation"),
-    internalAction: registered("action"),
+    internalQuery: registered("query", "internal"),
+    internalMutation: registered("mutation", "internal"),
+    internalAction: registered("action", "internal"),
     httpAction: (handler) => handler,
   },
 };
@@ -438,9 +438,10 @@ test("the demo is unchanged: one owner, every project, and the owner passcode as
   assert.equal((await anyone("intake/records", "forCase", { caseId: bob.caseId })).people, 1);
   const { projectId } = await anyone("onboarding/projects", "add", { repoUrl: "https://github.com/acme/web", passcode: PASSCODE });
   assert.equal(w.backend.rows("apps").find((app) => app._id === projectId).ownerId, "solo-owner");
-  // The demo's actions ask nothing extra, and still answer as before.
+  // The demo's actions still answer as before. The one thing they ask first is that the deployment holds no account
+  // (convex/functions.ts, review finding 13).
   assert.deepEqual(await anyone("codeNetwork/ask", "ask", { scope: { kind: "project", projectId: alice.appId }, message: "What is this?" }), { outcome: "not_configured", missing: ["CODE_NETWORK_CHAT_ENABLED", "SUPERMEMORY_API_KEY", "OPENAI_API_KEY"] });
-  assert.deepEqual(w.backend.runs, []);
+  assert.deepEqual(w.backend.runs, ["internal.access.demoOpen"]);
 });
 
 test("dev tools refuse with accounts on whatever DEV_TOOLS_ENABLED says, and open in the demo", async (t) => {
@@ -692,4 +693,94 @@ test("Stop cancels the case's own scheduled jobs by id and reads no one else's",
   assert.deepEqual(alicesJobs.map(state), ["canceled", "canceled"], "the run and its time limit are cancelled");
   assert.deepEqual(bobsJobs.map(state), ["pending", "pending"], "nobody else's job is touched");
   assert.deepEqual(w.backend.systemReads, [], "no read of the whole _scheduled_functions table");
+});
+
+// ---- Review finding 13: AUTH_REQUIRED fails closed ----
+
+const UNAVAILABLE = "turtl is unavailable right now. Please try again later.";
+
+// Any value but unset, empty or "false" meant to turn accounts on, so it does: a signed-out stranger sees nothing.
+for (const value of ["TRUE", "True", "1", "yes", " true", "true "]) {
+  test(`ATTACK (finding 13): AUTH_REQUIRED=${JSON.stringify(value)} is accounts mode, so a signed-out stranger lists no account's projects or cases`, async (t) => {
+    const w = world(t, { AUTH_REQUIRED: value });
+    const { alice } = await seed(w);
+    // A production deployment has no owner passcode.
+    for (const row of w.backend.rows("ownerPasscodeConfig")) await w.backend.db.delete(row._id);
+    assert.equal(w.access.accessEnforced(), true);
+    const stranger = w.as(null);
+    assert.deepEqual(await stranger("screens/projects", "list"), []);
+    assert.deepEqual(await stranger("cases", "list"), []);
+    await refuses(stranger("decisions", "approve", { proposalId: alice.proposalId, version: 1, optionKey: "recover" }), SIGN_IN);
+    assert.deepEqual((await w.as("alice")("screens/projects", "list")).map((p) => p.app._id), [alice.appId], "alice sees her own project only");
+  });
+}
+
+test("AUTH_REQUIRED unset, empty, or exactly \"false\" is the single-owner demo; anything else is accounts", (t) => {
+  for (const env of [{}, { AUTH_REQUIRED: "" }, { AUTH_REQUIRED: "false" }]) assert.equal(world(t, env).access.accessEnforced(), false, JSON.stringify(env));
+  for (const value of ["true", "TRUE", "1", "yes", " true", "true ", "False", "0", "no", "off", "ture"]) assert.equal(world(t, { AUTH_REQUIRED: value }).access.accessEnforced(), true, value);
+});
+
+// Every public function in convex/, found by the plain pattern tests/access-coverage.test.mjs checks its scan against.
+function publicFunctionsByFile() {
+  const files = (dir) =>
+    readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+      const path = resolve(dir, entry.name);
+      if (entry.isDirectory()) return entry.name === "_generated" ? [] : files(path);
+      return entry.name.endsWith(".ts") && !entry.name.endsWith(".d.ts") ? [path] : [];
+    });
+  return files(resolve(root, "convex")).flatMap((file) =>
+    [...readFileSync(file, "utf8").matchAll(/^export const (\w+) = (query|mutation|action)\(/gm)].map(([, name]) => ({ module: file.slice(root.length + 1 + "convex/".length, -3), name })),
+  );
+}
+
+const snapshot = (w) => JSON.stringify(Object.keys(w.load("convex/schema.ts").default.tables).map((table) => w.backend.rows(table)));
+
+async function accountsHeld(w) {
+  const userId = await w.backend.db.insert("users", { email: "alice@example.com" });
+  await w.backend.db.insert("authAccounts", { userId, provider: "password", providerAccountId: "alice@example.com" });
+}
+
+// The variable going missing (or emptied, or set to "false") on a deployment that has served accounts must not open
+// it: the demo refuses to serve when the deployment holds any account.
+test("ATTACK (finding 13): with AUTH_REQUIRED unset on a deployment that holds an account, a stranger is refused and the log says why", async (t) => {
+  for (const env of [{}, { AUTH_REQUIRED: "" }, { AUTH_REQUIRED: "false" }]) {
+    const w = world(t, env);
+    const { alice } = await seed(w);
+    await accountsHeld(w);
+    const logged = t.mock.method(console, "error", () => {});
+    const stranger = w.as(null);
+    await refuses(stranger("screens/projects", "list"), UNAVAILABLE);
+    await refuses(stranger("cases", "list"), UNAVAILABLE);
+    await refuses(stranger("decisions", "approve", { proposalId: alice.proposalId, version: 1, optionKey: "recover", passcode: PASSCODE }), UNAVAILABLE);
+    await refuses(stranger("users", "account"), UNAVAILABLE);
+    assert.match(String(logged.mock.calls[0].arguments[0]), /AUTH_REQUIRED is unset, empty or "false".*holds accounts \(rows in authAccounts\)/);
+    logged.mock.restore();
+  }
+});
+
+test("with AUTH_REQUIRED unset and an account present, every public function refuses before it reads or writes anything", async (t) => {
+  const w = world(t);
+  const { alice } = await seed(w);
+  await accountsHeld(w);
+  t.mock.method(console, "error", () => {});
+  const stranger = w.as(null);
+  const before = snapshot(w);
+  const found = publicFunctionsByFile();
+  assert.ok(found.length >= 70, `only ${found.length} public functions found`);
+  for (const { module, name } of found) {
+    assert.equal(w.load(`convex/${module}.ts`)[name].visibility, "public", `${module}:${name}`);
+    // Connect's disconnect asks for the demo's owner passcode before anything else; someone who knows it is still refused.
+    const args = module.endsWith("/connect") && name === "disconnect" ? { passcode: PASSCODE } : { appId: alice.appId, caseId: alice.caseId, projectId: alice.appId };
+    await refuses(stranger(module, name, args), UNAVAILABLE);
+  }
+  assert.equal(snapshot(w), before, "nothing was written");
+});
+
+test("with AUTH_REQUIRED unset and no account, the demo serves as before", async (t) => {
+  const w = world(t);
+  const { alice, bob } = await seed(w);
+  const stranger = w.as(null);
+  assert.deepEqual((await stranger("screens/projects", "list")).map((p) => p.app._id), [alice.appId, bob.appId]);
+  assert.deepEqual((await stranger("cases", "list")).map((row) => row._id), [bob.caseId, alice.caseId]);
+  assert.deepEqual(await stranger("users", "mode"), { accounts: false, github: false, passwordReset: false });
 });

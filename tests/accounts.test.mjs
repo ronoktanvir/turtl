@@ -205,6 +205,8 @@ function fakeDb(indexes) {
     },
     normalizeId: (table, id) => (typeof id === "string" && id.startsWith(table + ":") ? id : null),
     query: (table) => ({
+      // The single-owner demo first checks that authAccounts is empty (convex/access.ts).
+      first: async () => structuredClone(rows(table)[0] ?? null),
       withIndex: (name, build) => {
         const fields = indexes[table]?.[name];
         assert.ok(fields, `${table} has no index ${name}`);
@@ -541,21 +543,27 @@ test("with the deployment's ceiling on new accounts reached, a fresh sign-up is 
   assert.deepEqual(store.rows("deploymentTotals").map(({ name, value }) => [name, value]).sort(), [["accounts_day", 3], ["accounts_hour", 1]], "the earlier hour's count was dropped");
 });
 
-test("the demo has no ceiling on new accounts", async (t) => {
+// Review finding 13: the single-owner demo refuses to serve a deployment that holds any account, so it must make none,
+// or anyone could close it with one sign-up. The library runs the callback inside the mutation that makes the user.
+test("the demo makes no accounts, so a stranger cannot close it by signing up", async (t) => {
   const { load, auth } = await world(t, { NEW_ACCOUNTS_PER_HOUR: "1" });
   load("convex/auth.ts");
+  const { NO_SIGN_IN } = load("convex/access.ts");
   const provider = load("convex/auth/password.ts").password();
-  for (const email of ["one@example.com", "two@example.com"]) await provider.authorize({ flow: "signUp", email, password: "tide pools at dawn" }, {});
-  assert.equal(auth.users.length, 2);
+  for (const email of ["one@example.com", "two@example.com"]) {
+    await assert.rejects(provider.authorize({ flow: "signUp", email, password: "tide pools at dawn" }, {}), refusal(NO_SIGN_IN));
+  }
+  assert.equal(auth.users.length, 0);
+  assert.equal(auth.accounts.length, 0, "no row in authAccounts");
 });
 
 test("users.mode answers before sign-in; users.viewer returns the signed-in person or null", async (t) => {
   const { load } = await world(t, { AUTH_GITHUB_ID: "id", AUTH_GITHUB_SECRET: "secret" });
   const users = load("convex/users.ts");
-  assert.deepEqual(await users.mode.handler({}, {}), { accounts: false, github: true, passwordReset: false });
-  process.env.AUTH_REQUIRED = "true";
-  assert.deepEqual(await users.mode.handler({}, {}), { accounts: true, github: true, passwordReset: false });
   const store = fakeDb(indexesOf(realAuth.authTables));
+  assert.deepEqual(await users.mode.handler({ db: store.db }, {}), { accounts: false, github: true, passwordReset: false });
+  process.env.AUTH_REQUIRED = "true";
+  assert.deepEqual(await users.mode.handler({ db: store.db }, {}), { accounts: true, github: true, passwordReset: false });
   const ada = await store.seed("users", { name: "Ada", email: "ada@example.com", image: "https://avatars.example.com/ada.png" });
   await store.seed("authAccounts", { userId: ada, provider: "github", providerAccountId: "4242" });
   await store.seed("authAccounts", { userId: ada, provider: "password", providerAccountId: "ada@example.com", secret: "x" });
@@ -581,10 +589,11 @@ test("users.account goes through internal.access.account: the account id signed 
     return {
       auth,
       runQuery: async (fn, args) => {
-        assert.equal(fn.path, "internal.access.account");
+        // In the demo, an action first asks that the deployment holds no account (convex/functions.ts).
+        assert.ok(["internal.access.account", "internal.access.demoOpen"].includes(fn.path), fn.path);
         // A query's context: a live session, and no account rows (the demo's own check reads that table).
         const db = { normalizeId: (table, id) => (id.startsWith(table + ":") ? id : null), get: async (id) => ({ _id: id, expirationTime: Date.now() + 60_000 }), query: () => ({ first: async () => null }) };
-        return await access.account.handler({ auth, db }, args);
+        return await access[fn.path.split(".").pop()].handler({ auth, db }, args);
       },
     };
   };

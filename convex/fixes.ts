@@ -2,14 +2,12 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import {
-  action,
   internalMutation,
   internalQuery,
-  mutation,
-  query,
   type MutationCtx,
   type QueryCtx,
 } from "./_generated/server";
+import { action, mutation, query } from "./functions";
 import { canSeeCase, guardCaseInAction, requireDevTools } from "./access";
 import { vDecisionStatus, vDelivery, vOptionKind, vSpan, type ProposalOption } from "./constants";
 import { gateFor } from "./consent/gate";
