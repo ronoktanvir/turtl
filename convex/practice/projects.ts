@@ -188,9 +188,23 @@ export async function ensurePractice(ctx: Pick<ActionCtx, "runQuery" | "runMutat
   if (!key) throw new ConvexError(NO_SEALING_KEY);
   const token = hex(crypto.getRandomValues(new Uint8Array(32)));
   const claimed: { appId: Id<"apps">; seal: boolean } = await ctx.runMutation(internal.practice.projects.claim, { account, tokenHash: await tokenHashOf(token) });
-  if (claimed.seal) await storeManagedControlToken(ctx, { account, appId: claimed.appId, token, key });
+  if (claimed.seal) {
+    await storeManagedControlToken(ctx, { account, appId: claimed.appId, token, key });
+    await ctx.runMutation(internal.practice.projects.firstCheck, { appId: claimed.appId });
+  }
   return claimed.appId;
 }
+
+// A new practice app gets its monitor turn at once, so its home shows its booking check passing, not "not checked yet".
+export const firstCheck = internalMutation({
+  args: { appId: v.id("apps") },
+  returns: v.null(),
+  handler: async (ctx, { appId }) => {
+    const app = await ctx.db.get(appId);
+    if (app?.practice) await takeTurn(ctx, app, Date.now());
+    return null;
+  },
+});
 
 // From the first-run screen or Add project: the signed-in account's practice project, made the first time.
 export const create = action({

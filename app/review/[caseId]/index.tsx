@@ -4,12 +4,13 @@ import { Pressable, ScrollView, View } from "react-native";
 import AiNotice from "../../../components/consent/AiNotice";
 import { CasePage } from "../../../components/fix/CasePage";
 import { caseTitle, Header, Icon, Screen, T } from "../../../components/ui";
-import { isLiveData, setStarred, useCase, useCases, useDataStatus } from "../../../data";
+import { isLiveData, setStarred, useCase, useCases, useDataStatus, useProject } from "../../../data";
 import { useTheme } from "../../../theme";
 
 export default function Review() {
   const { caseId } = useLocalSearchParams<{ caseId: string }>();
   const first = useCase(caseId);
+  const practice = useProject(first?.projectId ?? "")?.practice === true;
   const { errors } = useDataStatus();
   const list = useCases(first?.projectId ?? "", first?.type ?? "fix");
   const { colors } = useTheme();
@@ -88,7 +89,7 @@ export default function Review() {
       />
       {isLiveData && <T variant="small" font="text" color="textMuted" testID="case-star-unavailable" style={{ paddingHorizontal: 20, paddingVertical: 8 }}>Stars are not available on this backend yet</T>}
       {starError && <T font="text" color="statusAffected" accessibilityRole="alert" testID="case-star-error" style={{ paddingHorizontal: 20, paddingVertical: 8 }}>{starError}</T>}
-      <AiNotice uses={["openai", "capy"]} cannot="diagnose this with AI or write code fixes" style={{ marginHorizontal: 20, marginTop: 8 }} />
+      <AiNotice uses={practice ? ["openai"] : ["openai", "capy"]} cannot={practice ? "diagnose this with AI" : "diagnose this with AI or write code fixes"} style={{ marginHorizontal: 20, marginTop: 8 }} />
 
       {ids.length > 1 && (
         <View

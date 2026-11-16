@@ -198,7 +198,7 @@ export const handler: StepHandler = {
       appName: loaded.context.app?.name ?? "the app",
       caseRow: loaded.context.case,
       facts,
-      cause: diagnosis?.cause ?? null,
+      cause: diagnosis?.source === "rules" && known.factsSay && known.fits(facts) ? known.factsSay : (diagnosis?.cause ?? null),
       evidence,
       preferences: applied.preferences,
       feedback: { turnedDown: feedback.turnedDown, conditionsText: conditions.text, recent: feedback.recent },

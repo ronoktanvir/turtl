@@ -37,7 +37,7 @@ export default function PracticeStart({ testID, card = false, disabled = false }
 
   const button = (
     <Button
-      label={busy ? "Setting it up…" : has ? "Open your practice app" : "Try a practice app"}
+      label={busy ? "Setting it up…" : has ? "Open practice app" : "Try a practice app"}
       kind="outline"
       icon="Zap"
       disabled={busy || disabled}

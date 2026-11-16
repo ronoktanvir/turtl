@@ -65,7 +65,7 @@ export default function ProjectHome() {
             <Icon name="ChevronRight" size={16} color="textMuted" />
           </Pressable>}
         </View>
-        <AiNotice uses={["openai", "capy"]} cannot="use AI to diagnose problems or write fixes" />
+        <AiNotice uses={project.practice ? ["openai"] : ["openai", "capy"]} cannot={project.practice ? "use AI to diagnose problems" : "use AI to diagnose problems or write fixes"} />
         {finding && <Pressable testID="project-structural" accessibilityRole="button" onPress={() => router.push(("/review/" + finding.caseId) as Href)} style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 12, minHeight: 48, paddingHorizontal: 14, paddingVertical: 6, borderRadius: 14, borderWidth: 1, borderColor: colors.border, backgroundColor: pressed ? colors.surfaceRaised : colors.surface })}>
           <Icon name="Layers" size={18} color="brandDeep" />
           <View style={{ flex: 1, minWidth: 0 }}><T variant="small">turtl found a deeper cause</T><T variant="small" color="textMuted" numberOfLines={1}>{finding.hypothesis}</T></View>

@@ -20,6 +20,9 @@ export type KnownSwitch = {
   fits: (facts: Facts) => boolean;
   /** Why it would work, after the diagnosis's cause, when no model wrote the why. */
   reason: string;
+  /** What the facts say, in plain words, for a fix the rule-based reading has no cause for (it reads the failure as
+   * unknown). Only a switch whose failure has no rule of its own has one. */
+  factsSay?: string;
   whatChanges: string;
   whatMightBeLost: string;
   /** How turtl checks it worked, without the sentence on the device check (plan.ts adds it where that is a criterion). */
@@ -64,6 +67,7 @@ export const SWITCHES: Record<string, KnownSwitch> = {
     criterion: CRITERIA.backupStoreOn,
     fits: (facts) => failed(facts, "submit_booking", "BOOKING_STORE_UNAVAILABLE"),
     reason: "Saving new bookings to the backup store lets customers finish booking again while the main store is down.",
+    factsSay: "The booking store answers that it is unavailable, so every booking fails when it is saved.",
     whatChanges: "Saves new bookings to the booking app's backup store, so booking works again while the main booking store is down.",
     whatMightBeLost: "New bookings stay in the backup store until it is switched off again. The main booking store itself is not fixed.",
     howChecked: "turtl checks that the booking app answers, that the backup store reads as on, and then runs the booking check: a test booking must be saved and match its confirmation.",
