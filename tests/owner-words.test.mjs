@@ -129,3 +129,10 @@ test("turtl's own reading (no AI) says what it knows in words: no error codes, n
   for (const reading of [store, other, bare]) assert.doesNotMatch(reading.cause, /[A-Z]{2,}_[A-Z_]+|unknown|_/);
   assert.match(read("convex/runner/handlers/investigate.ts"), /\$\{cost > 0 \? ` Model cost about \$\{money\(cost\)\}\.` : ""\}/);
 });
+
+test("the device criterion and an agent run's cost read once and plainly", () => {
+  const { DEVICE_NOT_COVERED } = createLoader({ "convex/protectedApp/watched": {} })("convex/protectedApp/client.ts");
+  assert.equal(DEVICE_NOT_COVERED, "turtl does not check the booking screen on a real phone yet, so this part was not checked.");
+  assert.doesNotMatch(DEVICE_NOT_COVERED, /Not covered|Revyl/, "the criterion line already says Not covered");
+  assert.match(read("data/live/agentWork.ts"), /\$\{run\.costUsd === undefined \? "Cost unknown" : `Cost \$\{money\(run\.costUsd\)\}`\}/);
+});

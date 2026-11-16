@@ -47,7 +47,7 @@ export const DONE_MEANS: Criterion[] = [CRITERIA.health, CRITERIA.journey, CRITE
 export const PRACTICE_DONE_MEANS: Criterion[] = [CRITERIA.health, CRITERIA.journey];
 
 export const DEVICE_NOT_COVERED =
-  "Not covered: no Revyl run of the booking screen on a device is wired up yet, so this was not checked.";
+  "turtl does not check the booking screen on a real phone yet, so this part was not checked.";
 
 export const controlBase = () => process.env.PROTECTED_APP_URL?.replace(/\/+$/, "") || null;
 
