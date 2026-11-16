@@ -1,11 +1,12 @@
 import type { FunctionReturnType } from "convex/server";
 import type { api } from "../../convex/_generated/api";
 import type { Doc } from "../../convex/_generated/dataModel";
-import type { CaseDetail, CaseSummary, Citation, Enactment, FixOption, LogLine, OverviewBlock, PlanStep, PullRequest, Screenshot, Span, Visualization } from "../types";
+import type { CaseDetail, CaseSummary, Citation, Enactment, FixOption, LogLine, OverviewBlock, PlanStep, PullRequest, Screenshot, Span, StructuralFinding, Visualization } from "../types";
 
 export type CaseCards = NonNullable<FunctionReturnType<typeof api.cases.cards>>;
 export type CaseFixes = FunctionReturnType<typeof api.fixes.forCase>;
 export type CustomerReports = FunctionReturnType<typeof api.intake.records.forCase>;
+export type CaseStructural = FunctionReturnType<typeof api.structural.queries.forCase>;
 
 export function mapPullRequest(value: PullRequest | null | undefined): PullRequest | undefined {
   if (!value) return undefined;
@@ -119,6 +120,7 @@ export function mapCaseDetail(
   screenshots: Screenshot[] | undefined,
   number: number | undefined,
   customerReports?: CustomerReports,
+  finding?: CaseStructural,
 ): CaseDetail {
   const pullRequest = mapPullRequest(request);
   const logs: LogLine[] = [];
@@ -166,6 +168,14 @@ export function mapCaseDetail(
       }
     }
   }
+
+  const structural: StructuralFinding | undefined = finding ? {
+    ...finding,
+    evidence: finding.evidence.map(({ cite, ...item }) => ({ ...item, ...(cite && evidenceIds.has(cite) && { cite }) })),
+    change: { ...finding.change },
+    test: { ...finding.test },
+    ...(finding.check && { check: { ...finding.check } }),
+  } : undefined;
 
   for (const evidence of cards.evidence) {
     logs.push({ id: evidence._id, at: evidence.observedAt, level: "info", source: `Evidence · ${evidence.kind} · ${evidence.environment}`, text: [evidence.title, evidence.body, evidence.sourceRef && `Source: ${evidence.sourceRef}`].filter(Boolean).join("\n") });
@@ -255,5 +265,6 @@ export function mapCaseDetail(
     fixes,
     ...(enactment && { enactment }),
     ...(learned && { learned }),
+    ...(structural && { structural }),
   };
 }

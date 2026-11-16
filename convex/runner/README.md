@@ -6,7 +6,7 @@ The runner moves a case through its steps on the Convex scheduler, with no clien
 
 - `run.ts`: the runner. All of its functions are internal.
 - `contract.ts`: the handler contract (`StepHandler`, `HandlerInput`, `HandlerResult`, `vHandlerResult`).
-- `handlers/<purpose>.ts`: one handler per step purpose. For a case with a journey (the booking app), every handler except `examine_broader_causes` and `learn` does real work; a case with no journey, such as a dev live run, gets each handler's placeholder.
+- `handlers/<purpose>.ts`: one handler per step purpose. For a case with a journey (the booking app), every handler except `learn` does real work (`examine_broader_causes` examines only when the case has related history; see `convex/structural/README.md`); a case with no journey, such as a dev live run, gets each handler's placeholder.
 - `handlers/journey.ts`: helpers those handlers share.
 - `handlers/index.ts`: the one place handlers are registered, keyed by purpose.
 

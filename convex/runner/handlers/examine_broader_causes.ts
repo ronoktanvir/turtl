@@ -1,10 +1,8 @@
+import { examineBroaderCauses, STEP_TIMEOUT_MS } from "../../structural/examine";
 import type { StepHandler } from "../contract";
 
+// Examines broader causes only when the case has related history; see convex/structural/README.md.
 export const handler: StepHandler = {
-  timeoutMs: 60_000,
-  run: async () => ({
-    status: "done",
-    summary: "Placeholder: no broader causes were examined.",
-    handoff: { note: "No broader causes to pass on: this step is a placeholder.", refs: [] },
-  }),
+  timeoutMs: STEP_TIMEOUT_MS,
+  run: examineBroaderCauses,
 };

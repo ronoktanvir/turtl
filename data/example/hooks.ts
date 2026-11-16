@@ -9,6 +9,7 @@ import type {
   ChatScope,
   CodeNetwork,
   Project,
+  StructuralFinding,
 } from "../types";
 
 function useVersion() {
@@ -70,6 +71,15 @@ export function useChat(scope: ChatScope): {
 export function useCodeNetwork(projectId: string): CodeNetwork | null | undefined {
   useVersion();
   return store.getNetwork(projectId);
+}
+
+export function useStructuralFindings(projectId: string): StructuralFinding[] | undefined {
+  const version = useVersion();
+  return useMemo(() => store.listStructuralFindings(projectId), [version, projectId]);
+}
+
+export function approvePreventionCheck(findingId: string): Promise<void> {
+  return store.approvePreventionCheck(findingId);
 }
 
 export function approveFix(caseId: string, fixKey: string): Promise<void> {

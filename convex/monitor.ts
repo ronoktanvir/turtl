@@ -92,7 +92,12 @@ export const openCase = internalMutation({
         reason: `the journey has not passed since the last case for it (${last.status})`,
       };
     }
-    const { title, impact } = describeImpact(failedStep, counts, countsReason);
+    const { title, impact } = journey.preventionFindingId
+      ? {
+          title: `A prevention check failed: ${journey.name}`,
+          impact: `${journey.description} It failed at the "${failedStep}" step. ${counts ? `${counts.failedBookings} of ${counts.totalBookings} customer booking attempts failed in the last 15 minutes.` : `Customer booking counts could not be read (${countsReason ?? "unknown reason"}).`}`,
+        }
+      : describeImpact(failedStep, counts, countsReason);
     const caseId = await startCaseRun(ctx, {
       appId: journey.appId,
       title,

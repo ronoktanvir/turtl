@@ -1,6 +1,7 @@
 import type { CaseDetail, CodeNetwork, FixOption, Project, PullRequest, Screenshot } from "../types";
 import { listenerProject, listenerCases, listenerNetwork, listenerPlans, listenerProposals, listenerReplies, listenerAfterShots } from "./listener-ladder";
 import { listenerFeatures, featurePlans, featureReplies, featureAfterShots } from "./listener-features";
+import { listenerStructural } from "./structural";
 
 export type ProjectSeed = Pick<Project, "id" | "name" | "iconUrl" | "summary" | "repoUrl" | "productionUrl" | "approvals">;
 export type StepSeed = {
@@ -25,7 +26,7 @@ const request = (projectId: string, number: number, title: string, summary: stri
 });
 
 export const caseSeeds: CaseDetail[] = [
-  ...listenerCases,
+  ...listenerCases.map((item) => (item.id === listenerStructural.caseId ? { ...item, structural: listenerStructural } : item)),
   ...listenerFeatures,
   request("orca", 1, "Compare agent team performance", "A request to compare team outcomes across tasks. No implementation plan has been prepared yet."),
   request("superprediction", 1, "Compare forecast revisions", "A request to see how a forecast changes as new evidence arrives. No implementation plan has been prepared yet."),

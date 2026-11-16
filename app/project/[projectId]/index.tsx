@@ -6,7 +6,7 @@ import Svg, { Circle, Path } from "react-native-svg";
 import ProjectIcon from "../../../components/project/ProjectIcon";
 import SettingsSheet from "../../../components/project/SettingsSheet";
 import { BrandIcon, Button, HealthWord, Header, Icon, Reveal, Screen, T, Turtle, ZoomPressable } from "../../../components/ui";
-import { useCases, useDataStatus, useProject } from "../../../data";
+import { useCases, useDataStatus, useProject, useStructuralFindings } from "../../../data";
 import { approvalLabel, labels, useTheme } from "../../../theme";
 
 export default function ProjectHome() {
@@ -15,6 +15,7 @@ export default function ProjectHome() {
   const { errors } = useDataStatus();
   const fixes = useCases(projectId, "fix");
   const features = useCases(projectId, "feature");
+  const finding = useStructuralFindings(projectId)?.[0];
   const fixApprovals = fixes?.filter((item) => item.status === "needs_approval" || item.status === "ready_to_merge").length ?? 0;
   const featureApprovals = features?.filter((item) => item.status === "needs_approval" || item.status === "ready_to_merge").length ?? 0;
   const router = useRouter();
@@ -48,6 +49,11 @@ export default function ProjectHome() {
             {([{ label: "GitHub", id: "project-github", url: project.repoUrl }, { label: "Live app", id: "project-live-app", url: project.productionUrl }] as const).map((link) => link.url && <Pressable key={link.id} testID={link.id} accessibilityRole="link" onPress={() => Linking.openURL(link.url!)} style={{ minHeight: 44, flexDirection: "row", alignItems: "center", gap: 6 }}>{link.id === "project-github" ? <BrandIcon name="github" size={20} /> : <Icon name="ExternalLink" size={15} color="textMuted" />}<T variant="small" color="textMuted">{link.label}</T></Pressable>)}
           </View>}
         </View>
+        {finding && <Pressable testID="project-structural" accessibilityRole="button" onPress={() => router.push(("/review/" + finding.caseId) as Href)} style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 12, minHeight: 48, paddingHorizontal: 14, paddingVertical: 6, borderRadius: 14, borderWidth: 1, borderColor: colors.border, backgroundColor: pressed ? colors.surfaceRaised : colors.surface })}>
+          <Icon name="Layers" size={18} color="brandDeep" />
+          <View style={{ flex: 1, minWidth: 0 }}><T variant="small">turtl found a deeper cause</T><T variant="small" color="textMuted" numberOfLines={1}>{finding.hypothesis}</T></View>
+          <Icon name="ArrowRight" size={16} color="textMuted" />
+        </Pressable>}
         <View style={{ flex: 1, minHeight: 0, gap: 12 }}>
           <Reveal style={{ flex: short ? 1.45 : 1.65, minHeight: 0 }}>
             <ZoomPressable containerStyle={{ flex: 1 }} testID="project-fix" accessibilityRole="button" onPress={() => router.push(`/project/${project.id}/fix` as Href)} style={({ pressed }) => ({ flex: 1, minHeight: 0, justifyContent: "center", borderRadius: 20, borderWidth: 1, borderColor: colors.brandDeep, backgroundColor: pressed ? colors.surfaceRaised : colors.surface, padding: tilePadding, overflow: "hidden" })}>

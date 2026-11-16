@@ -20,6 +20,8 @@ export const stopEnactment = isLiveData ? live.stopEnactment : example.stopEnact
 export const mergePullRequest = isLiveData ? live.mergePullRequest : example.mergePullRequest;
 export const setApprovals = isLiveData ? live.setApprovals : example.setApprovals;
 export const setStarred = isLiveData ? live.setStarred : example.setStarred;
+export const useStructuralFindings = isLiveData ? live.useStructuralFindings : example.useStructuralFindings;
+export const approvePreventionCheck = isLiveData ? live.approvePreventionCheck : example.approvePreventionCheck;
 function useExampleApprovalSettings(projectId: string) {
   const project = example.useProject(projectId);
   return {
