@@ -1,12 +1,12 @@
 import { NO_SUPERMEMORY } from "../constants";
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
-import type { Id } from "../_generated/dataModel";
 import { internalMutation, type ActionCtx } from "../_generated/server";
-import { revokeToken } from "../auth/appleTokens";
+import { openKept, revokeToken, type KeptToken } from "../auth/appleTokens";
 import { appleClient } from "../auth/settings";
 import { gateFor } from "../consent/gate";
 import { plainFailure } from "../consent/outbound";
+import { sealingKey } from "../secrets/seal";
 import { deleteNamespace } from "../supermemory";
 import type { VendorTask } from "./schema";
 
@@ -54,12 +54,16 @@ async function disconnectGithub(ctx: ActionCtx, account: string): Promise<Outcom
 }
 
 async function revokeApple(ctx: ActionCtx, account: string): Promise<Outcome> {
-  const tokens: { id: Id<"authAppleTokens">; refreshToken: string }[] = await ctx.runQuery(internal.auth.appleTokens.tokensOf, { account });
+  const tokens: KeptToken[] = await ctx.runQuery(internal.auth.appleTokens.tokensOf, { account });
   if (!tokens.length) return { ok: true, skipped: true, note: "No Sign in with Apple token was kept for this account." };
   const client = appleClient();
   if (!client) return { ok: false, note: "AUTH_APPLE_TEAM_ID, AUTH_APPLE_KEY_ID and AUTH_APPLE_PRIVATE_KEY are not all set, so turtl cannot revoke the Apple token yet." };
+  const key = await sealingKey();
   for (const token of tokens) {
-    const revoked = await revokeToken(client, token.refreshToken);
+    // Opened here, in the action that sends it to Apple, and nowhere else.
+    const opened = await openKept(token, account, key);
+    if (!opened.ok) return { ok: false, note: `${opened.reason}.` };
+    const revoked = await revokeToken(client, opened.refreshToken);
     if (!revoked.ok) return { ok: false, note: `${revoked.reason}.` };
     await ctx.runMutation(internal.auth.appleTokens.forget, { id: token.id });
   }

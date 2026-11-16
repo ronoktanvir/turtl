@@ -69,8 +69,11 @@ Convex Auth's tables (`schema.ts`): `users` (email, and a name and picture when 
 `authAccounts` (which methods a person uses, Apple's or GitHub's id for them, a password hash), `authSessions`,
 `authRefreshTokens`, `authVerificationCodes` (reset codes, hashed), `authVerifiers`, `authRateLimits`. And turtl's
 `authAppleNonces`: hashes of Apple nonces already used, each deleted once its token has expired; and
-`authAppleTokens`: Apple's refresh token for someone who signed in with Apple, only internal functions read it, and
-it is revoked at Apple and deleted when the account is (`convex/account`). Deleting an account removes every row in
+`authAppleTokens`: Apple's refresh token for someone who signed in with Apple, sealed with AES-GCM under
+`SECRETS_ENCRYPTION_KEY` and bound to that person (`appleTokens.ts`, with `convex/secrets/seal.ts`; without the key no
+token is kept), only internal functions read it, and it is opened only to be revoked at Apple and deleted when the
+account is (`convex/account`). Tokens kept before they were sealed are sealed in place by
+`npx convex run auth/appleTokens:sealKept`. Deleting an account removes every row in
 these tables that points at it, the `users` row last; a token whose session has ended signs nobody in
 (`convex/access.ts`).
 
