@@ -22,7 +22,13 @@
   <img src="docs/screenshots/fixes.png" width="24%" alt="The Fixes page: the recommended fix with Approve, what it changes and why">
   <img src="docs/screenshots/plan.png" width="24%" alt="An approved fix with Stop, Merge and its plan, step by step">
 </p>
-<p align="center"><sub>Login → Projects → a project → its issues → an opened issue → its fixes → the plan of an approved fix. Captured from an Expo web build of <code>build/wave-2</code> (2f99bfe) on its built-in example data, at 390 × 844.</sub></p>
+<p align="center"><sub>Login → Projects → a project → its issues → an opened issue → its fixes → the plan of an approved fix.</sub></p>
+<p align="center">
+  <img src="docs/screenshots/practice-start.png" width="24%" alt="Add project, with No repository to hand and Try a practice app below the form">
+  <img src="docs/screenshots/practice-project.png" width="24%" alt="The practice booking app's project: a Practice chip, its check passing, Fix, Features and Break it">
+  <img src="docs/screenshots/confirm-email.png" width="24%" alt="Check your email: a box for the code, Send the email again, Start again and Sign out">
+</p>
+<p align="center"><sub>Try a practice app → the practice project → Check your email, which a new password account sees until it confirms its address. All captured from an Expo web build of <code>build/wave-3</code> (9c2d407) on its built-in example data, at 390 × 844. The first-run screen, which also offers Try a practice app, shows only for an account with no projects, which the example data does not have.</sub></p>
 
 turtl tracks each case (an outage, a bug report or a feature request) as a series of steps, from detecting a problem to learning from it. It watches the journeys you register, takes in what your customers report, works out what went wrong, explains it in plain words, and offers you one to four fixes. Nothing changes in your live app until you approve, or until a narrow permission you granted covers it. `turtl` is the working name; the build log is in [hackathon.md](hackathon.md).
 
