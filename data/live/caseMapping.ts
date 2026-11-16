@@ -178,7 +178,9 @@ function enactmentOf(cards: CaseCards, fixes: CaseFixes | undefined, pullRequest
       status: step.status === "waiting" ? "pending" : step.status,
       detail: nameSteps([step.status === "waiting" ? "Waiting." : "", step.skipReason, attempt?.handoff, attempt?.error].filter(Boolean).join(" "), cards.steps) || undefined,
       summary: attempt?.summary && ownerWords(nameSteps(attempt.summary, cards.steps)),
-      startedAt: attempt?.startedAt,
+      // The approval step's attempt opens when turtl starts waiting for the owner. What it did starts at the approval,
+      // which is when the action was requested, so its time is counted from there.
+      startedAt: step.purpose === "authorize_and_execute" && cards.action ? Math.max(cards.action.requestedAt, attempt?.startedAt ?? 0) : attempt?.startedAt,
       finishedAt: attempt?.finishedAt,
     };
   });

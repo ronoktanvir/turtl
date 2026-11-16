@@ -62,3 +62,20 @@ test("at 320 wide the running fix's status wraps under Stop and Merge instead of
   assert.match(screen, /flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: 12, rowGap: 10/);
   assert.match(screen, /style=\{\{ flexGrow: 1, flexShrink: 1, flexBasis: 120, minWidth: 0 \}\} testID="enacting-ci"/);
 });
+
+test("the approval step's time is not reported as running time", async () => {
+  const { mapCaseDetail } = await import("../data/live/caseMapping.ts");
+  const waiting = { _id: "a1", attempt: 1, status: "done", startedAt: 1_000, finishedAt: 97_000 };
+  const steps = [{ _id: "s1", key: "authorize_and_execute", title: "Authorize and execute", purpose: "authorize_and_execute", status: "done", dependsOn: [], currentAttempt: waiting }];
+  const cards = {
+    case: { _id: "c", _creationTime: 0, appId: "p", title: "T", impact: "", kind: "outage", raisedBy: "monitor", status: "resolved" },
+    journey: null, steps, executeAttempts: [], evidence: [], proposal: null, verifications: [], agentRuns: [],
+    action: { _id: "x", optionKey: "recover", type: "set_feature_flag", status: "completed", requestedAt: 93_000 },
+  };
+  const step = mapCaseDetail(cards, { fixes: [], chosenKey: "recover" }, null, [], 1).enactment.steps[0];
+  assert.equal(step.startedAt, 93_000, "counted from the approval");
+  assert.equal(tookDuration(step.finishedAt - step.startedAt), "4 s");
+  const { readFileSync } = await import("node:fs");
+  const graph = readFileSync(new URL("../components/execution/WorkflowGraph.tsx", import.meta.url), "utf8");
+  assert.match(graph, /if \(purpose === "authorize_and_execute"\) return `Started \$\{formatStart\(startedAt\)\}, finished \$\{formatStart\(finishedAt\)\}, including any wait for approval\.`;/);
+});
