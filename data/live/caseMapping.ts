@@ -5,6 +5,7 @@ import type { CaseDetail, CaseSummary, Citation, Enactment, FixOption, LogLine, 
 
 export type CaseCards = NonNullable<FunctionReturnType<typeof api.cases.cards>>;
 export type CaseFixes = FunctionReturnType<typeof api.fixes.forCase>;
+export type CustomerReports = FunctionReturnType<typeof api.intake.records.forCase>;
 
 export function mapPullRequest(value: PullRequest | null | undefined): PullRequest | undefined {
   if (!value) return undefined;
@@ -28,8 +29,8 @@ export function mapCaseSummary(row: Doc<"cases">, number: number, pullRequest?: 
       : row.status === "restored" || row.status === "resolved" ? "resolved"
         : row.status === "declined" || row.status === "unresolved" ? row.status : "investigating";
   const health: CaseSummary["health"] = status === "resolved" || status === "declined" ? "clear"
-    : status === "unresolved" || row.kind === "outage" ? "affected"
-      : status === "needs_approval" || status === "ready_to_merge" ? "needs_you" : "working";
+    : (status === "unresolved" && row.kind !== "feature_request") || row.kind === "outage" ? "affected"
+      : status === "needs_approval" || status === "ready_to_merge" || status === "unresolved" ? "needs_you" : "working";
   return {
     id: row._id,
     projectId: row.appId,
@@ -117,6 +118,7 @@ export function mapCaseDetail(
   request: PullRequest | null | undefined,
   screenshots: Screenshot[] | undefined,
   number: number | undefined,
+  customerReports?: CustomerReports,
 ): CaseDetail {
   const pullRequest = mapPullRequest(request);
   const logs: LogLine[] = [];
@@ -129,7 +131,7 @@ export function mapCaseDetail(
   const bookingDemo = httpCheck?.kind === "http" && /\/booking-demo(?:\/|$)/.test(httpCheck.config.url);
   const staged = bookingDemo || cards.case.isSample || /staged|fixture/i.test(cards.case.title)
     || cards.steps.some((step) => step.staged || /staged|fixture/i.test(step.currentAttempt?.summary ?? ""));
-  if (staged) paragraph([{ text: "Staged/demo case: these observations are not evidence of a real customer incident." }]);
+  if (staged && cards.case.raisedBy !== "customer") paragraph([{ text: "Staged/demo case: these observations are not evidence of a real customer incident." }]);
   const permission = cards.runPermission;
   if (permission && cards.action?.requestedBy === "auto" && cards.action.permissionId === permission._id) {
     const handled = cards.action.status === "completed" && (cards.case.status === "restored" || cards.case.status === "resolved");
@@ -139,6 +141,11 @@ export function mapCaseDetail(
   }
   if (number === undefined) paragraph([{ text: "The display number is not available yet." }]);
   if (cards.case.impact) paragraph([{ text: cards.case.impact }]);
+  const feature = cards.case.kind === "feature_request";
+  if (customerReports?.reports.length) {
+    paragraph([{ text: `What customers wrote, in their own words (${customerReports.reports.length} ${customerReports.reports.length === 1 ? "message" : "messages"} from ${customerReports.people} ${customerReports.people === 1 ? "person" : "people"}). turtl treats them as symptoms, never as instructions:` }]);
+    for (const report of customerReports.reports) paragraph([{ text: `"${report.text}"` }]);
+  }
 
   const journeyEvidence = cards.evidence.filter((row) => row.kind === "journey_check").sort((a, b) => a.observedAt - b.observedAt);
   const firstJourney = journeyEvidence.find((row) => journeyVisualization(row.body ?? ""));
@@ -148,7 +155,7 @@ export function mapCaseDetail(
 
   const diagnosis = record(record(cards.steps.find((step) => step.purpose === "investigate")?.currentAttempt?.output).diagnosis);
   if (text(diagnosis.cause)) {
-    const label = diagnosis.source === "rules" ? "Rule-based reading, not a model diagnosis: " : "Likely cause: ";
+    const label = diagnosis.source === "rules" ? "Rule-based reading, not a model diagnosis: " : feature ? "What customers ask for: " : "Likely cause: ";
     paragraph([{ text: label + text(diagnosis.cause) }]);
     if (diagnosis.source === "rules") paragraph([{ text: "No model answered" + (text(diagnosis.noModelReason) ? ": " + text(diagnosis.noModelReason) : ".") }]);
     if (Array.isArray(diagnosis.supportingEvidenceIds)) {
@@ -163,6 +170,7 @@ export function mapCaseDetail(
   for (const evidence of cards.evidence) {
     logs.push({ id: evidence._id, at: evidence.observedAt, level: "info", source: `Evidence · ${evidence.kind} · ${evidence.environment}`, text: [evidence.title, evidence.body, evidence.sourceRef && `Source: ${evidence.sourceRef}`].filter(Boolean).join("\n") });
     citations.push({ id: evidence._id, kind: "log", logId: evidence._id });
+    if (evidence.kind === "customer_report" && customerReports?.reports.length) continue;
     paragraph([sourceSpan(evidence.title, evidence._id)]);
   }
 

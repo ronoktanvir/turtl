@@ -130,7 +130,7 @@ export function pullRequestOption(
 }
 
 // Reads a model's code change; null when a field is missing or the kind is not one turtl offers for an outage.
-export function readDraft(raw: unknown): CodeChangeDraft | null {
+export function readDraft(raw: unknown, kinds: OptionKind[] = CODE_CHANGE_KINDS): CodeChangeDraft | null {
   const fix = (raw ?? {}) as Record<string, unknown>;
   const kind = fix.kind as OptionKind;
   const draft = {
@@ -143,7 +143,7 @@ export function readDraft(raw: unknown): CodeChangeDraft | null {
     change: text(fix.change),
     confidence: clamp(Number(fix.confidence)),
   };
-  if (!CODE_CHANGE_KINDS.includes(kind)) return null;
+  if (!kinds.includes(kind)) return null;
   if (!draft.title || !draft.why || !draft.whatChanges || !draft.whatMightBeLost || !draft.howChecked || !draft.change) {
     return null;
   }
