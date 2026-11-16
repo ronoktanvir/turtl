@@ -408,3 +408,96 @@ test("the two journey and health checks say when each was made, so neither reads
   const health = evidence({ _id: "e-health", stepId: "s-collect", kind: "health", title: "The booking app says it is healthy." });
   assert.equal(map(cards({ steps: [collect], evidence: [health] })).logs.find((log) => log.id === "e-health").source, "Evidence · App health · when turtl looked again");
 });
+
+// A case the monitor opened because the app stopped answering turtl's checks (convex/protectedApp/notAnswering.ts).
+// turtl cannot look into an app it cannot reach: the case says what turtl saw, where the owner can look, and that it
+// closes by itself when the app answers. Nothing on it is a fix, an approval or an investigation.
+const SAW = "turtl's last 3 tries of the \"Book an appointment\" check got no usable answer: turtl could not connect to the app.";
+const quietRow = (fields = {}) => row({
+  _id: "case-q", title: "Your app is not answering turtl's checks", impact: SAW, status: "waiting_for_app",
+  signature: "not_answering:app-1", raisedByRef: "turtl's checks", ...fields,
+});
+const waitStep = (attemptFields = {}, fields = {}) => step({
+  _id: "step-q", key: "wait_for_answer", title: "Wait for the app to answer", kind: "function", purpose: "detect_or_receive", status: "waiting",
+  currentAttempt: attempt({
+    _id: "attempt-q", stepId: "step-q", status: "waiting", startedAt: 5000, finishedAt: undefined,
+    summary: "turtl's checks get no answer from the app. turtl cannot propose a fix for an app it cannot reach, so it keeps checking and closes this case when the app answers.",
+    output: { quietSince: 2000 }, ...attemptFields,
+  }),
+  ...fields,
+});
+const closedStep = (summary, answered) => waitStep({ status: "done", finishedAt: 422_000, summary, output: { quietSince: 2000, closedAt: 422_000, answered } }, { status: "done" });
+const paragraphs = (detail) => detail.overview.filter((block) => block.kind === "paragraph").map((block) => block.spans.map((span) => span.text).join(""));
+const NOT_INVESTIGATING = /investigat|working on|looking into|Not covered|Source code|approve a fix|\(attempt/i;
+
+test("a not-answering case has its own state while open, and reads as other closed cases once closed", () => {
+  const open = mapCaseSummary(quietRow(), 2);
+  assert.equal(open.status, "not_answering");
+  assert.equal(open.health, "affected");
+  assert.equal(open.notAnswering, true);
+  assert.equal(open.type, "fix");
+  const resolved = mapCaseSummary(quietRow({ status: "resolved" }), 2);
+  assert.deepEqual([resolved.status, resolved.health, resolved.notAnswering], ["resolved", "clear", true]);
+  const stopped = mapCaseSummary(quietRow({ status: "unresolved" }), 2);
+  assert.deepEqual([stopped.status, stopped.health, stopped.notAnswering], ["unresolved", "affected", true]);
+  assert.equal("notAnswering" in mapCaseSummary(row({ signature: "journey_failed:j1" }), 1), false, "an ordinary case is not one");
+  assert.equal(mapCaseSummary(row({ signature: "journey_failed:j1" }), 1).status, "investigating");
+});
+
+test("an open not-answering case says what turtl saw, that it has no fix, where to look, and that it keeps checking", () => {
+  const detail = map(cards({ case: quietRow(), steps: [waitStep()] }));
+  assert.equal(detail.status, "not_answering");
+  assert.equal(detail.summary, SAW);
+  assert.deepEqual(detail.quiet, { since: 2000 });
+  assert.deepEqual(paragraphs(detail), [
+    "turtl cannot propose a fix for an app it cannot reach, so this case has nothing for you to approve. Three places to look:",
+    "Your host's status page. An outage there takes your app down with it.",
+    "Your last deploy. If the app stopped answering soon after it, start with what that deploy changed.",
+    "Your app's address. Open it yourself: if it loads for you, the part of the app turtl checks may be what is down.",
+    "turtl keeps checking, less often the longer the app stays quiet, until it checks every 15 minutes. When the app answers, turtl closes this case itself and tells you.",
+  ]);
+  for (const line of paragraphs(detail)) assert.doesNotMatch(line, NOT_INVESTIGATING, line);
+  assert.deepEqual(detail.fixes, []);
+  assert.equal(detail.enactment, undefined);
+  assert.equal(detail.learned, undefined);
+  // What turtl recorded stays in the Logs, under the step's name.
+  assert.deepEqual(detail.logs.map((log) => log.source), ["Workflow · Wait for the app to answer · attempt 1"]);
+});
+
+test("a not-answering case closed because the app answered says so, how long it was quiet, and how the checks stand", () => {
+  const answered = "The app answered turtl's checks again after about 7 minutes without an answer. Its checks pass now.";
+  const detail = map(cards({ case: quietRow({ status: "resolved" }), steps: [closedStep(answered, true)] }));
+  assert.equal(detail.status, "resolved");
+  assert.equal(detail.health, "clear");
+  assert.equal(detail.summary, answered);
+  assert.deepEqual(detail.quiet, { since: 2000, closedAt: 422_000, answered: true });
+  assert.deepEqual(paragraphs(detail), [
+    `When this case opened, ${SAW}`,
+    "turtl closed this case itself when the app answered. It changed nothing on your app.",
+  ]);
+  for (const line of paragraphs(detail)) assert.doesNotMatch(line, /keeps checking|status page|last deploy/, line);
+});
+
+test("a not-answering case closed because turtl stopped checking says why, once, and never reads as a refused send", () => {
+  const stopped = "turtl stopped checking this project, so it closed this case without knowing whether the app answers again. No control token is set, so turtl cannot run this project's checks. Add it in this project's Settings, under Control token.";
+  // Even with a failed step whose error reads like a refused send, the "could not reach the app" paragraph is not said.
+  const refused = step({ _id: "s-odd", key: "odd", title: "Odd", status: "failed", currentAttempt: attempt({ _id: "a-odd", status: "failed", summary: undefined, error: "No control token is set for this project, so turtl sent nothing." }) });
+  const detail = map(cards({ case: quietRow({ status: "unresolved" }), steps: [closedStep(stopped, false), refused] }));
+  assert.equal(detail.status, "unresolved");
+  assert.equal(detail.summary, stopped);
+  assert.deepEqual(detail.quiet, { since: 2000, closedAt: 422_000, answered: false });
+  assert.deepEqual(paragraphs(detail), [
+    `When this case opened, ${SAW}`,
+    "If turtl checks this project again and the app still gives no answer, turtl opens a new case and tells you.",
+  ]);
+  assert.ok(!paragraphs(detail).some((line) => line.includes("could not reach your app")), "not the refused-send paragraph");
+  assert.ok(!paragraphs(detail).some((line) => line.includes(stopped)), "the reason is the summary, said once");
+});
+
+test("a not-answering case with nothing recorded on its step still reads, from when it opened", () => {
+  const detail = map(cards({ case: quietRow({ _creationTime: 9000 }), steps: [] }));
+  assert.equal(detail.summary, SAW);
+  assert.deepEqual(detail.quiet, { since: 9000 });
+  const closed = map(cards({ case: quietRow({ status: "resolved", impact: "" }), steps: [] }));
+  assert.equal(closed.summary, "The app answered turtl's checks again.");
+});

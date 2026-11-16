@@ -23,14 +23,19 @@ export function mapPullRequest(value: PullRequest | null | undefined): PullReque
   };
 }
 
+// A case the monitor opened because the app stopped answering turtl's checks: convex/constants.ts isNotAnsweringCase,
+// kept here so this file has no runtime import (see plainWords below). Open, its status is waiting_for_app.
+const isNotAnswering = (row: Pick<Doc<"cases">, "signature" | "status">) => row.signature?.startsWith("not_answering:") === true || row.status === "waiting_for_app";
+
 export function mapCaseSummary(row: Doc<"cases">, number: number, pullRequest?: PullRequest | null): CaseSummary {
-  const status: CaseSummary["status"] = row.status === "waiting_for_owner" ? "needs_approval"
+  const quiet = isNotAnswering(row);
+  const status: CaseSummary["status"] = row.status === "waiting_for_app" ? "not_answering" : row.status === "waiting_for_owner" ? "needs_approval"
     : row.status === "executing" || row.status === "waiting_for_deploy" || row.status === "verifying"
       ? pullRequest?.state === "open" && pullRequest.checks === "passing" && pullRequest.mergeable ? "ready_to_merge" : "enacting"
       : row.status === "restored" || row.status === "resolved" ? "resolved"
         : row.status === "declined" || row.status === "unresolved" ? row.status : "investigating";
   const health: CaseSummary["health"] = status === "resolved" || status === "declined" ? "clear"
-    : (status === "unresolved" && row.kind !== "feature_request") || row.kind === "outage" ? "affected"
+    : (status === "unresolved" && row.kind !== "feature_request") || row.kind === "outage" || status === "not_answering" ? "affected"
       : status === "needs_approval" || status === "ready_to_merge" || status === "unresolved" ? "needs_you" : "working";
   return {
     id: row._id,
@@ -43,6 +48,7 @@ export function mapCaseSummary(row: Doc<"cases">, number: number, pullRequest?: 
     health,
     happenedAt: row._creationTime,
     ...(row.starred && { starred: true }),
+    ...(quiet && { notAnswering: true as const }),
     ...(row.kind === "feature_request"
       ? row.distinctRequesterCount !== undefined && { reportCount: row.distinctRequesterCount }
       : row.reportCount !== undefined && { reportCount: row.reportCount }),
@@ -277,6 +283,58 @@ function enactmentOf(cards: CaseCards, fixes: CaseFixes | undefined, pullRequest
   return { fixKey, state, steps, ...(pullRequest && { pullRequest }), ...(question && { question: { text: question, fixes: [] } }) };
 }
 
+// What a not-answering case says (convex/protectedApp/notAnswering.ts). turtl cannot look into an app it cannot reach,
+// so the case says what turtl saw, where the owner can look, and how it ends; nothing on it is a fix, an approval or an
+// investigation. Once closed, what its one step recorded when it closed leads, and what turtl saw follows.
+const QUIET_OPEN = [
+  "turtl cannot propose a fix for an app it cannot reach, so this case has nothing for you to approve. Three places to look:",
+  "Your host's status page. An outage there takes your app down with it.",
+  "Your last deploy. If the app stopped answering soon after it, start with what that deploy changed.",
+  "Your app's address. Open it yourself: if it loads for you, the part of the app turtl checks may be what is down.",
+  // The monitor spaces out the checks of a project that keeps failing the same way (convex/protectedApp/watching.ts,
+  // FAILING_STEPS_MS), down to every 15 minutes.
+  "turtl keeps checking, less often the longer the app stays quiet, until it checks every 15 minutes. When the app answers, turtl closes this case itself and tells you.",
+];
+const QUIET_ANSWERED = "turtl closed this case itself when the app answered. It changed nothing on your app.";
+const QUIET_STOPPED = "If turtl checks this project again and the app still gives no answer, turtl opens a new case and tells you.";
+const WAIT_STEP_KEY = "wait_for_answer";
+
+function notAnsweringDetail(cards: CaseCards, number: number | undefined): CaseDetail {
+  const row = cards.case;
+  const step = cards.steps.find((candidate) => candidate.key === WAIT_STEP_KEY);
+  const attempt = step?.currentAttempt;
+  const output = record(attempt?.output);
+  const since = typeof output.quietSince === "number" ? output.quietSince : row._creationTime;
+  const closed = row.status !== "waiting_for_app" && row.status !== "open";
+  const answered = typeof output.answered === "boolean" ? output.answered : row.status === "resolved";
+  const closedAt = typeof output.closedAt === "number" ? output.closedAt : attempt?.finishedAt;
+  const ending = closed && step?.status === "done" ? attempt?.summary : undefined;
+  const summary = !closed ? row.impact || row.title
+    : ending || (answered ? "The app answered turtl's checks again." : "turtl stopped checking this project, so it closed this case.");
+  const texts = !closed ? QUIET_OPEN : [...(row.impact ? [`When this case opened, ${row.impact}`] : []), answered ? QUIET_ANSWERED : QUIET_STOPPED];
+
+  // What turtl recorded stays in the Logs, under each step's name.
+  const names = cards.steps.map((one) => ({ key: one.key, purpose: one.purpose, title: one.title }));
+  const logs: LogLine[] = [];
+  for (const one of cards.steps) {
+    const tried = one.currentAttempt;
+    const note = tried && ownerWords(nameSteps([tried.summary, tried.error, tried.handoff].filter(Boolean).join("\n"), names));
+    if (!tried || !note) continue;
+    logs.push({ id: `attempt:${tried._id}`, at: tried.finishedAt ?? tried.startedAt ?? tried._creationTime, level: tried.error || tried.status === "failed" ? "error" : "info", source: `Workflow · ${one.title} · attempt ${tried.attempt}`, text: note });
+  }
+  return {
+    ...mapCaseSummary(row, number ?? 0),
+    summary,
+    overview: texts.map((text) => ({ kind: "paragraph", spans: [{ text }] })),
+    citations: logs.map((log) => ({ id: log.id, kind: "log", logId: log.id })),
+    logs: logs.sort((a, b) => a.at - b.at || a.id.localeCompare(b.id)),
+    code: [],
+    screenshots: [],
+    fixes: [],
+    quiet: closed ? { since, ...(closedAt !== undefined && { closedAt }), answered } : { since },
+  };
+}
+
 export function mapCaseDetail(
   cards: CaseCards,
   fixesResult: CaseFixes | undefined,
@@ -286,6 +344,7 @@ export function mapCaseDetail(
   customerReports?: CustomerReports,
   finding?: CaseStructural,
 ): CaseDetail {
+  if (isNotAnswering(cards.case)) return notAnsweringDetail(cards, number);
   const pullRequest = mapPullRequest(request);
   const logs: LogLine[] = [];
   const citations: Citation[] = [];
