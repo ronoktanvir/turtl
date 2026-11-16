@@ -755,6 +755,8 @@ test("Delete account sits under Sign out for a signed-in account only, says what
   const { faceFor } = createLoader()("components/ui/typeface.ts");
   for (const item of DELETED) assert.equal(faceFor(item), "title", item);
   const sentences = ["Deleting your account removes all of this from turtl, and from the services turtl uses to keep it.", "This can't be undone.", "Delete your account and everything in it now? You won't be able to get any of it back."];
+  // What deleting does not do, which the privacy policy also says: an organization's installation is unlinked, not removed.
+  sentences.push("If turtl's GitHub app is installed on an organization, it stays installed there until one of that organization's owners removes it on GitHub. turtl stops using it for you.");
   for (const sentence of sentences) {
     assert.ok(screen.includes(sentence), sentence);
     assert.equal(faceFor(sentence), "text", sentence);

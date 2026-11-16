@@ -59,6 +59,7 @@ export default function DeleteAccount() {
               </View>
             ))}
           </View>
+          <T variant="small" color="textMuted" testID="account-delete-github-note">If turtl's GitHub app is installed on an organization, it stays installed there until one of that organization's owners removes it on GitHub. turtl stops using it for you.</T>
           <T variant="strong" testID="account-delete-final">This can't be undone.</T>
           <Button label="Continue" kind="danger" onPress={() => setStage("confirm")} testID="account-delete-continue" />
           <Button label="Keep my account" kind="plain" onPress={close} testID="account-delete-cancel" />
