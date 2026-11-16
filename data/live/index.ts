@@ -4,7 +4,8 @@ import { useCase } from "./case";
 export { useCase } from "./case";
 export { useProjects, useProject, useCases, useApprovalSettings } from "./projects";
 export { useChat, useCodeNetwork } from "./network";
-export { approveFix, stopEnactment, mergePullRequest, setApprovals, setStarred } from "./actions";
+export { approveFix, stopEnactment, mergePullRequest, setApprovals } from "./ownerActions";
+export { setStarred } from "./actions";
 
 export function useEnactmentNow(caseId: string): number {
   const item = useCase(caseId);

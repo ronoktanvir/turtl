@@ -4,27 +4,27 @@ import type { Id } from "../../convex/_generated/dataModel";
 import type { ApprovalMode } from "../types";
 import { errorMessage, requireLiveClient } from "./client";
 
-export async function approveFix(caseId: string, fixKey: string): Promise<void> {
+export async function approveFix(caseId: string, fixKey: string, passcode?: string): Promise<void> {
   try {
     const client = requireLiveClient();
     const current = await client.query(api.fixes.forCase, { caseId });
     if (!current?.proposalId || current.version === null) throw new Error("No proposed fix is available to approve yet.");
     if (!current.fixes.some((fix) => fix.key === fixKey)) throw new Error("This fix is no longer in the proposal. Review the current fixes first.");
-    await client.mutation(api.decisions.approve, { proposalId: current.proposalId, version: current.version, optionKey: fixKey });
+    await client.mutation(api.decisions.approve, { proposalId: current.proposalId, version: current.version, optionKey: fixKey, ...(passcode !== undefined && { passcode }) });
   } catch (error) { throw new Error(errorMessage(error)); }
 }
 
-export async function stopEnactment(caseId: string): Promise<void> {
+export async function stopEnactment(caseId: string, passcode?: string): Promise<void> {
   try {
-    const stop = makeFunctionReference<"mutation", { caseId: Id<"cases"> }, { stopped: true; summary: string } | { stopped: false; reason: string }>("decisions:stop");
-    const result = await requireLiveClient().mutation(stop, { caseId: caseId as Id<"cases"> });
+    const stop = makeFunctionReference<"mutation", { caseId: Id<"cases">; passcode?: string }, { stopped: true; summary: string } | { stopped: false; reason: string }>("decisions:stop");
+    const result = await requireLiveClient().mutation(stop, { caseId: caseId as Id<"cases">, ...(passcode !== undefined && { passcode }) });
     if (!result.stopped) throw new Error(result.reason);
   } catch (error) { throw new Error(errorMessage(error)); }
 }
 
-export async function mergePullRequest(caseId: string, headSha: string): Promise<{ ok: true } | { ok: false; reason: string }> {
+export async function mergePullRequest(caseId: string, headSha: string, passcode?: string): Promise<{ ok: true } | { ok: false; reason: string }> {
   try {
-    const result = await requireLiveClient().action(api.pullRequests.merge, { caseId: caseId as Id<"cases">, headSha });
+    const result = await requireLiveClient().action(api.pullRequests.merge, { caseId: caseId as Id<"cases">, headSha, ...(passcode !== undefined && { passcode }) });
     if (result.outcome === "merged") return { ok: true };
     if (result.outcome === "refused") return { ok: false, reason: result.reason };
     if (result.outcome === "not_configured") return { ok: false, reason: `Merging is not configured on the backend: ${result.missing.join(", ")}.` };
@@ -32,7 +32,7 @@ export async function mergePullRequest(caseId: string, headSha: string): Promise
   } catch (error) { return { ok: false, reason: errorMessage(error) }; }
 }
 
-export async function setApprovals(projectId: string, mode: ApprovalMode): Promise<void> {
+export async function setApprovals(projectId: string, mode: ApprovalMode, passcode?: string): Promise<void> {
   try {
     const client = requireLiveClient();
     const settings = await client.query(api.screens.projects.approvalSettings, { projectId });
@@ -40,10 +40,10 @@ export async function setApprovals(projectId: string, mode: ApprovalMode): Promi
     if (mode === "auto") {
       if (settings.active) return;
       if (!settings.canEnable || !settings.memoryId) throw new Error(settings.reason);
-      await client.mutation(api.permissions.grant, { memoryId: settings.memoryId });
+      await client.mutation(api.permissions.grant, { memoryId: settings.memoryId, ...(passcode !== undefined && { passcode }) });
       return;
     }
-    for (const permissionId of settings.permissionIds) await client.mutation(api.permissions.revoke, { permissionId });
+    for (const permissionId of settings.permissionIds) await client.mutation(api.permissions.revoke, { permissionId, ...(passcode !== undefined && { passcode }) });
   } catch (error) { throw new Error(errorMessage(error)); }
 }
 

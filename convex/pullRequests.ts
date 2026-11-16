@@ -109,10 +109,10 @@ export const refreshActive = internalAction({
 
 // The owner's Merge tap. It reads GitHub fresh and merges only when the pull request is open, its
 // checks pass, GitHub can merge it, and its head is still the commit the owner was shown (headSha).
-// There is no sign-in yet, so the merge is recorded as the one solo owner.
 export const merge = action({
-  args: { caseId: v.id("cases"), headSha: v.string() },
-  handler: async (ctx, { caseId, headSha }): Promise<MergeResult> => {
+  args: { caseId: v.id("cases"), headSha: v.string(), passcode: v.optional(v.string()) },
+  handler: async (ctx, { caseId, headSha, passcode }): Promise<MergeResult> => {
+    await ctx.runQuery(internal.ownerPasscode.authorize, { passcode });
     const row: Doc<"pullRequests"> | null = await ctx.runQuery(internal.prTracking.records.forCase, { caseId });
     if (!row || row.number === undefined) return { outcome: "refused", reason: "This case has no pull request yet." };
     if (row.settledAt !== undefined) return { outcome: "refused", reason: row.openError ?? "turtl is no longer following this pull request." };
@@ -160,8 +160,9 @@ export const merge = action({
 // Dev tools: links an existing GitHub pull request to a case by its URL, so tracking and merging can be
 // shown without Capy opening it.
 export const attachByUrl = action({
-  args: { caseId: v.id("cases"), url: v.string(), fixKey: v.optional(v.string()) },
-  handler: async (ctx, { caseId, url, fixKey }): Promise<RefreshResult> => {
+  args: { caseId: v.id("cases"), url: v.string(), fixKey: v.optional(v.string()), passcode: v.optional(v.string()) },
+  handler: async (ctx, { caseId, url, fixKey, passcode }): Promise<RefreshResult> => {
+    await ctx.runQuery(internal.ownerPasscode.authorize, { passcode });
     requireDevTools();
     const parsed = parsePullRequestUrl(url);
     if (!parsed) return { outcome: "failed", message: "Expected a pull request URL like https://github.com/owner/name/pull/123." };

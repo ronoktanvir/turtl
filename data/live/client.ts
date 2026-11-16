@@ -11,6 +11,7 @@ const listeners = new Set<() => void>();
 let snapshot: { errors: string[]; loading: boolean } = { errors: [], loading: false };
 
 export function errorMessage(error: unknown): string {
+  if (error && typeof error === "object" && "data" in error && typeof error.data === "string") return error.data;
   const text = error instanceof Error ? error.message : String(error);
   if (/Could not find (public )?function|Function .*not found|not a function/i.test(text)) {
     return "This backend has not been updated for this control yet. No example data was substituted.";

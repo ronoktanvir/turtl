@@ -1,10 +1,11 @@
 import { useRef, useState } from "react";
 import { Moon, Sun, UserRound, Zap, type LucideIcon } from "lucide-react-native";
 import { Pressable, View } from "react-native";
-import { setApprovals, useApprovalSettings } from "../../data";
+import { isLiveData, setApprovals, useApprovalSettings } from "../../data";
 import type { ApprovalMode } from "../../data/types";
 import { useTheme, type ThemeMode } from "../../theme";
 import { Button, Icon, Sheet, T } from "../ui";
+import OwnerPasscodeSettings from "./OwnerPasscodeSettings";
 
 function Choice({ label, selected, disabled, onPress, testID, icon: Symbol }: { label: string; selected: boolean; disabled?: boolean; onPress: () => void; testID: string; icon: LucideIcon }) {
   const { colors } = useTheme();
@@ -48,6 +49,7 @@ export default function SettingsSheet({ visible, onClose, projectId }: { visible
       <T color="textMuted">Each Auto permission permits one action with its pinned values, bound to this app version, for at most 3 uses. It requires 2 verified recoveries. Every other fix still needs your approval.</T>
       {error && <T color="statusAffected" accessibilityRole="alert">{error}</T>}
     </View>
+    {isLiveData && visible && <OwnerPasscodeSettings />}
     <View style={{ gap: 12, marginTop: 8 }}>
       <T variant="heading">Theme</T>
       <View accessibilityRole="radiogroup" style={{ flexDirection: "row", gap: 4, padding: 4, borderRadius: 16, backgroundColor: colors.surfaceRaised }}>{modes.map((m) => <Choice key={m.mode} label={m.label} icon={m.icon} selected={mode === m.mode} onPress={() => setMode(m.mode)} testID={`theme-${m.mode}`} />)}</View>
