@@ -254,7 +254,7 @@ export const handler: StepHandler = {
       status: "done",
       summary: (answered
         ? `${unsure ? "Unconfirmed cause" : "Likely cause"} (${route}; ${modelFor(finalConfig).model}, confidence ${pct(used.confidence)}): ${used.cause}${unsupported.length ? ` Not established: ${unsupported.join("; ")}.` : ""}`
-        : `${final.noModel} A rule-based reading of the facts says: ${used.cause}`) + `${councilNote} Model cost about ${money(cost)}. ${pastNote}`,
+        : `${final.noModel} A rule-based reading of the facts says: ${used.cause}`) + `${councilNote}${cost > 0 ? ` Model cost about ${money(cost)}.` : ""} ${pastNote}`,
       handoff: {
         note: answered
           ? `A model's diagnosis is in this attempt's output${unsure ? "; it is unconfirmed" : ""}.${council?.status === "completed" ? " The council's consolidated view is an input, not verification." : ""}`

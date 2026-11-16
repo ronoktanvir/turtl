@@ -365,3 +365,10 @@ test("a case closed because turtl could not reach the app says what to fix and w
   const other = step({ status: "failed", currentAttempt: attempt({ status: "failed", error: "The model did not answer." }) });
   assert.ok(!content(map(cards({ case: row({ status: "unresolved" }), steps: [other] }))).includes("turtl stopped this case"), "not for other failures");
 });
+
+test("a rule-based reading says \"No model answered\" once, even when the stored reason already says it", () => {
+  const diagnosing = step({ currentAttempt: attempt({ output: { diagnosis: { source: "rules", cause: "Booking waited.", noModelReason: "No model answered: OpenAI is not connected to turtl yet, so no request was sent." } } }) });
+  const text = content(map(cards({ steps: [diagnosing] })));
+  assert.ok(text.includes("No model answered: OpenAI is not connected to turtl yet, so no request was sent."), text);
+  assert.ok(!text.includes("No model answered: No model answered"));
+});

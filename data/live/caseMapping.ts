@@ -278,7 +278,9 @@ export function mapCaseDetail(
   if (text(diagnosis.cause)) {
     const label = diagnosis.source === "rules" ? "Rule-based reading, not a model diagnosis: " : feature ? "What customers ask for: " : "Likely cause: ";
     paragraph([{ text: label + text(diagnosis.cause) }]);
-    if (diagnosis.source === "rules") paragraph([{ text: "No model answered" + (text(diagnosis.noModelReason) ? ": " + plainModelReason(text(diagnosis.noModelReason)) : ".") }]);
+    // The stored reason may already begin "No model answered:"; it is said once.
+    const reason = text(diagnosis.noModelReason).replace(/^No model answered:\s*/, "");
+    if (diagnosis.source === "rules") paragraph([{ text: "No model answered" + (reason ? ": " + plainModelReason(reason) : ".") }]);
     if (Array.isArray(diagnosis.supportingEvidenceIds)) {
       const supporting = diagnosis.supportingEvidenceIds.filter((id): id is string => typeof id === "string");
       for (const id of supporting) {

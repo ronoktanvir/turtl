@@ -114,3 +114,18 @@ test("a booking step is named in words, never by its id, wherever the owner read
   assert.match(monitor, /The booking check fails at the "\$\{failedStep\.replace\(\/_\/g, " "\)\}" step/);
   assert.match(monitor, /It failed at the "\$\{failedStep\.replace\(\/_\/g, " "\)\}" step\./);
 });
+
+test("turtl's own reading (no AI) says what it knows in words: no error codes, no \"cause is unknown\"", () => {
+  const { ruleReading } = createLoader()("convex/diagnosis.ts");
+  const evidence = [{ id: "e1", kind: "journey_check" }, { id: "e2", kind: "errors" }];
+  const store = ruleReading({ "journey.verdict": "failed", "journey.failedStep": "submit_booking", "journey.errorCode": "BOOKING_STORE_UNAVAILABLE", "health.ok": true }, evidence);
+  assert.equal(store.cause, "The booking store answers that it is unavailable, so every booking fails when it is saved.");
+  assert.equal(store.confidence, 0.5);
+  const other = ruleReading({ "journey.verdict": "failed", "journey.failedStep": "pay_now", "journey.errorCode": "PAYMENT_PROVIDER_DOWN", "health.ok": true }, evidence);
+  assert.equal(other.cause, 'The booking check stops at the "pay now" step. The app itself still answers. turtl\'s own rules know where it stops but not why, so they do not guess at a cause.');
+  assert.equal(other.confidence, 0.1);
+  const bare = ruleReading({ "journey.verdict": "failed" }, evidence);
+  assert.match(bare.cause, /^The booking check stops before a booking is saved\. turtl's own rules/);
+  for (const reading of [store, other, bare]) assert.doesNotMatch(reading.cause, /[A-Z]{2,}_[A-Z_]+|unknown|_/);
+  assert.match(read("convex/runner/handlers/investigate.ts"), /\$\{cost > 0 \? ` Model cost about \$\{money\(cost\)\}\.` : ""\}/);
+});
