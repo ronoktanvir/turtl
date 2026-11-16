@@ -13,7 +13,7 @@ turtl tells the owner on their own phone when a case needs them. Delivery goes t
 | `needs_decision` | "A case needs your decision. Open it to approve or decline a fix." | The case waits for the owner. |
 | `handled_under_permission` | "A fix you allowed ran and the app passed its check. Open the case to see what changed." | A fix the owner approved in advance has finished. |
 | `not_answering` | "Your app is not answering turtl's checks. Open the case to see what turtl saw." | The app gave turtl's checks no usable answer three times in a row, and a case opened (`convex/protectedApp/notAnswering.ts`). turtl cannot look into an app it cannot reach. |
-| `answering_again` | "Your app is answering turtl's checks again." | That case closed because the app answered. When turtl stops checking the project instead, the case closes with no notice. |
+| `answering_again` | "Your app is answering turtl's checks again. Open the case to see whether they pass." | That case closed because the app answered, possibly with a failing check, so the sentence is no all-clear. When turtl stops checking the project instead, the case closes with no notice. |
 | `opened` | none | turtl is still looking into it; nothing to do yet. If the owner must act, `needs_decision` follows. |
 
 A run under a permission that does not restore service revokes the permission, so the next failure sends

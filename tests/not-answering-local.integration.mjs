@@ -42,7 +42,7 @@ const anonymous = new ConvexHttpClient(url);
 const TOKEN = (name) => `ExponentPushToken[${name}-${RUN}]`;
 const BODIES = {
   not_answering: "Your app is not answering turtl's checks. Open the case to see what turtl saw.",
-  answering_again: "Your app is answering turtl's checks again.",
+  answering_again: "Your app is answering turtl's checks again. Open the case to see whether they pass.",
 };
 
 async function until(read, ok, label, timeout = 30_000) {

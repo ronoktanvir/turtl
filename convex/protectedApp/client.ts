@@ -155,15 +155,17 @@ const OWN_SITE: WatchedApp = {
 };
 
 /**
- * Whether turtl's own requests are getting out: one request to turtl's own site address (CONVEX_SITE_URL). Any HTTP
- * reply at all, an error page included, says yes; no reply says no. True when no site address is set. Asked only
- * before a not-answering case would open (convex/protectedApp/notAnswering.ts), never on every round. A best-effort
- * guard: whether such a request leaves Convex's own network on a hosted deployment has not been examined.
+ * Whether turtl's own requests are getting out: one request to turtl's own site address (CONVEX_SITE_URL). No reply,
+ * or a reply of 5xx or 429 (turtl's own site in trouble, or turned away), says no; any other reply, a 404 included,
+ * says yes. True when no site address is set. Asked only before a not-answering case would open
+ * (convex/protectedApp/notAnswering.ts), never on every round. A best-effort guard: whether such a request leaves
+ * Convex's own network on a hosted deployment has not been examined.
  */
 export async function turtlReachable(): Promise<boolean> {
   const site = process.env.CONVEX_SITE_URL?.replace(/\/+$/, "");
   if (!site) return true;
-  return (await call(`${site}/`, { app: OWN_SITE, timeoutMs: REQUEST_TIMEOUT_MS })).kind === "response";
+  const reply = await call(`${site}/`, { app: OWN_SITE, timeoutMs: REQUEST_TIMEOUT_MS });
+  return reply.kind === "response" && reply.status < 500 && reply.status !== 429;
 }
 
 export const describeFailure = (result: CallResult) =>

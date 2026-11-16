@@ -270,7 +270,8 @@ test("an owner notice schedules a push only for events where the owner must act,
 test("an app that stops answering turtl's checks, and answers again, each send one fixed sentence to the phone, once per case", async (t) => {
   const { pushMessage, PUSH_BODIES } = createLoader()("convex/push/message.ts");
   assert.equal(PUSH_BODIES.not_answering, "Your app is not answering turtl's checks. Open the case to see what turtl saw.");
-  assert.equal(PUSH_BODIES.answering_again, "Your app is answering turtl's checks again.");
+  // Neutral: the app may come back with a failing check, so the second push is not an all-clear.
+  assert.equal(PUSH_BODIES.answering_again, "Your app is answering turtl's checks again. Open the case to see whether they pass.");
   for (const event of ["not_answering", "answering_again"]) {
     assert.deepEqual(pushMessage({ projectName: "Booking app", caseId: CASE, event, text: "TypeError: fetch failed at 10.0.0.1" }), { title: "Booking app", body: PUSH_BODIES[event], data: { caseId: CASE } });
   }
