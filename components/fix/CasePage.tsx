@@ -5,7 +5,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { isLiveData, useCase, useDataStatus, useWorkflow } from "../../data";
 import type { FixOption, Screenshot } from "../../data/types";
 import { useTheme } from "../../theme";
-import { ago, Button, Card, Chip, devToolsOn, HealthWord, Icon, Reveal, T, Turtle, useReducedMotion } from "../ui";
+import { ago, Button, Card, Chip, HealthWord, Icon, Reveal, T, Turtle, useReducedMotion } from "../ui";
+import { useDevToolsOn } from "../ui/devTools";
 import { Droplet, dropBack, fillDrop, nativeDriver, usePull, useWheelPull } from "../ui/pulse";
 import { swipeTravel } from "../ui/swipe";
 import { CaseTabs, type CaseTab } from "./CaseTabs";
@@ -69,6 +70,7 @@ function focus(view: ViewNode | null) {
 }
 
 export function CasePage({ caseId, current }: { caseId: string; current: boolean }) {
+  const devToolsOn = useDevToolsOn();
   const c = useCase(caseId);
   const workflow = useWorkflow(caseId);
   const { errors } = useDataStatus();

@@ -17,3 +17,9 @@ export const appEnv = resolveAppEnv(process.env.EXPO_PUBLIC_APP_ENV);
 export const isStoreBuild = appEnv !== "development";
 export const isLiveData = usesLiveData(process.env.EXPO_PUBLIC_CONVEX_URL, process.env.EXPO_PUBLIC_DATA_SOURCE, appEnv);
 export const devToolsAllowed = allowsDevTools(appEnv, typeof __DEV__ !== "undefined" && __DEV__, process.env.EXPO_PUBLIC_DEV_TOOLS);
+
+/** Dev tools show only when the build allows them and the backend has not said accounts are on, since it then
+ * refuses them all. While the backend's mode is still loading, or in the example build, the build decides. */
+export function devToolsShown(allowed: boolean, mode: { accounts: boolean } | undefined): boolean {
+  return allowed && mode?.accounts !== true;
+}
