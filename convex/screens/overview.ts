@@ -1,7 +1,7 @@
 import { v, type Infer } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import { query, type QueryCtx } from "../_generated/server";
-import { visibleApp } from "../access";
+import { accessEnforced, visibleApp, visibleApps } from "../access";
 import { CLOSED_CASE_STATUSES } from "../constants";
 import { latestInspection, preparationFor } from "../onboarding/records";
 import { stageOf } from "../onboarding/stage";
@@ -40,11 +40,19 @@ async function codeMap(ctx: QueryCtx, app: Doc<"apps">) {
   const repo = repository(app.repoUrl);
   if (!repo) return null;
   const direct = await ctx.db.query("codeNetworks").withIndex("by_project", (q) => q.eq("projectId", app._id)).order("desc").first();
-  const network = direct && repository(direct.repo) === repo
-    ? direct
-    : (await ctx.db.query("codeNetworks").order("desc").take(MAX_NETWORKS)).find((row) => repository(row.repo) === repo);
-  return network && network.nodes.length ? { parts: network.nodes.length, groups: network.clusters.length } : null;
+  if (direct && repository(direct.repo) === repo) return mapOf(direct);
+  // Another project's map of the same repository may stand in, but with accounts on only one of the caller's own:
+  // a project that merely names someone else's repository must not learn the size of their map.
+  const others = accessEnforced()
+    ? (await Promise.all((await visibleApps(ctx)).map((owned) =>
+        ctx.db.query("codeNetworks").withIndex("by_project", (q) => q.eq("projectId", owned._id)).order("desc").first(),
+      ))).flatMap((row) => (row ? [row] : [])).sort((a, b) => b._creationTime - a._creationTime)
+    : await ctx.db.query("codeNetworks").order("desc").take(MAX_NETWORKS);
+  return mapOf(others.find((row) => repository(row.repo) === repo));
 }
+
+const mapOf = (network: Doc<"codeNetworks"> | null | undefined) =>
+  network && network.nodes.length ? { parts: network.nodes.length, groups: network.clusters.length } : null;
 
 async function journeyFailing(ctx: QueryCtx, appId: Id<"apps">, journeyId: Id<"journeys">) {
   const latest = await ctx.db

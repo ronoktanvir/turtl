@@ -472,6 +472,34 @@ test("the booking demo's customer API: open in the demo, closed with accounts on
   }
 });
 
+// Finding 9: a project that names another account's repository does not learn the size of that account's code map.
+test("an overview counts only a code map of the caller's own projects with accounts on", async (t) => {
+  const network = (projectId) => ({
+    projectId, repo: "alice/shop", ref: "main", namespace: "code_" + projectId, source: "built", generatedAt: 1,
+    clusters: [{ id: "c1", name: "Checkout", summary: "s" }, { id: "c2", name: "Admin", summary: "s" }],
+    nodes: ["pay", "cart", "admin"].map((id) => ({ id, clusterId: "c1", label: id, kind: "module", summary: "s" })),
+    edges: [],
+  });
+  {
+    const w = world(t, { AUTH_REQUIRED: "true" });
+    const { alice } = await seed(w);
+    const { db } = w.backend;
+    await db.insert("codeNetworks", network(alice.appId));
+    const bobs = await db.insert("apps", { name: "copycat", ownerId: "bob", repoUrl: "https://github.com/alice/shop" });
+    const alices = await db.insert("apps", { name: "shop-staging", ownerId: "alice", repoUrl: "https://github.com/alice/shop" });
+    assert.deepEqual((await w.as("alice")("screens/overview", "forProject", { projectId: alice.appId })).map, { parts: 3, groups: 2 });
+    assert.equal((await w.as("bob")("screens/overview", "forProject", { projectId: bobs })).map, null, "Bob's project names Alice's repository and sees no map");
+    assert.deepEqual((await w.as("alice")("screens/overview", "forProject", { projectId: alices })).map, { parts: 3, groups: 2 }, "Alice's other project may use her own map");
+  }
+  {
+    const w = world(t);
+    const { alice } = await seed(w);
+    await w.backend.db.insert("codeNetworks", network(alice.appId));
+    const other = await w.backend.db.insert("apps", { name: "copycat", ownerId: "solo-owner", repoUrl: "https://github.com/alice/shop" });
+    assert.deepEqual((await w.as(null)("screens/overview", "forProject", { projectId: other })).map, { parts: 3, groups: 2 }, "the demo is unchanged");
+  }
+});
+
 // Finding 4: Stop cancels the jobs kept on the case's own attempts, by id, and never reads the whole table of
 // scheduled jobs, which every account's work grows until such a read fails for everyone.
 test("Stop cancels the case's own scheduled jobs by id and reads no one else's", async (t) => {
