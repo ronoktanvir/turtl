@@ -272,9 +272,21 @@ test("with accounts on, a phone is filed under the signed-in account and nobody 
   assert.equal(w.backend.rows("pushTokens").length, 1, "bob cannot remove alice's phone");
   await w.call("api.push.devices.refresh", { token: TOKEN("b"), platform: "ios", previousToken: TOKEN("a") });
   assert.deepEqual(w.backend.rows("pushTokens").map((row) => [row.token, row.account]).sort(), [[TOKEN("a"), "alice"], [TOKEN("b"), "bob"]], "a refresh never removes another account's token");
-  // The same phone signed in to bob: its token moves to bob, so alice's cases stop reaching it.
+  // Review finding 11: a token live on alice's account cannot be moved to bob by registering or refreshing it, so
+  // knowing alice's token does not take her notifications. Signing out on that phone frees it.
+  await assert.rejects(w.call("api.push.devices.register", { token: TOKEN("a"), platform: "android" }), /still gets notifications for another turtl account/);
+  await assert.rejects(w.call("api.push.devices.refresh", { token: TOKEN("a"), platform: "android", previousToken: TOKEN("b") }), /still gets notifications for another turtl account/);
+  assert.deepEqual(w.backend.rows("pushTokens").map((row) => [row.token, row.account]).sort(), [[TOKEN("a"), "alice"], [TOKEN("b"), "bob"]], "nothing moved, and bob's own token stayed");
+  const { caseId } = await w.seed("Alice's shop", "alice");
+  const noticeId = await w.notice(caseId, "needs_decision");
+  w.as(null);
+  assert.equal(await w.call("internal.push.deliver.forNotice", { noticeId, caseId, event: "needs_decision" }), "sent");
+  assert.deepEqual(w.stub.sends().at(-1).body.map((message) => message.to), [TOKEN("a")], "alice still receives her next push");
+  w.as("alice");
+  await w.call("api.push.devices.remove", { token: TOKEN("a") });
+  w.as("bob");
   await w.call("api.push.devices.register", { token: TOKEN("a"), platform: "android" });
-  assert.deepEqual(w.backend.rows("pushTokens").map((row) => row.account), ["bob", "bob"]);
+  assert.deepEqual(w.backend.rows("pushTokens").map((row) => row.account), ["bob", "bob"], "once alice signed out on that phone, it can be bob's");
   await w.call("api.push.devices.remove", { token: TOKEN("a") });
   assert.deepEqual(w.backend.rows("pushTokens").map((row) => row.token), [TOKEN("b")]);
 });
