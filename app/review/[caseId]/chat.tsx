@@ -58,6 +58,16 @@ export default function InvestigateFurther() {
   };
   const active = !!c?.enactment && c.enactment.state !== "stopped";
 
+  // A case that is not this account's, or no longer exists, reads as not found and offers nothing to ask.
+  if (c === null) {
+    return (
+      <Screen testID="chat">
+        <Header title="Not found" fallback={"/projects" as never} testID="chat-title" />
+        <T style={{ padding: 20 }} testID="chat-not-found">This case could not be found.</T>
+      </Screen>
+    );
+  }
+
   return (
     <Screen testID="chat">
       <Header title="Investigate further" fallback={("/review/" + caseId) as never} testID="chat-title" />

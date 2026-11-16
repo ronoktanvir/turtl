@@ -45,6 +45,15 @@ export default function Enacting() {
   const [chatError, setChatError] = useState<string | null>(null);
   const e = c?.enactment;
   const back = ("/review/" + caseId) as never;
+  // A case that is not this account's, or no longer exists, reads as not found, like the case screen.
+  if (c === null) {
+    return (
+      <Screen testID="enacting">
+        <Header title="Not found" fallback={"/projects" as never} />
+        <T style={{ padding: 20 }} testID="enacting-not-found">This case could not be found.</T>
+      </Screen>
+    );
+  }
   if (!c || !e) {
     return (
       <Screen testID="enacting">
