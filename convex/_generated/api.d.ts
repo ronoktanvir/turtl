@@ -120,6 +120,7 @@ import type * as runner_handlers_plan from "../runner/handlers/plan.js";
 import type * as runner_handlers_verify from "../runner/handlers/verify.js";
 import type * as runner_run from "../runner/run.js";
 import type * as screens_network from "../screens/network.js";
+import type * as screens_overview from "../screens/overview.js";
 import type * as screens_projects from "../screens/projects.js";
 import type * as structural_checks from "../structural/checks.js";
 import type * as structural_dev from "../structural/dev.js";
@@ -254,6 +255,7 @@ declare const fullApi: ApiFromModules<{
   "runner/handlers/verify": typeof runner_handlers_verify;
   "runner/run": typeof runner_run;
   "screens/network": typeof screens_network;
+  "screens/overview": typeof screens_overview;
   "screens/projects": typeof screens_projects;
   "structural/checks": typeof structural_checks;
   "structural/dev": typeof structural_dev;

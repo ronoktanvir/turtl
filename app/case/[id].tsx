@@ -1,5 +1,5 @@
 import { useQuery } from "convex/react";
-import { Link, useLocalSearchParams } from "expo-router";
+import { Link, Redirect, useLocalSearchParams } from "expo-router";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   FlatList,
@@ -20,8 +20,14 @@ import { DecisionPanel } from "../../components/feed/DecisionPanel";
 import { PermissionPanel } from "../../components/feed/PermissionPanel";
 import { incidentContent } from "../../components/feed/incident";
 import { StatusBadge } from "../../components/feed/StatusBadge";
+import { isStoreBuild } from "../../data/source";
 
-export default function CaseScreen() {
+// The development feed's case screen. A store build neither draws nor queries it; cases open under /review there.
+export default function Case() {
+  return isStoreBuild ? <Redirect href="/projects" /> : <CaseScreen />;
+}
+
+function CaseScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const data = useQuery(api.cases.cards, { id });
   const item = data === undefined ? undefined : (data?.case ?? null);

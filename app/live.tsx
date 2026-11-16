@@ -1,11 +1,18 @@
 import { useQuery } from "convex/react";
+import { Redirect } from "expo-router";
 import { useEffect, useState } from "react";
 import { FlatList, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { api } from "../convex/_generated/api";
 import { CaseRow } from "../components/feed/CaseRow";
+import { isStoreBuild } from "../data/source";
 
-export default function Home() {
+// The development case feed: every case in the backend. A store build neither draws nor queries it; turtl://live opens Projects.
+export default function Live() {
+  return isStoreBuild ? <Redirect href="/projects" /> : <LiveCases />;
+}
+
+function LiveCases() {
   const rows = useQuery(api.cases.listWithSteps);
   const cases =
     rows &&

@@ -2,9 +2,9 @@ import { useRouter, type Href } from "expo-router";
 import { Image, Pressable, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import ProjectIcon from "../components/project/ProjectIcon";
+import FirstRun from "../components/project/FirstRun";
 import { Card, HealthWord, Icon, Reveal, Screen, T, Turtle, devToolsOn } from "../components/ui";
 import { useDataStatus, useProjects } from "../data";
-import type { Health } from "../data/types";
 import { approvalLabel, healthOrder, healthToken, useTheme } from "../theme";
 
 export default function Projects() {
@@ -13,7 +13,6 @@ export default function Projects() {
   const { colors } = useTheme();
   const projects = useProjects();
   const { errors } = useDataStatus();
-  const health = projects?.length ? projects.reduce<Health>((worst, project) => healthOrder.indexOf(project.health) < healthOrder.indexOf(worst) ? project.health : worst, "clear") : undefined;
   const sorted = projects && [...projects].sort((a, b) => Number(b.needsApprovalCount > 0) - Number(a.needsApprovalCount > 0) || healthOrder.indexOf(a.health) - healthOrder.indexOf(b.health));
   return (
     <Screen testID="home">
@@ -22,11 +21,10 @@ export default function Projects() {
           <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
             <T variant="display" accessibilityRole="header">Projects</T>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-              <Turtle health={health ?? "clear"} size={48} label={health ? undefined : "turtl"} />
+              <Turtle health="clear" size={48} label="turtl" />
               <Image source={require("../assets/brand/ronok-avatar.png")} accessibilityLabel="Your profile" style={{ width: 40, height: 40, borderRadius: 20, borderWidth: 1, borderColor: colors.border }} />
             </View>
           </View>
-          {projects && projects.length > 0 && health && <HealthWord health={health} testID="home-health" />}
         </View>
         <View style={{ gap: 12 }}>
           {sorted?.map((p, index) => {
@@ -58,8 +56,8 @@ export default function Projects() {
             );
           })}
           {projects === undefined && errors.length === 0 && <T color="textMuted">Loading…</T>}
-          {projects?.length === 0 && <View style={{ alignItems: "center", paddingVertical: 40, gap: 12 }}><Icon name="Layers" size={36} color="brandDeep" /><T variant="heading">No projects yet</T></View>}
-          <Pressable onPress={() => router.push("/add-project" as Href)} accessibilityRole="button" testID="home-add-project" style={({ pressed }) => ({ minHeight: 48, alignSelf: "center", flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 16, borderRadius: 999, borderWidth: 1, borderColor: colors.border, backgroundColor: pressed ? colors.surfaceRaised : "transparent" })}><Icon name="Plus" size={18} color="brandDeep" /><T>Add project</T></Pressable>
+          {projects?.length === 0 && <FirstRun onAdd={() => router.push("/add-project" as Href)} />}
+          {projects?.length !== 0 && <Pressable onPress={() => router.push("/add-project" as Href)} accessibilityRole="button" testID="home-add-project" style={({ pressed }) => ({ minHeight: 48, alignSelf: "center", flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 16, borderRadius: 999, borderWidth: 1, borderColor: colors.border, backgroundColor: pressed ? colors.surfaceRaised : "transparent" })}><Icon name="Plus" size={18} color="brandDeep" /><T>Add project</T></Pressable>}
         </View>
         {devToolsOn && <Pressable onPress={() => router.push("/live" as Href)} accessibilityRole="link" testID="home-live-cases" style={{ minHeight: 44, alignSelf: "center", justifyContent: "center" }}><T color="textMuted">Live cases</T></Pressable>}
       </ScrollView>
