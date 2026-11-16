@@ -18,7 +18,7 @@ Apple asks three things about each type that is collected: what it is used for, 
 
 | Apple's category | Apple's data type | Collected | What it is in turtl | Where in the audit |
 | --- | --- | --- | --- | --- |
-| Contact Info | Email Address | **Yes** | The address the owner signs in with, or the one Apple or GitHub passes on | [D1](data-practices.md#d1-account) |
+| Contact Info | Email Address | **Yes** | The address the owner signs in with, confirmed with an emailed code for a password account, or the one Apple or GitHub passes on | [D1](data-practices.md#d1-account) |
 | Contact Info | Name | **Yes** | The name Apple or GitHub passes on at sign-in. turtl stores it on the account and shows it in Settings | [D1](data-practices.md#d1-account) |
 | Identifiers | User ID | **Yes** | The account's id, and the id Apple or GitHub gives turtl for the person | [D1](data-practices.md#d1-account) |
 | Identifiers | Device ID | **Yes** | The phone's push token, collected only after the owner taps Turn on notifications | [D13](data-practices.md#d13-push-token-and-device-identifiers) |
@@ -61,7 +61,7 @@ Each of these could be answered the other way. The recommendation is the answer 
 2. **Source code: counted under Other User Content.** The code is not typed into the app. turtl's backend reads it from GitHub after the owner connects a repository. It is still the owner's content, collected because of what they did in the app, and copies go to OpenAI and Supermemory. Since typed messages already make Other User Content a yes, this changes nothing on the label, but it belongs in the reasoning.
 3. **Questions about the code: Other User Content, not Search History.** A question is sent to Supermemory as a search and kept as a chat message. It is a conversation with turtl, not a search box, so it sits with the other messages. If turtl ever adds a search field, declare Search History.
 4. **Usage Data: no.** The backend keeps one row for each AI call and each voice turn (which model, how long it took, whether it failed), each account's estimated AI spend and code changes, and whether each push was delivered. These describe turtl's own work and enforce the account's limits; they are not used to study how people use the app, and nothing in the app reports taps or screens. If those rows are ever used to measure behaviour, or an analytics library is added, the answer becomes Product Interaction with the purpose Analytics.
-5. **Device ID: declare the push token.** Expo's push token identifies one phone for as long as notifications stay on, and the push library sends Expo an installation id to get it. Neither is an advertising identifier, but both are device-level ids, so Device ID is the honest answer.
+5. **Device ID: declare the push token.** Expo's push token identifies one phone while notifications stay on and that phone stays signed in, and the push library sends Expo an installation id to get it. Neither is an advertising identifier, but both are device-level ids, so Device ID is the honest answer.
 6. **The control token and the coding agent key: not a type of their own.** They are the owner's credentials for their own app and their own Capy account, kept encrypted and used only to act for them ([D16](data-practices.md#d16-what-an-owner-entrusts-to-turtl)). They are content the owner enters, so they sit under Other User Content, which is already a yes.
 
 ## Not verified
