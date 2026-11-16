@@ -59,7 +59,7 @@ export function NetworkChat({ projectId, selection, name, expanded, onExpandedCh
           onChangeText={setText}
           onFocus={() => setExpanded(true)}
           onSubmitEditing={submit}
-          placeholder="Questions about the codebase?"
+          placeholder="Ask about your code"
           placeholderTextColor={colors.textMuted}
           testID="network-question-input"
           accessibilityLabel={`Question about ${name}`}

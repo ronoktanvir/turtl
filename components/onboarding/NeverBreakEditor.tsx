@@ -53,7 +53,7 @@ export function NeverBreakEditor({ answers, editable, onChange }: { answers: Nev
             value={text}
             onChangeText={setText}
             onSubmitEditing={add}
-            placeholder="Something that must never break"
+            placeholder="Add your own"
             placeholderTextColor={colors.textMuted}
             accessibilityLabel="Something that must never break"
             testID="never-break-input"

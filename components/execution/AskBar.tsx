@@ -4,7 +4,7 @@ import { T, Turtle } from "../ui";
 import { TalkButton, TalkRow } from "../voice/TalkControl";
 import type { TalkSession } from "../voice/useTalkSession";
 
-export function AskBar({ value, onChangeText, onSend, busy, inputID, sendID, placeholder, talk, talkID }: {
+export function AskBar({ value, onChangeText, onSend, busy, inputID, sendID, placeholder, label, talk, talkID }: {
   value: string;
   onChangeText: (value: string) => void;
   onSend: () => void;
@@ -12,6 +12,7 @@ export function AskBar({ value, onChangeText, onSend, busy, inputID, sendID, pla
   inputID: string;
   sendID: string;
   placeholder: string;
+  label?: string; // what a screen reader calls the field, when the placeholder is shortened to fit
   talk?: TalkSession;
   talkID?: string;
 }) {
@@ -26,7 +27,7 @@ export function AskBar({ value, onChangeText, onSend, busy, inputID, sendID, pla
         onSubmitEditing={() => { if (!disabled) onSend(); }}
         placeholder={placeholder}
         placeholderTextColor={colors.textMuted}
-        accessibilityLabel={placeholder}
+        accessibilityLabel={label ?? placeholder}
         returnKeyType="send"
         testID={inputID}
         style={{ flex: 1, minWidth: 0, minHeight: 48, fontSize: 16, fontFamily: "Capriola_400Regular", fontWeight: "400", color: colors.text, paddingHorizontal: 10 }}
