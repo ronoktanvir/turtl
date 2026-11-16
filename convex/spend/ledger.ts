@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { internalMutation, type MutationCtx, type QueryCtx } from "../_generated/server";
 import { addDeploymentSpend } from "./ceilings";
@@ -286,8 +287,33 @@ export const addModelSpend = internalMutation({
   },
 });
 
-/** Holds settled per run. */
+/** Holds settled per run of the sweep; a full batch runs the sweep again at once. */
 const SETTLE_BATCH = 100;
+
+// Every minute (convex/crons.ts): each hold still standing MODEL_CALL_HOLD_MS after its call was let through is counted
+// at its own amount (finding 26). No action outlives that, so its cost can no longer come back: the call timed out,
+// failed after the vendor may have done the work, or its action stopped before or after sending it. The hold is the
+// most the call could cost, so counting it so never lets a call that cost something go free. One line in the backend
+// log says how many and how much, so the operator sees calls whose cost was not reported.
+export const settleExpiredHolds = internalMutation({
+  args: {},
+  returns: v.object({ settled: v.number(), usd: v.number() }),
+  handler: async (ctx) => {
+    const now = Date.now();
+    const due = await ctx.db.query("modelCallHolds").withIndex("by_expires", (q) => q.lte("expiresAt", now)).take(SETTLE_BATCH);
+    let usd = 0;
+    for (const hold of due) {
+      await ctx.db.delete(hold._id);
+      await settle(ctx, { account: hold.account, share: hold.share, appId: hold.appId, costUsd: hold.heldUsd, releaseUsd: hold.heldUsd, releaseDay: hold.day, onAccount: "if known" });
+      usd += hold.heldUsd;
+    }
+    if (due.length) {
+      console.warn(`${due.length} model call${due.length === 1 ? "" : "s"} reported no cost within ${MODEL_CALL_HOLD_MS / 60_000} minutes and ${due.length === 1 ? "was" : "were"} counted at ${due.length === 1 ? "its hold" : "their holds"}, $${usd.toFixed(2)} in all.`);
+    }
+    if (due.length === SETTLE_BATCH) await ctx.scheduler.runAfter(0, internal.spend.ledger.settleExpiredHolds, {});
+    return { settled: due.length, usd };
+  },
+});
 
 // Account deletion (convex/account/registry.ts): the account's calls still out are counted at their holds in the
 // deployment's totals, so deleting an account mid-call neither frees what its calls may have cost nor leaves its holds

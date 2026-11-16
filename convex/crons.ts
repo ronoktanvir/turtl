@@ -17,6 +17,11 @@ crons.interval("settle agent run outcomes", { minutes: 2 }, internal.routing.log
 // Keeps onboarding preparation pull requests fresh; it does nothing while there are none.
 crons.interval("refresh onboarding pull requests", { minutes: 1 }, internal.onboarding.prepare.refreshActive, {});
 
+// Counts each model call whose cost never came back at its hold, ten minutes after it was let through, so a call that
+// timed out or whose action stopped neither holds the day until midnight nor goes free (convex/spend/ledger.ts). It
+// does nothing while there are none.
+crons.interval("settle model calls whose cost never came back", { minutes: 1 }, internal.spend.ledger.settleExpiredHolds, {});
+
 // Starts again an account deletion whose run stopped (convex/account); it does nothing while none has.
 crons.interval("resume account deletions", { minutes: 15 }, internal.account.deletion.resumeStalled, {});
 

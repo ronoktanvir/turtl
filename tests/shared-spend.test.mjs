@@ -1053,6 +1053,45 @@ test("a call the vendor answered with an error status gives its hold back at onc
   });
 });
 
+test("a call that timed out, or whose action stopped, keeps its hold for ten minutes and no longer, and is then counted at its hold", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: NOV_16 });
+  const lines = [];
+  t.mock.method(console, "warn", (line) => lines.push(line));
+  const { callModel } = load("convex/routing/models.ts");
+  await withEnv({ ...ACCOUNTS, ...STAND_IN }, async () => {
+    const db = world({ ada: 1 });
+    const ctx = actions(db);
+    const hold = limits.callEstimate(LONG_CALL.ref.model, [LONG_CALL.system, LONG_CALL.user], LONG_CALL.maxOutputTokens);
+    // One call times out at the vendor; another's action stops after the gate let it through, before it was sent.
+    t.mock.method(globalThis, "fetch", timingOut);
+    assert.equal((await callModel(gates.gateFor(ctx, { caseId: "cases:ada-0" }), LONG_CALL)).ok, false);
+    assert.equal((await gates.gateFor(ctx, { caseId: "cases:ada-0" }).open("openai", "send", 0.2)).ok, true);
+    const day = () => ledger.accountDay({ db }, "users:ada", Date.now());
+    const both = Math.round((hold + 0.2) * 1e6) / 1e6;
+    assert.ok(Math.abs((await day()).ownHeldUsd - both) < 1e-6);
+    const holdIds = db.rows("modelCallHolds").map((row) => row._id);
+    // Not a millisecond before ten minutes.
+    t.mock.timers.setTime(NOV_16 + limits.MODEL_CALL_HOLD_MS - 1);
+    assert.deepEqual(await ledger.settleExpiredHolds.handler({ db }), { settled: 0, usd: 0 });
+    assert.equal(db.rows("modelCallHolds").length, 2);
+    assert.deepEqual(lines, []);
+    // At ten minutes each is counted at its hold, the most it could have cost: on the share, the month, the shared day.
+    t.mock.timers.setTime(NOV_16 + limits.MODEL_CALL_HOLD_MS);
+    const settled = await ledger.settleExpiredHolds.handler({ db });
+    assert.equal(settled.settled, 2);
+    assert.ok(Math.abs(settled.usd - both) < 1e-6);
+    assert.deepEqual(await heldEverywhere(db), { onAccounts: 0, onDeployment: 0, rows: 0 });
+    assert.ok(Math.abs((await day()).ownUsd - both) < 1e-6);
+    assert.ok(Math.abs((await ledger.monthSpend({ db }, "users:ada", Date.now())) - both) < 1e-6);
+    assert.ok(Math.abs((await ceilings.deploymentSpendToday({ db }, Date.now())) - both) < 1e-6);
+    assert.equal(lines.length, 1);
+    assert.match(lines[0], /^2 model calls reported no cost within 10 minutes and were counted at their holds, \$0\.\d\d in all\.$/);
+    // A cost reported after that adds nothing (it cannot come back past the action's limit; the hold was the most).
+    await ledger.addModelSpend.handler({ db }, { account: "users:ada", costUsd: 0.05, holdId: holdIds[0] });
+    assert.ok(Math.abs((await day()).ownUsd - both) < 1e-6);
+  });
+});
+
 test("a successful call's cost replaces its hold exactly; one answered without its usage is counted at its hold, never at nothing", async (t) => {
   t.mock.timers.enable({ apis: ["Date"], now: NOV_16 });
   const { callModel } = load("convex/routing/models.ts");
@@ -1074,6 +1113,24 @@ test("a successful call's cost replaces its hold exactly; one answered without i
       assert.ok(Math.abs((await ledger.monthSpend({ db }, "users:ada", Date.now())) - expected) < 1e-9, which);
       assert.ok(Math.abs((await ceilings.deploymentSpendToday({ db }, Date.now())) - expected) < 1e-9, which);
     }
+  });
+});
+
+test("a hold that runs past midnight is given back on the day it was counted, never off the next day's holds", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: Date.parse("2026-11-16T23:55:00Z") });
+  t.mock.method(console, "warn", () => {});
+  await withEnv(ACCOUNTS, async () => {
+    const db = world({ ada: 1, bob: 1 });
+    assert.equal((await gates.gateFor(actions(db), { caseId: "cases:ada-0" }).open("openai", "send", 2)).ok, true);
+    // Past midnight Bob's call is out, and Ada's hold from yesterday runs out.
+    t.mock.timers.setTime(Date.parse("2026-11-17T00:06:00Z"));
+    assert.equal((await gates.gateFor(actions(db), { caseId: "cases:bob-0" }).open("openai", "send", 1)).ok, true);
+    await ledger.settleExpiredHolds.handler({ db });
+    assert.equal((await ledger.deploymentDay({ db }, Date.now())).heldUsd, 1, "Bob's hold is still counted today");
+    assert.equal((await ledger.accountDay({ db }, "users:bob", Date.now())).ownHeldUsd, 1);
+    // Ada's call is counted today at its hold, and yesterday's holds are given back.
+    assert.equal((await ledger.accountDay({ db }, "users:ada", Date.now())).ownUsd, 2);
+    assert.equal(db.rows("deploymentModelDays").find((row) => row.day === "2026-11-16")?.heldUsd ?? 0, 0, "yesterday's row holds nothing, or is gone");
   });
 });
 
