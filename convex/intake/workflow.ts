@@ -86,7 +86,9 @@ async function askWithRun(
     promptVersion,
   });
   const started = Date.now();
-  const answer = await askJson(gateFor(ctx, { appId: input.case.appId }), system, user);
+  // A case customers opened is read on the project's customer-report allowance, so customers cannot spend the
+  // owner's; when it runs out for the day, the labelled rule-based reading below stands in.
+  const answer = await askJson(gateFor(ctx, { appId: input.case.appId }, "intake"), system, user);
   await ctx.runMutation(internal.intake.workflow.finishRun, {
     agentRunId,
     status: answer.ok ? "completed" : "failed",

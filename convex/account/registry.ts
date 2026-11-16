@@ -102,6 +102,7 @@ export const projectErasers: Eraser[] = [
   inline("intake.windows", ["intakeRateWindows"], eraseIntakeWindows),
   projectRows("intakeKeys", "by_app"),
   projectRows("intakeLocks", "by_app"),
+  projectRows("intakeDays", "by_app_and_day"),
   projectRows("journeys", "by_app"),
   projectRows("actionCatalog", "by_app_and_type"),
   projectRows("permissions", "by_app"),
@@ -127,7 +128,7 @@ export const accountErasers: Eraser[] = [
   accountRows("aiConsents", "by_account"),
   accountRows("modelSpend", "by_account_and_month"),
   accountRows("codingThreads", "by_account_day_and_request"),
-  inline("auth.signIn", ["authSessions", "authRefreshTokens", "authVerifiers", "authAccounts", "authVerificationCodes", "authRateLimits", "users"], eraseSignIn),
+  inline("auth.signIn", ["authSessions", "authRefreshTokens", "authVerifiers", "authAccounts", "authVerificationCodes", "authPasswordResets", "authRateLimits", "users"], eraseSignIn),
 ];
 
 declare const process: { env: Record<string, string | undefined> };

@@ -6,6 +6,7 @@ import { internalAction, internalMutation, internalQuery, mutation, type ActionC
 import { accessEnforced, MAX_PROJECTS, requireAccount } from "../access";
 import { CLOSED_CASE_STATUSES } from "../constants";
 import { latestAgreement } from "../consent/permission";
+import { cancelJobs } from "../runner/jobs";
 import { eraseRows, eraseSignInMethods, expireSessions, type Progress } from "./erasers";
 import { accountErasers, callEntry, caseErasers, namespaces, projectErasers, type Eraser } from "./registry";
 import { vVendorService, type VendorTask } from "./schema";
@@ -45,6 +46,8 @@ const STALL_MS = 15 * 60_000;
 /** Waits before retrying a vendor deletion: 1 minute, 5, 30, 2 hours, 6, then once a day. */
 const VENDOR_BACKOFF_MS = [1, 5, 30, 120, 360, 1440].map((minutes) => minutes * 60_000);
 const VENDOR_BATCH = 20;
+/** The newest attempts of an open case whose scheduled jobs are cancelled at the stop; older ones have run. */
+const STOP_ATTEMPTS = 20;
 
 const CLOSED: readonly string[] = CLOSED_CASE_STATUSES;
 const EMPTY_REMOVED = { projects: 0, cases: 0, rows: 0, files: 0 };
@@ -264,13 +267,19 @@ async function stopBatch(ctx: MutationCtx, account: string, at: { project: numbe
         left--;
       }
     }
-    // An open case is closed, so the runner starts no new step on it.
+    // An open case is closed, so the runner starts no new step on it, and the steps it already scheduled and that have
+    // not started are cancelled by the job ids kept on their attempts (convex/runner/jobs.ts).
     const want = Math.max(left, 1);
     const page = await ctx.db.query("cases").withIndex("by_app", (q) => q.eq("appId", app._id).gt("_creationTime", cases)).take(want);
     for (const row of page) {
       left--;
       cases = row._creationTime;
-      if (!CLOSED.includes(row.status)) await ctx.db.patch(row._id, { status: "declined" });
+      if (CLOSED.includes(row.status)) continue;
+      await ctx.db.patch(row._id, { status: "declined" });
+      for (const attempt of await ctx.db.query("stepAttempts").withIndex("by_case", (q) => q.eq("caseId", row._id)).order("desc").take(STOP_ATTEMPTS)) {
+        left--;
+        if (attempt.scheduledJobs?.length) await cancelJobs(ctx, attempt);
+      }
     }
     if (page.length < want) {
       project = app._creationTime;

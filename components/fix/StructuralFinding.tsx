@@ -56,7 +56,7 @@ export function StructuralFindingCard({ finding, sources, id }: { finding: Struc
         <View style={{ gap: 10, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 16 }}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
             <Icon name="ShieldCheck" size={18} color="brandDeep" />
-            <T variant="strong" font="title" style={{ flex: 1 }}>{check.name}</T>
+            <T variant="strong" style={{ flex: 1 }}>{check.name}</T>
           </View>
           <T color="textMuted">{check.description}</T>
           {check.status === "offered" ? <T variant="small" color="textMuted" testID={id("structural-check-offered")}>Offered in Fixes, beside the fixes.</T> : <CheckStatus finding={finding} id={id} />}
@@ -116,7 +116,7 @@ export function PreventionCheckCard({ finding, id }: { finding: StructuralFindin
       </View>
       <View style={{ flexDirection: "row", gap: 12, alignItems: "flex-start" }}>
         <View style={{ flex: 1, gap: 6 }}>
-          <T variant="strong" font="title">{check.name}</T>
+          <T variant="strong">{check.name}</T>
           <T variant="small" color="textMuted">A check that keeps watching</T>
         </View>
         {check.status === "offered" && (
@@ -132,7 +132,7 @@ export function PreventionCheckCard({ finding, id }: { finding: StructuralFindin
         testID="structural-check-sheet"
         footer={
           <View style={{ gap: 12 }}>
-            {error && <T color="statusAffected" accessibilityRole="alert" testID="structural-check-error">{error}</T>}
+            {error && <T font="text" color="statusAffected" accessibilityRole="alert" testID="structural-check-error">{error}</T>}
             <View style={{ flexDirection: "row", gap: 12 }}>
               <Button label="Cancel" kind="plain" disabled={busy} onPress={close} testID="structural-check-cancel" style={{ flex: 1 }} />
               <Button label={busy ? "Approving…" : "Approve"} disabled={busy} onPress={() => void confirm()} testID="structural-check-confirm" style={{ flex: 1 }} />

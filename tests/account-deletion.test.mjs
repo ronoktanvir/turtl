@@ -33,6 +33,7 @@ const EXEMPT = {
   bookingDemoAttempts: "The booking demo's own log of booking attempts. No account's data.",
   githubWebhookDeliveries: "GitHub's delivery ids and body digests, kept so a replayed webhook changes nothing. They name an installation number, never a person or an account.",
   authAppleNonces: "SHA-256 hashes of Apple sign-in nonces already used. They name nobody, and each is deleted minutes after its token expires.",
+  deploymentTotals: "Deployment-wide running totals (new accounts per hour and day, every account's model spend per day). They count everyone and name no account.",
   accountDeletions: "The record that a deletion happened. Once the job is done it holds a hash of the account id, the times and counts, and nothing else.",
 };
 
@@ -259,7 +260,11 @@ function createBackend(load, { overrides = {}, failDelete = null } = {}) {
     query: (table) => builder(table, [], [], "asc"),
     system: {
       normalizeId: (table, id) => (typeof id === "string" && id.startsWith(table + ":") ? id : null),
-      get: async (id) => (files.has(id) ? { _id: id, size: files.get(id).length } : null),
+      get: async (id) => {
+        if (files.has(id)) return { _id: id, size: files.get(id).length };
+        const job = scheduled.find((entry) => entry.id === id);
+        return job ? { _id: id, name: job.path, state: { kind: "pending" } } : null;
+      },
     },
   };
   const storage = {
@@ -269,9 +274,17 @@ function createBackend(load, { overrides = {}, failDelete = null } = {}) {
     },
   };
   const scheduler = {
-    runAfter: async (delay, fn, args) => void scheduled.push({ at: Date.now() + delay, path: fn.path, args: structuredClone(args) }),
-    runAt: async (at, fn, args) => void scheduled.push({ at, path: fn.path, args: structuredClone(args) }),
-    cancel: async () => {},
+    runAfter: async (delay, fn, args) => scheduler.runAt(Date.now() + delay, fn, args),
+    runAt: async (at, fn, args) => {
+      const id = `_scheduled_functions:${++counter}`;
+      scheduled.push({ id, at, path: fn.path, args: structuredClone(args) });
+      return id;
+    },
+    cancel: async (id) => {
+      const index = scheduled.findIndex((entry) => entry.id === id);
+      assert.ok(index !== -1, "No pending job " + id);
+      cancelled.push(scheduled.splice(index, 1)[0]);
+    },
   };
   const definitionOf = (path) => {
     const segments = path.split(".").slice(1);
@@ -281,6 +294,7 @@ function createBackend(load, { overrides = {}, failDelete = null } = {}) {
     return definition;
   };
   const calls = [];
+  const cancelled = [];
   const call = async (path, args, identity = null) => {
     calls.push(path);
     if (overrides[path]) return await overrides[path](structuredClone(args), api);
@@ -311,6 +325,8 @@ function createBackend(load, { overrides = {}, failDelete = null } = {}) {
     rows: (table) => structuredClone(rowsOf(table)),
     all: () => structuredClone(Object.fromEntries(tables)),
     scheduled: () => scheduled,
+    cancelled,
+    schedule: (path, args, delay = 0) => scheduler.runAfter(delay, { path }, args),
     calls,
     call,
     // Runs scheduled functions in time order, moving the clock on to each, until none is left.
@@ -345,7 +361,7 @@ function clockFor(t) {
   return { skip: (ms) => (skew += ms) };
 }
 
-const VARIABLES = ["AUTH_REQUIRED", "AUTH_STAND_IN_URL", "AUTH_APPLE_TEAM_ID", "AUTH_APPLE_KEY_ID", "AUTH_APPLE_PRIVATE_KEY", "AUTH_APPLE_BUNDLE_ID", "SUPERMEMORY_API_KEY", "SUPERMEMORY_BASE_URL", "SUPERMEMORY_NAMESPACE_PREFIX", "INTAKE_NAMESPACE_PREFIX"];
+const VARIABLES = ["AUTH_REQUIRED", "CONVEX_CLOUD_URL", "AUTH_STAND_IN_URL", "AUTH_APPLE_TEAM_ID", "AUTH_APPLE_KEY_ID", "AUTH_APPLE_PRIVATE_KEY", "AUTH_APPLE_BUNDLE_ID", "SUPERMEMORY_API_KEY", "SUPERMEMORY_BASE_URL", "SUPERMEMORY_NAMESPACE_PREFIX", "INTAKE_NAMESPACE_PREFIX"];
 
 async function world(t, { env = {}, overrides, failDelete, mocks } = {}) {
   const saved = Object.fromEntries(VARIABLES.map((name) => [name, process.env[name]]));
@@ -368,6 +384,8 @@ async function world(t, { env = {}, overrides, failDelete, mocks } = {}) {
     AUTH_APPLE_PRIVATE_KEY: apple.appleClient.privateKey.replace(/\n/g, " "),
     SUPERMEMORY_API_KEY: memory.apiKey,
     SUPERMEMORY_BASE_URL: memory.url,
+    // Stand-in addresses are honoured with accounts on only on a local backend (convex/demoSettings.ts).
+    CONVEX_CLOUD_URL: "http://127.0.0.1:3210",
     ...env,
   });
   for (const [name, value] of Object.entries(env)) if (value === undefined) delete process.env[name];
@@ -391,6 +409,7 @@ async function seedAccount({ backend, registry, apple, memory }, label, installa
   const user = await add("users", { email, name: label });
   const method = await add("authAccounts", { userId: user, provider: "password", providerAccountId: email, secret: "scrypt-hash" });
   await add("authVerificationCodes", { accountId: method, provider: "password-reset", code: "hashed-code", expirationTime: Date.now() + 60_000 });
+  await add("authPasswordResets", { accountId: method, requestedAt: Date.now(), tries: 1 });
   await add("authRateLimits", { identifier: method, lastAttemptTime: Date.now(), attemptsLeft: 9 });
   await add("authRateLimits", { identifier: email, lastAttemptTime: Date.now(), attemptsLeft: 9 });
   const session = await add("authSessions", { userId: user, expirationTime: Date.now() + 86_400_000 });
@@ -561,10 +580,15 @@ test("deleting an account removes every row of it in every table, its files, and
   assert.deepEqual(backend.all(), settled);
 });
 
-test("the job stops nothing else while it waits: it closes the cases, switches off the monitor and the report form first", async (t) => {
+test("before it waits, the job closes open cases, cancels their scheduled steps, and switches off the monitor and the report form", async (t) => {
   const w = await world(t, { overrides: { "internal.github.connect.disconnectAccount": async () => ({ ok: true, disconnected: 0, failed: [] }) } });
   const { backend } = w;
   const alice = await seedAccount(w, "alice", 8001);
+  // A step the runner dispatched and that has not started: its run and its time limit, kept on the attempt.
+  const steps = backend.rows("steps").filter((row) => row.caseId === alice.caseId);
+  const execute = await backend.schedule("internal.runner.run.execute", { attemptId: "pending" }, 1_000);
+  const timeout = await backend.schedule("internal.runner.run.checkTimeout", { attemptId: "pending" }, 60_000);
+  await backend.db.insert("stepAttempts", { caseId: alice.caseId, stepId: steps[0]._id, attempt: 1, status: "running", scheduledJobs: [execute, timeout] });
   await backend.call("api.account.deletion.request", {}, alice.identity);
   // Run only the first part: the stop, up to the wait.
   const job = backend.scheduled().find((entry) => entry.path === "internal.account.deletion.run");
@@ -573,6 +597,7 @@ test("the job stops nothing else while it waits: it closes the cases, switches o
   assert.equal(record.stage, "settle");
   assert.ok(record.settleUntil - Date.now() > 10 * 60_000, "it waits out every action that could still be running");
   assert.equal(backend.rows("cases").find((row) => row._id === alice.caseId).status, "declined");
+  assert.deepEqual(backend.cancelled.map((job) => job.path), ["internal.runner.run.execute", "internal.runner.run.checkTimeout"], "the step it had scheduled is cancelled");
   assert.equal(backend.rows("cases").find((row) => row._id === alice.closedCase).status, "resolved");
   assert.equal(backend.rows("journeys").filter((row) => row.appId === alice.appId).length, 0, "the monitor has nothing to check");
   assert.equal(backend.rows("permissions").filter((row) => row.appId === alice.appId).length, 0, "no standing permission to act on");

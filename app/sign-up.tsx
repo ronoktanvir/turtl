@@ -35,7 +35,7 @@ export default function SignUp() {
       <T color="textMuted">All turtl needs is an email address and a password.</T>
       <Field label="Email" testID="sign-up-email" value={email} onChangeText={setEmail} keyboardType="email-address" textContentType="username" autoComplete="email" editable={!busy} returnKeyType="next" />
       <Field label="Password" testID="sign-up-password" hint={`At least ${MIN_PASSWORD_LENGTH} characters.`} value={password} onChangeText={setPassword} secureTextEntry textContentType="newPassword" autoComplete="new-password" editable={!busy} returnKeyType="go" onSubmitEditing={() => void submit()} />
-      {error && <T color="statusAffected" accessibilityRole="alert" testID="sign-up-error">{error}</T>}
+      {error && <T font="text" color="statusAffected" accessibilityRole="alert" testID="sign-up-error">{error}</T>}
       {error === words.accountExists && <FormLink label="Log in instead" onPress={() => router.replace("/sign-in")} testID="sign-up-to-sign-in" />}
       <Button label={busy ? "Creating your account…" : "Create account"} disabled={busy || !email || !password} onPress={() => void submit()} testID="sign-up-submit" />
       <T variant="small" color="textMuted" style={{ textAlign: "center" }}>By creating an account you agree to the terms. The privacy policy says what turtl keeps.</T>

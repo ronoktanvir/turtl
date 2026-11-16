@@ -10,7 +10,7 @@ import { chromium } from "playwright-core";
 
 test("recorded workflow is keyboard accessible with truthful edges and narrow independent lanes", async () => {
   const dir = await mkdtemp(join(tmpdir(), "turtl-workflow-"));
-  const executablePath = process.env.CHROME_PATH ?? ["/usr/bin/google-chrome-stable", "/usr/bin/chromium"].find(existsSync);
+  const executablePath = process.env.CHROME_PATH ?? ["/usr/bin/google-chrome-stable", "/usr/bin/chromium", "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"].find(existsSync);
   assert.ok(executablePath, "Set CHROME_PATH to a Chromium executable");
   let browser;
   let server;

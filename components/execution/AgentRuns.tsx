@@ -43,7 +43,7 @@ export function AgentRuns({ runs, testID }: { runs: AgentRunView[]; testID?: str
             {outcome && <T variant="small" color={outcome.tone}>{outcome.word}</T>}
             <View style={{ gap: 6, paddingTop: 6, borderTopWidth: 1, borderTopColor: colors.border }}>
               <T variant="small">{"Why: " + run.reason}</T>
-              {run.error && <T variant="small" color="statusNeedsYou">{run.error}</T>}
+              {run.error && <T variant="small" font="text" color="statusNeedsYou">{run.error}</T>}
               {!run.outcome && run.outcomeReason && <T variant="small" color="textMuted">{run.outcomeReason}</T>}
             </View>
           </View>

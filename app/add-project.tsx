@@ -74,7 +74,7 @@ export default function AddProject() {
               {field.hint && <T variant="small" color="textMuted">{field.hint}</T>}
             </View>
           ))}
-          {error && <T color="statusAffected" accessibilityRole="alert" testID="add-project-error">{error}</T>}
+          {error && <T font="text" color="statusAffected" accessibilityRole="alert" testID="add-project-error">{error}</T>}
           <Button label={busy ? "Adding…" : "Add project"} icon="Plus" disabled={busy || !repoUrl.trim()} onPress={() => void submit()} testID="add-project-submit" />
         </ScrollView>
       </KeyboardAvoidingView>

@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { internalQuery } from "../_generated/server";
+import { standInOnly } from "../demoSettings";
 
 declare const process: { env: Record<string, string | undefined> };
 
@@ -20,9 +21,10 @@ const LIBRARY_KNOBS = ["AUTH_LOG_LEVEL", "AUTH_LOG_SECRETS", "AUTH_SESSION_TOTAL
 type Name = (typeof REQUIRED)[number] | (typeof GITHUB)[number] | (typeof LIBRARY_KNOBS)[number];
 const isSet = (name: Name) => Boolean(process.env[name]);
 
-/** A stand-in server for GitHub, Apple's keys and the reset email, used only by tests. Never set in production. */
+/** A stand-in server for GitHub, Apple's keys and the reset email, used only by tests. Never set in production: with
+ * accounts on it is honoured only on a local backend, since that server would decide who is signed in. */
 export function standInUrl(): string | undefined {
-  const url = process.env.AUTH_STAND_IN_URL?.replace(/\/$/, "");
+  const url = standInOnly(process.env.AUTH_STAND_IN_URL)?.replace(/\/$/, "");
   return url || undefined;
 }
 

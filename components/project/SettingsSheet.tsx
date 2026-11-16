@@ -58,7 +58,7 @@ export default function SettingsSheet({ visible, onClose, projectId }: { visible
           <T testID="approvals-scope">{settings.scope}</T>
         </View>
       )}
-      {error && <T color="statusAffected" accessibilityRole="alert">{error}</T>}
+      {error && <T font="text" color="statusAffected" accessibilityRole="alert">{error}</T>}
     </View>
     <PreferencesSettings projectId={projectId} />
     {visible && <NotificationsSettings />}

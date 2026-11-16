@@ -19,7 +19,10 @@ import { startAuthStandIn } from "./fixtures/auth-stand-in.mjs";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const nodeRequire = createRequire(import.meta.url);
 const realAuth = await import("@convex-dev/auth/server");
-const VARIABLES = ["AUTH_REQUIRED", "AUTH_STAND_IN_URL", "AUTH_RESEND_KEY", "AUTH_EMAIL_FROM", "AUTH_APPLE_BUNDLE_ID", "AUTH_APPLE_TEAM_ID", "AUTH_APPLE_KEY_ID", "AUTH_APPLE_PRIVATE_KEY", "AUTH_GITHUB_ID", "AUTH_GITHUB_SECRET", "JWT_PRIVATE_KEY", "JWKS", "SITE_URL"];
+const VARIABLES = [
+  "AUTH_REQUIRED", "AUTH_STAND_IN_URL", "AUTH_RESEND_KEY", "AUTH_EMAIL_FROM", "AUTH_APPLE_BUNDLE_ID", "AUTH_APPLE_TEAM_ID", "AUTH_APPLE_KEY_ID", "AUTH_APPLE_PRIVATE_KEY", "AUTH_GITHUB_ID", "AUTH_GITHUB_SECRET", "JWT_PRIVATE_KEY", "JWKS", "SITE_URL",
+  "CONVEX_CLOUD_URL", "NEW_ACCOUNTS_PER_HOUR", "NEW_ACCOUNTS_PER_DAY",
+];
 
 const ref = (path) => new Proxy({ path }, { get: (target, key) => (key === "path" ? target.path : ref(path + "." + String(key))) });
 const registered = (kind) => (definition) => ({ kind, ...definition });
@@ -59,23 +62,71 @@ function createLoader(mocks = {}) {
   return (path) => load(resolve(root, path));
 }
 
-// Convex Auth's account functions, kept in memory with the same contract: retrieveAccount throws "InvalidAccountId",
-// "InvalidSecret" or "TooManyFailedAttempts"; createAccount throws "Account <id> already exists"; a reset code is
-// checked by signInViaProvider, which throws "Could not verify code" for a wrong one.
+// Convex Auth's account functions with the same contract as @convex-dev/auth 0.0.98 (node_modules/@convex-dev/auth/src):
+// retrieveAccount throws "InvalidAccountId", "InvalidSecret" or "TooManyFailedAttempts", and counts wrong passwords
+// per account in authRateLimits (10 an hour, checked before the password); createAccount throws "Account <id> already
+// exists"; signInViaProvider keeps one code per account in authVerificationCodes (a new one replaces it), and checks a
+// code the way verifyCodeAndSignIn does: wrong codes counted per address when params carry one, the code matched to
+// accountId when given, and "Could not verify code" for any failure. Accounts and users stay in memory; codes and
+// counts live in the world's database, where turtl's own mutations read them.
+const MAX_FAILED_PER_HOUR = 10;
 function fakeAuthLibrary() {
   const accounts = [];
   const users = [];
   const sessions = [];
   const invalidated = [];
-  const codes = new Map();
   let counter = 0;
   let rateLimited = false;
   const find = (provider, id) => accounts.find((row) => row.provider === provider && row.providerAccountId === id);
+  let config = null;
+  const db = () => library.mutationCtx.db;
+  const limitOf = (identifier) => db().query("authRateLimits").withIndex("identifier", (q) => q.eq("identifier", identifier)).unique();
+  // Tries come back at 10 an hour, as in the library's rateLimit.ts.
+  const left = (row) => Math.min(MAX_FAILED_PER_HOUR, row.attemptsLeft + ((Date.now() - row.lastAttemptTime) * MAX_FAILED_PER_HOUR) / 3_600_000);
+  const limited = async (identifier) => {
+    const row = await limitOf(identifier);
+    return row !== null && left(row) < 1;
+  };
+  const failed = async (identifier) => {
+    const row = await limitOf(identifier);
+    if (row) await db().patch(row._id, { attemptsLeft: left(row) - 1, lastAttemptTime: Date.now() });
+    else await db().insert("authRateLimits", { identifier, attemptsLeft: MAX_FAILED_PER_HOUR - 1, lastAttemptTime: Date.now() });
+  };
+  const forgive = async (identifier) => {
+    const row = await limitOf(identifier);
+    if (row) await db().delete(row._id);
+  };
+  const checkCode = async (provider, accountId, params, identifier) => {
+    const row = await db().query("authVerificationCodes").withIndex("code", (q) => q.eq("code", sha(params.code))).unique();
+    if (!row) return null;
+    if (row.expirationTime < Date.now()) return (await db().delete(row._id), null);
+    if (accountId === undefined && identifier === undefined && params.code.length < 20) return null;
+    const account = accounts.find((candidate) => candidate._id === row.accountId);
+    if (!account || (accountId !== undefined && accountId !== row.accountId)) return null;
+    if (accountId === undefined && identifier !== undefined && account.providerAccountId !== identifier) return null;
+    if (row.provider !== provider.id) return null;
+    try {
+      await provider.authorize?.(params, account);
+    } catch {
+      return null;
+    }
+    await db().delete(row._id);
+    return account;
+  };
   const library = {
     authTables: realAuth.authTables,
+    // convex/auth.ts's configuration, kept so createAccount can run its callback the way the library does.
+    convexAuth(given) {
+      config = given;
+      return { auth: {}, signIn: {}, signOut: {}, store: {}, isAuthenticated: {} };
+    },
+    /** The mutation context the library's own mutation would give the callbacks; the world sets it. */
+    mutationCtx: null,
     async createAccount(_ctx, { provider, account, profile, shouldLinkViaEmail }) {
       assert.equal(shouldLinkViaEmail, false, "accounts are never linked by email");
       if (find(provider, account.id)) throw new Error(`Account ${account.id} already exists`);
+      // The library calls this inside the mutation that makes the user, so a throw leaves no user or account behind.
+      await config?.callbacks?.afterUserCreatedOrUpdated?.(library.mutationCtx, { userId: "users:" + (counter + 1), existingUserId: null, type: "credentials" });
       const user = { _id: "users:" + ++counter, ...profile };
       users.push(user);
       const row = { _id: "authAccounts:" + ++counter, userId: user._id, provider, providerAccountId: account.id, ...(account.secret !== undefined ? { secret: "hashed:" + account.secret } : {}) };
@@ -86,8 +137,12 @@ function fakeAuthLibrary() {
       const row = find(provider, account.id);
       if (!row) throw new Error("InvalidAccountId");
       if (account.secret !== undefined) {
-        if (rateLimited) throw new Error("TooManyFailedAttempts");
-        if (row.secret !== "hashed:" + account.secret) throw new Error("InvalidSecret");
+        if (rateLimited || (await limited(row._id))) throw new Error("TooManyFailedAttempts");
+        if (row.secret !== "hashed:" + account.secret) {
+          await failed(row._id);
+          throw new Error("InvalidSecret");
+        }
+        await forgive(row._id);
       }
       return { account: structuredClone(row), user: structuredClone(users.find((user) => user._id === row.userId)) };
     },
@@ -102,17 +157,23 @@ function fakeAuthLibrary() {
     async signInViaProvider(_ctx, provider, { accountId, params }) {
       if (params.code === undefined) {
         const code = await provider.generateVerificationToken();
-        const row = accounts.find((account) => account._id === accountId);
-        codes.set(code, row);
+        const existing = await db().query("authVerificationCodes").withIndex("accountId", (q) => q.eq("accountId", accountId)).unique();
+        if (existing) await db().delete(existing._id);
+        await db().insert("authVerificationCodes", { accountId, provider: provider.id, code: sha(code), expirationTime: Date.now() + (provider.maxAge ?? 3600) * 1000, emailVerified: params.email });
         await provider.sendVerificationRequest({ identifier: params.email, token: code });
         return null;
       }
-      const row = codes.get(params.code);
-      if (!row || row.providerAccountId !== params.email) throw new Error("Could not verify code");
-      codes.delete(params.code);
+      const identifier = params.email ?? params.phone;
+      if (identifier !== undefined && (await limited(identifier))) throw new Error("Could not verify code");
+      const account = await checkCode(provider, accountId, params, identifier);
+      if (!account) {
+        if (identifier !== undefined) await failed(identifier);
+        throw new Error("Could not verify code");
+      }
+      if (identifier !== undefined) await forgive(identifier);
       const sessionId = "authSessions:" + ++counter;
       sessions.push(sessionId);
-      return { userId: row.userId, sessionId };
+      return { userId: account.userId, sessionId };
     },
   };
   return { library, accounts, users, invalidated, limit: (value) => (rateLimited = value) };
@@ -130,6 +191,12 @@ function fakeDb(indexes) {
       return row._id;
     },
     get: async (id) => structuredClone([...tables.values()].flat().find((row) => row._id === id) ?? null),
+    patch: async (id, fields) => {
+      for (const list of tables.values()) {
+        const index = list.findIndex((row) => row._id === id);
+        if (index !== -1) list[index] = { ...list[index], ...structuredClone(fields) };
+      }
+    },
     delete: async (id) => {
       for (const list of tables.values()) {
         const index = list.findIndex((row) => row._id === id);
@@ -142,10 +209,11 @@ function fakeDb(indexes) {
         const fields = indexes[table]?.[name];
         assert.ok(fields, `${table} has no index ${name}`);
         const conditions = [];
-        const range = { eq: (field, value) => (conditions.push([field, value]), range) };
+        const tests = { eq: (a, b) => a === b, lt: (a, b) => a < b, lte: (a, b) => a <= b, gt: (a, b) => a > b, gte: (a, b) => a >= b };
+        const range = Object.fromEntries(Object.entries(tests).map(([operator, holds]) => [operator, (field, value) => (conditions.push([field, value, holds]), range)]));
         build(range);
         conditions.forEach(([field], position) => assert.equal(field, fields[position], `${table}.${name} cannot be read by ${field} here`));
-        const matched = () => structuredClone(rows(table).filter((row) => conditions.every(([field, value]) => row[field] === value)));
+        const matched = () => structuredClone(rows(table).filter((row) => conditions.every(([field, value, holds]) => holds(row[field], value))));
         return { first: async () => matched()[0] ?? null, take: async (count) => matched().slice(0, count), unique: async () => matched()[0] ?? null };
       },
     }),
@@ -173,13 +241,27 @@ async function world(t, env = {}) {
   const load = createLoader({
     "@convex-dev/auth/server": auth.library,
     "@convex-dev/auth/providers/ConvexCredentials": { ConvexCredentials: (config) => ({ type: "credentials", ...config }) },
-    "@convex-dev/auth/providers/Email": { Email: (config) => ({ type: "email", ...config }) },
+    // As the library's Email(): its own check wants the address that asked, unless the config replaces it.
+    "@convex-dev/auth/providers/Email": {
+      Email: (config) => ({
+        id: "email",
+        type: "email",
+        maxAge: 3600,
+        authorize: async (params, account) => {
+          if (typeof params.email !== "string") throw new Error("Token verification requires an `email` in params of `signIn`.");
+          if (account.providerAccountId !== params.email) throw new Error("Short verification code requires a matching `email` in params of `signIn`.");
+        },
+        ...config,
+      }),
+    },
     lucia: { Scrypt: class { async hash(secret) { return "scrypt:" + secret; } async verify(hash, secret) { return hash === "scrypt:" + secret; } } },
   });
   const { accountTables } = load("convex/auth/schema.ts");
-  const store = fakeDb(indexesOf(accountTables));
+  const { spendTables } = load("convex/spend/schema.ts");
+  const store = fakeDb(indexesOf({ ...accountTables, ...spendTables }));
   const scheduled = [];
   const mutationCtx = { db: store.db, scheduler: { runAt: async (at, fn, args) => void scheduled.push({ at, path: fn.path, args }) } };
+  auth.library.mutationCtx = mutationCtx;
   const runMutation = async (fn, args) => {
     const segments = fn.path.split(".").slice(1);
     const name = segments.pop();
@@ -339,25 +421,15 @@ test("email and password: sign up, sign in, and each refusal in plain words", as
 });
 
 test("password reset emails a one-time code, changes the password, and signs out every other device", async (t) => {
-  const { load, auth, standIn } = await world(t, { AUTH_RESEND_KEY: "stand-in-key", AUTH_EMAIL_FROM: "turtl <no-reply@example.com>" });
+  const { load, auth, standIn, actionCtx: ctx } = await world(t, { AUTH_RESEND_KEY: "stand-in-key", AUTH_EMAIL_FROM: "turtl <no-reply@example.com>" });
   const { words } = load("convex/auth/rules.ts");
   const provider = load("convex/auth/password.ts").password();
-  let sentRecently = false;
-  const ctx = {
-    runQuery: async (fn, args) => {
-      assert.equal(fn.path, "internal.auth.email.sentRecently");
-      assert.equal(args.accountId, auth.accounts[0]._id);
-      return sentRecently;
-    },
-  };
   await provider.authorize({ flow: "signUp", email: "owner@example.com", password: "tide pools at dawn" }, ctx);
   assert.equal(await provider.authorize({ flow: "reset", email: "nobody@example.com" }, ctx), null);
   assert.equal(standIn.emails.length, 0, "no email for an address without an account, and the same answer");
-  sentRecently = true;
-  assert.equal(await provider.authorize({ flow: "reset", email: "owner@example.com" }, ctx), null);
-  assert.equal(standIn.emails.length, 0, "no second email within a minute, and the same answer");
-  sentRecently = false;
   assert.equal(await provider.authorize({ flow: "reset", email: "Owner@example.com" }, ctx), null);
+  assert.equal(await provider.authorize({ flow: "reset", email: "owner@example.com" }, ctx), null);
+  assert.equal(standIn.emails.length, 1, "no second email while the first code works, and the same answer");
   const [email] = standIn.emails;
   assert.deepEqual([email.to, email.from, email.authorization], [["owner@example.com"], "turtl <no-reply@example.com>", "Bearer stand-in-key"]);
   const code = standIn.lastCode();
@@ -383,14 +455,98 @@ test("the reset email reports a refused send without echoing the reply, and is o
   const codes = await Promise.all(Array.from({ length: 50 }, () => email.resetProvider().generateVerificationToken()));
   assert.ok(codes.every((code) => /^\d{8}$/.test(code)));
   assert.ok(new Set(codes).size > 45, "codes vary");
-  // A minute between reset emails to one account: Convex Auth keeps one code per account.
-  const store = fakeDb(indexesOf(realAuth.authTables));
+  // A new code goes out only when none still works and none went out in the last minute.
+  const { accountTables } = load("convex/auth/schema.ts");
+  const store = fakeDb(indexesOf(accountTables));
   const ctx = { db: store.db };
-  assert.equal(await email.sentRecently.handler(ctx, { accountId: "authAccounts:1" }), false);
-  await store.seed("authVerificationCodes", { accountId: "authAccounts:1", provider: "password-reset", code: "hash", expirationTime: Date.now() + 900_000 });
-  assert.equal(await email.sentRecently.handler(ctx, { accountId: "authAccounts:1" }), true);
-  t.mock.timers.enable({ apis: ["Date"], now: Date.now() + email.RESEND_AFTER_MS + 1 });
-  assert.equal(await email.sentRecently.handler(ctx, { accountId: "authAccounts:1" }), false);
+  const reserve = () => email.reserveReset.handler(ctx, { accountId: "authAccounts:1" });
+  t.mock.timers.enable({ apis: ["Date"], now: Date.parse("2026-11-15T12:00:00Z") });
+  assert.equal(await reserve(), true);
+  assert.equal(await reserve(), false, "within a minute of the last one");
+  await store.seed("authVerificationCodes", { accountId: "authAccounts:1", provider: "password-reset", code: "hash", expirationTime: Date.now() + 15 * 60_000 });
+  t.mock.timers.setTime(Date.parse("2026-11-15T12:05:00Z"));
+  assert.equal(await reserve(), false, "the code sent five minutes ago still works, so it is not replaced");
+  t.mock.timers.setTime(Date.parse("2026-11-15T12:16:00Z"));
+  assert.equal(await reserve(), true, "an expired code may be replaced");
+});
+
+// Review finding 6: someone who knows only the owner's address must not be able to keep the owner out. Convex Auth
+// refuses an account's right password after 10 wrong ones an hour; the reset is the way back, so a stranger must not be
+// able to replace the code the owner was sent, or use up tries the owner's own code needs.
+test("after ten wrong passwords from a stranger, the reset lets the owner back in, and a second reset leaves the first code valid", async (t) => {
+  const { load, standIn, store, actionCtx: ctx } = await world(t, { AUTH_RESEND_KEY: "stand-in-key", AUTH_EMAIL_FROM: "turtl <no-reply@example.com>" });
+  t.mock.timers.enable({ apis: ["Date"], now: Date.parse("2026-11-15T12:00:00Z") });
+  const { words } = load("convex/auth/rules.ts");
+  const provider = load("convex/auth/password.ts").password();
+  const as = (params) => provider.authorize({ email: "owner@example.com", ...params }, ctx);
+  await as({ flow: "signUp", password: "tide pools at dawn" });
+  // The stranger: ten wrong passwords, then the owner's right one is refused, as Convex Auth does.
+  for (let n = 0; n < 10; n++) await assert.rejects(as({ flow: "signIn", password: `wrong guess ${n}` }), refusal(words.wrongPassword));
+  await assert.rejects(as({ flow: "signIn", password: "tide pools at dawn" }), refusal(words.tooManyTries));
+  // The stranger asks for a reset (the code goes to the owner), and asks again later while it still works.
+  await as({ flow: "reset" });
+  const first = standIn.lastCode();
+  t.mock.timers.setTime(Date.parse("2026-11-15T12:02:00Z"));
+  await as({ flow: "reset" });
+  assert.equal(standIn.emails.length, 1, "no new code replaced the first");
+  // A few wrong codes from the stranger leave the code working.
+  for (const guess of ["11111111", "22222222"]) await assert.rejects(as({ flow: "reset-verification", code: guess, newPassword: "stranger's password" }), refusal(words.wrongCode));
+  const back = await as({ flow: "reset-verification", code: first, newPassword: "a new password" });
+  assert.ok(back.sessionId, "the owner is signed in");
+  assert.ok(await as({ flow: "signIn", password: "a new password" }), "and the new password works at once on another device");
+  assert.deepEqual(store.rows("authRateLimits"), [], "no count of wrong tries is left against the account or the address");
+  assert.deepEqual(store.rows("authPasswordResets"), []);
+});
+
+test("a stranger's wrong codes use up only that code: the owner asks for another and gets back in", async (t) => {
+  const { load, standIn, store, actionCtx: ctx } = await world(t, { AUTH_RESEND_KEY: "stand-in-key", AUTH_EMAIL_FROM: "turtl <no-reply@example.com>" });
+  t.mock.timers.enable({ apis: ["Date"], now: Date.parse("2026-11-15T12:00:00Z") });
+  const { words } = load("convex/auth/rules.ts");
+  const { MAX_CODE_TRIES } = load("convex/auth/email.ts");
+  const provider = load("convex/auth/password.ts").password();
+  const as = (params) => provider.authorize({ email: "owner@example.com", ...params }, ctx);
+  await as({ flow: "signUp", password: "tide pools at dawn" });
+  await as({ flow: "reset" });
+  const burned = standIn.lastCode();
+  for (let n = 0; n < MAX_CODE_TRIES; n++) await assert.rejects(as({ flow: "reset-verification", code: String(30000000 + n), newPassword: "stranger's password" }), refusal(words.wrongCode));
+  await assert.rejects(as({ flow: "reset-verification", code: burned, newPassword: "a new password" }), refusal(words.wrongCode), "that code is used up");
+  assert.deepEqual(store.rows("authVerificationCodes"), [], "and dropped");
+  assert.deepEqual(store.rows("authRateLimits"), [], "the address is never locked");
+  t.mock.timers.setTime(Date.parse("2026-11-15T12:01:01Z"));
+  await as({ flow: "reset" });
+  assert.equal(standIn.emails.length, 2);
+  assert.ok((await as({ flow: "reset-verification", code: standIn.lastCode(), newPassword: "a new password" })).sessionId);
+});
+
+// Review finding 7: every limit is per account, so a script that makes accounts multiplies them. With accounts on, the
+// deployment makes at most so many new accounts an hour and a day, by any method, counted where Convex Auth makes the user.
+test("with the deployment's ceiling on new accounts reached, a fresh sign-up is refused in plain words and makes nothing", async (t) => {
+  const { load, auth, store } = await world(t, { AUTH_REQUIRED: "true", NEW_ACCOUNTS_PER_HOUR: "2", NEW_ACCOUNTS_PER_DAY: "3" });
+  t.mock.timers.enable({ apis: ["Date"], now: Date.parse("2026-11-15T12:10:00Z") });
+  const { ceilingRefusal } = load("convex/spend/limits.ts");
+  load("convex/auth.ts");
+  const provider = load("convex/auth/password.ts").password();
+  const signUp = (email) => provider.authorize({ flow: "signUp", email, password: "tide pools at dawn" }, {});
+  await signUp("one@example.com");
+  await signUp("two@example.com");
+  await assert.rejects(signUp("three@example.com"), refusal(ceilingRefusal.accountsThisHour));
+  assert.equal(ceilingRefusal.accountsThisHour, "turtl is making a lot of new accounts right now, so it isn't making more this hour. Try again in an hour.");
+  assert.deepEqual(auth.users.map((user) => user.email), ["one@example.com", "two@example.com"], "the refused sign-up left no account");
+  // Signing in to an account that exists is not a new account.
+  assert.ok(await provider.authorize({ flow: "signIn", email: "one@example.com", password: "tide pools at dawn" }, {}));
+  // The next hour opens again, up to the day's ceiling.
+  t.mock.timers.setTime(Date.parse("2026-11-15T13:10:00Z"));
+  await signUp("three@example.com");
+  await assert.rejects(signUp("four@example.com"), refusal(ceilingRefusal.accountsToday));
+  assert.deepEqual(store.rows("deploymentTotals").map(({ name, value }) => [name, value]).sort(), [["accounts_day", 3], ["accounts_hour", 1]], "the earlier hour's count was dropped");
+});
+
+test("the demo has no ceiling on new accounts", async (t) => {
+  const { load, auth } = await world(t, { NEW_ACCOUNTS_PER_HOUR: "1" });
+  load("convex/auth.ts");
+  const provider = load("convex/auth/password.ts").password();
+  for (const email of ["one@example.com", "two@example.com"]) await provider.authorize({ flow: "signUp", email, password: "tide pools at dawn" }, {});
+  assert.equal(auth.users.length, 2);
 });
 
 test("users.mode answers before sign-in; users.viewer returns the signed-in person or null", async (t) => {

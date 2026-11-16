@@ -14,7 +14,7 @@ import { startExpoPushStub } from "./fixtures/expo-push-stub.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const nodeRequire = createRequire(import.meta.url);
-const VARIABLES = ["AUTH_REQUIRED", "EXPO_PUSH_API_URL", "EXPO_ACCESS_TOKEN", "KEIKI_API_KEY", "KEIKI_AGENT_ID", "KEIKI_OWNER_CONTACT"];
+const VARIABLES = ["AUTH_REQUIRED", "EXPO_PUSH_API_URL", "EXPO_ACCESS_TOKEN", "KEIKI_API_KEY", "KEIKI_AGENT_ID", "KEIKI_OWNER_CONTACT", "CONVEX_CLOUD_URL"];
 const CASE = "jd7a0b1c2d3e4f5g6h7j8k9m0n1p2q3r";
 const TOKEN = (name) => `ExponentPushToken[${name}]`;
 
@@ -171,6 +171,8 @@ async function world(t, { accounts = false } = {}) {
     }
   });
   process.env.EXPO_PUSH_API_URL = stub.url;
+  // With accounts on, the stand-in address is honoured only on a local backend (convex/demoSettings.ts), as these run.
+  process.env.CONVEX_CLOUD_URL = "http://127.0.0.1:3210";
   if (accounts) process.env.AUTH_REQUIRED = "true";
   const identity = { current: null };
   const load = createLoader();
@@ -272,9 +274,21 @@ test("with accounts on, a phone is filed under the signed-in account and nobody 
   assert.equal(w.backend.rows("pushTokens").length, 1, "bob cannot remove alice's phone");
   await w.call("api.push.devices.refresh", { token: TOKEN("b"), platform: "ios", previousToken: TOKEN("a") });
   assert.deepEqual(w.backend.rows("pushTokens").map((row) => [row.token, row.account]).sort(), [[TOKEN("a"), "alice"], [TOKEN("b"), "bob"]], "a refresh never removes another account's token");
-  // The same phone signed in to bob: its token moves to bob, so alice's cases stop reaching it.
+  // Review finding 11: a token live on alice's account cannot be moved to bob by registering or refreshing it, so
+  // knowing alice's token does not take her notifications. Signing out on that phone frees it.
+  await assert.rejects(w.call("api.push.devices.register", { token: TOKEN("a"), platform: "android" }), /still gets notifications for another turtl account/);
+  await assert.rejects(w.call("api.push.devices.refresh", { token: TOKEN("a"), platform: "android", previousToken: TOKEN("b") }), /still gets notifications for another turtl account/);
+  assert.deepEqual(w.backend.rows("pushTokens").map((row) => [row.token, row.account]).sort(), [[TOKEN("a"), "alice"], [TOKEN("b"), "bob"]], "nothing moved, and bob's own token stayed");
+  const { caseId } = await w.seed("Alice's shop", "alice");
+  const noticeId = await w.notice(caseId, "needs_decision");
+  w.as(null);
+  assert.equal(await w.call("internal.push.deliver.forNotice", { noticeId, caseId, event: "needs_decision" }), "sent");
+  assert.deepEqual(w.stub.sends().at(-1).body.map((message) => message.to), [TOKEN("a")], "alice still receives her next push");
+  w.as("alice");
+  await w.call("api.push.devices.remove", { token: TOKEN("a") });
+  w.as("bob");
   await w.call("api.push.devices.register", { token: TOKEN("a"), platform: "android" });
-  assert.deepEqual(w.backend.rows("pushTokens").map((row) => row.account), ["bob", "bob"]);
+  assert.deepEqual(w.backend.rows("pushTokens").map((row) => row.account), ["bob", "bob"], "once alice signed out on that phone, it can be bob's");
   await w.call("api.push.devices.remove", { token: TOKEN("a") });
   assert.deepEqual(w.backend.rows("pushTokens").map((row) => row.token), [TOKEN("b")]);
 });

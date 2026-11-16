@@ -49,7 +49,9 @@ async function triageOne(ctx: ActionCtx, triageId: Id<"reportTriage">) {
     return;
   }
 
-  const gate = gateFor(ctx, { appId: report.appId });
+  // Billed to the project's customer-report allowance, never the owner's: once it is spent for the day, the rules
+  // below judge the report and diagnosis of the owner's outages carries on.
+  const gate = gateFor(ctx, { appId: report.appId }, "intake");
   const suggested = await suggest(gate, report.appId, report.text, candidates.map((c) => c.caseId));
   const started = Date.now();
   const answer = await askJson(gate, TRIAGE_PROMPT, {

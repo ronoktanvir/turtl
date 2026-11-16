@@ -45,6 +45,15 @@ export default function Enacting() {
   const [chatError, setChatError] = useState<string | null>(null);
   const e = c?.enactment;
   const back = ("/review/" + caseId) as never;
+  // A case that is not this account's, or no longer exists, reads as not found, like the case screen.
+  if (c === null) {
+    return (
+      <Screen testID="enacting">
+        <Header title="Not found" fallback={"/projects" as never} />
+        <T style={{ padding: 20 }} testID="enacting-not-found">This case could not be found.</T>
+      </Screen>
+    );
+  }
   if (!c || !e) {
     return (
       <Screen testID="enacting">
@@ -155,7 +164,7 @@ export default function Enacting() {
                   <Icon name="GitPullRequest" color="brandDeep" size={22} />
                   <View style={{ flex: 1, gap: 2 }}>
                     <T variant="small" color="textMuted">{"Pull request #" + pr.number}</T>
-                    <T variant="strong" font="title">{pr.title}</T>
+                    <T variant="strong">{pr.title}</T>
                   </View>
                   <Icon name="ExternalLink" color="textMuted" size={16} />
                 </Pressable>
@@ -178,11 +187,11 @@ export default function Enacting() {
               <Button label={control === "merge" ? "Merging…" : "Merge"} icon="GitMerge" disabled={!canMerge || control !== null} onPress={() => void merge()} testID="enacting-merge" />
               <T variant="small" color={pr?.checks === "passing" ? "statusClear" : "textMuted"} style={{ flex: 1 }} testID="enacting-ci">{ci}</T>
             </View>
-            {stopError && <T color="statusAffected" accessibilityRole="alert" testID="enacting-stop-error">{stopError}</T>}
+            {stopError && <T font="text" color="statusAffected" accessibilityRole="alert" testID="enacting-stop-error">{stopError}</T>}
             {refused && (
               <View style={{ flexDirection: "row", gap: 10, padding: 16, backgroundColor: colors.surface, borderRadius: 16 }}>
                 <Icon name="TriangleAlert" color="statusNeedsYou" />
-                <T color="statusNeedsYou" accessibilityRole="alert" style={{ flex: 1 }} testID="enacting-merge-refused">{refused}</T>
+                <T font="text" color="statusNeedsYou" accessibilityRole="alert" style={{ flex: 1 }} testID="enacting-merge-refused">{refused}</T>
               </View>
             )}
           </View>
@@ -216,11 +225,11 @@ export default function Enacting() {
           )}
           <View style={{ gap: 12 }}>
             <AskBar value={question} onChangeText={setQuestion} onSend={() => void ask()} busy={chat.busy || sending} placeholder="Any questions?" inputID="enacting-ask-input" sendID="enacting-ask-send" talk={talk} talkID="enacting-talk" />
-            {chatError && <T color="statusAffected" accessibilityRole="alert" testID="enacting-chat-error">{chatError}</T>}
+            {chatError && <T font="text" color="statusAffected" accessibilityRole="alert" testID="enacting-chat-error">{chatError}</T>}
             {asked && chat.messages.slice(-2).map((m) => (
               <View key={m.id} style={{ paddingLeft: 12, borderLeftWidth: 2, borderLeftColor: m.role === "owner" ? colors.border : colors.brandDeep, gap: 4 }}>
                 <T variant="small" color="textMuted">{m.role === "owner" ? "You" : "turtl"}</T>
-                <T testID={"enacting-" + m.role + "-message"}>{m.text}</T>
+                <T font="text" testID={"enacting-" + m.role + "-message"}>{m.text}</T>
               </View>
             ))}
             {(chat.busy || sending) && <T color="textMuted" testID="enacting-chat-busy">turtl is thinking…</T>}

@@ -6,6 +6,7 @@ import { CLOSED_CASE_STATUSES, type Actor, type ParameterConstraint, type Parame
 import { recordDecision } from "./learning/feedback";
 import { requireOwnerPasscode } from "./ownerPasscode";
 import { revisionOf } from "./protectedApp/client";
+import { cancelJobs } from "./runner/jobs";
 import { approveCase, declineCase } from "./runner/run";
 import { finishAttempt, loadSteps, setCaseStatus, skipStep } from "./workflow";
 
@@ -179,14 +180,9 @@ export const stop = mutation({
     await ctx.db.patch(action._id, { status: "cancelled", cancelledBy: ownerActor(account), cancelledAt: now, completedAt: now, result: summary });
     for (const pending of pulls) await ctx.db.patch(pending._id, { settledAt: now, openError: summary, syncError: undefined });
     const steps = await loadSteps(ctx, caseId);
-    const ids = new Set<string>([caseId, action._id, ...steps.flatMap((s) => s.currentAttemptId ? [s.currentAttemptId] : []), ...pulls.map((p) => p._id)]);
-    const scheduled = await ctx.db.system.query("_scheduled_functions").collect();
-    for (const job of scheduled) {
-      const args = job.args[0] as Record<string, unknown> | undefined;
-      if (job.state.kind === "pending" && args && Object.values(args).some((value) => typeof value === "string" && ids.has(value))) {
-        await ctx.scheduler.cancel(job._id);
-      }
-    }
+    // The runs and time limits waiting on this case's attempts, by the ids kept on each attempt. Anything else still
+    // scheduled for the case reads the case or attempt first and stops once the case is declined below.
+    for (const step of steps) await cancelJobs(ctx, step.currentAttempt);
     for (const step of steps) {
       if ((step.status === "running" || step.status === "waiting") && step.currentAttemptId) {
         await finishAttempt(ctx, step.currentAttemptId, { status: "done", summary });

@@ -72,7 +72,9 @@ function overviewQuery({ visible = true } = {}) {
   return load("../convex/screens/overview.ts", {
     "convex/values": values,
     "../_generated/server": { query: (definition) => definition },
-    "../access": { visibleApp: async (ctx, appId) => (visible ? await ctx.db.get(appId) : null) },
+    // The single-owner demo's read: another project's map of the same repository may stand in. With accounts on only the
+    // caller's own projects' maps do (tests/access-rules.test.mjs, review finding 9).
+    "../access": { visibleApp: async (ctx, appId) => (visible ? await ctx.db.get(appId) : null), accessEnforced: () => false, visibleApps: async () => [] },
     "../constants": { CLOSED_CASE_STATUSES: ["resolved", "declined", "unresolved"] },
     "../onboarding/records": {
       latestInspection: (ctx, appId) => ctx.db.query("onboardingInspections").withIndex("by_app", (q) => q.eq("appId", appId)).order("desc").first(),

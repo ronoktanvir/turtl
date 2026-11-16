@@ -1,6 +1,7 @@
 import { Supermemory } from "supermemory";
 import type { Gate } from "./consent/gate";
 import { Refused, VendorError } from "./consent/outbound";
+import { standInOnly } from "./demoSettings";
 
 declare const process: { env: Record<string, string | undefined> };
 
@@ -30,8 +31,9 @@ async function client(gate: Gate, namespace: string, purpose: "send" | "erase" =
   }
   const opened = await gate.open("supermemory", purpose);
   if (!opened.ok) throw new Refused(opened.reason);
-  // SUPERMEMORY_BASE_URL points the client at a stand-in in a local proof; production never sets it.
-  const baseUrl = process.env.SUPERMEMORY_BASE_URL?.replace(/\/+$/, "") || undefined;
+  // SUPERMEMORY_BASE_URL points the client at a stand-in in a local proof. With accounts on it is honoured only on a
+  // local backend (convex/demoSettings.ts); production never sets it.
+  const baseUrl = standInOnly(process.env.SUPERMEMORY_BASE_URL)?.replace(/\/+$/, "") || undefined;
   return new Supermemory({ apiKey, fetch: opened.fetch, baseUrl });
 }
 

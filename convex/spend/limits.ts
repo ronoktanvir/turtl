@@ -9,6 +9,17 @@ export const MODEL_SPEND_LIMIT_ENV = "MODEL_SPEND_LIMIT_USD";
 export const CODING_THREADS_ENV = "CODING_THREADS_PER_DAY";
 export const DEFAULT_MODEL_SPEND_LIMIT_USD = 20;
 export const DEFAULT_CODING_THREADS_PER_DAY = 5;
+/** What reading one project's customer reports may cost in a day, apart from the account's allowance (finding 5). */
+export const DEFAULT_INTAKE_SPEND_PER_DAY_USD = 0.5;
+/** New cases customer reports may open on one project in a day. */
+export const DEFAULT_INTAKE_CASES_PER_DAY = 5;
+// Deployment-wide ceilings (finding 7): every limit above is per account or per project, so without these a script
+// that makes accounts multiplies them.
+export const DEFAULT_NEW_ACCOUNTS_PER_HOUR = 20;
+export const DEFAULT_NEW_ACCOUNTS_PER_DAY = 100;
+export const DEFAULT_DEPLOYMENT_MODEL_SPEND_PER_DAY_USD = 25;
+export const DEFAULT_PROJECTS_PER_ACCOUNT = 10;
+export const DEFAULT_INTAKE_KEYS_PER_PROJECT = 3;
 
 /** A flat estimate for one speech-to-text or text-to-speech call, which report no token counts. */
 export const VOICE_CALL_ESTIMATE_USD = 0.01;
@@ -24,6 +35,29 @@ export const modelSpendLimitUsd = () => positive(process.env.MODEL_SPEND_LIMIT_U
 
 /** Coding-agent threads (Capy) one account may start in a calendar day (UTC). */
 export const codingThreadsPerDay = () => positive(process.env.CODING_THREADS_PER_DAY, DEFAULT_CODING_THREADS_PER_DAY, true);
+
+/** Model spend on one project's customer reports (triage, and reading the cases they open) in a calendar day (UTC). */
+export const intakeSpendPerDayUsd = () => positive(process.env.INTAKE_SPEND_PER_DAY_USD, DEFAULT_INTAKE_SPEND_PER_DAY_USD, false);
+
+/** New cases customer reports may open on one project in a calendar day (UTC). */
+export const intakeCasesPerDay = () => positive(process.env.INTAKE_CASES_PER_DAY, DEFAULT_INTAKE_CASES_PER_DAY, true);
+
+/** New accounts the whole deployment makes in one clock hour (UTC), by any sign-in method. */
+export const newAccountsPerHour = () => positive(process.env.NEW_ACCOUNTS_PER_HOUR, DEFAULT_NEW_ACCOUNTS_PER_HOUR, true);
+
+/** New accounts the whole deployment makes in one calendar day (UTC). */
+export const newAccountsPerDay = () => positive(process.env.NEW_ACCOUNTS_PER_DAY, DEFAULT_NEW_ACCOUNTS_PER_DAY, true);
+
+/** Estimated model spend of every account together in one calendar day (UTC), in US dollars. */
+export const deploymentModelSpendPerDayUsd = () => positive(process.env.DEPLOYMENT_MODEL_SPEND_PER_DAY_USD, DEFAULT_DEPLOYMENT_MODEL_SPEND_PER_DAY_USD, false);
+
+/** Projects one account may have. */
+export const projectsPerAccount = () => positive(process.env.PROJECTS_PER_ACCOUNT, DEFAULT_PROJECTS_PER_ACCOUNT, true);
+
+/** Intake keys one project may have accepting reports at once. */
+export const intakeKeysPerProject = () => positive(process.env.INTAKE_KEYS_PER_PROJECT, DEFAULT_INTAKE_KEYS_PER_PROJECT, true);
+
+export const hourKey = (at: number) => new Date(at).toISOString().slice(0, 13);
 
 export const monthKey = (at: number) => new Date(at).toISOString().slice(0, 7);
 export const dayKey = (at: number) => new Date(at).toISOString().slice(0, 10);
@@ -62,4 +96,17 @@ export const spendRefusal = {
     `this account has used its ${dollars(limitUsd)} of AI for ${monthLabel(monthKey(at))}, so no model was asked; it starts again on ${nextMonthStart(at)}`,
   threadCap: (cap: number) =>
     `this account has already started ${cap} code change${cap === 1 ? "" : "s"} today, the most for one day, so Capy was not asked; it can start more tomorrow`,
+  intakeSpent: (limitUsd: number) =>
+    `this project has used today's ${dollars(limitUsd)} of AI for reading customer reports, so no model was asked; it starts again tomorrow`,
+  intakeCases: (cap: number) =>
+    `Kept, but no case was opened: customer reports have already opened ${cap} case${cap === 1 ? "" : "s"} on this project today, the most for one day. Reports that match an open case still join it, and new cases open again tomorrow.`,
+  deploymentSpent: () => "turtl has reached the most AI it uses in one day across everyone, so no model was asked; it starts again tomorrow",
+};
+
+/** What a person reads when a deployment-wide ceiling or a cap refuses them. Shown as written, so whole sentences. */
+export const ceilingRefusal = {
+  accountsThisHour: "turtl is making a lot of new accounts right now, so it isn't making more this hour. Try again in an hour.",
+  accountsToday: "turtl has made as many new accounts as it makes in one day, so it isn't making more today. Try again tomorrow.",
+  projects: (cap: number) => `This account already has ${cap} project${cap === 1 ? "" : "s"}, the most one account can have. Contact support if you need more.`,
+  intakeKeys: (cap: number) => `This project already has ${cap} report key${cap === 1 ? "" : "s"} in use, the most one project can have. Stop one from taking reports before making another.`,
 };

@@ -15,7 +15,7 @@ To replace a handler, edit its own file. Nothing else needs to change.
 ## How a run goes
 
 1. `startCase` (or `startCaseRun` from inside another mutation) inserts the case with the eight-step template and schedules `advance`.
-2. `advance` finds every step that is `pending`, or `failed` with attempts left, whose dependencies are `done` or `skipped`. For each it starts a new attempt, sets the case status for that stage, and schedules `execute` plus a `checkTimeout` at the handler's `timeoutMs`.
+2. `advance` finds every step that is `pending`, or `failed` with attempts left, whose dependencies are `done` or `skipped`. For each it starts a new attempt, sets the case status for that stage, and schedules `execute` plus a `checkTimeout` at the handler's `timeoutMs`. The two job ids are kept on the attempt (`scheduledJobs`), and Stop, a verify step waiting on a device run, and an attempt waiting on a pull request cancel by those ids (`jobs.ts`). Nothing reads the whole `_scheduled_functions` table: every account's work adds to it, so such a read would eventually fail for everyone (`tests/bounded-reads.test.mjs`).
 3. `execute` (an action) loads the input, calls the handler, and passes its result to `recordResult`. A handler that throws counts as a failure.
 4. `recordResult` applies the result to the attempt and the step, then schedules `advance` again. When every step is `done` or `skipped`, the case is `resolved`, unless a handler already set it to `restored`, which it keeps.
 

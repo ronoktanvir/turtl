@@ -13,7 +13,8 @@ export const intakeTables = {
     revokedAt: v.optional(v.number()),
   })
     .index("by_key", ["key"])
-    .index("by_app", ["appId"]),
+    .index("by_app", ["appId"])
+    .index("by_app_and_revoked", ["appId", "revokedAt"]),
   // Fixed-window counters behind the intake endpoint's rate limits.
   intakeRateWindows: defineTable({
     bucket: v.string(),

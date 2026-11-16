@@ -15,6 +15,8 @@ const MAX_DISABLED_TOKENS = 10;
 const REMOVE_BATCH = 100;
 
 export const INVALID_TOKEN = "This phone did not give a valid notification address. Try turning notifications on again.";
+export const TOKEN_IN_USE =
+  "This phone still gets notifications for another turtl account. Sign in to that account on this phone and sign out (or turn its notifications off), then try again.";
 
 const TOKEN = /^Expo(nent)?PushToken\[[A-Za-z0-9_-]{1,200}\]$/;
 export const isPushToken = (token: string) => TOKEN.test(token);
@@ -43,10 +45,19 @@ async function makeRoom(ctx: MutationCtx, account: string, now: number) {
   for (const row of disabled.slice(MAX_DISABLED_TOKENS)) await ctx.db.delete(row._id);
 }
 
-/** Files this token under the account as a live phone. A token another account held moves to this one. */
+/** The token's row, or a refusal when it is live on another account. */
+async function refuseElsewhere(ctx: MutationCtx, account: string, token: string) {
+  const row = await byToken(ctx, token);
+  if (row && row.account !== account && row.disabledAt === undefined) throw new ConvexError(TOKEN_IN_USE);
+  return row;
+}
+
+/** Files this token under the account as a live phone. A token that is live on another account is refused: anyone
+ * who learned it could otherwise move that owner's notifications to themselves. Signing out frees it (remove), and a
+ * token that account no longer uses (disabled) moves. */
 async function keep(ctx: MutationCtx, account: string, token: string, platform: Doc<"pushTokens">["platform"]) {
   const now = Date.now();
-  const row = await byToken(ctx, token);
+  const row = await refuseElsewhere(ctx, account, token);
   const liveHere = row && row.account === account && row.disabledAt === undefined;
   if (!liveHere) await makeRoom(ctx, account, now);
   if (!row) {
@@ -97,6 +108,8 @@ export const refresh = mutation({
   handler: async (ctx, { token, platform, previousToken }) => {
     const account = await requireAccount(ctx);
     requireToken(token);
+    // Refuse before anything changes, so a refused refresh leaves this account's previous token in place.
+    await refuseElsewhere(ctx, account, token);
     if (previousToken && previousToken !== token && isPushToken(previousToken)) {
       const previous = await byToken(ctx, previousToken);
       if (previous && previous.account === account) await ctx.db.delete(previous._id);

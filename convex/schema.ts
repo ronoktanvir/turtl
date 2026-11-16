@@ -107,6 +107,8 @@ export default defineSchema({
     inputRefs: v.optional(v.array(v.id("stepAttempts"))),
     output: v.optional(v.any()),
     outputRefs: v.optional(v.array(vOutputRef)),
+    // The run and time-limit jobs scheduled for this attempt, so Stop and the runner cancel them by id (runner/jobs.ts).
+    scheduledJobs: v.optional(v.array(v.id("_scheduled_functions"))),
     lateResultAt: v.optional(v.number()),
     lateResult: v.optional(v.object({
       status: v.optional(vAttemptStatus),
