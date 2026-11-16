@@ -64,7 +64,9 @@ export const ASKED: AskedService[] = services
 /** One version for the whole list: a new service, a removed one, or a change in what one receives asks again. */
 export const LIST_VERSION = fingerprint(ASKED.map((service) => `${service.id}:${service.version}`).join("|"));
 
-/** Services turtl uses without asking, because it cannot run without them. Named on the screen for completeness. */
+/** Services turtl uses without asking, because they are not AI services: each does one job, such as hosting turtl,
+ * reading the code, running a check on a phone, signing the owner in, or sending an email or a notification. Named on
+ * the screen for completeness, and app/ai-permission.tsx says that is why they are not asked about. */
 export const ALSO_USED = services
   .filter((service) => !service.needsPermission && service.inPrivacyPolicy)
   .map((service) => ({ id: service.id, name: service.name, does: service.does }));

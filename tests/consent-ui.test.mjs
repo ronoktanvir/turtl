@@ -91,3 +91,13 @@ test("the shared screens each gained one self-contained line, and the gate is on
   assert.match(gate, /return isLiveData \? <LiveGate \/> : null;/, "the example build never mounts the gate");
   assert.match(gate, /status\?\.enforced && status\.signedIn && status\.needsAnswer/);
 });
+
+test("the screen says why it does not ask about the services that are not AI, without claiming turtl needs them all", () => {
+  const screen = readFileSync(join(root, "app/ai-permission.tsx"), "utf8");
+  assert.doesNotMatch(screen, /to run at all/);
+  assert.match(screen, /This screen asks only about AI services\. turtl also uses \{listNames\(status\.alsoUsed\.map\(\(service\) => service\.name\)\)\}, each for one job/);
+  const asked = practices.services.filter((service) => service.needsPermission);
+  const alsoUsed = practices.services.filter((service) => !service.needsPermission && service.inPrivacyPolicy);
+  assert.ok(asked.every((service) => service.kind === "ai"), "the screen asks about AI services");
+  assert.ok(alsoUsed.every((service) => service.kind !== "ai"), "and names no AI service among the ones it does not ask about");
+});
