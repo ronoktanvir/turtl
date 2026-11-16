@@ -14,11 +14,11 @@ function requireLocalProof() {
 }
 
 export const seed = internalMutation({
-  args: { name: v.string(), ownerId: v.optional(v.string()) },
+  args: { name: v.string(), ownerId: v.optional(v.string()), repoUrl: v.optional(v.string()) },
   returns: v.object({ appId: v.id("apps"), caseId: v.id("cases") }),
-  handler: async (ctx, { name, ownerId }) => {
+  handler: async (ctx, { name, ownerId, repoUrl }) => {
     requireLocalProof();
-    const appId = await ctx.db.insert("apps", { name, ...(ownerId ? { ownerId } : {}) });
+    const appId = await ctx.db.insert("apps", { name, ...(ownerId ? { ownerId } : {}), ...(repoUrl ? { repoUrl } : {}) });
     const caseId = await ctx.db.insert("cases", {
       appId,
       title: "Customer wrote: my card 4242 was charged twice — TypeError at checkout.ts:42",

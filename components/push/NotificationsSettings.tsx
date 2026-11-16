@@ -22,8 +22,8 @@ export default function NotificationsSettings() {
   return (
     <View style={{ gap: 12 }} testID="notifications-settings">
       <T variant="heading">Notifications</T>
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-        <Symbol size={18} strokeWidth={1.7} color={push.kind === "on" ? colors.text : colors.textMuted} />
+      <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 8 }}>
+        <View style={{ paddingTop: 2 }}><Symbol size={18} strokeWidth={1.7} color={push.kind === "on" ? colors.text : colors.textMuted} /></View>
         <T variant="strong" testID="notifications-status" style={{ flex: 1 }}>{statusLine[push.kind]}</T>
       </View>
       <T color="textMuted">{PUSH_EXPLAINED}</T>
