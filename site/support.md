@@ -31,6 +31,14 @@ OpenAI, Supermemory, and Capy, and only after you allow it on the screen turtl s
 
 Open a project, tap the gear, then under AI services tap Take back. turtl still watches your app, runs its checks, and offers the recovery steps you set up, but it cannot diagnose with AI, propose AI fixes, answer questions, or write code changes until you allow it again.
 
+### Does turtl notice when my app is down?
+
+turtl opens a case when one of your app's checks runs and fails, or when a customer reports a problem. If your app does not answer at all, no case opens and no notification is sent, so look at the project if you have not heard from turtl for a while.
+
+### How do I reset my password?
+
+On Log in, tap Forgot your password? and enter your address. turtl emails you a link and a code. Tap the link on the phone where you asked, or paste the code; some mail apps do not open turtl's link, and pasting always works.
+
 ### Can turtl change my app without asking?
 
 No. A fix runs only when you approve it. A code change arrives as a pull request and merges only when you tap Merge and its checks pass. If you turn on Auto for a project, turtl may repeat one recovery it has already proven twice, at most three times, and it tells you each time. You can switch back to You in the same place.
@@ -41,11 +49,11 @@ Through a report form you add to your own app. Reports about the same problem ar
 
 ### How do I delete my account?
 
-On Projects, tap your picture at the top, then Delete account. It is also at the bottom of a project's settings (the gear), under Account. turtl shows what will be deleted and asks once more. This deletes your projects, cases, messages, customers' reports, the copies other services hold, and turtl's access to GitHub, and cannot be undone. The [privacy policy](../privacy/) lists everything it removes. If you cannot sign in, write to us and we will delete it for you.
+On Projects, tap your picture at the top, then Delete account. It is also at the bottom of a project's settings (the gear), under Account. turtl shows what will be deleted and asks once more. This deletes your projects, cases, messages, customers' reports, the copies our search provider holds, and turtl's access to GitHub, and cannot be undone. The [privacy policy](../privacy/) lists everything it removes. If you cannot sign in, write to us and we will delete it for you.
 
 ### How do I disconnect GitHub?
 
-In the app, open a project, tap the gear, then Disconnect GitHub. turtl says what will stop and asks once more. You can also remove turtl from your GitHub account's settings under Applications.
+In the app, open a project, tap the gear, then Disconnect GitHub. turtl says what will stop and asks once more. turtl removes its app from your own GitHub account; from an organization it removes only your connection, and an owner of that organization removes the app on GitHub. You can also remove turtl from your GitHub account's settings under Applications.
 
 ### How do I turn notifications on or off?
 
