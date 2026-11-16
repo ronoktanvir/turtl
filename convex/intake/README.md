@@ -29,7 +29,7 @@ A customer's words reach turtl through a form in the customer's own app. Each me
 
 The deployment URL is public, so the limits and sizes are the only protection; a sender can change `reporterId` freely, so the per-key limits are the real cap.
 
-What reports cost is bounded apart from those limits (`convex/spend/README.md`). With accounts on, triage and the investigate and plan steps of a case customers opened run on the project's own daily allowance (`INTAKE_SPEND_PER_DAY_USD`), never the owner's monthly one, so a flood of reports cannot stop turtl diagnosing the owner's outages; once it is spent, the rules judge reports until the next day. And reports open at most `INTAKE_CASES_PER_DAY` new cases on a project a day; past that, a report is kept on no case with the reason in its triage row.
+What reports cost is bounded apart from those limits (`convex/spend/README.md`). With accounts on, triage and the investigate, examine-broader-causes and plan steps of a case customers opened run on the project's own daily allowance (`INTAKE_SPEND_PER_DAY_USD`, and the account's `ACCOUNT_INTAKE_SPEND_PER_DAY_USD` for all its projects together), never the owner's own, so a flood of reports cannot stop turtl diagnosing the owner's outages; once it is spent, the rules judge reports until the next day. And reports open at most `INTAKE_CASES_PER_DAY` new cases on a project a day; past that, a report is kept on no case with the reason in its triage row.
 
 ### A customer's contact
 

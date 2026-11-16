@@ -257,6 +257,39 @@ test("the reserve's settings: defaults, 0 keeps none, 100 keeps the whole day, a
   });
 });
 
+// Statement 4 (review, "worth a second look"): a case customers raised ran examine_broader_causes on the owner's own
+// allowance, so a customer posting related reports spent what diagnosing the owner's outages needs.
+test("ATTACK: a case a customer raised examines broader causes on the project's customer-report allowance, never the owner's", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: NOV_16 });
+  const answered = { choices: [{ message: { content: JSON.stringify({ finding: null, note: "No shared cause." }) } }], usage: { prompt_tokens: 20_000, completion_tokens: 1_500 } };
+  t.mock.method(globalThis, "fetch", async () => new Response(JSON.stringify(answered), { headers: { "Content-Type": "application/json" } }));
+  const examine = load("convex/structural/examine.ts");
+  const context = { skip: null, prompt: { availableChecks: [] }, known: {}, relatedCaseIds: ["cases:x", "cases:y"], triggerSummary: "two related cases.", reason: "related_history", seededCaseCount: 0 };
+  await withEnv({ ...ACCOUNTS, OPENAI_API_KEY: "sk-test-stand-in" }, async () => {
+    const db = world({ alice: 1 });
+    await db.patch("cases:alice-0", { raisedBy: "customer", kind: "bug_report" });
+    const base = actions(db);
+    const ctx = {
+      runQuery: async (fn, args) => (fn.path === "internal.structural.records.examineContext" ? context : base.runQuery(fn, args)),
+      runMutation: async (fn, args) => (fn.path.startsWith("internal.structural.records.") ? "agentRuns:1" : base.runMutation(fn, args)),
+    };
+    const run = (caseRow) => examine.examineBroaderCauses(ctx, { case: caseRow, step: { _id: "steps:1" }, attempt: { _id: "stepAttempts:1" } });
+    const cost = limits.modelCost("gpt-5.4", { inputTokens: 20_000, outputTokens: 1_500 });
+
+    assert.match((await run({ _id: "cases:alice-0", appId: "apps:alice-0", raisedBy: "customer", kind: "bug_report" })).summary, /found no structural cause/);
+    let day = await ledger.accountDay({ db }, "alice", Date.now());
+    assert.equal(day.ownUsd, 0, "the owner's own day is untouched");
+    assert.equal(await ledger.monthSpend({ db }, "alice", Date.now()), 0, "and so is her month");
+    assert.ok(Math.abs(day.intakeUsd - cost) < 1e-6);
+    assert.ok(Math.abs((await ledger.intakeSpendToday({ db }, "apps:alice-0", Date.now())) - cost) < 1e-6, "the project's customer-report day paid");
+
+    // An outage the monitor found is still examined on the owner's allowance.
+    await run({ _id: "cases:alice-1", appId: "apps:alice-1", raisedBy: "monitor", kind: "outage" });
+    day = await ledger.accountDay({ db }, "alice", Date.now());
+    assert.ok(Math.abs(day.ownUsd - cost) < 1e-6);
+  });
+});
+
 test("the shares are settings with sensible defaults, and nonsense falls back to them", async () => {
   await withEnv({ ACCOUNT_MODEL_SPEND_PER_DAY_USD: undefined, ACCOUNT_INTAKE_SPEND_PER_DAY_USD: undefined }, () => {
     assert.deepEqual([limits.accountModelSpendPerDayUsd(), limits.accountIntakeSpendPerDayUsd()], [2.5, 1]);

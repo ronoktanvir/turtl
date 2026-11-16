@@ -106,7 +106,9 @@ export async function examineBroaderCauses(ctx: ActionCtx, input: HandlerInput):
       hasCodeMap: !!prompt.codeMap,
       reason: context.reason === "recurrence" ? "the failure came back after a verified recovery" : `the case has ${related} related cases`,
     });
-    const answer = await ask(gateFor(ctx, { appId: input.case.appId }), prompt);
+    // A case customers raised is examined on the project's customer-report allowance, like the rest of its reading
+    // (convex/intake/workflow.ts), so what customers post cannot spend the owner's own allowance.
+    const answer = await ask(gateFor(ctx, { appId: input.case.appId }, input.case.raisedBy === "customer" ? "intake" : "account"), prompt);
     const runRef = { kind: "agentRun", id: agentRunId };
     const examined = `Examined ${related} related case${related === 1 ? "" : "s"} (${context.triggerSummary.replace(/\.$/, "")}).`;
     if (!answer.ok) {
