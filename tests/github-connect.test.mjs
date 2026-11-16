@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
+import { runInThisContext } from "node:vm";
+import ts from "typescript";
 import { APP_ID, LEGACY_TOKEN, lifecycle, MINUTE, PKCS1, SITE, SOLO, START, WEBHOOK_SECRET, world } from "./github-harness.mjs";
 
 // Connect GitHub (convex/github/connect.ts and the two pages in convex/github/http.ts) against the stand-in GitHub in
@@ -313,4 +316,53 @@ test("GitHub sends the person back only to the turtl app, or to the web app on t
   // An organization owner must approve first: the person comes back with that, and nothing else.
   const requested = await w.connectAs("alice-account", "alice", { request: true });
   assert.deepEqual([requested.result, requested.ticket], ["requested", null]);
+});
+
+// The app's side, data/github: loaded with every import stubbed, the way tests/onboarding.test.mjs loads data/onboarding.
+function loadClient(path, imports) {
+  const { outputText } = ts.transpileModule(readFileSync(new URL(path, import.meta.url), "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } });
+  const module = { exports: {} };
+  runInThisContext("(function(require, exports, module) { " + outputText + "\n})", { filename: path })(
+    (name) => {
+      assert.ok(name in imports, "Unexpected import: " + name);
+      return imports[name];
+    },
+    module.exports,
+    module,
+  );
+  return module.exports;
+}
+
+test("the app asks GitHub to come back to turtl:// on a phone and to the page's origin on the web, and asks the passcode only in the demo", async (t) => {
+  const calls = [];
+  const passcodes = [];
+  const ref = (path) => new Proxy({ path }, { get: (target, key) => (key === "path" ? target.path : ref(path + "." + String(key))) });
+  const client = {
+    action: async (fn, args) => (calls.push([fn.path, args]), fn.path.endsWith("begin") ? { url: "https://github.com/apps/turtl/installations/new?state=s" } : { ok: true, disconnected: 1, failed: [] }),
+    mutation: async (fn, args) => (calls.push([fn.path, args]), { connected: 1, githubLogin: "maya" }),
+  };
+  const live = (os) =>
+    loadClient("../data/github/live.ts", {
+      "react-native": { Platform: { OS: os } },
+      "../../convex/_generated/api": { api: ref("api") },
+      "../live/client": { errorMessage: (error) => error.message, requireLiveClient: () => client, useLiveQuery: (fn, args) => [fn.path, args] },
+      "../live/ownerPasscode": { withOwnerPasscode: (work) => (passcodes.push("asked"), work("owner-passcode")) },
+    });
+  assert.equal(await live("ios").beginGithubConnect(), "https://github.com/apps/turtl/installations/new?state=s");
+  globalThis.window = { location: { origin: "http://localhost:8108" } };
+  t.after(() => delete globalThis.window);
+  await live("web").beginGithubConnect();
+  assert.deepEqual(calls.splice(0), [["api.github.connect.begin", { returnTo: "app" }], ["api.github.connect.begin", { returnTo: "http://localhost:8108" }]]);
+
+  await live("ios").disconnectGithub(true);
+  assert.deepEqual([calls.splice(0), passcodes.splice(0)], [[["api.github.connect.disconnect", {}]], []], "accounts on: the signed-in account decides");
+  await live("ios").disconnectGithub(false);
+  assert.deepEqual([calls.splice(0), passcodes.splice(0)], [[["api.github.connect.disconnect", { passcode: "owner-passcode" }]], ["asked"]], "the demo: an owner decision");
+  assert.deepEqual(live("ios").useGithubRepositories(false), ["api.github.connect.repositories", "skip"]);
+
+  const example = loadClient("../data/github/example.ts", {});
+  assert.deepEqual(example.useGithubStatus(), { configured: false, accounts: false, signedIn: true, connections: [] }, "the example data draws no GitHub section");
+  assert.deepEqual(example.useGithubRepositories(), []);
+  await assert.rejects(example.beginGithubConnect(), /needs a turtl backend/);
+  await assert.rejects(example.disconnectGithub(false), /needs a turtl backend/);
 });
