@@ -127,7 +127,7 @@ const VARIABLES = {
 };
 const DEMO = ["PROTECTED_APP_URL", "PROTECTED_APP_CONTROL_SECRET_SHA256"];
 
-test("per-project secrets on a local Convex backend", { timeout: 300_000 }, async (t) => {
+test("per-project secrets on a local Convex backend", { timeout: 600_000 }, async (t) => {
   const standIns = await startStandIns();
   const scratch = mkdtempSync(join(tmpdir(), "turtl-secrets-proof-"));
   const keyFile = join(scratch, "app.pem");
@@ -208,16 +208,38 @@ test("per-project secrets on a local Convex backend", { timeout: 300_000 }, asyn
     assert.ok(projects.every((p) => p.secrets === 1));
   });
 
-  await t.test("without its token a project is skipped with its reason, and nothing is sent for it", async () => {
+  await t.test("without its token a project is skipped with its reason, and nothing is sent for it", { timeout: 180_000 }, async () => {
+    const [aliceBefore] = await admin.query(ref("secrets/localProof:snapshot"), { appIds: [alice.appId] });
     await asBob.mutation(ref("secrets/project:removeControlToken"), { projectId: bob.appId });
     const before = requests.length;
-    const swept = await admin.action(ref("monitor:tick"), {});
-    // Projects an earlier run left in the local database may be skipped too; Bob's is skipped for its missing token.
-    assert.ok(!swept.skipped.some((s) => s.appId === alice.appId));
-    assert.match(swept.skipped.find((s) => s.appId === bob.appId)?.reason ?? "", /No control token is set/);
+    // Each project has its own next check, a minute after its last one began (convex/protectedApp/watching.ts), so Bob's,
+    // checked a moment ago, is not due yet. The monitor reads it again at its next turn, taken by the per-minute cron or
+    // by a tick of this proof's, whichever comes first: tick until it has, and read what its owner reads.
+    const skipped = [];
+    const notice = await until(
+      async () => {
+        const swept = await admin.action(ref("monitor:tick"), {});
+        assert.ok(!swept.skipped.some((s) => s.appId === alice.appId), "Alice's project, which has its token, is never skipped");
+        skipped.push(...swept.skipped.filter((s) => s.appId === bob.appId));
+        return (await asBob.query(ref("secrets/project:controlToken"), { projectId: bob.appId })).notWatched ?? null;
+      },
+      (reason) => /No control token is set/.test(reason ?? ""),
+      "Bob reads why his project is not checked",
+      150_000,
+    );
+    assert.match(notice, /Add it in this project's Settings, under Control token/);
+    // If a tick of this proof's took the turn, it named the reason too (the cron's tick reports to no one).
+    for (const skip of skipped) assert.match(skip.reason, /No control token is set/);
+    // Alice's project is still checked at its own pace, with her token, while Bob's is not.
+    await until(
+      async () => (await admin.query(ref("secrets/localProof:snapshot"), { appIds: [alice.appId] }))[0],
+      (project) => (project.watched?.lastCheckedAt ?? 0) > (aliceBefore.watched?.lastCheckedAt ?? 0),
+      "Alice's project was checked again",
+      150_000,
+    );
     await delay(1500);
-    assert.deepEqual(requests.slice(before).filter((r) => r.path.startsWith(B + "/")), []);
-    assert.match((await asBob.query(ref("secrets/project:controlToken"), { projectId: bob.appId })).notWatched, /No control token is set/);
+    assert.deepEqual(requests.slice(before).filter((r) => r.path.startsWith(B + "/")), [], "nothing was sent for Bob's project");
+    assert.ok(requests.slice(before).some((r) => r.path === A + "/journey-check" && r.authorization === "Bearer " + TOKENS.alice));
   });
 
   await t.test("an http, IP-literal or private live address is refused in plain words", async () => {
