@@ -24,6 +24,8 @@ const vWatchedCheck = v.object({
   name: v.string(),
   state: vCheckState,
   lastPassedAt: v.optional(v.number()),
+  // A failing check with no issue open: how its last issue ended, so the empty Fix list can say why none is open.
+  closedAs: v.optional(v.union(v.literal("declined"), v.literal("unresolved"))),
 });
 export const vOverview = v.object({
   checks: v.array(vWatchedCheck),
@@ -62,10 +64,13 @@ async function journeyFailing(ctx: QueryCtx, appId: Id<"apps">, journey: Pick<Do
     .withIndex("by_app_and_signature", (q) => q.eq("appId", appId).eq("signature", `journey_failed:${journey._id}`))
     .order("desc")
     .first();
-  if (!latest) return false;
-  if (!NOT_OPEN.includes(latest.status)) return true;
+  if (!latest) return { failing: false } as const;
+  if (!NOT_OPEN.includes(latest.status)) return { failing: true } as const;
   // A case declined or left unresolved fixed nothing: the check is still failing until it passes again after it.
-  return (latest.status === "declined" || latest.status === "unresolved") && (journey.lastPassedAt ?? 0) < latest._creationTime;
+  if ((latest.status === "declined" || latest.status === "unresolved") && (journey.lastPassedAt ?? 0) < latest._creationTime) {
+    return { failing: true, closedAs: latest.status } as const;
+  }
+  return { failing: false } as const;
 }
 
 export const forProject = query({
@@ -77,13 +82,17 @@ export const forProject = query({
     if (!app || app.isSample) return null;
 
     const journeys = await ctx.db.query("journeys").withIndex("by_app", (q) => q.eq("appId", app._id)).take(MAX_CHECKS);
-    const checks: Infer<typeof vWatchedCheck>[] = await Promise.all(journeys.map(async (journey) => ({
-      id: journey._id as string,
-      kind: "journey" as const,
-      name: journey.name,
-      state: (await journeyFailing(ctx, app._id, journey)) ? "failing" as const : journey.lastPassedAt === undefined ? "waiting" as const : "passing" as const,
-      ...(journey.lastPassedAt !== undefined && { lastPassedAt: journey.lastPassedAt }),
-    })));
+    const checks: Infer<typeof vWatchedCheck>[] = await Promise.all(journeys.map(async (journey) => {
+      const failing = await journeyFailing(ctx, app._id, journey);
+      return {
+        id: journey._id as string,
+        kind: "journey" as const,
+        name: journey.name,
+        state: failing.failing ? "failing" as const : journey.lastPassedAt === undefined ? "waiting" as const : "passing" as const,
+        ...(journey.lastPassedAt !== undefined && { lastPassedAt: journey.lastPassedAt }),
+        ...("closedAs" in failing && { closedAs: failing.closedAs }),
+      };
+    }));
 
     const preparation = await preparationFor(ctx, app._id);
     let stage: "none" | "in_progress" | "done" | "unreadable" = "none";

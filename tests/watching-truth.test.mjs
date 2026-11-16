@@ -79,3 +79,26 @@ test("an empty repository picker fits both a person who can choose more and one 
   assert.match(emptyPicker(0), /If you can change their settings on GitHub, choose some there, then come back\. If not, ask whoever can\.$/);
   assert.doesNotMatch(emptyPicker(2), /Choose some on GitHub/);
 });
+
+test("an empty Fix list with a check still failing says so, why no issue is open, and what to do", () => {
+  const { stillBroken } = createLoader({
+    "react-native": {}, "expo-router": {}, "react-native-safe-area-context": {}, "react/jsx-runtime": { jsx: () => null, jsxs: () => null, Fragment: "Fragment" },
+    data: {}, "data/index": {}, "data/overview": {}, "data/overview/index": {}, theme: { labels: { features: "Features" } }, "components/ui": {}, "components/project/Watching": {},
+  })("components/project/NothingOpen.tsx");
+  const failing = { id: "j1", kind: "journey", name: "Book an appointment", state: "failing", closedAs: "declined" };
+  assert.deepEqual(stillBroken([failing], true), {
+    empty: "Book an appointment: not passing.",
+    note: "No issue is open for it, because the last one closed when its fixes were declined. Put it back from the Break it tile on the project, then break it again if you like.",
+  });
+  assert.equal(stillBroken([{ ...failing, closedAs: "unresolved" }], false).note, "No issue is open for it, because the last one closed when turtl could not fix it. turtl opens a new one if the check passes and then fails again, and a customer's report opens one too.");
+  assert.equal(stillBroken([{ ...failing, closedAs: undefined }], false), null, "failing with an issue open: the list is not empty");
+  assert.equal(stillBroken([{ ...failing, state: "passing", closedAs: undefined }], false), null);
+  assert.equal(stillBroken(undefined, false), null);
+});
+
+test("the overview says how a failing check's last issue ended", async () => {
+  const journey = { _id: "j1", name: "Book an appointment", lastPassedAt: 1_000 };
+  assert.equal((await overviewQuery([{ _id: "c1", _creationTime: 2_000, status: "declined" }], journey)).checks[0].closedAs, "declined");
+  assert.equal((await overviewQuery([{ _id: "c1", _creationTime: 2_000, status: "unresolved" }], journey)).checks[0].closedAs, "unresolved");
+  assert.equal("closedAs" in (await overviewQuery([{ _id: "c1", _creationTime: 2_000, status: "investigating" }], journey)).checks[0], false);
+});

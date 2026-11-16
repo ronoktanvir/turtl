@@ -7,6 +7,7 @@ export type WatchedCheck = {
   name: string;
   state: "passing" | "failing" | "waiting"; // waiting: registered, not checked yet
   lastPassedAt?: number;
+  closedAs?: "declined" | "unresolved"; // failing with no issue open: how its last issue ended
 };
 
 export type Overview = {
