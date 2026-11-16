@@ -142,6 +142,11 @@ export const attach = internalMutation({
   },
 });
 
+export const setCapyCursor = internalMutation({
+  args: { id: v.id("pullRequests"), cursor: v.string() },
+  handler: async (ctx, { id, cursor }) => ctx.db.patch(id, { capyCursor: cursor }),
+});
+
 export const setNumber = internalMutation({
   args: { id: v.id("pullRequests"), number: v.number() },
   handler: async (ctx, { id, number }) => ctx.db.patch(id, { number }),

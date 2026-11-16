@@ -3,6 +3,7 @@ declare const process: { env: Record<string, string | undefined> };
 const API_URL = "https://api.capy.ai/api/v1";
 const REQUEST_TIMEOUT_MS = 15_000;
 const STOPPED_STATUSES = ["idle", "failed", "archived"];
+const MAX_PAGES = 20;
 
 export type CapyConfig =
   | { ok: true; apiKey: string; projectId?: string; model?: { modelId: string; reasoningMode?: string } }
@@ -69,31 +70,41 @@ export async function startCapyThread(
   return created.ok ? { ok: true, body: { threadId: created.body.id } } : created;
 }
 
-// Looks for the pull request link in the thread's newest assistant reply that names one in `repo`.
+// Reads the thread's transcript from `after` on and returns the newest pull request link in `repo` that
+// an assistant reply holds, with the cursor to read on from next time.
 export async function findPullRequestNumber(
   config: Extract<CapyConfig, { ok: true }>,
   threadId: string,
   repo: string,
-): Promise<CapyResult<{ number?: number; stopped: boolean; status: string }>> {
+  after?: string,
+): Promise<CapyResult<{ number?: number; stopped: boolean; status: string; cursor?: string }>> {
   const id = encodeURIComponent(threadId);
-  const [thread, messages] = await Promise.all([
-    capy<{ status: string }>(config.apiKey, `/threads/${id}`),
-    capy<{ items: { source: string; text: string; createdAt: string }[] }>(config.apiKey, `/threads/${id}/messages`),
-  ]);
+  const thread = await capy<{ status: string }>(config.apiKey, `/threads/${id}`);
   if (!thread.ok) return thread;
-  if (!messages.ok) return messages;
   const link = new RegExp("https://github\\.com/" + repo.replace(/\./g, "\\.") + "/pull/(\\d+)", "i");
-  const number = messages.body.items
-    .filter((item) => item.source === "assistant")
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-    .map((item) => link.exec(item.text)?.[1])
-    .find((match) => match !== undefined);
+  let cursor = after;
+  let number: number | undefined;
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const messages = await capy<{ items: { source: string; text: string }[]; cursor?: string | null }>(
+      config.apiKey,
+      `/threads/${id}/messages${cursor ? `?after=${encodeURIComponent(cursor)}` : ""}`,
+    );
+    if (!messages.ok) return messages;
+    for (const item of messages.body.items) {
+      const match = item.source === "assistant" ? link.exec(item.text) : null;
+      if (match) number = Number(match[1]);
+    }
+    const next = messages.body.cursor ?? undefined;
+    if (!next || next === cursor || messages.body.items.length === 0) break;
+    cursor = next;
+  }
   return {
     ok: true,
     body: {
-      ...(number !== undefined && { number: Number(number) }),
+      ...(number !== undefined && { number }),
       stopped: STOPPED_STATUSES.includes(thread.body.status),
       status: thread.body.status,
+      ...(cursor && { cursor }),
     },
   };
 }

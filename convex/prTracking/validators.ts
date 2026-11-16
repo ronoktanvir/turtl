@@ -40,6 +40,7 @@ export const vPullRequestRow = v.object({
   fixKey: v.optional(v.string()),
   stepAttemptId: v.optional(v.id("stepAttempts")),
   capyThreadId: v.optional(v.string()),
+  capyCursor: v.optional(v.string()),
   requestedAt: v.number(),
   syncedAt: v.optional(v.number()),
   syncError: v.optional(v.string()),
