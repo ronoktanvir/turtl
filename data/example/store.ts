@@ -11,6 +11,7 @@ import type {
   FixOption,
   Health,
   PlanStep,
+  Preferences,
   Project,
 } from "../types";
 import {
@@ -27,6 +28,7 @@ import {
   type ProjectSeed,
   type StepSeed,
 } from "./content";
+import * as prefs from "./preferences";
 import { changeClockState, estimatedStepDuration, playbackDuration, readExecutionClock, type ExecutionClock } from "./timing";
 
 const HEALTH_ORDER: Health[] = ["affected", "needs_you", "working", "clear"];
@@ -239,9 +241,10 @@ function advance(caseId: string) {
   schedule(caseId, 500);
 }
 
-export async function approveFix(caseId: string, fixKey: string): Promise<void> {
+export async function approveFix(caseId: string, fixKey: string, note?: string): Promise<void> {
   const c = cases.get(caseId);
   if (!c) return;
+  if (note?.trim()) prefs.suggest(c.projectId, note, "decision_note");
   const enactment = c.enactment;
   const answer = enactment?.question?.fixes.find((f) => f.key === fixKey);
   if (enactment && answer) {
@@ -282,6 +285,37 @@ export async function approveFix(caseId: string, fixKey: string): Promise<void> 
   commit();
   schedule(caseId, 700);
 }
+
+export async function declineFixes(caseId: string, note?: string): Promise<void> {
+  const c = cases.get(caseId);
+  if (!c) throw new Error("This case could not be found.");
+  if (c.enactment && c.enactment.state !== "stopped") throw new Error("A fix is already underway. Stop it before declining.");
+  if (c.status === "declined" || c.status === "resolved" || c.status === "unresolved") throw new Error("This case is already closed.");
+  if (note?.trim()) prefs.suggest(c.projectId, note, "decision_note");
+  clearTimeout(timers.get(caseId));
+  patch(caseId, (c) => ({ ...c, status: "declined", health: "clear" }));
+  commit();
+}
+
+export function getPreferences(projectId: string): Preferences | null {
+  return projects.has(projectId) ? prefs.list(projectId) : null;
+}
+
+function preferenceChange(projectId: string, change: () => unknown): Promise<void> {
+  if (!projects.has(projectId)) return Promise.reject(new Error("This project could not be found."));
+  try {
+    change();
+  } catch (error) {
+    return Promise.reject(error);
+  }
+  commit();
+  return Promise.resolve();
+}
+
+export const addPreference = (projectId: string, statement: string) => preferenceChange(projectId, () => prefs.add(projectId, statement));
+export const removePreference = (projectId: string, preferenceId: string) => preferenceChange(projectId, () => prefs.remove(projectId, preferenceId));
+export const confirmPreference = (projectId: string, suggestionId: string, statement?: string) => preferenceChange(projectId, () => prefs.confirm(projectId, suggestionId, statement));
+export const dismissPreference = (projectId: string, suggestionId: string) => preferenceChange(projectId, () => prefs.dismiss(projectId, suggestionId));
 
 export async function stopEnactment(caseId: string): Promise<void> {
   const e = cases.get(caseId)?.enactment;
@@ -382,15 +416,19 @@ export function chatKey(scope: ChatScope): string {
   return "node:" + scope.projectId + ":" + scope.nodeId;
 }
 
-function message(role: ChatMessage["role"], text: string, proposedFix?: FixOption): ChatMessage {
+function message(role: ChatMessage["role"], text: string, proposedFix?: FixOption, proposedPreference?: ChatMessage["proposedPreference"]): ChatMessage {
   messageCount += 1;
-  return { id: "m" + messageCount, role, text, at: Date.now(), proposedFix };
+  return { id: "m" + messageCount, role, text, at: Date.now(), proposedFix, proposedPreference };
+}
+
+function withPreferenceStatus(messages: ChatMessage[]): ChatMessage[] {
+  return messages.map((m) => (m.proposedPreference ? { ...m, proposedPreference: { ...m.proposedPreference, status: prefs.status(m.proposedPreference.id) } } : m));
 }
 
 export function chatMessages(scope: ChatScope): ChatMessage[] {
   const key = chatKey(scope);
   const existing = chats.get(key);
-  if (existing) return existing;
+  if (existing) return withPreferenceStatus(existing);
   const opening =
     scope.kind === "case"
       ? [message("turtl", "Ask me anything about this case. I can also look for another fix if none of these feel right.")]
@@ -494,7 +532,11 @@ export async function sendChat(scope: ChatScope, text: string): Promise<void> {
   busy.add(key);
   commit();
   await wait(900);
-  if (scope.kind === "case") {
+  const projectId = scope.kind === "case" ? cases.get(scope.caseId)?.projectId : undefined;
+  const heard = projectId && prefs.statesWish(trimmed) ? prefs.suggest(projectId, trimmed, "chat") : null;
+  if (heard) {
+    say(key, message("turtl", "I can remember that for this project. It shapes which fix I recommend, and it never approves anything on its own.", undefined, { id: heard.id, statement: heard.statement, status: "pending" }));
+  } else if (scope.kind === "case") {
     const replies = caseReplies[scope.caseId] ?? caseReplies.default;
     const wantsFix = asked === 1 || /another|other|else|different|new fix|option/i.test(trimmed);
     const alreadyProposed = cases.get(scope.caseId)?.fixes.some((f) => f.proposedInChat);

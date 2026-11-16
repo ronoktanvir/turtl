@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { mutation, type MutationCtx } from "./_generated/server";
 import { CLOSED_CASE_STATUSES, type Actor, type ParameterConstraint, type Parameters } from "./constants";
+import { recordDecision } from "./learning/feedback";
 import { requireOwnerPasscode } from "./ownerPasscode";
 import { revisionOf } from "./protectedApp/client";
 import { approveCase, declineCase } from "./runner/run";
@@ -111,22 +112,23 @@ export async function freezeAndRecordAction(
 
 // The owner's approval: freezes the proposal, records the action, then resumes the runner.
 export const approve = mutation({
-  args: { proposalId: v.id("proposals"), version: v.number(), optionKey: v.string(), passcode: v.optional(v.string()) },
-  handler: async (ctx, { proposalId, version, optionKey, passcode }) => {
+  args: { proposalId: v.id("proposals"), version: v.number(), optionKey: v.string(), passcode: v.optional(v.string()), note: v.optional(v.string()) },
+  handler: async (ctx, { proposalId, version, optionKey, passcode, note }) => {
     await requireOwnerPasscode(ctx, passcode);
     const proposal = await undecidedProposal(ctx, proposalId, version);
     const actionId = await freezeAndRecordAction(ctx, proposal, optionKey, {
       actor: SOLO_OWNER,
       requestedBy: "owner",
     });
+    await recordDecision(ctx, proposal, { outcome: "approved", chosenKey: optionKey, note });
     await approveCase(ctx, proposal.caseId);
     return { actionId };
   },
 });
 
 export const decline = mutation({
-  args: { proposalId: v.id("proposals"), version: v.number(), passcode: v.optional(v.string()) },
-  handler: async (ctx, { proposalId, version, passcode }) => {
+  args: { proposalId: v.id("proposals"), version: v.number(), passcode: v.optional(v.string()), note: v.optional(v.string()) },
+  handler: async (ctx, { proposalId, version, passcode, note }) => {
     await requireOwnerPasscode(ctx, passcode);
     const proposal = await undecidedProposal(ctx, proposalId, version);
     await ctx.db.patch(proposalId, {
@@ -134,13 +136,14 @@ export const decline = mutation({
       chosenBy: SOLO_OWNER,
       decidedAt: Date.now(),
     });
+    await recordDecision(ctx, proposal, { outcome: "declined", note });
     await declineCase(ctx, proposal.caseId);
   },
 });
 
 export const stop = mutation({
-  args: { caseId: v.id("cases"), passcode: v.optional(v.string()) },
-  handler: async (ctx, { caseId, passcode }): Promise<{ stopped: true; summary: string } | { stopped: false; reason: string }> => {
+  args: { caseId: v.id("cases"), passcode: v.optional(v.string()), note: v.optional(v.string()) },
+  handler: async (ctx, { caseId, passcode, note }): Promise<{ stopped: true; summary: string } | { stopped: false; reason: string }> => {
     await requireOwnerPasscode(ctx, passcode);
     const row = await ctx.db.get(caseId);
     if (!row) return { stopped: false, reason: "This case no longer exists." };
@@ -183,6 +186,8 @@ export const stop = mutation({
       }
     }
     await setCaseStatus(ctx, caseId, "declined");
+    const stoppedProposal = await ctx.db.get(action.proposalId);
+    if (stoppedProposal) await recordDecision(ctx, stoppedProposal, { outcome: "stopped", chosenKey: action.optionKey, note });
     for (const step of steps) {
       if (step.status === "pending" || step.status === "failed") await skipStep(ctx, step._id, summary);
     }

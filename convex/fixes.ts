@@ -24,6 +24,7 @@ import {
   toFixOption,
   type FixOption,
 } from "./fixOptions";
+import { cleanStatement, PREFERENCE_FIELD } from "./learning/model";
 import { CRITERIA, DONE_MEANS, ENVIRONMENT } from "./protectedApp/client";
 import { usesOf } from "./permissions";
 import { latestAction, latestProposal } from "./protectedApp/records";
@@ -46,17 +47,20 @@ export type ChatMessage = {
   text: string;
   at: number;
   proposedFix?: FixOption;
+  proposedPreference?: { id: string; statement: string; status: "pending" | "saved" | "dismissed" };
 };
 
 async function toChatMessage(ctx: QueryCtx, row: Doc<"fixChatMessages">): Promise<ChatMessage> {
   const proposal = row.proposalId ? await ctx.db.get(row.proposalId) : null;
   const option = proposal?.options.find((o) => o.key === row.optionKey);
+  const heard = await ctx.db.query("preferenceSuggestions").withIndex("by_message", (q) => q.eq("chatMessageId", row._id)).first();
   return {
     id: row._id,
     role: row.role,
     text: row.text,
     at: row.at,
     ...(option && { proposedFix: toFixOption(option) }),
+    ...(heard && { proposedPreference: { id: heard._id, statement: heard.statement, status: heard.status } }),
   };
 }
 
@@ -239,7 +243,8 @@ const CHAT_PROMPT = [
   "For a declined proposal or owner-cancelled action, explain that it was declined or stopped and no live change was applied, unless the recorded completed action or after-action verification shows otherwise. Stopping does not undo an earlier applied change. For waiting_for_owner, explain that the case is waiting for the owner's decision; do not claim a pending fix ran. Unknown, running or failed actions are not confirmed recoveries.",
   "work is the live workflow: the steps running or waiting now, what each waits for, the steps that cannot start yet, and the last error. When the owner asks what turtl is doing, waiting for or stuck on, answer from work, starting from work.now: name the step, how long it has run, what it waits for, and the last error with its step and attempt; if nothing is running, say so. Use plain words, not field names or status ids.",
   "This chat never approves, declines, merges or stops anything. If the owner asks it to, say so and point to the button: Approve on a fix (on the Fixes screen or a fix in this chat) behind the passcode, Stop and Merge on the Fix enacting screen.",
-  'Reply with a JSON object: {"reply": string, "fix": object | null}. reply: at most four plain sentences.',
+  'Reply with a JSON object: {"reply": string, "fix": object | null, "preference": string | null}. reply: at most four plain sentences.',
+  `${PREFERENCE_FIELD} When you set preference, say in reply that turtl can remember it once the owner confirms; never treat it as already saved, as evidence, or as approval of anything.`,
   `Set fix only to propose a new fix that differs in substance from every current fix; never restate a current fix in other words. If no different sensible fix exists, set fix to null and say so. A new fix is a code change that ships as a pull request. ${FIX_FIELDS}`,
 ].join("\n");
 
@@ -320,12 +325,23 @@ export const investigate = action({
         else reply = `${reply} ${result.reason}`;
       }
     }
-    return await ctx.runMutation(internal.fixes.addMessage, {
+    const sent: ChatMessage = await ctx.runMutation(internal.fixes.addMessage, {
       caseId,
       role: "turtl",
       text: reply,
       ...(added ?? {}),
     });
+    const statement = answer.ok ? cleanStatement(answer.json.preference) : null;
+    const heard = statement
+      ? await ctx.runMutation(internal.learning.preferences.suggest, {
+          appId: context.case.appId,
+          caseId,
+          statement,
+          source: "chat",
+          chatMessageId: sent.id as Id<"fixChatMessages">,
+        })
+      : null;
+    return heard && statement ? { ...sent, proposedPreference: { id: heard, statement, status: "pending" } } : sent;
   },
 });
 

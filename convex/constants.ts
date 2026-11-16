@@ -336,6 +336,9 @@ export const vProposalOption = v.object({
   delivery: v.optional(vDelivery),
   codeIds: v.optional(v.array(v.string())),
   proposedInChat: v.optional(v.boolean()),
+  preferences: v.optional(v.array(v.object({ preferenceId: v.id("ownerPreferences"), statement: v.string() }))),
+  pastDecisions: v.optional(v.string()),
+  contextIds: v.optional(v.array(v.id("contextUses"))),
 });
 
 export const vDecisionStatus = v.union(
@@ -467,6 +470,8 @@ export const vOwnerPreference = v.object({
   statement: v.string(),
   sourceProposalId: v.optional(v.id("proposals")),
   supermemoryId: v.optional(v.string()),
+  source: v.optional(v.union(v.literal("settings"), v.literal("chat"), v.literal("decision_note"))),
+  sourceCaseId: v.optional(v.id("cases")),
 });
 
 export const vPermission = v.object({
@@ -549,12 +554,19 @@ export const vContextSource = v.object({
     v.literal("document"),
     v.literal("architecture"),
     v.literal("decision"),
+    v.literal("past_case"),
+    v.literal("memory"),
   ),
   sourceRef: v.string(),
   revision: v.optional(v.string()),
   indexedAt: v.number(),
   supermemoryId: v.optional(v.string()),
   invalidatedAt: v.optional(v.number()),
+  label: v.optional(v.string()),
+  timesSupplied: v.optional(v.number()),
+  timesUsed: v.optional(v.number()),
+  timesHelped: v.optional(v.number()),
+  lastHelpedAt: v.optional(v.number()),
 });
 
 export type Actor = Infer<typeof vActor>;

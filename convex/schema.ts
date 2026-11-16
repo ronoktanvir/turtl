@@ -27,6 +27,7 @@ import {
   vOwnerNotice,
 } from "./constants";
 import { intakeTables } from "./intake/schema";
+import { learningTables } from "./learning/schema";
 import { revylTables } from "./revyl/schema";
 import { voiceTables } from "./voice/schema";
 
@@ -187,4 +188,5 @@ export default defineSchema({
   ...codeNetworkTables,
   ...voiceTables,
   ...intakeTables,
+  ...learningTables,
 });

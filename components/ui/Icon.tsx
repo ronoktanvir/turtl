@@ -1,7 +1,7 @@
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Check, ChevronDown, ChevronRight, Code2, ExternalLink, GitBranch, GitMerge, GitPullRequest, Layers, MessageCircle, Network, Plus, Search, Settings2, ShieldCheck, Sparkles, Star, Terminal, TriangleAlert, Wrench, X, ZoomIn, ZoomOut, type LucideIcon } from "lucide-react-native";
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Check, ChevronDown, ChevronRight, Code2, ExternalLink, GitBranch, GitMerge, GitPullRequest, History, Layers, MessageCircle, MessageSquareQuote, Network, Plus, Search, Settings2, ShieldCheck, Sparkles, Star, Terminal, TriangleAlert, Wrench, X, ZoomIn, ZoomOut, type LucideIcon } from "lucide-react-native";
 import { useTheme, type TokenName } from "../../theme";
 
-const icons = { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Check, ChevronDown, ChevronRight, Code2, ExternalLink, GitBranch, GitMerge, GitPullRequest, Layers, MessageCircle, Network, Plus, Search, Settings2, ShieldCheck, Sparkles, Star, Terminal, TriangleAlert, Wrench, X, ZoomIn, ZoomOut } satisfies Record<string, LucideIcon>;
+const icons = { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Check, ChevronDown, ChevronRight, Code2, ExternalLink, GitBranch, GitMerge, GitPullRequest, History, Layers, MessageCircle, MessageSquareQuote, Network, Plus, Search, Settings2, ShieldCheck, Sparkles, Star, Terminal, TriangleAlert, Wrench, X, ZoomIn, ZoomOut } satisfies Record<string, LucideIcon>;
 export type IconName = keyof typeof icons;
 export function Icon({ name, size = 20, color = "text", strokeWidth = 1.7 }: { name: IconName; size?: number; color?: TokenName; strokeWidth?: number }) {
   const { colors } = useTheme();

@@ -6,8 +6,8 @@ import { AskBar } from "../../../components/execution/AskBar";
 import { ApproveSheet, FixCard } from "../../../components/fix/FixCard";
 import { useTalkSession } from "../../../components/voice/useTalkSession";
 import { Button, devToolsOn, Header, Reveal, Screen, T, Turtle, useReducedMotion } from "../../../components/ui";
-import { useCase, useChat } from "../../../data";
-import type { FixOption } from "../../../data/types";
+import { confirmPreference, dismissPreference, useCase, useChat } from "../../../data";
+import type { ChatMessage, FixOption } from "../../../data/types";
 import { useTheme } from "../../../theme";
 
 export default function InvestigateFurther() {
@@ -91,6 +91,7 @@ export default function InvestigateFurther() {
                     <T variant="strong">turtl</T>
                   </View>
                   <T>{m.text}</T>
+                  {m.proposedPreference && c && <PreferenceCard projectId={c.projectId} proposal={m.proposedPreference} />}
                 </View>
               )}
               {m.proposedFix && c && <FixCard fix={m.proposedFix} number={c.fixes.findIndex((f) => f.key === m.proposedFix?.key) + 1 || undefined} sources={{ citations: c.citations, logs: c.logs, code: c.code }} defaultOpen approveDisabled={active} onApprove={setApproving} prefix="proposal" />}
@@ -108,5 +109,41 @@ export default function InvestigateFurther() {
       </KeyboardAvoidingView>
       {c && <ApproveSheet caseId={c.id} fix={approving} onClose={() => setApproving(null)} />}
     </Screen>
+  );
+}
+
+function PreferenceCard({ projectId, proposal }: { projectId: string; proposal: NonNullable<ChatMessage["proposedPreference"]> }) {
+  const { colors } = useTheme();
+  const pending = useRef(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const settle = async (work: () => Promise<void>) => {
+    if (pending.current) return;
+    pending.current = true;
+    setBusy(true);
+    setError(null);
+    try {
+      await work();
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "That could not be saved. Please try again.");
+    } finally {
+      pending.current = false;
+      setBusy(false);
+    }
+  };
+  return (
+    <View style={{ gap: 10, padding: 16, borderRadius: 16, borderWidth: 1, borderColor: colors.border, borderLeftWidth: 2, borderLeftColor: colors.brandDeep, backgroundColor: colors.surface }} testID={"chat-preference-" + proposal.id}>
+      {proposal.status === "pending" && <T variant="strong">Save this as a preference?</T>}
+      <T>{"“" + proposal.statement + "”"}</T>
+      {proposal.status === "pending" ? (
+        <View style={{ flexDirection: "row", gap: 8 }}>
+          <Button label="Save" disabled={busy} onPress={() => void settle(() => confirmPreference(projectId, proposal.id))} testID="chat-preference-save" style={{ flex: 1, minHeight: 44 }} />
+          <Button label="Not now" kind="plain" disabled={busy} onPress={() => void settle(() => dismissPreference(projectId, proposal.id))} testID="chat-preference-dismiss" style={{ flex: 1, minHeight: 44 }} />
+        </View>
+      ) : (
+        <T variant="small" color="textMuted" testID="chat-preference-status">{proposal.status === "saved" ? "Saved to what matters to you." : "Not saved."}</T>
+      )}
+      {error && <T color="statusAffected" accessibilityRole="alert">{error}</T>}
+    </View>
   );
 }

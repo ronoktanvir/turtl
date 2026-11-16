@@ -7,7 +7,7 @@ import type { FixOption, Screenshot } from "../../data/types";
 import { useTheme } from "../../theme";
 import { ago, Button, Card, Chip, devToolsOn, HealthWord, Icon, Reveal, T, Turtle } from "../ui";
 import { CodeBox, LogRow, SpanText, Viz } from "./Evidence";
-import { ApproveSheet, FixCard } from "./FixCard";
+import { ApproveSheet, DeclineSheet, FixCard } from "./FixCard";
 
 const tabs = ["Overview", "Logs", "Code"] as const;
 const tabIcons = { Overview: "Layers", Logs: "Terminal", Code: "Code2" } as const;
@@ -26,6 +26,7 @@ export function CasePage({ caseId, current }: { caseId: string; current: boolean
   const [height, setHeight] = useState(0);
   const [atFixes, setAtFixes] = useState(false);
   const [approving, setApproving] = useState<FixOption | null>(null);
+  const [declining, setDeclining] = useState(false);
   const id = (name: string) => (current ? name : caseId + "-" + name);
 
   useEffect(() => {
@@ -40,6 +41,7 @@ export function CasePage({ caseId, current }: { caseId: string; current: boolean
   const e = c.enactment;
   const active = !!e && e.state !== "stopped";
   const activeNumber = e ? c.fixes.findIndex((f) => f.key === e.fixKey) + 1 : 0;
+  const closed = c.status === "declined" || c.status === "resolved" || c.status === "unresolved";
   const openEnacting = () => router.push(("/review/" + c.id + "/enacting") as never);
 
   return (
@@ -200,10 +202,12 @@ export function CasePage({ caseId, current }: { caseId: string; current: boolean
               number={i + 1}
               sources={sources}
               defaultOpen={fix.recommended}
-              approveDisabled={active}
+              approveDisabled={active || c.status === "declined"}
               onApprove={setApproving}
             />
           ))}
+          {c.status === "declined" && <View style={{ flexDirection: "row", gap: 8 }} testID={id("fixes-declined")}><Icon name="X" size={18} color="textMuted" /><T color="textMuted" style={{ flex: 1 }}>You declined these fixes. Nothing was changed, and this case is closed.</T></View>}
+          {c.fixes.length > 0 && !active && !closed && <Button label="Decline these fixes" kind="plain" onPress={() => setDeclining(true)} testID={id("fixes-decline")} />}
           <Card
             onPress={() => router.push(("/review/" + c.id + "/chat") as never)}
             testID={id("investigate-further")}
@@ -243,6 +247,7 @@ export function CasePage({ caseId, current }: { caseId: string; current: boolean
         </View>
       )}
       <ApproveSheet caseId={c.id} fix={approving} onClose={() => setApproving(null)} />
+      <DeclineSheet caseId={c.id} visible={declining} onClose={() => setDeclining(false)} />
     </View>
   );
 }

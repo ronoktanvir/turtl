@@ -2,7 +2,10 @@ import { internal } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
 import { CRITERIA, DONE_MEANS, ENVIRONMENT } from "../../protectedApp/client";
 import type { ProposalOption } from "../../constants";
-import { planFixes } from "../../fixOptions";
+import { fixesModelId, planFixes } from "../../fixOptions";
+import type { ContextUse } from "../../learning/context";
+import { applicablePreferences } from "../../learning/preferences";
+import { conditionsOf } from "../../learning/rules";
 import type { StepHandler } from "../contract";
 import { factsOf, loadJourneyContext } from "./journey";
 
@@ -158,6 +161,28 @@ export const handler: StepHandler = {
               ? remembered.option.confidence
               : diagnosis!.confidence,
     };
+    const gathered = steps.find((s) => s.purpose === "gather_context")?.currentAttempt?.output as
+      | { context?: { uses?: ContextUse[] } }
+      | undefined;
+    const context = gathered?.context?.uses ?? [];
+    const conditions = conditionsOf(loaded.context.case.signature, facts);
+    const [applied, feedback] = await Promise.all([
+      applicablePreferences(ctx, input.case.appId, `${input.case.title}. ${input.case.impact} ${diagnosis?.cause ?? ""}`),
+      ctx.runQuery(internal.learning.feedback.history, {
+        appId: input.case.appId,
+        caseId: input.case._id,
+        conditionsKey: conditions.key,
+      }),
+    ]);
+    const started = Date.now();
+    const agentRunId: Id<"agentRuns"> | null = await ctx.runMutation(internal.learning.runs.start, {
+      caseId: input.case._id,
+      stepAttemptId: input.attempt._id,
+      taskType: "propose_fixes",
+      modelId: fixesModelId(),
+      promptVersion: "plan-fixes-learning-v1",
+      contextRefs: [...new Set(context.map((use) => use.contextSourceId))],
+    });
     const planned = await planFixes({
       base: catalogOption,
       baseRecommended: recommended,
@@ -174,7 +199,26 @@ export const handler: StepHandler = {
       facts,
       cause: diagnosis?.cause ?? null,
       evidence,
+      preferences: applied.preferences,
+      feedback: { turnedDown: feedback.turnedDown, conditionsText: conditions.text, recent: feedback.recent },
+      context,
     });
+    if (agentRunId) {
+      await ctx.runMutation(internal.learning.runs.finish, {
+        agentRunId,
+        status: planned.modelAnswered ? "completed" : "failed",
+        durationMs: Date.now() - started,
+        ...(planned.noModelReason && { error: `No model answered: ${planned.noModelReason}. Only the catalog action was offered.` }),
+      });
+    }
+    const learnedNote = [
+      applied.summary,
+      feedback.sameConditionsCount
+        ? `Read ${feedback.sameConditionsCount} earlier decision${feedback.sameConditionsCount === 1 ? "" : "s"} of yours under the same conditions.`
+        : "",
+    ]
+      .filter(Boolean)
+      .join(" ");
     const proposalId: Id<"proposals"> = await ctx.runMutation(
       internal.protectedApp.records.writeProposal,
       {
@@ -184,13 +228,14 @@ export const handler: StepHandler = {
         options: planned.options,
       },
     );
+    const pick = planned.options.find((o) => o.recommended);
     return {
       status: "done",
       summary: `${remembered
         ? `Offered recovery memory ${remembered.memory._id} directly. ${history}`
         : recommended
-          ? "Proposed turning off recommendations to restore booking. Waiting for the owner's decision."
-          : "Proposed turning off recommendations, but the facts don't point to recommendations, so it is not recommended."} ${planned.note}`,
+          ? "Proposed turning off recommendations to restore booking."
+          : "Proposed turning off recommendations, but the facts don't point to recommendations."} ${pick ? `Recommended: "${pick.title}". Waiting for the owner's decision.` : "Nothing is recommended."} ${planned.note} ${learnedNote}`,
       handoff: {
         note: "Proposal version 1 is ready for the owner.",
         refs: [{ kind: "proposal", id: proposalId, label: "v1" }],

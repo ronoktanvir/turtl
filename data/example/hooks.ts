@@ -8,6 +8,7 @@ import type {
   ChatMessage,
   ChatScope,
   CodeNetwork,
+  Preferences,
   Project,
 } from "../types";
 
@@ -72,9 +73,23 @@ export function useCodeNetwork(projectId: string): CodeNetwork | null | undefine
   return store.getNetwork(projectId);
 }
 
-export function approveFix(caseId: string, fixKey: string): Promise<void> {
-  return store.approveFix(caseId, fixKey);
+export function usePreferences(projectId: string): Preferences | null | undefined {
+  const version = useVersion();
+  return useMemo(() => store.getPreferences(projectId), [version, projectId]);
 }
+
+export function approveFix(caseId: string, fixKey: string, note?: string): Promise<void> {
+  return store.approveFix(caseId, fixKey, note);
+}
+
+export function declineFixes(caseId: string, note?: string): Promise<void> {
+  return store.declineFixes(caseId, note);
+}
+
+export const addPreference = store.addPreference;
+export const removePreference = store.removePreference;
+export const confirmPreference = store.confirmPreference;
+export const dismissPreference = store.dismissPreference;
 
 export function stopEnactment(caseId: string): Promise<void> {
   return store.stopEnactment(caseId);

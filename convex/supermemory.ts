@@ -7,6 +7,9 @@ export type MemoryMetadata = Record<string, string | number | boolean | string[]
 // A Supermemory namespace is 1 to 100 characters of letters, digits, "_", ":" or "-".
 const NAMESPACE_PATTERN = /^[a-zA-Z0-9_:-]{1,100}$/;
 
+// A local proof sets SUPERMEMORY_NAMESPACE_PREFIX so its writes never mix with a hosted project's memory.
+const scoped = (namespace: string) => `${process.env.SUPERMEMORY_NAMESPACE_PREFIX ?? ""}${namespace}`;
+
 function client(namespace: string): Supermemory {
   const apiKey = process.env.SUPERMEMORY_API_KEY;
   if (!apiKey) {
@@ -14,7 +17,7 @@ function client(namespace: string): Supermemory {
       "SUPERMEMORY_API_KEY is not set. Set it with: npx convex env set SUPERMEMORY_API_KEY <value>",
     );
   }
-  if (!NAMESPACE_PATTERN.test(namespace)) {
+  if (!NAMESPACE_PATTERN.test(scoped(namespace))) {
     throw new Error(
       "The Supermemory namespace must be 1 to 100 characters of letters, digits, underscore, colon, or hyphen.",
     );
@@ -28,7 +31,7 @@ export async function searchMemories(
   query: string,
   limit = 8,
 ): Promise<string[]> {
-  const { results } = await client(namespace).search(namespace, { query, limit });
+  const { results } = await client(namespace).search(scoped(namespace), { query, limit });
   return results.flatMap((result) => {
     const text = result.memory ?? result.chunk;
     return text ? [text] : [];
@@ -41,7 +44,35 @@ export async function addMemory(
   content: string,
   metadata: MemoryMetadata,
 ): Promise<void> {
-  await client(namespace).add(namespace, { content, metadata, dreaming: "instant" });
+  await client(namespace).add(scoped(namespace), { content, metadata, dreaming: "instant" });
+}
+
+// Adds or replaces the document with this id in `namespace` and returns Supermemory's document id.
+export async function putDocument(
+  namespace: string,
+  id: string,
+  content: string,
+  metadata: MemoryMetadata,
+): Promise<string> {
+  const response = await client(namespace).add(scoped(namespace), { id, content, metadata, dreaming: "instant" });
+  return response.id;
+}
+
+export async function deleteDocuments(namespace: string, ids: string[]): Promise<void> {
+  await client(namespace).documents.delete(scoped(namespace), { ids });
+}
+
+// Search results with their metadata, best first.
+export async function searchWithMetadata(
+  namespace: string,
+  query: string,
+  limit = 8,
+): Promise<{ text: string; metadata: Record<string, unknown> }[]> {
+  const { results } = await client(namespace).search(scoped(namespace), { query, limit });
+  return results.flatMap((result) => {
+    const text = result.memory ?? result.chunk;
+    return text ? [{ text, metadata: result.metadata ?? {} }] : [];
+  });
 }
 
 export type CodeDocument = { id: string; content: string; metadata: MemoryMetadata };
@@ -60,7 +91,7 @@ export async function addDocuments(
   let failed = 0;
   for (let start = 0; start < documents.length; start += BATCH_SIZE) {
     const response = await supermemory.documents.batchAdd(
-      namespace,
+      scoped(namespace),
       { documents: documents.slice(start, start + BATCH_SIZE), taskType: "superrag" },
       { timeoutInSeconds: BATCH_TIMEOUT_SECONDS },
     );
@@ -79,7 +110,7 @@ export async function searchChunks(
   const predicates = anyOf.map(({ field, value }) => ({ field, operator: "eq" as const, value }));
   const filter =
     predicates.length === 0 ? undefined : predicates.length === 1 ? predicates[0] : { operator: "or" as const, operands: predicates };
-  const { results } = await client(namespace).search(namespace, {
+  const { results } = await client(namespace).search(scoped(namespace), {
     query,
     searchMode: "chunks",
     limit,
