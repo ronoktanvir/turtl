@@ -25,7 +25,7 @@ npx convex env set OPENAI_API_KEY        # asks for the value, so it stays out o
 npx convex env set SUPERMEMORY_API_KEY
 ```
 
-This is every variable the backend reads, taken from the code. "Required" stops a release when it is missing. "Never set" stops a release when it is present.
+This is every variable the backend reads, taken from the code. "Required" stops a release when it is missing. "Never set" stops a release when it is present. "Arrives with" marks a variable whose pull request had not merged when its row was written.
 
 <!-- variables:start -->
 | Variable | Production | What it does |
@@ -40,7 +40,12 @@ This is every variable the backend reads, taken from the code. "Required" stops 
 | `VOICE_SPEECH_MODEL` | Optional | Model that speaks a reply. Default gpt-4o-mini-tts. |
 | `CODE_NETWORK_CHAT_ENABLED` | Optional | "true" lets the Investigate screen answer questions about the code. Each question spends OpenAI and Supermemory credits. |
 | `INTAKE_NAMESPACE_PREFIX` | Optional | Prefix for the Supermemory namespaces that hold customer reports. It keeps a test deployment's reports apart; leave it unset in production. |
-| `GITHUB_TOKEN` (secret) | Optional | One GitHub token for the whole deployment: reads pull requests and checks, merges on the owner's approval, and fetches repositories for the code map. Every account acts through it, so give it only the repositories turtl may touch, and remove it once GitHub App installation tokens replace it. |
+| `GITHUB_APP_ID` | Required, arrives with turtl#54 | The GitHub App's id. turtl reaches each account's repositories with a token of the app's installation on them, and with nothing else. |
+| `GITHUB_APP_PRIVATE_KEY` (secret) | Required, arrives with turtl#54 | The GitHub App's private key (the .pem file), which signs the request for an installation token. |
+| `GITHUB_APP_SLUG` | Required, arrives with turtl#54 | The GitHub App's name in its public link, used to send an owner to install it. |
+| `GITHUB_APP_WEBHOOK_SECRET` (secret) | Required, arrives with turtl#54 | Proves a webhook delivery came from GitHub. Without it every delivery is answered 503. |
+| `AUTH_GITHUB_ID` | Required, arrives with the accounts pull request | The same GitHub App's client id, for signing in with GitHub. |
+| `AUTH_GITHUB_SECRET` (secret) | Required, arrives with the accounts pull request | The same GitHub App's client secret. |
 | `CAPY_API_KEY` (secret) | Optional | Starts the Capy thread that writes a code fix and opens its pull request. Without it a code fix reports that it cannot open a pull request. Every account's fixes are billed to this key's owner. |
 | `CAPY_PROJECT_ID` | Optional | Capy project those threads start in. Default: the project that holds the repository. |
 | `CAPY_MODEL_ID` | Optional | Model for those Capy threads. Default: the Capy project's model. |
@@ -51,6 +56,8 @@ This is every variable the backend reads, taken from the code. "Required" stops 
 | `KEIKI_AGENT_ID` | Optional | The Keiki agent that words owner alerts. |
 | `KEIKI_BASE_URL` | Optional | Keiki API address. Default https://onkeiki.com. |
 | `KEIKI_OWNER_CONTACT` | Never set | One phone number that receives every alert in the deployment. In production that would text one person about every account's incidents. Never set it until alerts go to each account's own owner. |
+| `GITHUB_TOKEN` (secret) | Never set | One GitHub token for the whole deployment, which is how the demo reaches GitHub. Every account would act through it. Production reaches GitHub only through the GitHub App, and with this unset there is nothing to fall back to when the app's variables go missing, so access fails closed. |
+| `GITHUB_API_URL` | Never set, arrives with turtl#54 | Points GitHub calls at a stand-in server in tests. In production it would send the app's tokens to another server. |
 | `DEV_TOOLS_ENABLED` | Never set | "true" opens the dev tools functions: sample cases, staged outages on the booking demo, memory resets, and seeded data, callable by anyone who knows the backend address. |
 | `ASSISTANT_ENABLED` | Never set | "true" opens assistant.chat, a public action that reads and writes memory under whatever user id the caller sends. No screen uses it. Never set it until the action checks its caller. |
 | `PROTECTED_APP_URL` | Never set | Address of the booking demo's control routes. It makes this deployment watch the one demo app every minute. Demo only. |
@@ -62,7 +69,7 @@ This is every variable the backend reads, taken from the code. "Required" stops 
 
 The table's source is `backend-env.mjs`. After changing it, run `node release/check-backend-env.mjs --write-table`.
 
-Sign-in will add variables of its own. Their rows arrive with the accounts pull request; until they are in the table, the check below reports them as unlisted.
+The six GitHub App values are one app: turtl#54 reads its id, private key, slug, and webhook secret, and sign-in reads its client id and secret. `convex/github/README.md` says where each comes from once turtl#54 has merged. Sign-in may add more variables of its own; until they have rows, the check below reports them as unlisted.
 
 ## 3. Check the names
 
@@ -95,4 +102,5 @@ These are limits of the product today, not of this runbook. Each is why a row ab
 - **It watches no app.** The only app turtl can watch is the booking demo, wired through the `PROTECTED_APP_*` variables for the whole deployment. Production leaves them unset until each account can connect its own app.
 - **It alerts nobody by text.** `KEIKI_OWNER_CONTACT` is one phone number for every case in the deployment. Production leaves it unset until alerts go to each account's owner.
 - **The booking demo ships inside it.** `convex/bookingDemo/` deploys with the rest. Its control routes answer 503 while `PROTECTED_APP_CONTROL_SECRET_SHA256` is unset, but its public functions (`bookingDemo/booking:getCatalog`, `getFlags`, `recommendations`, `submit`) and the routes `/booking-demo/health` and `/booking-demo/revision` answer anyone.
-- **One GitHub token and one Capy key serve every account**, if they are set.
+- **It reaches GitHub only through the GitHub App.** `GITHUB_TOKEN` is the demo's one token for every repository, and production never sets it. Until turtl#54 has merged, that leaves a production backend unable to read or merge a pull request or to fetch a repository for the code map.
+- **One Capy key serves every account**, if `CAPY_API_KEY` is set.

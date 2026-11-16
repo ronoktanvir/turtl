@@ -44,7 +44,7 @@ A `development` build is a Release build for the simulator, like the one Revyl m
 - **Icon:** `assets/images/icon.png`, 1024 by 1024, no alpha channel.
 - **Export compliance:** `ios.config.usesNonExemptEncryption: false` in `app.json`. turtl uses only the system's HTTPS and Keychain.
 - **Purpose strings:** the microphone, for voice on a case, set on the `expo-audio` plugin in `app.config.ts`. It is the only permission the app asks for. `expo-secure-store` would add a Face ID string by default; the app never asks for Face ID, so `app.config.ts` switches it off.
-- **Privacy manifest:** `ios.privacyManifests` in `app.json` declares no tracking and repeats every required-reason API its libraries declare (user defaults, file timestamps, boot time, disk space), because Apple reads only the app's own manifest reliably. `NSPrivacyCollectedDataTypes` is empty until the listing thread's data audit says what belongs there.
+- **Privacy manifest:** `ios.privacyManifests` in `app.json` declares no tracking and repeats every required-reason API its libraries declare (user defaults, file timestamps, boot time, disk space), because Apple reads only the app's own manifest reliably. At `pod install`, React Native also merges every pod's reasons into the app's manifest, which covers a pod that ships outside `node_modules`, such as SocketRocket. `NSPrivacyCollectedDataTypes` is empty until the listing thread's data audit says what belongs there.
 - **iPhone only:** `ios.supportsTablet: false`.
 - **Scheme:** `turtl://` stays.
 
@@ -79,7 +79,7 @@ Nothing in the repository holds a credential. The workflow reads `EXPO_TOKEN` an
 2. **An Expo account and the EAS project.** In a terminal in this repository: `npx eas-cli login`, then `npx eas-cli init`. It prints a project id and writes it to `app.json` under `expo.extra.eas.projectId`. The id is not a secret. Send it to the Captain, who gets it committed.
 3. **The GitHub environment.** Repository Settings, Environments, New environment, name it `production`. Add yourself as a required reviewer if you want every release to wait for your approval.
 4. **An Expo access token.** expo.dev, Account settings, Access tokens, Create token. Save it as the secret `EXPO_TOKEN` in the `production` environment.
-5. **The production backend and its deploy key.** Follow `backend-runbook.md`: create the Convex project, save its production deploy key as the secret `CONVEX_DEPLOY_KEY` in the `production` environment, and set the backend's variables.
+5. **The production backend and its deploy key.** Follow `backend-runbook.md`: create the Convex project, save its production deploy key as the secret `CONVEX_DEPLOY_KEY` in the `production` environment, and set the backend's required variables. Never set `GITHUB_TOKEN` or `DEV_TOOLS_ENABLED` there.
 6. **Signing and the App Store Connect API key.** In a terminal in this repository: `npx eas-cli credentials --platform ios`. Choose the `production` profile and sign in with your Apple ID. When it asks for a team, choose yours: this is the one place your Apple team id is used. Then:
    - "Build Credentials", then "All: Set up all the required credentials". EAS registers `com.turtl.oncall`, creates the distribution certificate and the provisioning profile, and keeps them.
    - "App Store Connect: Manage your API Key", then "Set up your project to use an API Key for EAS Submit". Let EAS create the key, or upload one you made in App Store Connect under Users and Access, Integrations. EAS keeps it.
@@ -94,7 +94,7 @@ Nothing in the repository holds a credential. The workflow reads `EXPO_TOKEN` an
 | Production Convex deploy key | Convex dashboard, the production deployment's settings | GitHub environment secret `CONVEX_DEPLOY_KEY` |
 | App Store Connect app id | App Store Connect, App Information, Apple ID | GitHub environment variable `ASC_APP_ID` |
 | EAS project id | Printed by `eas init` | `app.json`, committed |
-| Backend variables | Each provider | The Convex production deployment (names in `backend-runbook.md`) |
+| Backend variables | `OPENAI_API_KEY` and `SUPERMEMORY_API_KEY` from their providers; the six GitHub App values from the app's settings page, with the GitHub thread's steps | The Convex production deployment (every name is in `backend-runbook.md`) |
 
 If Apple says `com.turtl.oncall` is taken by another developer, stop and tell the Captain: the bundle identifier is in `app.json` and in Revyl's app.
 

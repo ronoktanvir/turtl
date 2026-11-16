@@ -44,6 +44,7 @@ test("a production backend is refused without its keys, with a dev switch, or wi
   assert.deepEqual(deploymentProblems([...required, "VOICE_ENABLED", "CONVEX_SITE_URL"]), []);
   assert.match(deploymentProblems(required.slice(1))[0], new RegExp(`${required[0]} is required`));
   assert.match(deploymentProblems([...required, "DEV_TOOLS_ENABLED"])[0], /DEV_TOOLS_ENABLED is set and must never be set/);
+  assert.match(deploymentProblems([...required, "GITHUB_TOKEN"])[0], /GITHUB_TOKEN is set and must never be set/);
   assert.match(deploymentProblems([...required, "DEV_TOOLS_ENABLD"])[0], /DEV_TOOLS_ENABLD is set but has no row/);
   assert.ok(variables.some((row) => row.name === "DEV_TOOLS_ENABLED" && row.production === "never"));
 });
