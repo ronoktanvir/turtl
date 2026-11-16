@@ -15,6 +15,13 @@ import {
   recoveryChecks,
 } from "./checks";
 
+/** A signature's newest cases read to count a memory's uses: one journey's failures, which the monitor can keep opening. */
+const SIGNATURE_CASES_READ = 500;
+/** A case's first actions, and an action's newest verifications, read: as many as the owner approves and turtl retries. */
+const PER_CASE_READ = 50;
+/** A signature's memories read: one per distinct recovery (action, conditions, parameters), so few; a bound all the same. */
+const MEMORIES_READ = 200;
+
 function payloadKey(payload: ExecutionPayload) {
   return JSON.stringify({
     ...payload,
@@ -137,7 +144,7 @@ async function outcomes(ctx: QueryCtx, row: Doc<"cases">) {
   const actions = await ctx.db
     .query("actions")
     .withIndex("by_case", (q) => q.eq("caseId", row._id))
-    .collect();
+    .take(PER_CASE_READ);
   const result: {
     action: Doc<"actions">;
     verification: Doc<"verifications"> | null;
@@ -203,7 +210,8 @@ async function outcomes(ctx: QueryCtx, row: Doc<"cases">) {
     const verifications = await ctx.db
       .query("verifications")
       .withIndex("by_action", (q) => q.eq("actionId", action._id))
-      .collect();
+      .order("desc")
+      .take(PER_CASE_READ);
     const verification = verifications
       .filter((r) => r.phase === "after_fix")
       .sort(
@@ -285,7 +293,7 @@ export const write = internalMutation({
       .withIndex("by_app_and_signature", (q) =>
         q.eq("appId", row.appId).eq("signature", row.signature!),
       )
-      .collect();
+      .take(MEMORIES_READ);
     let existing: Doc<"recoveryMemories"> | undefined;
     for (const memory of candidates) {
       const verification = await ctx.db.get(memory.verificationId);
@@ -303,12 +311,16 @@ export const write = internalMutation({
         break;
       }
     }
+    // The signature's newest SIGNATURE_CASES_READ cases: one journey's failures, which the monitor can open again and
+    // again. Past that many the counts below cover the newest ones, and an existing memory keeps its larger counts.
     const cases = await ctx.db
       .query("cases")
       .withIndex("by_app_and_signature", (q) =>
         q.eq("appId", row.appId).eq("signature", row.signature),
       )
-      .collect();
+      .order("desc")
+      .take(SIGNATURE_CASES_READ);
+    const windowFull = cases.length === SIGNATURE_CASES_READ;
     const applied = new Set<string>();
     const verified = new Set<string>();
     for (const candidate of cases) {
@@ -324,12 +336,14 @@ export const write = internalMutation({
       }
     }
     if (existing) {
+      const timesApplied = windowFull ? Math.max(existing.timesApplied, applied.size) : applied.size;
+      const timesVerified = windowFull ? Math.max(existing.timesVerified, verified.size) : verified.size;
       const changed =
-        existing.timesApplied !== applied.size ||
-        existing.timesVerified !== verified.size;
+        existing.timesApplied !== timesApplied ||
+        existing.timesVerified !== timesVerified;
       await ctx.db.patch(existing._id, {
-        timesApplied: applied.size,
-        timesVerified: verified.size,
+        timesApplied,
+        timesVerified,
         sourceCaseId: caseId,
         verificationId: source.verification._id,
         criterionResults: criterionSnapshot(source.action, source.verification),
@@ -341,8 +355,8 @@ export const write = internalMutation({
         created: false,
         changed,
         memoryId: existing._id,
-        timesApplied: applied.size,
-        timesVerified: verified.size,
+        timesApplied,
+        timesVerified,
       };
     }
     const notWhenChecks = source.checks.map((check) => ({
@@ -453,7 +467,7 @@ export const candidates = internalQuery({
       .withIndex("by_app_and_signature", (q) =>
         q.eq("appId", appId).eq("signature", signature),
       )
-      .collect();
+      .take(MEMORIES_READ);
     const found = new Map(rows.map((row) => [row._id, row]));
     for (const text of texts) {
       for (const match of text.matchAll(

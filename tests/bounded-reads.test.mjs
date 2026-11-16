@@ -307,9 +307,13 @@ const STRICT = [
   ["structural/records.ts", "examineContext"], // the examine_broader_causes step: a project's cases and their evidence
   ["routing/log.ts", "settlePending"], // the settling cron: every account's agent runs
   ["intake/records.ts", "claim"], ["intake/records.ts", "triageInput"], ["intake/records.ts", "land"], // triage of one report
+  // A case's investigate and learn steps: the project's past cases, a signature's cases, councils, context sources.
+  ["memory/service.ts", "pastCaseNotes"], ["memory/records.ts", "write"], ["memory/records.ts", "candidates"],
+  ["council/run.ts", "recent"], ["learning/context.ts", "sources"],
 ];
 const STRICT_ALLOWED = {
   "convex/workflow.ts:loadSteps:steps": "a case's steps: as many as its workflow template has, which only turtl's runner adds to",
+  "convex/memory/service.ts:pastCaseNotes:steps": "a past case's steps, to find its learn step: as many as its workflow template has, which only turtl's runner adds to",
 };
 
 export function strictProblems(reached) {
