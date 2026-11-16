@@ -6,7 +6,7 @@ import { Button, T } from "../ui";
 
 const list = (names: string[]) => (names.length < 2 ? names.join("") : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`);
 
-function Stops({ connections }: { connections: GithubConnection[] }) {
+function Stops({ connections, accounts }: { connections: GithubConnection[]; accounts: boolean }) {
   const own = connections.filter((connection) => connection.scope === "all").map((connection) => connection.accountLogin);
   const shared = connections.filter((connection) => connection.scope === "chosen").map((connection) => connection.accountLogin);
   return (
@@ -19,7 +19,13 @@ function Stops({ connections }: { connections: GithubConnection[] }) {
         </View>
       ))}
       {own.length > 0 && <T color="textMuted">turtl uninstalls its GitHub App from {list(own)}, so it keeps no access to those repositories.</T>}
-      {shared.length > 0 && <T color="textMuted">In {list(shared)}, turtl stops using GitHub for you, and uninstalls its app there unless someone else still uses turtl with it.</T>}
+      {shared.length > 0 && (
+        <T color="textMuted">
+          {accounts
+            ? `In ${list(shared)}, turtl stops using GitHub for you. Its app stays installed there until an owner removes it on GitHub.`
+            : `In ${list(shared)}, turtl stops using GitHub for you, and uninstalls its app there unless someone else still uses turtl with it.`}
+        </T>
+      )}
       <T color="textMuted">Your projects and cases stay in turtl. You can connect GitHub again from Add project.</T>
     </View>
   );
@@ -46,7 +52,9 @@ export default function GithubSettings() {
       const result = await disconnectGithub(status.accounts);
       if (result.ok) {
         setConfirming(false);
-        setMessage({ text: "GitHub is disconnected. turtl holds no access to your repositories.", problem: false });
+        // Installations turtl left in place (an organization's) come with the backend's sentence saying who can remove them.
+        const kept = (result.stillInstalled ?? []).map((entry) => entry.message);
+        setMessage({ text: kept.length ? ["GitHub is disconnected.", ...kept].join(" ") : "GitHub is disconnected. turtl holds no access to your repositories.", problem: false });
       } else {
         const stuck = connections.filter((connection) => result.failed.some((failure) => failure.installationId === connection.installationId)).map((connection) => connection.accountLogin);
         setMessage({ text: `GitHub did not confirm removing turtl from ${list(stuck) || "your account"}, so turtl is still connected there. Try again, or uninstall turtl in GitHub's settings.`, problem: true });
@@ -71,7 +79,7 @@ export default function GithubSettings() {
           ) : (
             <View style={{ gap: 12, borderWidth: 1, borderColor: colors.statusAffected, borderRadius: 16, padding: 16 }} testID="github-disconnect-confirm">
               <T variant="strong">Disconnect GitHub?</T>
-              <Stops connections={connections} />
+              <Stops connections={connections} accounts={status.accounts} />
               <Button label={busy ? "Disconnecting…" : "Disconnect"} kind="danger" disabled={busy} onPress={() => void disconnect()} testID="github-disconnect-confirm-button" />
               <Button label="Keep connected" kind="plain" disabled={busy} onPress={() => setConfirming(false)} testID="github-disconnect-cancel" />
             </View>

@@ -132,7 +132,7 @@ test("an install link someone else started cannot connect your repositories to t
   assert.equal((await w.access("alice/app", { appId: mallory.appId })).reason, "not_connected");
   assert.equal(w.backend.rows("githubInstallationLinks").every((link) => !link.active), true);
   // Nor can mallory have turtl uninstall alice's installation: disconnecting only forgets her unfinished attempt.
-  assert.deepEqual(await w.backend.call("github.connect.disconnect", {}, "mallory-account"), { ok: true, disconnected: 0, failed: [] });
+  assert.deepEqual(await w.backend.call("github.connect.disconnect", {}, "mallory-account"), { ok: true, disconnected: 0, failed: [], stillInstalled: [] });
   assert.deepEqual(w.stub.uninstalled, []);
   assert.deepEqual(w.backend.rows("githubInstallationLinks"), []);
   assert.deepEqual(w.backend.rows("githubInstallations").map((row) => row.status), ["active"]);
@@ -226,7 +226,7 @@ test("disconnecting uninstalls the app at GitHub and leaves no token, repository
   assert.equal((await w.access("alice/app", { appId: alice.appId })).source, "installation");
   assert.equal(w.backend.rows("githubInstallationTokens").length, 1);
 
-  assert.deepEqual(await w.backend.call("github.connect.disconnect", {}, "alice-account"), { ok: true, disconnected: 1, failed: [] });
+  assert.deepEqual(await w.backend.call("github.connect.disconnect", {}, "alice-account"), { ok: true, disconnected: 1, failed: [], stillInstalled: [] });
   assert.deepEqual(w.stub.uninstalled, [7101]);
   const uninstall = w.stub.requests.find((request) => request.method === "DELETE" && request.path === "/app/installations/7101");
   assert.equal(uninstall.credential, "app", "uninstalled as the app, with its JWT");
@@ -243,11 +243,11 @@ test("disconnecting uninstalls the app at GitHub and leaves no token, repository
   assert.match(failed.failed[0].message, /502/);
   w.stub.failWith(null);
   assert.equal((await w.status("alice-account")).connections.length, 1);
-  assert.deepEqual(await w.backend.call("github.connect.disconnect", {}, "alice-account"), { ok: true, disconnected: 1, failed: [] });
+  assert.deepEqual(await w.backend.call("github.connect.disconnect", {}, "alice-account"), { ok: true, disconnected: 1, failed: [], stillInstalled: [] });
   assert.deepEqual(w.stub.uninstalled, [7101, 7102]);
 });
 
-test("an installation two accounts use stays for the other, and account deletion disconnects without a caller", async (t) => {
+test("an organization's installation stays installed when its members disconnect, and account deletion disconnects without a caller", async (t) => {
   const w = await connectWorld(t, { accounts: true });
   w.stub.install({ id: 7300, login: "acme", type: "Organization", repositories: ["acme/web"], members: { bob: "all", carol: "all" } });
   await w.connected("bob-account", "bob", { existing: 7300 });
@@ -255,18 +255,20 @@ test("an installation two accounts use stays for the other, and account deletion
   const carol = await w.project("carol-account");
   assert.equal((await w.access("acme/web", { appId: carol.appId })).installationId, 7300);
 
-  assert.deepEqual(await w.backend.call("github.connect.disconnect", {}, "bob-account"), { ok: true, disconnected: 1, failed: [] });
+  const kept = "turtl stopped using acme for you, but its app is still installed on acme. Only an owner of acme can remove it, in acme's settings on GitHub.";
+  assert.deepEqual(await w.backend.call("github.connect.disconnect", {}, "bob-account"), { ok: true, disconnected: 1, failed: [], stillInstalled: [{ installationId: 7300, accountLogin: "acme", message: kept }] });
   assert.deepEqual(w.stub.uninstalled, [], "carol still uses it");
   assert.deepEqual((await w.status("bob-account")).connections, []);
   assert.deepEqual(w.backend.rows("githubInstallationLinks").map((link) => link.account), ["carol-account"]);
   assert.equal((await w.access("acme/web", { appId: carol.appId })).installationId, 7300);
 
-  // Account deletion (RC-23) calls the internal function with the account id; there is no signed-in caller.
-  assert.deepEqual(await w.backend.run("internal.github.connect.disconnectAccount", { account: "carol-account" }), { ok: true, disconnected: 1, failed: [] });
-  assert.deepEqual(w.stub.uninstalled, [7300]);
+  // Account deletion (RC-23) calls the internal function with the account id; there is no signed-in caller. carol was
+  // the last turtl account linked to acme, but acme is an organization, so turtl leaves it installed and only unlinks.
+  assert.deepEqual(await w.backend.run("internal.github.connect.disconnectAccount", { account: "carol-account" }), { ok: true, disconnected: 1, failed: [], stillInstalled: [{ installationId: 7300, accountLogin: "acme", message: kept }] });
+  assert.deepEqual(w.stub.uninstalled, []);
   assert.deepEqual(w.backend.rows("githubInstallationTokens"), []);
   assert.deepEqual(w.backend.rows("githubInstallationLinks"), []);
-  assert.deepEqual(await w.backend.run("internal.github.connect.disconnectAccount", { account: "carol-account" }), { ok: true, disconnected: 0, failed: [] }, "running it again is harmless");
+  assert.deepEqual(await w.backend.run("internal.github.connect.disconnectAccount", { account: "carol-account" }), { ok: true, disconnected: 0, failed: [], stillInstalled: [] }, "running it again is harmless");
 });
 
 test("uninstalling on GitHub ends the connection too", async (t) => {

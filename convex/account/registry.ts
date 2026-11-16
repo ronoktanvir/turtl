@@ -152,9 +152,10 @@ export const namespaces: ((appId: Id<"apps">) => string)[] = [
 /** Tables whose rows go through a deletion at a vendor (convex/account/vendors.ts), not through a list above. Their
  * rows stay until the vendor confirms, so the job still knows what to ask the vendor to delete. */
 export const vendorTables: Record<"github" | "apple", TableNames[]> = {
-  // Connect GitHub: internal.github.connect.disconnectAccount uninstalls every installation only this account uses
-  // and removes its token, repositories and links, unlinks the account from installations others still use, and
-  // forgets the account's connect attempts. A deleted installation keeps its row (so a replayed webhook cannot
+  // Connect GitHub: internal.github.connect.disconnectAccount uninstalls every installation on the person's own GitHub
+  // account that only this account uses and removes its token, repositories and links; from any other installation
+  // (an organization's, or one others still use) it removes the account's links, with what they remember (the GitHub
+  // user, the repositories, what was left out and why) and the cached token; and it forgets the connect attempts. A deleted installation keeps its row (so a replayed webhook cannot
   // revive it) with the GitHub login blanked.
   github: ["githubConnectAttempts", "githubInstallationLinks", "githubInstallations", "githubInstallationRepositories", "githubInstallationTokens"],
   // Sign in with Apple: each kept refresh token is revoked at Apple, then forgotten.

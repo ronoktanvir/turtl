@@ -241,7 +241,7 @@ try {
     if (!(await run("ownerPasscode:status")).configured) {
       await assert.rejects(run("github/connect:disconnect"), /Set an owner passcode in project settings before disconnecting GitHub/);
     }
-    assert.deepEqual(await run("github/connect:disconnectAccount", { account: "solo-owner" }), { ok: true, disconnected: 1, failed: [] });
+    assert.deepEqual(await run("github/connect:disconnectAccount", { account: "solo-owner" }), { ok: true, disconnected: 1, failed: [], stillInstalled: [] });
     assert.deepEqual(stub.uninstalled, [connectId]);
     assert.equal(await run("github/tokens:cached", { installationId: connectId }), null);
     assert.deepEqual(await run("github/links:installationsOf", { account: "solo-owner" }), []);

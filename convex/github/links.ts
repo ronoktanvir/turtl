@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import type { Doc } from "../_generated/dataModel";
 import { internalMutation, internalQuery, type MutationCtx, type QueryCtx } from "../_generated/server";
 import { vLeftOut } from "./schema";
+import { clearToken } from "./tokens";
 
 // Which turtl account may use which installation of turtl's GitHub App. A link is written by the Connect GitHub
 // flow (connect.ts) and read by repositoryAccess when accounts are on (AUTH_REQUIRED=true).
@@ -122,12 +123,14 @@ export const otherAccounts = internalQuery({
   },
 });
 
-// Removes the account's links to one installation. The installation itself stays for the accounts still using it.
+// Removes the account's links to one installation, and the installation's cached token, so nothing turtl holds was
+// minted while this account was linked. The installation itself stays, for whoever may still use it.
 export const unlink = internalMutation({
   args: { account: v.string(), installationId: v.number() },
   returns: v.null(),
   handler: async (ctx, { account, installationId }) => {
     for (const link of await linksOf(ctx, account, installationId)) await ctx.db.delete(link._id);
+    await clearToken(ctx, installationId);
     return null;
   },
 });
