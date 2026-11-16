@@ -8,6 +8,7 @@ import { registerCodeChangeAction } from "./prTracking/catalog";
 import { githubToken, mergePullRequest, parsePullRequestUrl, readPullRequest } from "./prTracking/github";
 import { latestForCase, toPullRequest } from "./prTracking/records";
 import { pullRequestOf, type PullRequest } from "./prTracking/validators";
+import { readRevision } from "./protectedApp/client";
 
 declare const process: { env: Record<string, string | undefined> };
 
@@ -60,6 +61,18 @@ async function sync(ctx: ActionCtx, row: Doc<"pullRequests">): Promise<RefreshRe
     return { outcome: "failed", message: read.message };
   }
   await ctx.runMutation(internal.prTracking.records.applySnapshot, { id: row._id, ...read.body });
+  const deployment = await ctx.runQuery(internal.prTracking.records.deploymentTarget, { id: row._id });
+  if (deployment) {
+    const revision = await readRevision(deployment.base);
+    if (revision === deployment.expectedRevision) {
+      await ctx.runMutation(internal.prTracking.records.confirmDeployment, { id: row._id, revision });
+    } else {
+      await ctx.runMutation(internal.prTracking.records.recordSyncError, {
+        id: row._id,
+        error: `Waiting for deployed revision ${deployment.expectedRevision}; the booking app reports ${revision ?? "no revision"}.`,
+      });
+    }
+  }
   return { outcome: "synced", pullRequest: pullRequestOf(row.repo, number, read.body.snapshot) };
 }
 

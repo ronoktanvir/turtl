@@ -4,6 +4,7 @@ import type { CriterionResult } from "../../constants";
 import {
   CRITERIA,
   CRITERIA_VERSION,
+  ENVIRONMENT,
   call,
   describeFailure,
   describeJourney,
@@ -36,8 +37,16 @@ export const handler: StepHandler = {
       return { status: "failed", error: "No completed action to verify." };
     }
     const payload = action.executionPayload;
+    const codeChange = payload.config.kind === "capy";
     const startedAt = Date.now();
-    const revision = revisionOf(await readRevision(base), base);
+    const deployedRevision = await readRevision(base);
+    const revision = revisionOf(deployedRevision, base);
+    if (codeChange) {
+      const pullRequest = await ctx.runQuery(internal.prTracking.records.forAction, { actionId: action._id });
+      if (!pullRequest?.mergeCommitSha || pullRequest.snapshot?.state !== "merged" || deployedRevision !== pullRequest.mergeCommitSha) {
+        return { status: "failed", error: "The approved code change is not confirmed deployed at its merged revision; no booking or device check ran." };
+      }
+    }
     const rows: ReturnType<typeof evidenceRow>[] = [];
     const results = new Map<string, Omit<CriterionResult, "criterionId" | "evidenceIds"> & { evidence?: number }>();
 
@@ -54,23 +63,25 @@ export const handler: StepHandler = {
 
     let journeyPassed = false;
     if (healthOk) {
-      const flags = await call(payload.config.kind === "http" ? payload.config.url : `${base}/flags`, {
-        credentialRef: payload.config.credentialRef,
-      });
-      const flagValue =
-        flags.kind === "response" && flags.status === 200
-          ? (flags.body as { recommendationsEnabled?: unknown } | null)?.recommendationsEnabled
-          : undefined;
-      const flagTitle =
-        typeof flagValue === "boolean"
-          ? `Recommendations read as ${flagValue ? "on" : "off"}.`
-          : `The recommendations flag could not be read: ${describeFailure(flags)}.`;
-      rows.push(evidenceRow(input, revision, { kind: "flags", title: flagTitle, sourceRef: "GET /flags" }));
-      results.set(CRITERIA.recommendationsOff.id, {
-        status: flagValue === false ? "passed" : "failed",
-        summary: flagTitle,
-        evidence: rows.length - 1,
-      });
+      if (!codeChange) {
+        const flags = await call(payload.config.kind === "http" ? payload.config.url : `${base}/flags`, {
+          credentialRef: payload.config.credentialRef,
+        });
+        const flagValue =
+          flags.kind === "response" && flags.status === 200
+            ? (flags.body as { recommendationsEnabled?: unknown } | null)?.recommendationsEnabled
+            : undefined;
+        const flagTitle =
+          typeof flagValue === "boolean"
+            ? `Recommendations read as ${flagValue ? "on" : "off"}.`
+            : `The recommendations flag could not be read: ${describeFailure(flags)}.`;
+        rows.push(evidenceRow(input, revision, { kind: "flags", title: flagTitle, sourceRef: "GET /flags" }));
+        results.set(CRITERIA.recommendationsOff.id, {
+          status: flagValue === false ? "passed" : "failed",
+          summary: flagTitle,
+          evidence: rows.length - 1,
+        });
+      }
 
       const ref = payload.checkRefs.find((r) => r.journeyId === journey._id);
       const observedAt = Date.now();
@@ -88,7 +99,7 @@ export const handler: StepHandler = {
       if (journeyPassed) await ctx.runMutation(internal.monitor.recordPass, { journeyId: journey._id, observedAt });
       results.set(CRITERIA.journey.id, { status: journeyPassed ? "passed" : "failed", summary: title, evidence: rows.length - 1 });
 
-      if (journeyPassed) {
+      if (journeyPassed && payload.acceptanceCriteria.some((criterion) => criterion.id === CRITERIA.device.id)) {
         const device = await checkBookingScreen(ctx, { caseId: input.case._id, stepAttemptId: input.attempt._id });
         if (device.evidence) rows.push(evidenceRow(input, revision, device.evidence));
         results.set(CRITERIA.device.id, { status: device.status, summary: device.summary, evidence: device.evidence && rows.length - 1 });
@@ -120,8 +131,11 @@ export const handler: StepHandler = {
     const covered = criterionResults.filter((r) => r.status !== "uncovered");
     const passed = covered.length > 0 && covered.every((r) => r.status === "passed") && journeyPassed;
     const uncovered = criterionResults.filter((r) => r.status === "uncovered").map((r) => r.criterionId);
+    const deviceSummary = results.get(CRITERIA.device.id)?.summary ?? "Not checked: the booking screen on a device.";
     const summary = passed
-      ? `Service restored: the server answers, recommendations are off, and the booking check saved a booking. ${results.get(CRITERIA.device.id)?.status === "passed" ? "The booking screen passed a Revyl run on a cloud device." : "Not checked: the booking screen on a device."} The defect that let recommendations block booking is still in the code.`
+      ? codeChange
+        ? `The deployed code change at ${deployedRevision} passed the server health and booking checks. ${deviceSummary} These checks do not establish that every defect is repaired.`
+        : `Service restored: the server answers, recommendations are off, and the booking check saved a booking. ${deviceSummary} The defect that let recommendations block booking is still in the code.`
       : `Not restored: ${covered.filter((r) => r.status === "failed").map((r) => r.summary).join(" ")}`;
 
     const verificationId: Id<"verifications"> = await ctx.runMutation(
@@ -132,8 +146,8 @@ export const handler: StepHandler = {
           journeyId: journey._id,
           actionId: action._id,
           stepAttemptId: input.attempt._id,
-          phase: "after_fix",
-          environment: action.environment,
+          phase: codeChange ? "after_deploy" : "after_fix",
+          environment: codeChange ? ENVIRONMENT : action.environment,
           revision,
           checkVersion: journey.checkVersion,
           criteriaVersion: CRITERIA_VERSION,
@@ -154,9 +168,9 @@ export const handler: StepHandler = {
     return {
       status: "done",
       summary,
-      caseStatus: "restored",
+      ...(!codeChange && { caseStatus: "restored" as const }),
       handoff: {
-        note: "Service is restored, not repaired: recommendations are off and the coupling is still in the code.",
+        note: codeChange ? summary : "Service is restored, not repaired: recommendations are off and the coupling is still in the code.",
         refs: [
           { kind: "verification", id: verificationId, label: "After the fix" },
           ...ids.map((id) => ({ kind: "evidence", id })),

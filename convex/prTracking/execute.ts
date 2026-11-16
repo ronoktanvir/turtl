@@ -33,7 +33,9 @@ export async function runCodeChange(ctx: ActionCtx, input: HandlerInput, action:
     return {
       status: "waiting",
       summary: existing.snapshot
-        ? `Waiting for the owner to merge pull request #${existing.number}.`
+        ? existing.snapshot.state === "merged"
+          ? `Pull request #${existing.number} was merged; waiting for the booking app to deploy its merged revision.`
+          : `Waiting for the owner to merge pull request #${existing.number}.`
         : "Capy is still writing the change.",
       ...(existing.capyThreadId && { externalRef: `capy:${existing.capyThreadId}` }),
       caseStatus: "waiting_for_deploy",
