@@ -1,12 +1,19 @@
 import { useRouter, type Href } from "expo-router";
 import { Pressable, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useProject } from "../../data";
 import type { CaseType } from "../../data/types";
 import { labels } from "../../theme";
 import { Icon, Screen, T, Turtle } from "../ui";
 import Watching from "./Watching";
 
 // The Fix or Features list with nothing in it. Same header as BeginScreen, then what turtl is watching meanwhile.
+
+// A practice app has no customers, so nothing reaches it from them: its notes say what does happen there.
+const practiceNotes: Record<CaseType, string> = {
+  fix: "When you break your practice app, turtl's check notices and opens an issue here.",
+  feature: "Your practice app has no customers, so no feature requests come here. Your own projects' requests do.",
+};
 
 const words: Record<CaseType, { title: string; empty: string; note: string }> = {
   fix: {
@@ -24,7 +31,8 @@ const words: Record<CaseType, { title: string; empty: string; note: string }> = 
 export default function NothingOpen({ type, projectId }: { type: CaseType; projectId: string }) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const w = words[type];
+  const practice = useProject(projectId)?.practice === true;
+  const w = { ...words[type], ...(practice && { note: practiceNotes[type] }) };
   return (
     <Screen testID={`begin-${type}`}>
       <Pressable accessibilityRole="button" accessibilityLabel="Back to project" testID="header-back" onPress={() => router.canGoBack() ? router.back() : router.replace(`/project/${projectId}` as Href)} style={{ marginLeft: 8, marginTop: 4, width: 44, height: 44, alignItems: "center", justifyContent: "center" }}>

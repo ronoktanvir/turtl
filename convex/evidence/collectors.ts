@@ -68,7 +68,7 @@ export async function readAppState(input: HandlerInput, base: string, app: Watch
     missing,
     revision: revision.revision,
     rows: observations.map(({ read, kind, sourceRef, title }) => ({
-      ...evidenceRow(input, read.revision, { kind, sourceRef, title, ...(kind === "health" && { body: "A health response does not prove that customer booking works." }) }),
+      ...evidenceRow(input, read.revision, { kind, sourceRef, title, ...(kind === "health" && { body: "A health response does not prove that booking works." }) }),
       observedAt: read.observedAt,
       environment: read.environment,
     })),
@@ -86,7 +86,9 @@ export async function readErrorWindow(input: HandlerInput, base: string, app: Wa
     facts["errors.topCode"] = topErrorCode(errors.value);
   }
   const title = errors.ok
-    ? `${errors.value.counts.failedBookings} of ${errors.value.counts.totalBookings} customer booking attempts failed in the observed window.`
+    ? errors.value.counts.totalBookings === 0
+      ? "No bookings were attempted in the observed window."
+      : `${errors.value.counts.failedBookings} of ${errors.value.counts.totalBookings} booking attempts failed in the observed window.`
     : `Could not read failed bookings: ${errors.reason}.`;
   return {
     facts,
@@ -134,7 +136,7 @@ async function collect(ctx: ActionCtx, input: HandlerInput, collector: Collector
   validateSnapshot(output, collector);
   return {
     status: "done" as const,
-    summary: collector === "collect_app_state" ? "Collected health, recommendations flag and app revision." : "Collected the customer booking error window.",
+    summary: collector === "collect_app_state" ? "Collected health, recommendations flag and app revision." : "Collected the booking app's recent failed bookings.",
     handoff: { note: "The read-only collector snapshot is in this attempt's output.", refs: output.evidence.map(({ id, kind }) => ({ kind: "evidence", id, label: kind })) },
     output,
   };
