@@ -1,5 +1,5 @@
 import { useRouter, type Href } from "expo-router";
-import { Pressable, ScrollView, View } from "react-native";
+import { Pressable, ScrollView, View, useWindowDimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import ProfileButton from "../components/account/ProfileButton";
 import ProjectIcon from "../components/project/ProjectIcon";
@@ -14,6 +14,8 @@ export default function Projects() {
   const { colors } = useTheme();
   const projects = useProjects();
   const { errors } = useDataStatus();
+  // Below 360 wide the icon and turtle give up a little room, so a name such as "Superprediction" is not broken mid-word.
+  const narrow = useWindowDimensions().width < 360;
   const sorted = projects && [...projects].sort((a, b) => Number(b.needsApprovalCount > 0) - Number(a.needsApprovalCount > 0) || healthOrder.indexOf(a.health) - healthOrder.indexOf(b.health));
   return (
     <Screen testID="home">
@@ -33,13 +35,13 @@ export default function Projects() {
             return (
               <Reveal key={p.id} delay={index * 60}>
                 <Card testID={`project-card-${p.id}`} onPress={() => router.push(`/project/${p.id}` as Href)} style={{ overflow: "hidden", borderColor: urgent ? colors[healthToken[p.health]] : colors.border }}>
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-                    <ProjectIcon project={p} size={44} />
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: narrow ? 8 : 12 }}>
+                    <ProjectIcon project={p} size={narrow ? 36 : 44} />
                     <View style={{ flex: 1, gap: 3 }}>
-                      <T variant="heading">{p.name}</T>
+                      <T variant="heading" numberOfLines={2}>{p.name}</T>
                       <HealthWord health={p.health} />
                     </View>
-                    <Turtle health={p.health} size={38} outlined={urgent} />
+                    <Turtle health={p.health} size={narrow ? 30 : 38} outlined={urgent} />
                   </View>
                   {p.summary && <T color="textMuted" numberOfLines={2} style={{ marginTop: 16 }}>{p.summary}</T>}
                   <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, marginTop: 20 }}>
