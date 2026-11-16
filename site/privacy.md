@@ -24,11 +24,11 @@ turtl is run by {% include blank.html value=site.data.operator.legal_name label=
 - **Your account.** The email address you sign in with. If you sign up with an email address and a password, you confirm the address with a code turtl emails you; until then the account opens nothing else. If you sign in with Apple or GitHub: the id it gives turtl for you, and your name, and from GitHub your profile picture, if it passes them on. If you sign in with a password, turtl stores a scrambled form of it that cannot be turned back into the password. turtl uses these to sign you in and to keep your projects yours.
 - **A token from Apple,** if you sign in with Apple. turtl keeps it encrypted, only so that it can tell Apple to end turtl's access when you delete your account.
 - **Your phone's notification address,** if you turn on notifications. It is a token that lets a notification reach your phone. turtl keeps one for each phone where you turned them on, and a phone receives notifications only while you are signed in on it.
-- **Your sign-in on the phone** is kept in the iOS Keychain.
+- **On your phone,** turtl keeps your sign-in and the theme you chose in the iOS Keychain. It also remembers the address you last asked to reset, for 24 hours, so the link in the email can fill in only the code. The theme never leaves the phone, and the address leaves it only in the reset request itself.
 
 ### What you connect
 
-- **Your source code.** You choose which GitHub repositories turtl may read, through turtl's GitHub app. turtl connects only the repositories you can change on GitHub, and checks with GitHub that you still can before it merges a pull request or asks a coding agent to change code. turtl reads up to a few hundred files from a repository. It keeps a map of your app in plain words: the names of its parts, a sentence about each, and file paths. It does not keep the code in its own database, but it does place a copy with a search service so it can answer your questions (see "Who receives your data").
+- **Your source code.** You choose which GitHub repositories turtl may read, through turtl's GitHub app. turtl connects only the repositories you can change on GitHub, and checks with GitHub that you still can before it merges a pull request or asks a coding agent to change code. turtl reads up to a few hundred files from a repository. It keeps a map of your app in plain words: the names of its parts, a sentence about each, and file paths. It does not keep the code in its own database, but it does place a copy with a search service so it can answer your questions (see "Who receives your data"). Before any of your code leaves turtl, files that hold secrets, such as .env files and keys, are left out, and passwords, tokens and keys in the rest are masked. This works by pattern, so a secret written in an unusual way could still get through.
 - **Your live app.** turtl calls your app regularly, as often as once a minute (and less often, at least every 15 minutes, while it keeps failing the same way), to check its health and to run tests of the journeys you chose. It keeps the results: whether each step passed, error codes, error counts, and which version is deployed.
 - **Your app's control token and your coding agent's key,** if you add them. The control token lets turtl call your app's protected checks and recovery steps; turtl sends it only to your app's own address. The coding agent key is your own key for Capy, which writes the code changes you approve; turtl sends it only to Capy. turtl keeps both encrypted and never shows them again.
 - **Your pull requests.** For a code change turtl proposed: its title, link, and whether its checks pass.
@@ -55,7 +55,7 @@ turtl uses what it collects only to do what you installed it for: to notice when
 ## Notifications and emails
 
 - **Notifications.** If you turn them on, turtl sends one when a case needs your decision, and when a fix you allowed in advance has run and your app passed its check. A notification shows the name of your project and one fixed sentence. It never shows your customers' words, your code, or an error. It goes through Expo's push service, which hands it to Apple. You can turn notifications off in the app's settings or in iOS Settings. Your phone's notification address is removed when you turn notifications off on that phone, sign out, reset your password, or delete your account, and it receives nothing once you are signed out.
-- **Emails.** turtl sends you an email only to confirm your address when you sign up with one, and when you ask to reset your password. Each holds a link and a code and nothing else, and is sent through Resend. turtl keeps only a scrambled copy of each code, and of your address with it, for one day. An account made with an email address that is never confirmed is deleted after 7 days. turtl sends no newsletters or marketing.
+- **Emails.** turtl sends you an email only to confirm your address when you sign up with one, and when you ask to reset your password. Each holds a link and a code and nothing else, and is sent through Resend. turtl keeps only scrambled copies of each code, of your address, and of its domain, for one day. An account made with an email address that is never confirmed is deleted after 7 days. turtl sends no newsletters or marketing.
 
 ## Who receives your data
 
@@ -79,7 +79,6 @@ Each of these services receives only what the table says. The first three are AI
 
 turtl's code can also ask Anthropic and Google for a second opinion on a diagnosis, and text through Keiki, but only in a demo we run for ourselves. turtl does not send your data to them.
 
-
 Each of these companies handles what it receives under its own terms, which you can read here: [OpenAI](https://openai.com/policies/privacy-policy/), [Supermemory](https://supermemory.ai/privacy/), [Capy](https://capy.ai/privacy-policy), [GitHub](https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement), [Revyl](https://revyl.com/privacy/), [Expo](https://expo.dev/privacy), [Resend](https://resend.com/legal/privacy-policy), [Apple](https://www.apple.com/legal/privacy/), [Convex](https://www.convex.dev/legal/privacy). We require each of them to protect your data at least as well as this policy does.
 
 {% include review.html note="The last sentence is a promise Apple requires (guideline 5.1.1(i)). It is only true once you have accepted a data processing agreement with each vendor. None is on file today (RC-28)." %}
@@ -94,7 +93,7 @@ If you tap Not now, turtl still watches your app, runs its checks, and offers th
 
 You can read the list again, allow it, or take your permission back at any time: open a project, tap the gear, then AI services. Taking it back stops the next request. If turtl adds a service to the list, or changes what one receives, it asks you again before sending anything to it.
 
-Each account also has limits on AI: a monthly allowance, a daily allowance ($2.50, plus $1.00 for its customers' reports), and a number of code changes it can start in a day. Settings shows where you stand. When turtl does not use AI, it says why on the case and explains with its own rules.
+Each account also has limits on AI: a monthly allowance, a daily allowance ($2.50, plus $1.00 for its customers' reports), and a number of code changes it can start in a day. Settings shows where you stand. When turtl does not use AI, it says why on the case and explains with its own rules. Your practice app has its own small daily AI allowance; once it is used, turtl still opens the case, explains it with its own rules, and tells you why.
 
 ## How long turtl keeps it
 

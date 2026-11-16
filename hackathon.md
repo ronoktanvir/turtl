@@ -11,7 +11,7 @@
 - **Auth:** Convex Auth (`@convex-dev/auth` 0.0.98): email and password (with the address confirmed by an emailed code), Sign in with Apple, and GitHub, whenever `AUTH_REQUIRED` is set to anything but empty or `false`. Unset, empty or `false`, the deployment is the single-owner demo: nobody signs in, and it refuses to run if it holds any account
 - **AI models:** gpt-5.4-mini (Quick look diagnosis, and by default fix proposals, case chat, report triage and preference reading; `DIAGNOSIS_MODEL` and `FIXES_MODEL` override it), gpt-6.1-sol (Careful review diagnosis and council consolidation), gpt-5.5 and gpt-6.1-terra (council members), gpt-5.4 (broader-cause examination, `STRUCTURAL_MODEL` overrides it), gpt-6-luna (assistant chat, code network and onboarding inspection, `OPENAI_MODEL` overrides it), gpt-4o-mini-transcribe and gpt-4o-mini-tts (voice); claude-sonnet-4-5 and gemini-2.5-pro join the council only when `ANTHROPIC_API_KEY` or `GEMINI_API_KEY` is set. All are called through each provider's API, not the Convex AI Gateway
 - **Started:** 2026-11-15T20:37:34Z
-- **Last updated:** 2026-11-16T13:17:07Z
+- **Last updated:** 2026-11-16T13:58:32Z
 
 ## Log
 
@@ -302,3 +302,30 @@ Bounded six more reads that grew without limit: settling agent runs now looks at
 
 ### 2026-11-16 - 9c2d407
 Made a phone receive notifications only while the session that registered it is alive, so a lost phone stops receiving project names once its owner resets their password elsewhere. A reset removes the account's ended phones at once and an hourly sweep removes the rest; registrations from before the change receive nothing until the app is opened signed in to the same account.
+
+### 2026-11-16 - 8686894
+Took the bigger items from the practice pass: the theme a person chooses is kept across launches and read before the first screen draws, the running-fix screen shows Stop only while a fix is under way and Merge only for an open pull request, an empty Fix list on a project whose check is still failing says why no issue is open, the practice sheet at its daily limit says when it resets, the two checks a case records are labelled, and turtl offers typing in place of talking only when typing would work.
+
+### 2026-11-16 - d0d28bb
+Made the checks panel show the warning triangle in the failing colour while any check is failing, instead of a green shield above a row that said "Not passing".
+
+### 2026-11-16 - a2fcd6e
+Sent basic security headers with the web export (`vercel.json`): no content sniffing, no framing by other sites, a referrer limited to the origin across sites, and no camera or location, with the microphone kept for the page itself because Talk uses it.
+
+### 2026-11-16 - f5625a1
+Made every document true of wave 3, and took Keiki off the AI permission screen: accounts mode never sent it anything, so it is now demo-only like the council's Anthropic and Google models, and the gate refuses it with accounts on. The sentence under the list now says the screen asks only about AI services and that turtl uses the others each for one job. Each account is asked about AI once more because the list changed.
+
+### 2026-11-16 - d7397ae
+Made the Delete account screen say what Disconnect and the privacy policy already said: turtl's app stays installed on an organization's GitHub until one of its owners removes it.
+
+### 2026-11-16 - 0065cf3
+Kept the outage reserve for real outages on established projects: it admits only a case the monitor raised on a project that is not a practice app, whose check had passed for a day before it failed, on an account at least two weeks old. A practice app's cases get their own $2.00 a day and never draw on the reserve, and a call's cost estimate counts the bytes sent. About twenty-two established accounts acting together can still use up a day; the operator's settings for that are in the runbook.
+
+### 2026-11-16 - 8c5a028
+Closed the gaps in masking secrets before repository content leaves: nothing from a secret file leaves in any form, text is masked before it is shortened, every string the onboarding inspection sends has been masked, and more shapes of secret are recognised while lockfile hashes, digests, commit hashes and ids are kept. On a realistic repository it changes no ordinary line and lets no planted secret through.
+
+### 2026-11-16 - ab9a02f
+Made reset and confirmation links carry only the code, so a link someone else sends cannot set a password on, or sign anyone into, another account; the reset screen uses the address this phone last asked to reset, kept for a day, and says whose account is about to change. One email domain may take a tenth of each sign-up ceiling (a large mail provider a half), and `EMAILS_PER_DAY` bounds every email turtl sends, of which sign-ups may use at most two thirds, so a flood of sign-ups cannot take an owner's reset.
+
+### 2026-11-16 - 56105ee
+Closed the demo on a deployment that holds accounts: with `AUTH_REQUIRED` unset there, the monitor, customer reports, the AI permission gate, GitHub's pages and webhook, requests to owners' apps, the runner and push delivery refuse too, with one log line a day saying why. A project's live address may no longer be the deployment's own site or API; a practice project is the one exception, for its own path only.

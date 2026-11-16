@@ -28,7 +28,7 @@ How the runner drives these helpers (scheduling, approval, retries, timeouts, an
 
 | Table | What a row is |
 | --- | --- |
-| `journeys` | A user journey of an app and the check that tests it (HTTP or Revyl), with its check version. |
+| `journeys` | A user journey of an app and the check that tests it (HTTP or Revyl), with its check version, and `passingSince`: since when the check has passed every time (a failure or no answer clears it). A case the monitor opens keeps how long that was in `cases.passingForMs`, which the outage reserve reads. |
 | `actionCatalog` | An action turtl may run on an app (an HTTP call or a Capy code change), with its parameter constraints. |
 | `reports` | A customer's message, as written, with its channel and provider event id. |
 | `evidence` | Something a step observed, with the environment and revision it was observed on. |
@@ -42,6 +42,7 @@ How the runner drives these helpers (scheduling, approval, retries, timeouts, an
 | `contextSources` | Code, a document, an architecture note or a decision indexed as context for an app. |
 | `ownerNotices` | One owner alert per case and event, with its outcome. |
 | `ownerPasscodeConfig` | The hash of the owner passcode. |
+| `closedDemoNotices` | One row, naming no account: when the backend log last said the single-owner demo is closed because the deployment holds accounts (`convex/access.ts`). |
 | `fixChatMessages` | The Investigate further chat about a case. |
 | `pullRequests` | A pull request turtl follows for an approved code change. Syncing takes due rows by `nextSyncAt` (the `by_settled_and_next_sync` index) and slows down for rows that never settle. |
 | `intakeKeys`, `intakeRateWindows`, `reportTriage`, `intakeLocks` | Customer intake: see [`convex/intake/README.md`](../convex/intake/README.md). |
@@ -55,9 +56,9 @@ How the runner drives these helpers (scheduling, approval, retries, timeouts, an
 | `onboardingInspections`, `onboardingPreparations` | Reading a new project's repository, and the pull request that prepares it: [`convex/onboarding/README.md`](../convex/onboarding/README.md). |
 | `githubInstallations`, `githubInstallationRepositories`, `githubInstallationTokens`, `githubWebhookDeliveries`, `githubConnectAttempts`, `githubInstallationLinks` | The GitHub App: installations, the repositories each covers, cached tokens, webhook deliveries, Connect GitHub attempts, and which account uses which installation: [`convex/github/README.md`](../convex/github/README.md). |
 | `pushTokens`, `pushSends` | The owner's phones and what each push did. Each phone's row keeps the `sessionId` that registered it, and the phone receives only while that session is alive: [`convex/push/README.md`](../convex/push/README.md). |
-| `users`, `authAccounts`, `authSessions`, `authRefreshTokens`, `authVerificationCodes`, `authVerifiers`, `authRateLimits`, `authAppleNonces`, `authAppleTokens`, `authEmailCodes`, `authUnconfirmed` | Accounts and sign-in (Convex Auth's tables and turtl's own). `authAppleTokens` holds Apple's refresh token sealed under `SECRETS_ENCRYPTION_KEY`; `authEmailCodes` holds a hash of each emailed reset or confirmation code under a hash of the address, for a day; `authUnconfirmed` lists password accounts that have not confirmed their address yet, deleted after 7 days if they never do: [`convex/auth/README.md`](../convex/auth/README.md). |
+| `users`, `authAccounts`, `authSessions`, `authRefreshTokens`, `authVerificationCodes`, `authVerifiers`, `authRateLimits`, `authAppleNonces`, `authAppleTokens`, `authEmailCodes`, `authUnconfirmed`, `authCounts` | Accounts and sign-in (Convex Auth's tables and turtl's own). `authAppleTokens` holds Apple's refresh token sealed under `SECRETS_ENCRYPTION_KEY`; `authEmailCodes` holds a hash of each emailed reset or confirmation code under a hash of the address, for a day; `authUnconfirmed` lists password accounts that have not confirmed their address yet, deleted after 7 days if they never do; `authCounts` holds running counts for the per-domain sign-up and confirmation limits and the day's emails, keyed by a SHA-256 of the domain (never the domain or an address), and the hourly sweep deletes every window before today: [`convex/auth/README.md`](../convex/auth/README.md). |
 | `aiConsents` | Each account's answers on the AI permission screen: [`convex/consent/README.md`](../convex/consent/README.md). |
-| `modelSpend`, `codingThreads`, `intakeDays`, `deploymentTotals`, `accountSpendDays` | Spend and use counted against the limits, including each account's share of the deployment's day (`accountSpendDays`): [`convex/spend/README.md`](../convex/spend/README.md). |
+| `modelSpend`, `codingThreads`, `intakeDays`, `deploymentTotals`, `accountSpendDays` | Spend and use counted against the limits, including `accountSpendDays`, one row per account per day: its own, practice-app and customer-report AI spend, and what is held for calls whose cost has not come back yet; older days are deleted as new ones start: [`convex/spend/README.md`](../convex/spend/README.md). |
 | `accountDeletions` | The record of an account deletion: [`convex/account/README.md`](../convex/account/README.md). |
 | `secrets` | A project's sealed control token or an account's sealed coding agent key: [`convex/secrets/README.md`](../convex/secrets/README.md). |
 | `watchedProjects`, `monitorCursor` | With accounts on, the monitor's state for each project that has checks (when it is next due, and how long it has failed the same way), and how far the monitor has looked through the checks added to every project (`convex/protectedApp/watching.ts`). |

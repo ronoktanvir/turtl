@@ -18,7 +18,7 @@ The workflow sends its alerts through [`convex/notices.ts`](../convex/notices.ts
 
 [`convex/keiki.ts`](../convex/keiki.ts) exports `sendOwnerNotice(gate, text)`, a plain function for actions, and `internal.keiki.notifyOwner`, an internal action with args `{ appId, text }` that calls it with that project's permission gate. Both return `{ outcome, status? }`, where `outcome` is `ran`, `queued`, `unavailable`, `not_configured` or `failed`. Alerts are best effort: the helper never throws, so a failed alert cannot break the workflow that sends it. It logs one line with the status (never the key) on a failure. The text is cut to 600 characters and sent with the phone number.
 
-Keiki is not on the AI permission screen (`convex/consent`): like the council's Anthropic and Google models it is demo only, so with accounts on the gate refuses it and the helper reports `not_configured`. In the demo the gate always says yes.
+Keiki is not on the AI permission screen (`convex/consent`): like the council's Anthropic and Google models it is demo only, so with accounts on the gate refuses it and the helper reports `not_configured`. In the demo the gate says yes, unless the deployment holds accounts: then it refuses, and nothing is texted.
 
 ```ts
 // From an action: call it directly with the project's gate.
