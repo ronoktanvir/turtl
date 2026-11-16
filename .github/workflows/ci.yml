@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  checks:
+    name: Typechecks and tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            protected-app/package-lock.json
+      - name: Install the app's dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Install the booking demo app's dependencies
+        run: npm --prefix protected-app ci --no-audit --no-fund
+      - name: Typecheck the app and the backend
+        run: npm run typecheck
+      - name: Typecheck the booking demo app
+        run: npm --prefix protected-app run typecheck
+      - name: Run the tests that need no browser
+        run: npm run test:ci
+      - name: Release readiness (warnings only, never fails)
+        run: node release/preflight.mjs --advisory
