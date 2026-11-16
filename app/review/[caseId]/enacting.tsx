@@ -6,9 +6,9 @@ import { AskBar } from "../../../components/execution/AskBar";
 import { PlanGraph } from "../../../components/execution/PlanGraph";
 import { formatDuration, remainingDuration } from "../../../components/execution/timing";
 import { ApproveSheet, FixCard, kindLabel } from "../../../components/fix/FixCard";
-import { Button, Card, Header, Icon, Reveal, Screen, T, Turtle } from "../../../components/ui";
+import { Button, Card, caseTitle, Header, Icon, Reveal, Screen, T, Turtle } from "../../../components/ui";
 import { useTalkSession } from "../../../components/voice/useTalkSession";
-import { mergePullRequest, stopEnactment, useCase, useChat, useDataStatus, useEnactmentNow, useProject } from "../../../data";
+import { mergePullRequest, stopEnactment, useCase, useChat, useDataStatus, useEnactmentNow } from "../../../data";
 import type { Enactment, FixOption, Health } from "../../../data/types";
 import { healthToken, useTheme } from "../../../theme";
 
@@ -27,7 +27,6 @@ export default function Enacting() {
   const c = useCase(caseId);
   const { errors } = useDataStatus();
   const now = useEnactmentNow(caseId);
-  const project = useProject(c?.projectId ?? "");
   const chat = useChat({ kind: "case", caseId });
   const router = useRouter();
   const { colors } = useTheme();
@@ -134,14 +133,14 @@ export default function Enacting() {
 
   return (
     <Screen testID="enacting">
-      <Header title={(project?.name ? project.name + (c.type === "feature" ? " request" : " error") : c.type === "feature" ? "Request" : "Error") + ": Fix " + number} fallback={back} testID="enacting-title" />
+      <Header title={caseTitle(c)} scrollTitle fallback={back} testID="enacting-title" />
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
         <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 20, gap: 28, paddingBottom: insets.bottom + 40 }} testID="enacting-scroll">
           <Reveal>
             <View style={{ gap: 20 }}>
               <View style={{ gap: 8 }}>
                 <T variant="display" testID="enacting-fix-title">{fix?.title ?? ""}</T>
-                {fix && <T variant="small" color="textMuted">{kindLabel[fix.kind]}</T>}
+                {fix && <T variant="small" color="textMuted" testID="enacting-fix-number">{"Fix " + number + " · " + kindLabel[fix.kind]}</T>}
               </View>
               <View style={{ flexDirection: "row", gap: 12, alignItems: "center" }}>
                 <Turtle health={state.health} size={44} />

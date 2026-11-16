@@ -1,5 +1,5 @@
 import { useRouter, type Href } from "expo-router";
-import type { ReactNode } from "react";
+import { useEffect, useId, useState, type ReactNode } from "react";
 import {
   Image,
   Modal,
@@ -14,6 +14,7 @@ import {
   type ViewStyle,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
 import { devToolsAllowed } from "../../data/source";
 import type { Health } from "../../data/types";
 import { healthToken, healthWord, useTheme, type TokenName } from "../../theme";
@@ -22,6 +23,7 @@ import { Reveal, ZoomPressable } from "./motion";
 import { useSheetCover } from "./sheetCover";
 export { Icon, type IconName } from "./Icon";
 export { Reveal, ZoomPressable, useReducedMotion } from "./motion";
+export { caseTitle } from "./caseTitle";
 export { BrandIcon } from "./BrandIcon";
 
 export const devToolsOn = !!process.env.EXPO_PUBLIC_CONVEX_URL && devToolsAllowed;
@@ -82,11 +84,14 @@ export function Header({
   fallback,
   right,
   testID,
+  scrollTitle,
 }: {
   title: string;
   fallback?: Href;
   right?: ReactNode;
   testID?: string;
+  /** Keep the title on one line, scrolling sideways when it is too long to fit (an opened issue's name). */
+  scrollTitle?: boolean;
 }) {
   const { colors } = useTheme();
   const router = useRouter();
@@ -114,10 +119,84 @@ export function Header({
           <Icon name="ArrowLeft" color="textMuted" />
         </Pressable>
       )}
-      <T variant="heading" style={{ flex: 1 }} numberOfLines={2} testID={testID} accessibilityRole="header">
-        {title}
-      </T>
+      {scrollTitle ? (
+        <ScrollingTitle title={title} testID={testID} />
+      ) : (
+        <T variant="heading" style={{ flex: 1 }} numberOfLines={2} testID={testID} accessibilityRole="header">
+          {title}
+        </T>
+      )}
       {right}
+    </View>
+  );
+}
+
+/** A fade into the background at one edge of a scrolling area: the hint that there is more past that edge. */
+export function EdgeFade({ edge, size = 28 }: { edge: "left" | "right" | "top" | "bottom"; size?: number }) {
+  const { colors } = useTheme();
+  const gradient = "edge-fade-" + useId().replace(/[^a-zA-Z0-9]/g, "");
+  const across = edge === "left" || edge === "right";
+  const solidAtEnd = edge === "right" || edge === "bottom";
+  return (
+    <View pointerEvents="none" style={{ position: "absolute", [edge]: 0, ...(across ? { top: 0, bottom: 0, width: size } : { left: 0, right: 0, height: size }) }}>
+      <Svg width="100%" height="100%">
+        <Defs>
+          <LinearGradient id={gradient} x1="0" y1="0" x2={across ? "1" : "0"} y2={across ? "0" : "1"}>
+            <Stop offset="0" stopColor={colors.bg} stopOpacity={solidAtEnd ? 0 : 1} />
+            <Stop offset="1" stopColor={colors.bg} stopOpacity={solidAtEnd ? 1 : 0} />
+          </LinearGradient>
+        </Defs>
+        <Rect x="0" y="0" width="100%" height="100%" fill={`url(#${gradient})`} />
+      </Svg>
+    </View>
+  );
+}
+
+const nowrap = Platform.OS === "web" ? ({ whiteSpace: "nowrap" } as unknown as TextStyle) : null;
+
+/**
+ * A title kept to one line. When it is longer than the line, it scrolls sideways under a finger, a trackpad or a
+ * mouse wheel, with a fade at whichever edge has more to show. Screen readers read it whole.
+ */
+function ScrollingTitle({ title, testID }: { title: string; testID?: string }) {
+  const [box, setBox] = useState(0);
+  const [content, setContent] = useState(0);
+  const [x, setX] = useState(0);
+  const [node, setNode] = useState<HTMLElement | null>(null);
+  const overflow = content > box + 1;
+  // A mouse wheel has no sideways axis, so over a title that does not fit, its up and down scroll the title.
+  useEffect(() => {
+    if (Platform.OS !== "web" || !node || !overflow) return;
+    const onWheel = (event: WheelEvent) => {
+      if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
+      const next = Math.max(0, Math.min(node.scrollWidth - node.clientWidth, node.scrollLeft + event.deltaY));
+      if (next === node.scrollLeft) return;
+      event.preventDefault();
+      node.scrollLeft = next;
+    };
+    node.addEventListener("wheel", onWheel, { passive: false });
+    return () => node.removeEventListener("wheel", onWheel);
+  }, [node, overflow]);
+  return (
+    <View style={{ flex: 1, minWidth: 0, justifyContent: "center" }}>
+      <ScrollView
+        key={title}
+        ref={(view) => setNode((view?.getScrollableNode?.() as HTMLElement | undefined) ?? null)}
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        scrollEventThrottle={16}
+        onLayout={(event) => setBox(event.nativeEvent.layout.width)}
+        onContentSizeChange={(width) => setContent(width)}
+        onScroll={(event) => setX(event.nativeEvent.contentOffset.x)}
+        contentContainerStyle={{ alignItems: "center" }}
+        testID={testID ? testID + "-scroller" : undefined}
+      >
+        <T variant="heading" style={nowrap} testID={testID} accessibilityRole="header">
+          {title}
+        </T>
+      </ScrollView>
+      {overflow && x > 1 && <EdgeFade edge="left" />}
+      {overflow && x < content - box - 1 && <EdgeFade edge="right" />}
     </View>
   );
 }
