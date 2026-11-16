@@ -296,3 +296,53 @@ test("ATTACK (finding 15): 1,000 older open preparations and 500 never approved 
   assert.equal(rows.filter((row) => row.approvedAt === undefined && row.nextSyncAt === Number.MAX_SAFE_INTEGER).length, 500, "the ones never approved are not followed");
   assert.ok(rows.find((row) => row._id === id).nextSyncAt > START);
 });
+
+// ---- Statement 8: what triage reads on one project ----
+
+/** Documents one call reads, as Convex counts them against that function. */
+async function documentsRead(w, path, args, caller = null) {
+  w.reads.length = 0;
+  const result = await w.run(path, args, caller);
+  return { result, documents: w.reads.reduce((sum, [, , documents]) => sum + documents, 0) };
+}
+
+test("ATTACK: a project's customers pile 20,000 reports onto one case and 3,000 cases onto the project; triage still reads a bounded amount", async (t) => {
+  const w = world(t);
+  network(t, {});
+  const alice = await w.db.insert("users", { email: "alice@example.com" });
+  const appId = await w.db.insert("apps", { name: "shop", ownerId: alice, productionUrl: "https://shop.example" });
+  await w.db.insert("intakeKeys", { appId, key: "tik_shop", createdAt: 1 });
+  for (let n = 0; n < 3000; n++) await w.db.insert("cases", { appId, title: `old ${n}`, impact: ".", kind: "bug_report", raisedBy: "customer", status: "resolved" });
+  const caseId = await w.db.insert("cases", { appId, title: "Booking fails", impact: ".", kind: "bug_report", raisedBy: "customer", status: "waiting_for_owner", reportCount: 20_000, distinctRequesterCount: 5_000 });
+  for (let n = 0; n < 20_000; n++) {
+    const reportId = await w.db.insert("reports", { appId, caseId, channel: "form", fromRef: `form:device:${n % 5000}`, text: `Booking fails again (${n}).`, provider: "turtl-form", providerEventId: `e${n}`, receivedAt: START - 20_000 + n });
+    await w.db.insert("reportTriage", { reportId, appId, fingerprint: `fp-${n}`, status: "done", verdict: "bug", outcome: "attached", caseId });
+  }
+  // Before, triage read every case on the project and every report and triage row on each open customer case: past
+  // Convex's limit on what one function may read, so every report on the project failed triage.
+  assert.deepEqual(await w.run("internal.intake.records.receive", { key: "tik_shop", text: "Booking fails again (new).", reporterId: "device-9999", reportId: "new" }), { ok: true, duplicate: false });
+  const triageId = w.rows("reportTriage").find((row) => row.status === "pending")._id;
+  const input = await documentsRead(w, "internal.intake.records.triageInput", { triageId });
+  assert.deepEqual(input.result.candidates.map((candidate) => candidate.caseId), [caseId], "the open case is still offered");
+  assert.ok(input.documents < 1_000, `triage read ${input.documents} documents`);
+  const landed = await documentsRead(w, "internal.intake.records.land", { triageId, verdict: "bug", source: "rules", reason: "The same as the open case.", attachTo: caseId });
+  assert.deepEqual(landed.result, { outcome: "attached", caseId });
+  assert.ok(landed.documents < 1_000, `landing read ${landed.documents} documents`);
+  const row = w.rows("cases").find((c) => c._id === caseId);
+  assert.deepEqual([row.reportCount, row.distinctRequesterCount], [20_001, 5_001], "the counts are kept as reports join");
+  // The owner's screens list the newest, with the counts kept on the case.
+  const forCase = await documentsRead(w, "api.intake.records.forCase", { caseId }, alice);
+  assert.equal(forCase.result.reports.length, 200);
+  assert.equal(forCase.result.people, 5_001);
+  assert.equal(forCase.result.reports[0].text, "Booking fails again (new).");
+  assert.ok(forCase.documents < 1_000);
+  const forApp = await documentsRead(w, "api.intake.records.forApp", { appId }, alice);
+  assert.equal(forApp.result.length, 200);
+  assert.ok(forApp.documents < 1_000);
+  // A report from someone already on the case adds a report, not a person; deleting one takes it away again.
+  await w.run("internal.intake.records.receive", { key: "tik_shop", text: "Still failing.", reporterId: "9", reportId: "again" });
+  const again = w.rows("reportTriage").find((row) => row.status === "pending")._id;
+  await w.run("internal.intake.records.land", { triageId: again, verdict: "bug", source: "rules", reason: ".", attachTo: caseId });
+  const after = w.rows("cases").find((c) => c._id === caseId);
+  assert.deepEqual([after.reportCount, after.distinctRequesterCount], [20_002, 5_001]);
+});

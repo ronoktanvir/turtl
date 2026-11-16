@@ -87,13 +87,15 @@ export function createBackend(load) {
     return fields;
   };
   const builder = (table, index, conditions, order) => {
-    const run = () => {
+    // Each read is recorded as [table, index, documents it returned], which is what Convex counts against a function.
+    const run = (limit = Infinity) => {
       const fields = index ? indexFields(table, index) : [];
-      reads.push([table, index]);
       const rows = rowsOf(table)
         .filter((row) => conditions.every(([operator, field, value]) => operators[operator](row[field], value)))
         .sort((a, b) => fields.reduce((found, field) => found || compare(a[field], b[field]), 0) || a._creationTime - b._creationTime);
-      return structuredClone(order === "desc" ? rows.reverse() : rows);
+      const taken = (order === "desc" ? rows.reverse() : rows).slice(0, limit);
+      reads.push([table, index, taken.length]);
+      return structuredClone(taken);
     };
     return {
       withIndex: (name, build) => {
@@ -111,10 +113,10 @@ export function createBackend(load) {
       },
       order: (direction) => builder(table, index, conditions, direction),
       collect: async () => run(),
-      take: async (count) => run().slice(0, count),
-      first: async () => run()[0] ?? null,
+      take: async (count) => run(count),
+      first: async () => run(1)[0] ?? null,
       unique: async () => {
-        const rows = run();
+        const rows = run(2);
         assert.ok(rows.length <= 1, table + ": unique() matched " + rows.length + " rows");
         return rows[0] ?? null;
       },
@@ -124,6 +126,7 @@ export function createBackend(load) {
     normalizeId: (table, id) => (typeof id === "string" && id.startsWith(table + ":") ? id : null),
     get: async (id) => {
       const found = locate(id);
+      reads.push([String(id).split(":")[0], "get", found ? 1 : 0]);
       return found ? structuredClone(found.rows[found.index]) : null;
     },
     insert: async (table, fields) => {

@@ -63,6 +63,7 @@ const { contactRef } = load("convex/intake/rules.ts");
 const INDEXES = {
   "reports.by_app_and_provider_event": ["appId", "provider", "providerEventId"],
   "reports.by_case_and_requester": ["caseId", "fromRef"],
+  "reports.by_case_and_received": ["caseId", "receivedAt"],
   "reportTriage.by_report": ["reportId"],
   "reportTriage.by_app_and_status": ["appId", "status"],
   "reportTriage.by_case": ["caseId"],
@@ -92,6 +93,13 @@ function backend({ identity = null } = {}) {
         };
         build?.(q);
         list = list.filter((row) => tests.every((t) => t(row)));
+        // Rows in the order of the index's next field, as Convex returns them.
+        const next = fields[position];
+        if (next) list.sort((a, b) => (a[next] < b[next] ? -1 : a[next] > b[next] ? 1 : 0));
+        return chain;
+      },
+      order(direction) {
+        if (direction === "desc") list.reverse();
         return chain;
       },
       take: async (n) => list.slice(0, n),
