@@ -7,7 +7,7 @@ import { accessEnforced, pendingAccount, SIGN_IN_REQUIRED, signedInAccount } fro
 import { beginDeletion } from "../account/deletion";
 import { admitNewAccount } from "../spend/ceilings";
 import { addressHash, codeHash, emailState, useCode } from "./codes";
-import { markAddressConfirmed, unconfirmedRow } from "./confirmed";
+import { addressConfirmed, markAddressConfirmed, unconfirmedRow } from "./confirmed";
 import { emailCode } from "./email";
 import { CODE_EMAILS_PER_DAY, normalizeCode, normalizeEmail, UNCONFIRMED_DAYS, words } from "./rules";
 
@@ -113,6 +113,14 @@ export const startOver = mutation({
 });
 
 // ---------------------------------------------------------------------------------------------- internal
+
+/** Whether this account has confirmed its address, or never had to (Apple, GitHub, accounts made before confirmation
+ * existed). For operator commands that prepare an account for someone, such as practice/review:prepare. */
+export const isConfirmed = internalQuery({
+  args: { account: v.string() },
+  returns: v.boolean(),
+  handler: async (ctx, { account }) => await addressConfirmed(ctx.db, account),
+});
 
 export const addressOf = internalQuery({
   args: { account: v.string() },

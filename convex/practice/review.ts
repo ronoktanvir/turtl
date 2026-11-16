@@ -8,8 +8,11 @@ import { normalizeEmail, words } from "../auth/rules";
 import { ensurePractice } from "./projects";
 
 // The App Review account's practice project with a case open (checklist RC-02, store/review-notes.txt). The operator
-// runs it once, after the review account exists through ordinary sign-up (or auth/review:ensureAccount):
+// makes the review account first, with auth/review:ensureAccount, which also marks its address confirmed (the review
+// address may not be a real mailbox, and an unconfirmed account sees only Check your email), then runs this once:
+//   npx convex run auth/review:ensureAccount '{"email":"review@example.com","password":"..."}'
 //   npx convex run practice/review:prepare '{"email":"review@example.com"}'
+// An account made by signing up in the app works too once its address is confirmed; this refuses one that is not.
 // It makes the account's practice project if it has none, and unless a case is already open on it, breaks it the way
 // the review notes describe (recommendations time out) and runs the monitor's check of it at once, which opens the case.
 // The case then runs as every case does, through to waiting for the reviewer's approval. This break does not count
@@ -25,8 +28,10 @@ export const prepare = internalAction({
     const email = normalizeEmail(args.email);
     if (!email) throw new ConvexError(words.badEmail);
     const login = await findPasswordAccount(ctx, email);
-    if (!login) throw new ConvexError("No email-and-password account uses that address. Make the review account first (sign up in the app, or auth/review:ensureAccount), then run this again.");
+    if (!login) throw new ConvexError("No email-and-password account uses that address. Make the review account first with auth/review:ensureAccount, then run this again.");
     const account = login.userId as string;
+    const confirmed: boolean = await ctx.runQuery(internal.auth.confirmation.isConfirmed, { account });
+    if (!confirmed) throw new ConvexError("That account has not confirmed its email address, so the reviewer would see only Check your email. Run auth/review:ensureAccount for it (or auth/confirmation:markConfirmed), then run this again.");
     const projectId = await ensurePractice(ctx, account);
     const open: Opened = await ctx.runQuery(internal.practice.projects.openCaseOf, { appId: projectId });
     if (open) return { projectId, caseId: open.caseId, created: false };

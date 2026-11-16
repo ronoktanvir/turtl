@@ -556,7 +556,10 @@ test("9. the operator confirms one account from the command line; the review acc
   const w = await world(t, ACCOUNTS);
   t.mock.timers.enable({ apis: ["Date"], now: START + 10 * 3_600_000 });
   const waiting = await w.password({ flow: "signUp", email: "Someone@Example.com", password: "tide pools at dawn" });
+  // Preparing an account for someone (the review account's practice project) refuses one that is still held.
+  await assert.rejects(w.call("internal.practice.review.prepare", { email: "someone@example.com" }), (error) => /has not confirmed its email address/.test(error?.data));
   assert.deepEqual(await w.call("internal.auth.confirmation.markConfirmed", { email: " someone@example.COM " }), { email: "someone@example.com", wasWaiting: true });
+  assert.equal(await w.call("internal.auth.confirmation.isConfirmed", { account: waiting.userId }), true);
   assert.equal((await w.call("api.users.viewer", {}, waiting.identity)).confirmed, true);
   await assert.rejects(w.call("internal.auth.confirmation.markConfirmed", { email: "nobody@example.com" }), refusal("There's no account with a password for nobody@example.com."));
   // The App Review account: made and confirmed in one command, with no email needed.
