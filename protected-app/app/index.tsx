@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import { useAction, useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
+import { ReportForm } from "../report/ReportForm";
 
 type Confirmation = { bookingId: string; serviceId: string; date: string; time: string };
 type Suggestions = { status: "loading" | "ready" | "disabled" | "unavailable"; serviceIds: string[] };
@@ -92,6 +93,7 @@ export default function BookingScreen() {
           </>}
         </View>
       </View>
+      <ReportForm />
       <View style={s.footer}><Text style={s.footerText}>STILL · A PROTECTED DEMO APP</Text><Text style={s.footerText}>A small pause. A better day.</Text></View>
     </View>
   </ScrollView>;

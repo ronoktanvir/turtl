@@ -84,7 +84,7 @@ async function askOwner(ctx: MutationCtx, row: Doc<"cases">) {
     caseId: row._id,
     event: "needs_decision",
     text: recommended
-      ? `turtl needs your decision on ${app?.name ?? "your app"}: it recommends "${recommended.title}" to restore service. Open turtl to approve or decline.`
+      ? `turtl needs your decision on ${app?.name ?? "your app"}: it recommends "${recommended.title}" ${row.kind === "feature_request" ? "to build what customers asked for" : row.kind === "bug_report" ? "to fix what customers reported" : "to restore service"}. Open turtl to approve or decline.`
       : `turtl needs your decision on ${app?.name ?? "your app"}. Open turtl to review its proposal.`,
   });
 }

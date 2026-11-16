@@ -1,4 +1,5 @@
 import type { Stage } from "../../constants";
+import { withCustomerReports } from "../../intake/workflow";
 import type { StepHandler } from "../contract";
 import { handler as authorize_and_execute } from "./authorize_and_execute";
 import { handler as detect_or_receive } from "./detect_or_receive";
@@ -9,7 +10,7 @@ import { handler as learn } from "./learn";
 import { handler as plan } from "./plan";
 import { handler as verify } from "./verify";
 
-export const HANDLERS: Record<Stage, StepHandler> = {
+export const HANDLERS: Record<Stage, StepHandler> = withCustomerReports({
   detect_or_receive,
   gather_context,
   investigate,
@@ -18,4 +19,4 @@ export const HANDLERS: Record<Stage, StepHandler> = {
   authorize_and_execute,
   verify,
   learn,
-};
+});

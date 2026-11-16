@@ -42,7 +42,8 @@ export function useCases(projectId: string, type: CaseType) {
     .filter((row) => (row.kind === "feature_request" ? "feature" : "fix") === type)
     .map((row, i) => ({ row, summary: mapCaseSummary(row, i + 1, row.pullRequest) }))
     .filter(({ row }) => !closed.has(row.status))
-    .map(({ summary }) => summary).reverse();
+    .map(({ summary }) => summary).reverse()
+    .sort((a, b) => type === "feature" ? (b.reportCount ?? 0) - (a.reportCount ?? 0) || b.happenedAt - a.happenedAt : 0);
 }
 
 export function useCaseNumber(caseId: string): number | undefined {
