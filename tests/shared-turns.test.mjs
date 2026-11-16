@@ -339,10 +339,38 @@ test("ATTACK: a project's customers pile 20,000 reports onto one case and 3,000 
   const forApp = await documentsRead(w, "api.intake.records.forApp", { appId }, alice);
   assert.equal(forApp.result.length, 200);
   assert.ok(forApp.documents < 1_000);
-  // A report from someone already on the case adds a report, not a person; deleting one takes it away again.
+  // A report from someone already on the case adds a report, not a person.
   await w.run("internal.intake.records.receive", { key: "tik_shop", text: "Still failing.", reporterId: "9", reportId: "again" });
   const again = w.rows("reportTriage").find((row) => row.status === "pending")._id;
   await w.run("internal.intake.records.land", { triageId: again, verdict: "bug", source: "rules", reason: ".", attachTo: caseId });
   const after = w.rows("cases").find((c) => c._id === caseId);
   assert.deepEqual([after.reportCount, after.distinctRequesterCount], [20_002, 5_001]);
+});
+
+// ---- Statement 9: the live address's port ----
+
+test("ATTACK: an account cannot point its live app at another port of someone else's host, so turtl probes no port but the web's", async (t) => {
+  const w = world(t);
+  const sent = network(t, {});
+  const mallory = await w.db.insert("users", { email: "mallory@example.com" });
+  for (const liveUrl of ["https://victim.example:22", "https://victim.example:6379", "https://victim.example:8443/app"]) {
+    await assert.rejects(
+      w.run("api.onboarding.projects.add", { repoUrl: "https://github.com/mallory/app", liveUrl }, mallory),
+      (error) => error.data === "The live app address must be the one your customers use, with no port number, like https://app.example.com.",
+      liveUrl,
+    );
+  }
+  // https's own port, written or not, is the same address.
+  const added = await w.run("api.onboarding.projects.add", { repoUrl: "https://github.com/mallory/app", liveUrl: "https://victim.example:443" }, mallory);
+  assert.equal((await w.db.get(added.projectId)).productionUrl, "https://victim.example");
+  // A row from before the rule, aimed at a port, is not checked, and its owner reads why; nothing is sent.
+  const old = await project(w, mallory, "victim.example");
+  await w.db.patch(old, { productionUrl: "https://victim.example:22" });
+  const swept = await w.run("internal.monitor.tick", {});
+  assert.deepEqual(swept.skipped.find((skip) => skip.appId === old)?.reason, "The live app address must be the one your customers use, with no port number, like https://app.example.com.");
+  await w.drain(["internal.monitor.checkProject"]);
+  assert.deepEqual(sent.filter((request) => request.host.includes(":")), []);
+  // The single-owner demo applies none of this, and a local backend's stand-ins on 127.0.0.1 keep their ports.
+  const address = w.load("convex/protectedApp/address.ts");
+  assert.equal(address.liveAddressProblem("http://127.0.0.1:3321/booking-demo", true), null);
 });

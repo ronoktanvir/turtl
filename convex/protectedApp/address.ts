@@ -3,16 +3,20 @@ import { localBackend } from "../demoSettings";
 // Where turtl may send a request for an account's project (AUTH_REQUIRED=true).
 //
 // A project's live address must be https, name a public host (no IP literal, no loopback, private or link-local name)
-// and hold no user name or password. Every request for the project, a check or an action, must be on that address's
-// origin. The single-owner demo applies none of this: its one app is the operator's, and on a local backend it is
-// http://127.0.0.1.
+// on the standard https port, and hold no user name or password. Every request for the project, a check or an action,
+// must be on that address's origin. The single-owner demo applies none of this: its one app is the operator's, and on a
+// local backend it is http://127.0.0.1.
+//
+// The port (second review, "worth a second look"): a live app is the address its customers use, which is the standard
+// port; an address with another is a development or staging server. Allowing any port would let an account have turtl
+// connect to any port of any public host and report back whether it answered, and how fast.
 //
 // Only names are checked: turtl cannot see what a name resolves to, so a public name pointed at a private address is
 // not caught here.
 
 declare const process: { env: Record<string, string | undefined> };
 
-type Problem = "invalid" | "credentials" | "not_https" | "ip_literal" | "private";
+type Problem = "invalid" | "credentials" | "not_https" | "ip_literal" | "private" | "port";
 
 const LOCAL_NAMES = [".localhost", ".local", ".internal", ".home.arpa", ".lan", ".intranet"];
 const LOOPBACK = ["127.0.0.1", "localhost", "[::1]"];
@@ -40,6 +44,8 @@ function problemOf(text: string, allowLoopback: boolean): { problem: Problem } |
   if (url.protocol !== "https:") return { problem: "not_https" };
   if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host) || host.startsWith("[")) return { problem: "ip_literal" };
   if (host === "localhost" || !host.includes(".") || LOCAL_NAMES.some((suffix) => host.endsWith(suffix))) return { problem: "private" };
+  // The parser leaves port empty for https's own (443, written or not).
+  if (url.port !== "") return { problem: "port" };
   return { url };
 }
 
@@ -49,6 +55,7 @@ const LIVE_ADDRESS: Record<Problem, string> = {
   not_https: "The live app address must start with https://, so what turtl sends your app is always encrypted.",
   ip_literal: "The live app address must be a name, like app.example.com, not a numeric IP address.",
   private: "The live app address must be a public address on the internet, not a name inside a private network.",
+  port: "The live app address must be the one your customers use, with no port number, like https://app.example.com.",
 };
 
 /** Why turtl will not use this as a project's live address, as a sentence, or null when it will. */
@@ -70,6 +77,7 @@ const REQUEST: Record<Problem, string> = {
   not_https: "turtl sends requests for this project only over https, so it sent nothing",
   ip_literal: "turtl does not send requests to a numeric IP address, so it sent nothing",
   private: "turtl does not send requests to a name inside a private network, so it sent nothing",
+  port: "turtl sends requests for this project only to the standard https port, so it sent nothing",
 };
 
 /** Why turtl will not send this request for a project whose live origin is `origin`, as a fragment, or null. */

@@ -321,7 +321,7 @@ test("with accounts on, a live address must be https on a public name, and every
   assert.equal(address.requestRefusal("https://shop.example.com/journey-check", "https://shop.example.com", false), null);
   assert.match(address.requestRefusal("https://other.example.com/journey-check", "https://shop.example.com", false), /only to its own address, https:\/\/shop\.example\.com, and this one is on https:\/\/other\.example\.com/);
   assert.match(address.requestRefusal("http://shop.example.com/x", "https://shop.example.com", false), /only over https/);
-  assert.match(address.requestRefusal("https://shop.example.com:8443/x", "https://shop.example.com", false), /only to its own address/, "another port is another origin");
+  assert.match(address.requestRefusal("https://shop.example.com:8443/x", "https://shop.example.com", false), /only to the standard https port/, "another port is refused (tests/shared-turns.test.mjs)");
 });
 
 test("loopback is allowed only for stand-ins on a backend that itself runs on this machine", async (t) => {
