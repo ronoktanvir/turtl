@@ -7,8 +7,8 @@ import { internal } from "../_generated/api";
 import type { DataModel, Doc } from "../_generated/dataModel";
 import { accessEnforced } from "../access";
 import { addressHash, codeHash } from "./codes";
-import { domainRefusal, emailDomain } from "./domains";
-import { emailCode } from "./email";
+import { domainRefusal } from "./domains";
+import { emailCode, fileCode, sendFiled, unfile } from "./email";
 import { normalizeCode, normalizeEmail, passwordProblem, words } from "./rules";
 import { emailService } from "./settings";
 
@@ -39,15 +39,6 @@ export async function findPasswordAccount(ctx: Ctx, email: string): Promise<Doc<
   }
 }
 
-/** The first confirmation email, at sign-up. A failed send never undoes the account: its owner can ask again from
- * the "check your email" screen. */
-async function emailFirstCode(ctx: Ctx, email: string) {
-  try {
-    await emailCode(ctx, email, "confirm");
-  } catch {
-    console.error("The confirmation email for a new account was not sent.");
-  }
-}
 
 export function password() {
   return ConvexCredentials<DataModel>({
@@ -63,9 +54,12 @@ export function password() {
           const confirming = accessEnforced();
           if (confirming && !emailService()) throw refuse(words.signUpOff);
           if (await findPasswordAccount(ctx, email)) throw refuse(words.accountExists);
-          // No account is made that today's emails could not reach (codes.ts, the day's emails).
-          const full = confirming ? await ctx.runQuery(internal.auth.codes.emailRoom, { domain: emailDomain(email), side: "signup" }) : null;
-          if (full) throw refuse(full === "domain" ? domainRefusal.signUpDomainEmailsToday : domainRefusal.signUpEmailsToday);
+          // The confirmation email is filed before the account is made, so no account is made that today's emails could
+          // not reach (codes.ts). An address already sent its five today still has those codes, which confirm it.
+          const filed = confirming ? await fileCode(ctx, email, "confirm", "signup") : null;
+          if (filed && !filed.allowed.ok && (filed.allowed.reason === "ceiling" || filed.allowed.reason === "domain")) {
+            throw refuse(filed.allowed.reason === "domain" ? domainRefusal.signUpDomainEmailsToday : domainRefusal.signUpEmailsToday);
+          }
           let userId: Doc<"users">["_id"];
           try {
             // Convex Auth's callback (convex/auth.ts) counts the sign-up and, with accounts on, holds the account until
@@ -78,11 +72,20 @@ export function password() {
             });
             userId = user._id;
           } catch (error) {
+            if (filed) await unfile(ctx, filed);
             // Two sign-ups for one email at once: the second finds the first's account.
             if (/already exists/.test(reason(error))) throw refuse(words.accountExists);
             throw error;
           }
-          if (confirming) await emailFirstCode(ctx, email);
+          if (filed?.allowed.ok) {
+            try {
+              await sendFiled(ctx, email, filed);
+            } catch {
+              // An account its email cannot reach is not kept: it goes at once, and the address with it.
+              await ctx.runMutation(internal.auth.confirmation.discardUnreached, { account: userId });
+              throw refuse(words.emailNotSent);
+            }
+          }
           return { userId };
         }
         case "signIn": {
@@ -100,12 +103,12 @@ export function password() {
         }
         case "reset": {
           if (!emailService()) throw refuse(words.resetOff);
-          // The day's emails are counted for everyone alike, so saying they have run out says nothing about this address.
-          if (await ctx.runQuery(internal.auth.codes.emailRoom, { domain: emailDomain(email), side: "reset" })) throw refuse(domainRefusal.emailsToday);
           const account = await findPasswordAccount(ctx, email);
           // The same answer whether or not there is an account, and whether or not the limits let an email go now
-          // (codes.ts): asking again never replaces the code already in the owner's inbox. A reset of an account that
-          // has not confirmed its address is something a sign-up can cause, so it has the sign-ups' share of the day.
+          // (codes.ts): asking again never replaces the code already in the owner's inbox. A confirmed address's first
+          // reset of the day goes out however full the day is (finding 24); if none goes, one sent today still works.
+          // A reset of an account that has not confirmed its address is something a sign-up can cause, so it has the
+          // sign-ups' share of the day.
           if (account) {
             const confirmed: boolean = await ctx.runQuery(internal.auth.confirmation.isConfirmed, { account: account.userId });
             await emailCode(ctx, email, "reset", { side: confirmed ? "reset" : "signup" });

@@ -115,8 +115,12 @@ async function world(t, env = {}) {
   Object.assign(process.env, { AUTH_STAND_IN_URL: standIn.url, CONVEX_CLOUD_URL: "http://127.0.0.1:3210" }, env);
   for (const [name, value] of Object.entries(env)) if (value === undefined) delete process.env[name];
   const realFetch = globalThis.fetch;
+  // refuseEmail(true) makes the stand-in for Resend refuse every email, as an outage would.
+  let emailRefused = false;
+  const refuseEmail = (value) => void (emailRefused = value);
   t.mock.method(globalThis, "fetch", async (url, init) => {
     assert.ok(String(url).startsWith(standIn.url + "/"), "only the stand-in is ever called, not " + url);
+    if (emailRefused && String(url).startsWith(standIn.url + "/email/")) return new Response("refused", { status: 500 });
     return await realFetch(url, init);
   });
   t.mock.method(console, "error", () => {});
@@ -208,7 +212,7 @@ async function world(t, env = {}) {
     return { userId, identity: { subject: `${userId}|${sessionId}` } };
   };
   const emailsTo = (address) => standIn.emails.filter((email) => email.to?.includes(address));
-  return { load, db, standIn, scheduled, call, password, signInWithApple, signInWithGitHub, emailsTo, words: load("convex/auth/rules.ts").words };
+  return { load, db, standIn, scheduled, call, password, signInWithApple, signInWithGitHub, emailsTo, refuseEmail, words: load("convex/auth/rules.ts").words };
 }
 
 const ACCOUNTS = { AUTH_REQUIRED: "true", AUTH_RESEND_KEY: "stand-in-key", AUTH_EMAIL_FROM: "turtl <no-reply@example.com>" };
@@ -447,7 +451,7 @@ test("6. throwaway password sign-ups on many domains cannot use up the room for 
   const w = await world(t, { ...ACCOUNTS, EMAILS_PER_DAY: "1000" });
   t.mock.timers.enable({ apis: ["Date"], now: START + 30 * 60_000 });
   const limits = w.load("convex/spend/limits.ts");
-  const { ceilingRefusal } = limits;
+  const { domainRefusal: ceilingRefusal } = w.load("convex/auth/domains.ts");
   assert.deepEqual(
     [limits.passwordSignUpsPerHour(), limits.passwordSignUpsPerDay(), limits.confirmedSignUpsPerHour(), limits.confirmedSignUpsPerDay(), limits.newAccountsPerHour(), limits.newAccountsPerDay()],
     [40, 200, 20, 100, 20, 100],
@@ -474,7 +478,7 @@ test("6. throwaway password sign-ups on many domains cannot use up the room for 
   assert.ok(refusedThisHour > 0);
   at(t, START + 20 * 3_600_000);
   await assert.rejects(w.password({ flow: "signUp", email: "late@example.com", password: "tide pools at dawn" }), refusal(ceilingRefusal.passwordSignUpsToday));
-  assert.match(ceilingRefusal.passwordSignUpsToday, /sign up with Apple or GitHub/);
+  assert.match(ceilingRefusal.passwordSignUpsToday, /You can sign up with Apple or GitHub now, or with an email address tomorrow/);
   // Apple and GitHub sign-ups, and the real person confirming, are still let in.
   const apple = await w.signInWithApple("001234.after-the-script.0001");
   const github = await w.signInWithGitHub(5151);
@@ -715,7 +719,7 @@ test("Finding 19: one email domain's sign-ups and confirmations stop at its shar
   assert.equal(atDomain, 20, "a day's share of password sign-ups");
 });
 
-test("Finding 19: the day's emails: the ceiling refuses in plain words, leaves a code already sent working, and sign-ups never take a confirmed owner's reset", async (t) => {
+test("Finding 19: the day's emails: the pool refuses in plain words, leaves a code already sent working, and sign-ups never take a confirmed owner's reset", async (t) => {
   // Six emails a day: sign-ups may cause four of them, and one domain two of those.
   const w = await world(t, { ...ACCOUNTS, EMAILS_PER_DAY: "6" });
   t.mock.timers.enable({ apis: ["Date"], now: START + 8 * 3_600_000 });
@@ -725,6 +729,7 @@ test("Finding 19: the day's emails: the ceiling refuses in plain words, leaves a
   const { words } = w;
   await confirmedOwner(w, "owner@example.com");
   later();
+  // The owner's first reset of the day stands outside the pool.
   await w.password({ flow: "reset", email: "owner@example.com" });
   const first = w.standIn.lastCode("owner@example.com");
   // One domain's share of the sign-ups' emails: the second sign-up at acme.example is its last.
@@ -735,25 +740,145 @@ test("Finding 19: the day's emails: the ceiling refuses in plain words, leaves a
   // The sign-ups' share of the day is four: one more, and then no more password sign-ups today, at any domain.
   await signUp("new@other.example");
   await assert.rejects(signUp("late@third.example"), refusal(domainRefusal.signUpEmailsToday));
-  // A confirmed owner's reset still has room.
+  assert.match(domainRefusal.signUpEmailsToday, /You can sign up with Apple or GitHub now, or with an email address tomorrow/);
+  // A confirmed owner's further resets still have the rest of the pool: two more fill it.
+  for (let n = 0; n < 2; n++) {
+    later();
+    await w.password({ flow: "reset", email: "owner@example.com" });
+  }
+  assert.equal(w.emailsTo("owner@example.com").length, 4, "the confirmation and three resets");
+  assert.equal(w.standIn.emails.length, 7, "six from the pool, and the owner's first reset outside it");
+  // Now the pool is full. A reset request gets the same answer as ever and sends nothing; the codes already sent work.
   later();
-  await w.password({ flow: "reset", email: "owner@example.com" });
-  assert.equal(w.emailsTo("owner@example.com").length, 3, "the confirmation and two resets");
-  // Now the day is full: refused in plain words, the same for an address with no account.
-  later();
-  await assert.rejects(w.password({ flow: "reset", email: "owner@example.com" }), refusal(domainRefusal.emailsToday));
-  await assert.rejects(w.password({ flow: "reset", email: "nobody@example.com" }), refusal(domainRefusal.emailsToday));
-  assert.match(domainRefusal.emailsToday, /A code turtl already sent you still works/);
-  assert.equal(w.standIn.emails.length, 6);
-  // The codes already sent still work.
-  assert.ok((await w.password({ flow: "reset-verification", email: "owner@example.com", code: first, newPassword: "a new password" })).userId);
+  assert.equal(await w.password({ flow: "reset", email: "owner@example.com" }), null);
+  assert.equal(await w.password({ flow: "reset", email: "nobody@example.com" }), null);
+  assert.equal(w.standIn.emails.length, 7);
+  // Signed in and waiting to confirm, the person is told in plain words.
   const waiting = await w.password({ flow: "signIn", email: "one@acme.example", password: "throwaway pass" });
+  const resent = await w.call("api.auth.confirmation.resend", {}, waiting.identity);
+  assert.deepEqual(resent, { sent: false, message: domainRefusal.emailsToday });
+  assert.match(domainRefusal.emailsToday, /A code turtl already sent you still works/);
   await w.call("api.auth.confirmation.confirm", { code: w.standIn.lastCode("one@acme.example") }, waiting.identity);
+  assert.ok((await w.password({ flow: "reset-verification", email: "owner@example.com", code: first, newPassword: "a new password" })).userId);
   // The next day there is room again.
   at(t, START + DAY + 8 * 3_600_000);
   await w.password({ flow: "reset", email: "owner@example.com" });
-  assert.equal(w.standIn.emails.length, 7);
+  assert.equal(w.standIn.emails.length, 8);
   assert.equal(words.wrongResetCode.length > 0, true);
+});
+
+// ---------------------------------------------------------------------------------------------- fourth review
+
+// Finding 24: the day's emails were one pool. Throwaway sign-ups at domains nobody owns filled the sign-ups' share, and
+// resets asked for confirmed addresses filled the rest, so every owner's reset was refused until midnight.
+const reserveAs = (w, row) => w.call("internal.auth.codes.reserve", { purpose: "reset", side: "reset", ...row });
+/** What a script can make turtl send in one day at the default pool: the sign-ups' 200 at ten domains it does not own,
+ * and resets for confirmed addresses at ten domains it controls, five each, a minute apart. */
+async function drainTheDay(w, t, dayStart) {
+  t.mock.timers.setTime(dayStart + 30_000);
+  for (let domain = 0; domain < 10; domain++) {
+    for (let n = 0; n < 25; n++) await reserveAs(w, { addressHash: `signup-${domain}-${n}`, purpose: "confirm", side: "signup", codeHash: `c-${domain}-${n}`, domain: `company${domain}.example` });
+  }
+  for (let round = 0; round < 5; round++) {
+    t.mock.timers.setTime(dayStart + 30_000 + (round + 1) * 61_000);
+    for (let domain = 0; domain < 10; domain++) {
+      for (let n = 0; n < 4; n++) await reserveAs(w, { addressHash: `confirmed-${domain}-${n}`, codeHash: `r-${domain}-${n}-${round}`, domain: `owned${domain}.example` });
+    }
+  }
+  const today = new Date(dayStart).toISOString().slice(0, 10);
+  return Object.fromEntries(w.db.rows("authCounts").filter((row) => row.key === "" && row.window === today).map((row) => [row.name, row.value]));
+}
+
+test("Finding 24: after 300 attacker emails, Alice's first reset of the day still sends and its code works", async (t) => {
+  const w = await world(t, ACCOUNTS);
+  const day = Date.parse("2026-11-17T00:00:00Z");
+  t.mock.timers.enable({ apis: ["Date"], now: day - 3_600_000 });
+  await confirmedOwner(w, "alice@gmail.com", "alice's own pass");
+  const counts = await drainTheDay(w, t, day);
+  assert.equal(counts.emails_day, 300, "the day's pool is full");
+  // Alice, locked out of password sign-in, asks for her reset that morning.
+  t.mock.timers.setTime(day + 8 * 3_600_000);
+  for (let n = 0; n < 10; n++) await w.password({ flow: "signIn", email: "alice@gmail.com", password: `wrong ${n}` }).catch(() => {});
+  await w.password({ flow: "reset", email: "alice@gmail.com" });
+  const resets = w.emailsTo("alice@gmail.com").filter((email) => email.subject === "Reset your turtl password");
+  assert.equal(resets.length, 1, "her first reset of the day went out");
+  assert.ok((await w.password({ flow: "reset-verification", email: "alice@gmail.com", code: w.standIn.lastCode("alice@gmail.com"), newPassword: "alice's new pass" })).userId);
+  assert.ok((await w.password({ flow: "signIn", email: "alice@gmail.com", password: "alice's new pass" })).userId, "and the lock is gone");
+});
+
+test("Finding 24: resets at one domain stop at the domain's share while another domain's still send", async (t) => {
+  const w = await world(t, ACCOUNTS);
+  const day = Date.parse("2026-11-17T00:00:00Z");
+  t.mock.timers.enable({ apis: ["Date"], now: day + 30_000 });
+  const { domainCap } = w.load("convex/auth/domains.ts");
+  assert.equal(domainCap(300, "attacker-catchall.example"), 30);
+  // The reviewer's attack: five resets a day for each of 60 confirmed addresses at one catch-all domain.
+  const answers = [];
+  for (let round = 0; round < 5; round++) {
+    t.mock.timers.setTime(day + 30_000 + round * 61_000);
+    for (let address = 0; address < 60; address++) answers.push(await reserveAs(w, { addressHash: "address-" + address, codeHash: `code-${address}-${round}`, domain: "attacker-catchall.example" }));
+  }
+  const sent = answers.filter((answer) => answer.ok).length;
+  assert.equal(sent, 60 + 30, "each address's first reset of the day, and the domain's share of the pool");
+  assert.ok(answers.some((answer) => !answer.ok && answer.reason === "domain"));
+  const counts = Object.fromEntries(w.db.rows("authCounts").filter((row) => row.key === "").map((row) => [row.name, row.value]));
+  assert.deepEqual([counts.emails_day, counts.first_resets_day], [30, 60], "the pool holds 270 for everyone else");
+  // Another domain's resets still send, from the pool.
+  for (let n = 0; n < 2; n++) {
+    t.mock.timers.setTime(day + 10 * 60_000 + n * 61_000);
+    assert.deepEqual(await reserveAs(w, { addressHash: "bob", codeHash: `bob-${n}`, domain: "acme.example" }), { ok: true });
+  }
+  // So does a real owner's reset through the app.
+  await confirmedOwner(w, "carol@acme.example");
+  t.mock.timers.setTime(day + 3_600_000);
+  await w.password({ flow: "reset", email: "carol@acme.example" });
+  assert.equal(w.emailsTo("carol@acme.example").filter((email) => email.subject === "Reset your turtl password").length, 1);
+});
+
+test("Finding 24: when a stranger asks first and the owner after, the owner always holds a working code", async (t) => {
+  const w = await world(t, ACCOUNTS);
+  const day = Date.parse("2026-11-17T00:00:00Z");
+  t.mock.timers.enable({ apis: ["Date"], now: day - 3_600_000 });
+  await confirmedOwner(w, "alice@gmail.com", "alice's own pass");
+  await drainTheDay(w, t, day);
+  const resetEmails = () => w.emailsTo("alice@gmail.com").filter((email) => email.subject === "Reset your turtl password");
+  // Day 1, 00:08: the stranger asks for Alice's reset; her first of the day goes to her inbox.
+  t.mock.timers.setTime(day + 8 * 60_000);
+  await w.password({ flow: "reset", email: "alice@gmail.com" });
+  const strangersAsk = w.standIn.lastCode("alice@gmail.com");
+  assert.equal(resetEmails().length, 1);
+  // 08:00: Alice asks. The pool is full and her first is spent: the same answer as ever, and no email.
+  t.mock.timers.setTime(day + 8 * 3_600_000);
+  assert.equal(await w.password({ flow: "reset", email: "alice@gmail.com" }), null);
+  assert.equal(resetEmails().length, 1);
+  // The email the stranger caused works for her, until 00:08 tomorrow.
+  t.mock.timers.setTime(day + 24 * 3_600_000 + 7 * 60_000);
+  assert.ok((await w.password({ flow: "reset-verification", email: "alice@gmail.com", code: strangersAsk, newPassword: "alice's new pass" })).userId);
+  // Day 2: the stranger drains the day again and asks first again; Alice still gets that email, and it works.
+  const day2 = day + 24 * 3_600_000;
+  await drainTheDay(w, t, day2);
+  t.mock.timers.setTime(day2 + 10 * 60_000);
+  await w.password({ flow: "reset", email: "alice@gmail.com" });
+  assert.equal(resetEmails().length, 2);
+  t.mock.timers.setTime(day2 + 20 * 3_600_000);
+  assert.ok((await w.password({ flow: "reset-verification", email: "alice@gmail.com", code: w.standIn.lastCode("alice@gmail.com"), newPassword: "alice's third pass" })).userId);
+});
+
+test("Finding 24: a refused password sign-up says to use Apple or GitHub now, or an email address tomorrow, and one its email cannot reach makes no account", async (t) => {
+  const w = await world(t, ACCOUNTS);
+  t.mock.timers.enable({ apis: ["Date"], now: START + 9 * 3_600_000 });
+  const { domainRefusal } = w.load("convex/auth/domains.ts");
+  for (const key of ["passwordSignUpsToday", "signUpEmailsToday"]) assert.match(domainRefusal[key], /You can sign up with Apple or GitHub now, or with an email address tomorrow\.$/, key);
+  for (const key of ["signUpsToday", "signUpDomainEmailsToday"]) assert.match(domainRefusal[key], /You can sign up with Apple or GitHub now, or with this address tomorrow\.$/, key);
+  for (const key of ["passwordSignUpsThisHour", "signUpsThisHour"]) assert.match(domainRefusal[key], /You can sign up with Apple or GitHub now, or with (an email|this) address in an hour\.$/, key);
+  // The email service refuses the confirmation email: the sign-up is refused, and no account keeps the address.
+  w.refuseEmail(true);
+  await assert.rejects(w.password({ flow: "signUp", email: "dana@example.com", password: "tide pools at dawn" }), refusal(w.words.emailNotSent));
+  assert.deepEqual(w.db.rows("authAccounts").filter((row) => row.providerAccountId === "dana@example.com"), [], "the address is free at once");
+  assert.equal(w.db.rows("accountDeletions").length, 1, "the account goes through account deletion");
+  assert.deepEqual(w.db.rows("authEmailCodes"), [], "and the code was taken back");
+  w.refuseEmail(false);
+  assert.ok((await w.password({ flow: "signUp", email: "dana@example.com", password: "tide pools at dawn" })).userId, "signing up again works once email does");
 });
 
 // ---------------------------------------------------------------------------------------------- the emails and the codes

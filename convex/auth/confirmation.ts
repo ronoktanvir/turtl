@@ -101,6 +101,18 @@ export const resend = action({
   },
 });
 
+/** At sign-up, when the confirmation email could not be sent after the account was made: the account goes at once,
+ * address and all, through account deletion, so no account is kept that its email never reached. Only an account
+ * still waiting to confirm. */
+export const discardUnreached = internalMutation({
+  args: { account: v.string() },
+  returns: v.null(),
+  handler: async (ctx, { account }) => {
+    if (await unconfirmedRow(ctx.db, account)) await beginDeletion(ctx, account);
+    return null;
+  },
+});
+
 /** Throws this unconfirmed account away, so its owner can sign up again with another address. The address is free
  * again at once; the rest goes through account deletion (convex/account). Only an unconfirmed account can do this. */
 export const startOver = mutation({

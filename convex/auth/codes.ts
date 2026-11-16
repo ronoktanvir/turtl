@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import type { Id } from "../_generated/dataModel";
-import { internalMutation, internalQuery, type MutationCtx, type QueryCtx } from "../_generated/server";
+import { internalMutation, type MutationCtx, type QueryCtx } from "../_generated/server";
 import { bump, countOf, dayWindow, DEPLOYMENT, domainKey, pruneCounts, unbump, type CountName } from "./counts";
 import { domainCap } from "./domains";
 import { CODE_ALPHABET, CODE_EMAILS_PER_DAY, CODE_LENGTH, CODE_VALID_HOURS } from "./rules";
@@ -68,11 +68,16 @@ export const vAllowed = v.union(
   v.object({ ok: v.literal(false), reason: v.union(v.literal("wait"), v.literal("limit"), v.literal("ceiling"), v.literal("domain")), until: v.number() }),
 );
 
-// The day's emails (finding 19). EMAILS_PER_DAY bounds everything turtl emails in a UTC day, so an operator can fit it
-// to their email plan. Emails anyone can cause by signing up (every confirmation email, and a reset of an account that
-// has not confirmed its address) may use only SIGNUP_EMAIL_SHARE of it, so a flood of sign-ups never takes the room
-// a confirmed owner's reset needs; and one email domain may take only its share of those (convex/auth/domains.ts).
-// When the day's emails run out, codes already sent keep working.
+// The day's emails (findings 19 and 24). EMAILS_PER_DAY is the day's pool (UTC), so an operator can fit it to their
+// email plan. Emails anyone can cause by signing up (every confirmation email, and a reset of an account that has not
+// confirmed its address) may use only SIGNUP_EMAIL_SHARE of it; resets may use what is left, and one email domain may
+// take only its share of either (convex/auth/domains.ts). When the pool runs out, codes already sent keep working.
+//
+// Each confirmed address's first reset email of a UTC day stands outside the pool and the domain shares (finding 24):
+// however the pool was used up, an owner who needs a reset gets one a day. If a stranger asked first, that email went to
+// the owner, and its code works for 24 hours, past the end of the day; so at every moment the owner holds a working
+// code or can be sent one. The five a day per address still bound what one address receives, so this adds at most one
+// email a day per confirmed password account someone asks about.
 
 /** "reset": a reset of an account whose address is confirmed. "signup": anything a sign-up can cause. */
 export type Side = "reset" | "signup";
@@ -81,27 +86,24 @@ export const SIGNUP_EMAIL_SHARE = 2 / 3;
 export const signUpEmailsPerDay = () => Math.max(1, Math.floor(emailsPerDay() * SIGNUP_EMAIL_SHARE));
 const tomorrow = (now: number) => Date.parse(dayWindow(now) + "T00:00:00Z") + 24 * 3_600_000;
 
-/** Whether the day's emails leave room for one more of this side to an address at this domain. */
+/** Whether the day's pool leaves room for one more email of this side to an address at this domain. */
 async function dayRoom(ctx: Reader, domain: string, side: Side, now: number): Promise<Allowed> {
   const day = dayWindow(now);
   const refused = (reason: "ceiling" | "domain"): Allowed => ({ ok: false, reason, until: tomorrow(now) });
   if ((await countOf(ctx, "emails_day", DEPLOYMENT, day)) >= emailsPerDay()) return refused("ceiling");
-  if (side === "reset") return { ok: true };
+  const key = await domainKey(domain);
+  if (side === "reset") {
+    // Resets for many addresses at one domain cannot fill the day either.
+    if ((await countOf(ctx, "domain_reset_emails_day", key, day)) >= domainCap(emailsPerDay(), domain)) return refused("domain");
+    return { ok: true };
+  }
   if ((await countOf(ctx, "signup_emails_day", DEPLOYMENT, day)) >= signUpEmailsPerDay()) return refused("ceiling");
-  if ((await countOf(ctx, "domain_signup_emails_day", await domainKey(domain), day)) >= domainCap(signUpEmailsPerDay(), domain)) return refused("domain");
+  if ((await countOf(ctx, "domain_signup_emails_day", key, day)) >= domainCap(signUpEmailsPerDay(), domain)) return refused("domain");
   return { ok: true };
 }
 
-/** Asked before a sign-up makes an account, and before a reset looks the address up: is there room for an email today?
- * Null when there is; otherwise which room is used up, the day's ("ceiling") or this domain's ("domain"). */
-export const emailRoom = internalQuery({
-  args: { domain: v.string(), side: vSide },
-  returns: v.union(v.null(), v.literal("ceiling"), v.literal("domain")),
-  handler: async (ctx, { domain, side }) => {
-    const room = await dayRoom(ctx, domain, side, Date.now());
-    return room.ok ? null : (room.reason as "ceiling" | "domain");
-  },
-});
+/** A confirmed address's first reset email of the UTC day: none sent to it since midnight. */
+const firstResetToday = (sent: { sentAt: number }[], now: number) => !sent.some((row) => row.sentAt >= Date.parse(dayWindow(now) + "T00:00:00Z"));
 
 /** Whether another email of this kind may go to the address now, and if not, from when. */
 function allowance(sent: { sentAt: number }[], now: number): Allowed {
@@ -125,12 +127,17 @@ export async function emailState(ctx: Reader, address: string, purpose: Purpose,
 
 const vFiled = { addressHash: v.string(), purpose: vPurpose, codeHash: v.string(), domain: v.string(), side: vSide };
 
-/** The day's counts an email adds to (or, taken back, takes from). */
-async function countEmail(ctx: Pick<MutationCtx, "db">, domain: string, side: Side, now: number, step: 1 | -1) {
-  const day = dayWindow(now);
-  const counts: [CountName, string][] = [["emails_day", DEPLOYMENT]];
-  if (side === "signup") counts.push(["signup_emails_day", DEPLOYMENT], ["domain_signup_emails_day", await domainKey(domain)]);
-  for (const [name, key] of counts) await (step === 1 ? bump(ctx, name, key, day) : unbump(ctx, name, key, day));
+/** The day's counts an email adds to (or, taken back, takes from). A confirmed address's first reset of the day counts
+ * only on its own line, outside the pool. */
+async function countEmail(ctx: Pick<MutationCtx, "db">, domain: string, side: Side, firstOfDay: boolean, at: number, step: 1 | -1) {
+  const day = dayWindow(at);
+  const key = await domainKey(domain);
+  const counts: [CountName, string][] = firstOfDay
+    ? [["first_resets_day", DEPLOYMENT]]
+    : side === "reset"
+      ? [["emails_day", DEPLOYMENT], ["domain_reset_emails_day", key]]
+      : [["emails_day", DEPLOYMENT], ["signup_emails_day", DEPLOYMENT], ["domain_signup_emails_day", key]];
+  for (const [name, countKey] of counts) await (step === 1 ? bump(ctx, name, countKey, day) : unbump(ctx, name, countKey, day));
 }
 
 /** Files a code that is about to be emailed, when the limits allow another email now: this address's (five a day,
@@ -140,12 +147,16 @@ export const reserve = internalMutation({
   returns: vAllowed,
   handler: async (ctx, { domain, side, ...code }): Promise<Allowed> => {
     const now = Date.now();
-    const allowed = allowance(await recent(ctx, code.addressHash, code.purpose, now), now);
+    const sent = await recent(ctx, code.addressHash, code.purpose, now);
+    const allowed = allowance(sent, now);
     if (!allowed.ok) return allowed;
-    const room = await dayRoom(ctx, domain, side, now);
-    if (!room.ok) return room;
-    await countEmail(ctx, domain, side, now, 1);
-    await ctx.db.insert("authEmailCodes", { ...code, sentAt: now, expiresAt: now + CODE_VALID_MS });
+    const firstOfDay = side === "reset" && code.purpose === "reset" && firstResetToday(sent, now);
+    if (!firstOfDay) {
+      const room = await dayRoom(ctx, domain, side, now);
+      if (!room.ok) return room;
+    }
+    await countEmail(ctx, domain, side, firstOfDay, now, 1);
+    await ctx.db.insert("authEmailCodes", { ...code, sentAt: now, expiresAt: now + CODE_VALID_MS, ...(firstOfDay && { firstOfDay: true }) });
     return allowed;
   },
 });
@@ -159,7 +170,7 @@ export const release = internalMutation({
     for (const row of await recent(ctx, code.addressHash, code.purpose, now)) {
       if (row.codeHash === code.codeHash && row.usedAt === undefined) {
         await ctx.db.delete(row._id);
-        await countEmail(ctx, domain, side, row.sentAt, -1);
+        await countEmail(ctx, domain, side, row.firstOfDay === true, row.sentAt, -1);
       }
     }
     return null;

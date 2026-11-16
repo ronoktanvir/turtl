@@ -56,13 +56,17 @@ export function domainCap(ceiling: number, domain: string): number {
 }
 
 /** What a person reads when a domain's share, or the day's emails, are used up. Shown as written. */
+// Every refusal of a password sign-up says what the person can do now (Apple or GitHub) and when an email address will
+// work again (finding 24): before an address answers its email, turtl cannot tell a real person from a script.
 export const domainRefusal = {
-  signUpsThisHour: "turtl is making a lot of new accounts for addresses at this email domain right now. Try again in an hour, or sign up with Apple or GitHub.",
-  signUpsToday: "turtl has made as many new accounts for addresses at this email domain as it makes in one day. Try again tomorrow, or sign up with Apple or GitHub.",
+  passwordSignUpsThisHour: "turtl has made as many accounts with an email address as it makes in one hour. You can sign up with Apple or GitHub now, or with an email address in an hour.",
+  passwordSignUpsToday: "turtl has made as many accounts with an email address as it makes in one day. You can sign up with Apple or GitHub now, or with an email address tomorrow.",
+  signUpsThisHour: "turtl has made as many accounts for addresses at this email domain as it makes in one hour. You can sign up with Apple or GitHub now, or with this address in an hour.",
+  signUpsToday: "turtl has made as many accounts for addresses at this email domain as it makes in one day. You can sign up with Apple or GitHub now, or with this address tomorrow.",
   confirmationsThisHour: "turtl is confirming a lot of accounts at this email domain right now, so it can't confirm yours this hour. Your code still works: try again in an hour.",
   confirmationsToday: "turtl has confirmed as many accounts at this email domain as it does in one day. Try again tomorrow, and ask for a new code if this one has stopped working.",
   emailsToday: "turtl has sent as many emails as it sends in one day, so it can't send one now. Try again tomorrow. A code turtl already sent you still works.",
   domainEmailsToday: "turtl has sent as many emails to addresses at this email domain as it sends in one day. Try again tomorrow. A code turtl already sent you still works.",
-  signUpEmailsToday: "turtl has sent as many emails as it sends in one day, so it can't make a new account with an email address now. Try again tomorrow, or sign up with Apple or GitHub.",
-  signUpDomainEmailsToday: "turtl has sent as many emails to addresses at this email domain as it sends in one day, so it can't make a new account for this address now. Try again tomorrow, or sign up with Apple or GitHub.",
+  signUpEmailsToday: "turtl has sent as many sign-up emails as it sends in one day, so it can't make an account with an email address now. You can sign up with Apple or GitHub now, or with an email address tomorrow.",
+  signUpDomainEmailsToday: "turtl has sent as many sign-up emails to this email domain as it sends in one day, so it can't make an account for this address now. You can sign up with Apple or GitHub now, or with this address tomorrow.",
 };
