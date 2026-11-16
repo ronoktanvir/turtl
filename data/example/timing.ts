@@ -6,6 +6,7 @@ const durations: Record<string, number> = {
   open_pr: 45_000,
   checks: 180_000,
   merge: 45_000,
+  deploy: 120_000,
   verify: 90_000,
 };
 

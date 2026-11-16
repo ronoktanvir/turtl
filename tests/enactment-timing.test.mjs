@@ -2,16 +2,23 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { EXAMPLE_RUN_SPEED, estimatedStepDuration, playbackDuration, readExecutionClock, changeClockState } from "../data/example/timing.ts";
 import { formatDuration, remainingDuration } from "../components/execution/timing.ts";
+import { approvalLabel } from "../theme/design.ts";
 
 test("one pace constant gives realistic minutes and watchable step durations", () => {
   assert.equal(EXAMPLE_RUN_SPEED, 15);
   assert.equal(estimatedStepDuration("write"), 220_000);
   assert.equal(estimatedStepDuration("checks"), 180_000);
   assert.equal(estimatedStepDuration("open_pr"), 45_000);
-  for (const key of ["baseline", "write", "open_pr", "checks", "merge", "verify"]) {
+  for (const key of ["baseline", "write", "open_pr", "checks", "merge", "deploy", "verify"]) {
     const playback = playbackDuration(estimatedStepDuration(key));
     assert.ok(playback >= 3000 && playback <= 15_000, key);
   }
+});
+
+test("approval wording agrees with its count", () => {
+  assert.equal(approvalLabel(1), "1 needs approval");
+  assert.equal(approvalLabel(2), "2 need approval");
+  assert.equal(approvalLabel(4), "4 need approval");
 });
 
 test("the display clock pauses for owner decisions and resumes without jumping", () => {
