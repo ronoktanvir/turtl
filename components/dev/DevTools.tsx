@@ -11,12 +11,11 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { api } from "../../convex/_generated/api";
 import { CASE_STATUSES, CLOSED_CASE_STATUSES } from "../../convex/constants";
+import { devToolsAllowed } from "../../data/source";
 import { useDevActions } from "./useDevActions";
 
-const clientEnabled = __DEV__ || process.env.EXPO_PUBLIC_DEV_TOOLS === "1";
-
 export function DevTools() {
-  if (!clientEnabled) return null;
+  if (!devToolsAllowed) return null;
   return <DevToolsOverlay />;
 }
 

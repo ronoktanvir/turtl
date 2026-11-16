@@ -1,0 +1,113 @@
+name: Release iOS
+
+# Started by hand: Actions, Release iOS, Run workflow. release/README.md lists what must exist first.
+on:
+  workflow_dispatch:
+    inputs:
+      deploy_backend:
+        description: Deploy convex/ to the production backend before building
+        type: boolean
+        default: true
+      submit:
+        description: Send the finished build to App Store Connect (TestFlight)
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-ios
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Check, deploy, build, submit
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    environment: production
+    steps:
+      - name: Release only from main
+        if: github.ref != 'refs/heads/main'
+        run: |
+          echo "::error::Start this workflow from main. It was started from $GITHUB_REF_NAME."
+          exit 1
+
+      - uses: actions/checkout@v5
+
+      - name: Check the release settings exist
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+          ASC_APP_ID: ${{ vars.ASC_APP_ID }}
+          SUBMIT: ${{ inputs.submit }}
+        run: |
+          missing=0
+          if [ -z "$EXPO_TOKEN" ]; then echo "::error::The EXPO_TOKEN secret is not set in the production environment."; missing=1; fi
+          if [ -z "$CONVEX_DEPLOY_KEY" ]; then echo "::error::The CONVEX_DEPLOY_KEY secret is not set in the production environment."; missing=1; fi
+          if [ -z "$(jq -r '.expo.extra.eas.projectId // empty' app.json)" ]; then echo "::error::app.json has no EAS project id. Run npx eas-cli init and commit the change it makes to app.json."; missing=1; fi
+          if [ "$SUBMIT" = "true" ] && [ -z "$ASC_APP_ID" ] && [ -z "$(jq -r '.submit.production.ios.ascAppId // empty' eas.json)" ]; then echo "::error::The ASC_APP_ID variable is not set in the production environment. It is the app's Apple ID number from App Store Connect."; missing=1; fi
+          exit $missing
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            protected-app/package-lock.json
+      - name: Install dependencies
+        run: |
+          npm ci --no-audit --no-fund
+          npm --prefix protected-app ci --no-audit --no-fund
+
+      - name: Typechecks and tests
+        run: |
+          npm run typecheck
+          npm --prefix protected-app run typecheck
+          npm run test:ci
+      - name: Check the repository is fit to release
+        run: node release/preflight.mjs
+
+      - name: Check the production backend's variable names
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+        run: node release/check-backend-env.mjs
+
+      - name: Deploy the production backend
+        if: inputs.deploy_backend
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+        run: npx convex deploy --message "Release iOS run $GITHUB_RUN_NUMBER" --cmd 'printf %s "$TURTL_BACKEND_URL" > "$RUNNER_TEMP/backend-url"' --cmd-url-env-var-name TURTL_BACKEND_URL
+
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Point production builds at the backend that was just deployed
+        if: inputs.deploy_backend
+        run: eas env:set production --name EXPO_PUBLIC_CONVEX_URL --value "$(cat "$RUNNER_TEMP/backend-url")" --visibility plaintext --non-interactive
+
+      - name: Check production builds have a backend address
+        env:
+          NO_COLOR: "1"
+          FORCE_COLOR: "0"
+        run: |
+          if ! eas env:get production --variable-name EXPO_PUBLIC_CONVEX_URL --format short --non-interactive | grep -q "EXPO_PUBLIC_CONVEX_URL.*=https://"; then
+            echo "::error::EXPO_PUBLIC_CONVEX_URL is not set in the EAS production environment. Run this workflow once with the backend deploy switched on, which sets it."
+            exit 1
+          fi
+
+      - name: Name the App Store Connect app
+        if: inputs.submit
+        env:
+          ASC_APP_ID: ${{ vars.ASC_APP_ID }}
+        run: |
+          if [ -n "$ASC_APP_ID" ]; then
+            jq --arg id "$ASC_APP_ID" '.submit.production.ios.ascAppId = $id' eas.json > "$RUNNER_TEMP/eas.json"
+            mv "$RUNNER_TEMP/eas.json" eas.json
+          fi
+
+      - name: Build for the App Store
+        run: eas build --platform ios --profile production --non-interactive --wait ${{ inputs.submit && '--auto-submit' || '' }}

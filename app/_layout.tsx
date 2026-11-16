@@ -8,7 +8,8 @@ import { ThemeProvider, useTheme } from "../theme";
 import { useReducedMotion } from "../components/ui/motion";
 import { useFonts, Capriola_400Regular } from "@expo-google-fonts/capriola";
 import { Righteous_400Regular } from "@expo-google-fonts/righteous";
-import { backendClient as convex, isLiveData, useDataStatus } from "../data";
+import { backendClient as convex, isLiveData, isStoreBuild, useBackendReachable, useDataStatus } from "../data";
+import BackendUnavailable from "../components/ui/BackendUnavailable";
 import OwnerPasscodePrompt from "../components/ui/OwnerPasscodePrompt";
 
 void SplashScreen.preventAutoHideAsync().catch(() => {});
@@ -29,6 +30,10 @@ function Screens() {
   );
 }
 
+function Unreachable() {
+  return useBackendReachable() ? null : <BackendUnavailable reason="unreachable" />;
+}
+
 export default function RootLayout() {
   const first: string | undefined = useSegments()[0];
   const [fontsLoaded, fontError] = useFonts({ Capriola_400Regular, Righteous_400Regular });
@@ -38,6 +43,13 @@ export default function RootLayout() {
   if (!fontsLoaded && !fontError) return null;
 
   if (!convex) {
+    if (isStoreBuild) {
+      return (
+        <ThemeProvider>
+          <BackendUnavailable reason="misconfigured" />
+        </ThemeProvider>
+      );
+    }
     if (first !== "live" && first !== "case") {
       return (
         <ThemeProvider>
@@ -60,6 +72,7 @@ export default function RootLayout() {
       <ConvexProvider client={convex}>
         <Screens />
         <DevTools />
+        {isStoreBuild && <Unreachable />}
       </ConvexProvider>
     </ThemeProvider>
   );
