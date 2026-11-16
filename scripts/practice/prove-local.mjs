@@ -7,6 +7,8 @@
 //   node scripts/practice/prove-local.mjs
 // It refuses to run unless .env.local names a local backend, and removes every variable it set when it ends. It begins
 // with the single-owner demo, which serves only a backend that holds no account, so give it a fresh local backend.
+// Password sign-ups confirm their address with the code turtl emails (convex/auth/confirmation.ts); the emails go to
+// the stand-in in tests/fixtures/auth-stand-in.mjs, never to Resend. The review account is made the operator's way.
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { randomBytes } from "node:crypto";
@@ -18,6 +20,7 @@ import { promisify } from "node:util";
 import { ConvexHttpClient } from "convex/browser";
 import { makeFunctionReference as ref } from "convex/server";
 import { exportJWK, exportPKCS8, generateKeyPair } from "jose";
+import { startAuthStandIn } from "../../tests/fixtures/auth-stand-in.mjs";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const local = Object.fromEntries(
@@ -38,6 +41,7 @@ const site = `http://127.0.0.1:${config.ports.site}`;
 const admin = new ConvexHttpClient(convexUrl);
 admin.setAdminAuth(config.adminKey);
 
+const mail = await startAuthStandIn();
 const scratch = mkdtempSync(join(tmpdir(), "turtl-practice-proof-"));
 const convex = async (...args) => (await promisify(execFile)("npx", ["convex", ...args], { cwd: root, env: { ...process.env, CONVEX_AGENT_MODE: "anonymous" } })).stdout;
 const run = async (name, args = {}) => JSON.parse((await convex("run", name, JSON.stringify(args))).trim() || "null");
@@ -55,11 +59,16 @@ const plain = {
   // Opens convex/practice/localProof.ts on this localhost backend; with accounts on the dev tools stay closed.
   DEV_TOOLS_ENABLED: "true",
   PRACTICE_BREAKS_PER_DAY: "2",
+  // The confirmation emails go to the stand-in, which a local backend with accounts on honours; the key is a stand-in's.
+  AUTH_STAND_IN_URL: mail.url,
+  AUTH_RESEND_KEY: "stand-in-key",
+  AUTH_EMAIL_FROM: "turtl <no-reply@example.com>",
 };
 const VARIABLES = [...Object.keys(fromFile), ...Object.keys(plain)];
 const cleanUp = async () => {
   for (const name of VARIABLES) await convex("env", "remove", name).catch(() => {});
   rmSync(scratch, { recursive: true, force: true });
+  await mail.close();
 };
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -144,16 +153,31 @@ try {
   await convex("env", "set", "AUTH_REQUIRED", plain.AUTH_REQUIRED);
   await sleep(1500);
 
-  const signUp = async (label) => {
-    const email = `${label}-${randomBytes(3).toString("hex")}@example.com`;
+  const signedIn = async (label, email, params) => {
     const client = new ConvexHttpClient(convexUrl);
-    const { tokens } = await client.action(ref("auth:signIn"), { provider: "password", params: { email, password: "local proof " + randomBytes(12).toString("hex"), flow: "signUp" } });
+    const { tokens } = await client.action(ref("auth:signIn"), { provider: "password", params: { email, ...params } });
     client.setAuth(tokens.token);
     const [user] = JSON.parse(Buffer.from(tokens.token.split(".")[1], "base64url").toString()).sub.split("|");
     return { label, email, client, user };
   };
+  // A sign-up in the app: the account is held at Check your email until its address is confirmed.
+  const signUp = async (label) => await signedIn(label, `${label}-${randomBytes(3).toString("hex")}@example.com`, { password: "local proof " + randomBytes(12).toString("hex"), flow: "signUp" });
+  // What the person does next: opens the email turtl sent and taps its link, which fills in the code, then Confirm email.
+  const confirmFromEmail = async (who) => {
+    const link = mail.lastLink(who.email);
+    assert.match(link ?? "", /^turtl:\/\/confirm-email\?emailCode=/, `the confirmation email to ${who.email}`);
+    await who.client.mutation(ref("auth/confirmation:confirm"), { code: new URL(link).searchParams.get("emailCode") });
+    assert.equal((await who.client.query(ref("users:viewer"), {})).confirmed, true);
+  };
   const alice = await signUp("alice");
   const bob = await signUp("bob");
+
+  await step("a password sign-up is held at Check your email: Create is refused until the code from the email confirms the address", async () => {
+    assert.equal((await alice.client.query(ref("users:viewer"), {})).confirmed, false);
+    await assert.rejects(alice.client.action(fn.create, {}), /Sign in to continue/);
+    for (const who of [alice, bob]) await confirmFromEmail(who);
+    note(`alice and bob each confirmed with the code in their one email (${mail.emails.length} sent)`);
+  });
   const demoBefore = await demoSwitches();
 
   await step("a new account can have a practice app, and has none yet", async () => {
@@ -303,10 +327,20 @@ try {
   });
 
   let carol;
-  await step("the operator's practice/review:prepare leaves the review account with an open case", async () => {
-    carol = await signUp("review");
-    const prepared = await run("practice/review:prepare", { email: carol.email });
+  await step("the operator makes the review account with auth/review:ensureAccount, and practice/review:prepare leaves it with an open case", async () => {
+    const email = `review-${randomBytes(3).toString("hex")}@example.com`;
+    const password = "review proof " + randomBytes(12).toString("hex");
+    // An account still held at Check your email is refused: the reviewer would see nothing else.
+    const held = await signUp("held");
+    await assert.rejects(run("practice/review:prepare", { email: held.email }), (error) => /has not confirmed its email address/.test(`${error.stdout}\n${error.stderr}\n${error.message}`));
+    // The operator's two commands, in order (release/backend-runbook.md).
+    assert.deepEqual(await run("auth/review:ensureAccount", { email, password }), { email, created: true });
+    const prepared = await run("practice/review:prepare", { email });
     assert.equal(prepared.created, true);
+    assert.equal(mail.emails.filter((sent) => sent.to?.includes(email)).length, 0, "no email to the review address: it is confirmed by the command");
+    // The reviewer logs in with the address and password from the submission, and is not held at Check your email.
+    carol = await signedIn("review", email, { password, flow: "signIn" });
+    assert.equal((await carol.client.query(ref("users:viewer"), {})).confirmed, true);
     carol.projectId = prepared.projectId;
     const status = await carol.client.query(fn.status, {});
     assert.equal(status.project.caseId, prepared.caseId);
