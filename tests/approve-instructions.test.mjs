@@ -31,9 +31,16 @@ const server = { query: define, mutation: define, action: define, internalQuery:
 const anything = new Proxy({}, { get: (_, name) => (name === "then" ? undefined : anything) });
 
 const capy = load("../convex/prTracking/capy.ts", {});
+// The real access rule. With AUTH_REQUIRED unset, as here, its checks do nothing.
+const access = load("../convex/access.ts", {
+  "convex/values": values,
+  "./_generated/api": { internal: anything },
+  "./_generated/server": server,
+});
 const decisions = load("../convex/decisions.ts", {
   "convex/values": values,
   "./_generated/server": server,
+  "./access": access,
   "./constants": { CLOSED_CASE_STATUSES: ["resolved", "unresolved", "declined"] },
   "./learning/feedback": { recordDecision: async () => {} },
   "./ownerPasscode": { requireOwnerPasscode: async () => {} },
@@ -97,6 +104,7 @@ function backend(options, version = 3) {
     "convex/values": values,
     "./_generated/api": { internal: anything },
     "./_generated/server": server,
+    "./access": access,
     "./constants": { vDecisionStatus: values.v.any(), vDelivery: values.v.any(), vOptionKind: values.v.any(), vSpan: values.v.any() },
     "./fixOptions": fixOptions,
     "./learning/model": { cleanStatement: () => null, PREFERENCE_FIELD: "" },
