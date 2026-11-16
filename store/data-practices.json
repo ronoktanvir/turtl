@@ -303,11 +303,13 @@
     "ACCOUNT_INTAKE_SPEND_PER_DAY_USD": "The AI spend one account's customer reports may use in a day",
     "OUTAGE_RESERVE_PERCENT": "The share of the backend's daily AI ceiling kept for finding the cause of outages",
     "OUTAGE_RESERVE_ACCOUNT_USD": "Only an account that has spent less than this today may draw on that reserve",
-    "EMAILS_PER_DAY": "The most emails the backend sends in a day, all kinds together. Set it to the email plan",
+    "EMAILS_PER_DAY": "The most emails the backend sends in a day, all kinds together, apart from each confirmed address's first reset of the day. Set it below the email plan",
     "CUSTOM_AUTH_SITE_URL": "The backend's own web address on a custom domain, where GitHub sign-in starts. Also refused as a project's live address",
     "OUTAGE_RESERVE_STEADY_HOURS": "How long a project's check must have passed before it failed for its case to draw on the outage reserve",
     "OUTAGE_RESERVE_ACCOUNT_AGE_DAYS": "How old an account must be for its outages to draw on the outage reserve",
-    "PRACTICE_AI_PER_DAY_USD": "The AI spend one account's practice app cases may use in a day"
+    "PRACTICE_AI_PER_DAY_USD": "The part of an account's daily AI share its practice app's cases may use",
+    "OUTAGE_FLOOR_PER_DAY_USD": "The AI spend each account keeps every day for finding the cause of an outage on its own project, which no other account can use up",
+    "DEPLOYMENT_MODEL_HARD_STOP_PER_DAY_USD": "The most the backend spends on AI in a day, every account and every floor together. Unset, twice the daily ceiling"
   },
   "libraries": {
     "@auth/core": "Sign in with GitHub, used only in the backend",
