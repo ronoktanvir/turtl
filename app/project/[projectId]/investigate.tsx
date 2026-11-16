@@ -4,7 +4,7 @@ import { KeyboardAvoidingView, Platform, Pressable, View } from "react-native";
 import { Constellation, type NetworkSelection } from "../../../components/network/Constellation";
 import { NetworkChat } from "../../../components/network/NetworkChat";
 import { Header, HealthWord, Icon, Reveal, Screen, T, Turtle } from "../../../components/ui";
-import { useCodeNetwork, useProject } from "../../../data";
+import { useCodeNetwork, useDataStatus, useProject } from "../../../data";
 import { useTheme } from "../../../theme";
 
 export default function Investigate() {
@@ -12,6 +12,7 @@ export default function Investigate() {
   const projectId = rawId ?? "";
   const project = useProject(projectId);
   const network = useCodeNetwork(projectId);
+  const { errors } = useDataStatus();
   const { colors } = useTheme();
   const [selection, setSelection] = useState<NetworkSelection>(null);
   const [chatOpen, setChatOpen] = useState(false);
@@ -26,7 +27,7 @@ export default function Investigate() {
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
         <Header title="Investigate" fallback={back} right={<Icon name="Network" color="brandDeep" />} />
         {network === undefined || project === undefined ? (
-          <View style={{ padding: 20 }}><T color="textMuted">Mapping the codebase…</T></View>
+          <View style={{ padding: 20 }}>{errors.length === 0 && <T color="textMuted">Loading code network…</T>}</View>
         ) : !network || !project || network.nodes.length === 0 ? (
           <View style={{ flex: 1, padding: 28, justifyContent: "center", alignItems: "center", gap: 20 }}>
             <Turtle health="clear" size={72} />
@@ -34,6 +35,7 @@ export default function Investigate() {
           </View>
         ) : (
           <>
+            {"source" in network && network.source === "seed" && <T variant="small" color="statusNeedsYou" testID="network-source" style={{ paddingHorizontal: 20, paddingTop: 12 }}>Seeded example code network</T>}
             {!chatOpen && <View style={{ paddingHorizontal: 20, paddingTop: 20, gap: 4 }}>
               <Reveal>
                 <T variant="strong" numberOfLines={1}>{project.name}</T>

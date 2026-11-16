@@ -6,12 +6,13 @@ import Svg, { Circle, Path } from "react-native-svg";
 import ProjectIcon from "../../../components/project/ProjectIcon";
 import SettingsSheet from "../../../components/project/SettingsSheet";
 import { BrandIcon, Button, HealthWord, Header, Icon, Reveal, Screen, T, Turtle, ZoomPressable } from "../../../components/ui";
-import { useCases, useProject } from "../../../data";
+import { useCases, useDataStatus, useProject } from "../../../data";
 import { approvalLabel, labels, useTheme } from "../../../theme";
 
 export default function ProjectHome() {
   const { projectId } = useLocalSearchParams<{ projectId: string }>();
   const project = useProject(projectId);
+  const { errors } = useDataStatus();
   const fixes = useCases(projectId, "fix");
   const features = useCases(projectId, "feature");
   const fixApprovals = fixes?.filter((item) => item.status === "needs_approval" || item.status === "ready_to_merge").length ?? 0;
@@ -26,7 +27,7 @@ export default function ProjectHome() {
   const tilePadding = compact ? 14 : 20;
   const [settings, setSettings] = useState(false);
 
-  if (project === undefined) return <Screen testID="project-home"><T style={{ padding: 20 }}>Loading…</T></Screen>;
+  if (project === undefined) return <Screen testID="project-home">{errors.length === 0 && <T style={{ padding: 20 }}>Loading…</T>}</Screen>;
   if (project === null) return <Screen testID="project-home"><Header title="Project not found" fallback="/projects" /><View style={{ padding: 20, gap: 16 }}><T>This project is no longer available.</T><Button label="Back to projects" onPress={() => router.replace("/projects")} testID="project-not-found-back" /></View></Screen>;
 
   return (
@@ -73,7 +74,7 @@ export default function ProjectHome() {
           </Reveal>
         </View>
       </View>
-      <SettingsSheet visible={settings} onClose={() => setSettings(false)} projectId={project.id} approvals={project.approvals} />
+      <SettingsSheet visible={settings} onClose={() => setSettings(false)} projectId={project.id} />
     </Screen>
   );
 }

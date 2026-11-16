@@ -12,16 +12,29 @@ export function NetworkChat({ projectId, selection, name, expanded, onExpandedCh
   const setExpanded = onExpandedChange;
   const [text, setText] = useState("");
   const [error, setError] = useState("");
+  const pending = useRef(false);
+  const [submitting, setSubmitting] = useState(false);
   const scroll = useRef<ComponentRef<typeof ScrollView>>(null);
   const input = useRef<ComponentRef<typeof TextInput>>(null);
-  const { messages, send, busy } = useChat(!selection ? { kind: "project", projectId } : selection.kind === "cluster" ? { kind: "cluster", projectId, clusterId: selection.id } : { kind: "node", projectId, nodeId: selection.id });
+  const chat = useChat(!selection ? { kind: "project", projectId } : selection.kind === "cluster" ? { kind: "cluster", projectId, clusterId: selection.id } : { kind: "node", projectId, nodeId: selection.id });
+  const { messages, send } = chat;
+  const busy = chat.busy || submitting;
   const submit = async () => {
     const value = text.trim();
-    if (!value || busy) return;
+    if (!value || chat.busy || pending.current) return;
+    pending.current = true;
+    setSubmitting(true);
     setExpanded(true);
     setError("");
-    setText("");
-    try { await send(value); } catch { setText(value); setError("That question didn’t send. Try again."); }
+    try {
+      await send(value);
+      setText((current) => current.trim() === value ? "" : current);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "That question didn’t send. Try again.");
+    } finally {
+      pending.current = false;
+      setSubmitting(false);
+    }
   };
   return (
     <View testID="network-panel" style={{ paddingHorizontal: 20, paddingTop: 12, paddingBottom: Math.max(insets.bottom, 16), borderTopWidth: 1, borderTopColor: colors.border, gap: 12, backgroundColor: colors.bg }}>

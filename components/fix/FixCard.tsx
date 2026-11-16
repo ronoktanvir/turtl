@@ -1,5 +1,5 @@
 import { useRouter } from "expo-router";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Pressable, View } from "react-native";
 import { approveFix } from "../../data";
 import type { FixKind, FixOption } from "../../data/types";
@@ -96,22 +96,43 @@ export function ApproveSheet({
   stay?: boolean;
 }) {
   const router = useRouter();
+  const pending = useRef(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    setError(null);
+  }, [caseId, fix?.key]);
+  const close = () => { if (!pending.current) onClose(); };
+  const confirm = async () => {
+    if (!fix || pending.current) return;
+    pending.current = true;
+    setBusy(true);
+    setError(null);
+    try {
+      await approveFix(caseId, fix.key);
+      onClose();
+      if (!stay) router.push(("/review/" + caseId + "/enacting") as never);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Could not approve this fix. Please try again.");
+    } finally {
+      pending.current = false;
+      setBusy(false);
+    }
+  };
   return (
-    <Sheet visible={!!fix} onClose={onClose} title={fix ? "Approve: " + fix.title + "?" : ""} testID="approve-sheet">
+    <Sheet visible={!!fix} onClose={close} title={fix ? "Approve: " + fix.title + "?" : ""} testID="approve-sheet">
       {fix && (
         <>
           <T>{fix.whatChanges}</T>
           {fix.delivery === "pull_request" && <T testID="approve-pull-request-note">{pullRequestNote}</T>}
           <T color="textMuted">{fix.whatMightBeLost}</T>
+          {error && <T color="statusAffected" accessibilityRole="alert" testID="approve-error">{error}</T>}
           <View style={{ flexDirection: "row", gap: 12 }}>
-            <Button label="Cancel" kind="plain" onPress={onClose} testID="approve-cancel" style={{ flex: 1 }} />
+            <Button label="Cancel" kind="plain" disabled={busy} onPress={close} testID="approve-cancel" style={{ flex: 1 }} />
             <Button
-              label="Approve"
-              onPress={async () => {
-                await approveFix(caseId, fix.key);
-                onClose();
-                if (!stay) router.push(("/review/" + caseId + "/enacting") as never);
-              }}
+              label={busy ? "Approving…" : "Approve"}
+              disabled={busy}
+              onPress={() => void confirm()}
               testID="approve-confirm"
               style={{ flex: 1 }}
             />

@@ -2,12 +2,15 @@ import { useLocalSearchParams, useRouter, type Href } from "expo-router";
 import { useMemo } from "react";
 import { Image, PanResponder, Pressable, ScrollView, View, useWindowDimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useCases, useProject } from "../../data";
+import { useCases, useDataStatus, useProject } from "../../data";
 import type { CaseSummary, CaseType } from "../../data/types";
 import { labels, useTheme, type TokenName } from "../../theme";
 import { Button, Icon, Screen, T, Turtle, ZoomPressable } from "../ui";
 
 function issueState(item: CaseSummary): { label: string; color: TokenName; image: number } {
+  if (item.status === "resolved") return { label: "Resolved", color: "statusClear", image: require("../../assets/turtle/clear.png") };
+  if (item.status === "declined") return { label: "Declined", color: "textMuted", image: require("../../assets/turtle/needs_you.png") };
+  if (item.status === "unresolved") return { label: "Unresolved", color: "statusAffected", image: require("../../assets/turtle/affected-laptop.png") };
   if (item.health === "affected") return { label: "Urgent issue", color: "statusAffected", image: require("../../assets/turtle/affected-laptop.png") };
   if (item.status === "needs_approval" || item.status === "ready_to_merge") return { label: "Needs review", color: "statusReview", image: require("../../assets/turtle/review.png") };
   if (item.status === "new") return { label: "New issue", color: "statusNew", image: require("../../assets/turtle/new.png") };
@@ -22,6 +25,7 @@ export default function BeginScreen({ type }: { type: CaseType }) {
   const { projectId } = useLocalSearchParams<{ projectId: string }>();
   const project = useProject(projectId);
   const cases = useCases(projectId, type);
+  const { errors } = useDataStatus();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
@@ -42,7 +46,7 @@ export default function BeginScreen({ type }: { type: CaseType }) {
       {project === null ? (
         <View style={{ padding: 20, gap: 16 }}><T>Project not found</T><Button label="Back to projects" onPress={() => router.replace("/projects" as Href)} testID="begin-not-found-back" /></View>
       ) : cases === undefined || project === undefined ? (
-        <T color="textMuted" style={{ textAlign: "center", padding: 20 }}>Loading…</T>
+        <View>{errors.length === 0 && <T color="textMuted" style={{ textAlign: "center", padding: 20 }}>Loading…</T>}</View>
       ) : cases.length === 0 ? (
         <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 12, padding: 24 }}><Turtle health="clear" size={96} /><T color="textMuted">{type === "fix" ? "Nothing to fix." : "No feature requests."}</T></View>
       ) : (
