@@ -1004,6 +1004,33 @@ test("ATTACK (finding 26): fourteen fresh accounts whose calls all get HTTP 429 
   });
 });
 
+test("ATTACK (finding 26): fourteen fresh accounts whose calls all time out hold no more than the shared day, so the hard stop stays out of reach", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: NOV_16 });
+  t.mock.method(globalThis, "fetch", timingOut);
+  t.mock.method(console, "warn", () => {});
+  await withEnv({ ...ACCOUNTS, ...STAND_IN }, async () => {
+    const names = Array.from({ length: 14 }, (_, n) => `mallory${n}`);
+    const db = world({ alice: 1, ...Object.fromEntries(names.map((name) => [name, 0])) }, { newAccounts: names, madeAgo: { alice: DAY } });
+    const ctx = actions(db);
+    await failingAccounts(ctx, names);
+    // Their holds stand, since the vendor may have done the work, but the shared day counts them against its ceiling,
+    // so fourteen accounts' worth of shares ($49) cannot be held at once: they stop at the general $15, which fresh
+    // accounts cannot pass (the reserve is not theirs).
+    const held = await heldEverywhere(db);
+    assert.ok(held.onDeployment <= 15 + 0.6 && held.onDeployment > 14, JSON.stringify(held));
+    assert.equal((await gates.check.handler({ db }, { scope: { caseId: "cases:alice-0" }, service: "openai", purpose: "send" })).reason, limits.spendRefusal.reserveKept());
+    assert.deepEqual((await diagnoseOutage(ctx, "cases:alice-0")).refusals, [], "her outage is diagnosed on her floor");
+    // Ten minutes on, the sweep counts each at its hold: spent now, nothing held, the hard stop still far off.
+    t.mock.timers.setTime(NOV_16 + limits.MODEL_CALL_HOLD_MS);
+    for (let run = 0; run < 10 && db.rows("modelCallHolds").length; run++) await ledger.settleExpiredHolds.handler({ db });
+    assert.deepEqual(await heldEverywhere(db), { onAccounts: 0, onDeployment: 0, rows: 0 });
+    const shared = await ceilings.deploymentSpendToday({ db }, Date.now());
+    assert.ok(Math.abs(shared - held.onDeployment) < 1e-3, `${shared} spent for ${held.onDeployment} held`);
+    assert.ok((await hardTotal(db)) < 20);
+    assert.deepEqual((await diagnoseOutage(ctx, "cases:alice-0")).refusals, []);
+  });
+});
+
 test("a call the vendor answered with an error status gives its hold back at once through every model helper, on the share, the floor and the deployment's day", async (t) => {
   t.mock.timers.enable({ apis: ["Date"], now: NOV_16 });
   const { callModel } = load("convex/routing/models.ts");
@@ -1113,6 +1140,19 @@ test("a successful call's cost replaces its hold exactly; one answered without i
       assert.ok(Math.abs((await ledger.monthSpend({ db }, "users:ada", Date.now())) - expected) < 1e-9, which);
       assert.ok(Math.abs((await ceilings.deploymentSpendToday({ db }, Date.now())) - expected) < 1e-9, which);
     }
+  });
+});
+
+test("the month counts an account's calls in flight at their holds, so a burst stops at it", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: NOV_16 });
+  await withEnv(ACCOUNTS, async () => {
+    const db = world({ ada: 1 });
+    await db.insert("modelSpend", { account: "users:ada", month: "2026-11", costUsd: 19.5, calls: 100, updatedAt: 1 });
+    // Forty calls of $0.10 started together: before, all twenty-five the day's share allows passed the month's check.
+    const ctx = actions(db);
+    const opened = await Promise.all(Array.from({ length: 40 }, () => gates.gateFor(ctx, { caseId: "cases:ada-0" }).open("openai", "send", 0.1)));
+    assert.equal(opened.filter((answer) => answer.ok).length, 5, "$0.50 left in the month at $0.10 a call");
+    assert.equal(opened.find((answer) => !answer.ok).reason, limits.spendRefusal.overLimit(20, Date.now()));
   });
 });
 

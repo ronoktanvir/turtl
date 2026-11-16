@@ -156,14 +156,17 @@ async function decide(ctx: Pick<QueryCtx, "db">, { scope, service, purpose, allo
       return { ...no(spendRefusal.hardStop()), stopped: { totalUsd: all, stopUsd: stop, logged: out.stopLoggedAt !== null } };
     }
     const day = await accountDay(ctx, account, now);
-    const shared = await sharedDay(ctx, { account, appId, allowance, practice, raisedByMonitor, passingForMs, day, total, now });
+    // The shared day counts its calls still out at their holds as well as what came back (finding 26), so calls that
+    // fail or hang cannot carry the shared day past its ceiling, nor with it the deployment to the hard stop.
+    const sharedNow = total + Math.max(0, out.heldUsd - out.floorHeldUsd);
+    const shared = await sharedDay(ctx, { account, appId, allowance, practice, raisedByMonitor, passingForMs, day, total: sharedNow, now });
     if ("hold" in shared) hold = shared.hold;
     else if (allowance === "outage" && raisedByMonitor && !practice) {
       // The floor (fourth review, finding 23): an outage turtl's checks found on the owner's own real project is
       // diagnosed whatever every other account has spent, however new the owner, up to outageFloorPerDayUsd() a day
       // outside the shared day, until the hard stop above. The owner's own month bounds it too.
       const limit = modelSpendLimitUsd();
-      if ((await monthSpend(ctx, account, now)) >= limit) return no(spendRefusal.overLimit(limit, now));
+      if ((await monthSpend(ctx, account, now)) + monthHeld(day) >= limit) return no(spendRefusal.overLimit(limit, now));
       const floor = outageFloorPerDayUsd();
       if (day.floorUsd + day.floorHeldUsd >= floor) return no(spendRefusal.floorUsed(floor));
       hold = "floor";
@@ -190,10 +193,14 @@ type SharedDayArgs = {
   raisedByMonitor: boolean;
   passingForMs: number;
   day: AccountDay;
-  /** What the shared day has cost so far (deploymentSpendToday). */
+  /** What the shared day has cost so far (deploymentSpendToday), with its calls still out at their holds. */
   total: number;
   now: number;
 };
+
+/** The account's calls still out today that will count toward its month: all but its customers' reports. The month
+ * counts them at their holds until their costs come back (finding 26), as the day does. */
+const monthHeld = (day: AccountDay) => day.ownHeldUsd + day.practiceHeldUsd + day.floorHeldUsd;
 
 // Whether a model call fits in the shared day, and which of the account's day shares it counts against, or why not.
 async function sharedDay(ctx: Pick<QueryCtx, "db">, { account, appId, allowance, practice, raisedByMonitor, passingForMs, day, total, now }: SharedDayArgs): Promise<{ hold: Share } | { refusal: string }> {
@@ -213,7 +220,7 @@ async function sharedDay(ctx: Pick<QueryCtx, "db">, { account, appId, allowance,
     hold = "intake";
   } else {
     const limit = modelSpendLimitUsd();
-    if ((await monthSpend(ctx, account, now)) >= limit) return { refusal: spendRefusal.overLimit(limit, now) };
+    if ((await monthSpend(ctx, account, now)) + monthHeld(day) >= limit) return { refusal: spendRefusal.overLimit(limit, now) };
     if (practice) {
       // A practice app's cases have a small allowance of their own within the share, enough for its ten breaks a day
       // explained by AI, and never reach the part of the day kept for outages (finding 19).
