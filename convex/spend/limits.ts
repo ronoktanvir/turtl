@@ -41,8 +41,12 @@ export const DEFAULT_OUTAGE_RESERVE_ACCOUNT_USD = 0.5;
 export const MODEL_CALL_HOLD_USD = 0.1;
 /** The most one call's hold may be, whatever its caller estimates. */
 export const MAX_CALL_HOLD_USD = 5;
-/** Output tokens assumed for a call that sets no maximum of its own. */
-export const ASSUMED_OUTPUT_TOKENS = 4_000;
+/**
+ * The most a model call writes when its caller sets no smaller maximum. askJson (convex/fixOptions.ts) and the
+ * structural review send it as their maximum, so their estimate is an upper bound: a prompt that coaxes a model into a
+ * very long answer cannot make one call cost more than it was held at. Generous, since reasoning counts toward it.
+ */
+export const ASSUMED_OUTPUT_TOKENS = 16_000;
 /** A generous count of characters per token, so an estimate from a prompt's length is high rather than low. */
 const CHARS_PER_TOKEN = 3;
 

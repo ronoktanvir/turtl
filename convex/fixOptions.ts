@@ -6,7 +6,7 @@ import { modelId as diagnosisModelId } from "./diagnosis";
 import { fingerprint, pastDecisionLine, recommend, type TurnedDown } from "./learning/rules";
 import { codeChangeInstructions, instructionsToSend } from "./prTracking/capy";
 import type { Facts } from "./runner/handlers/journey";
-import { callEstimate, modelCost } from "./spend/limits";
+import { ASSUMED_OUTPUT_TOKENS, callEstimate, modelCost } from "./spend/limits";
 
 declare const process: { env: Record<string, string | undefined> };
 
@@ -211,6 +211,8 @@ export async function askJson(
       body: JSON.stringify({
         model,
         response_format: { type: "json_object" },
+        // The most it may write, which is what the gate held for it (convex/spend/limits.ts).
+        max_completion_tokens: ASSUMED_OUTPUT_TOKENS,
         messages: [
           { role: "system", content: system },
           { role: "user", content: prompt },

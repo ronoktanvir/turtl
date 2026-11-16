@@ -3,7 +3,7 @@ import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import type { ActionCtx } from "../_generated/server";
 import { gateFor, type Gate } from "../consent/gate";
-import { callEstimate, modelCost } from "../spend/limits";
+import { ASSUMED_OUTPUT_TOKENS, callEstimate, modelCost } from "../spend/limits";
 import type { HandlerInput, HandlerResult } from "../runner/contract";
 import { readFinding, type KnownRecord, type ScenarioId } from "./rules";
 
@@ -52,6 +52,7 @@ async function ask(gate: Gate, prompt: unknown): Promise<Answer> {
       body: JSON.stringify({
         model,
         response_format: { type: "json_object" },
+        max_completion_tokens: ASSUMED_OUTPUT_TOKENS,
         messages: [
           { role: "system", content: SYSTEM_PROMPT },
           { role: "user", content: JSON.stringify(prompt) },
