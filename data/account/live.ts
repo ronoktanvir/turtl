@@ -181,7 +181,13 @@ export function useAccountActions(): AccountActions {
       signOut: async () => {
         // Ending the session on the server needs the connection; signing out offline would leave it open there.
         if (browserOffline() || !(await connected())) return words.offline;
-        await Promise.allSettled([...signOutListeners].map(async (listener) => await listener()));
+        // What this phone keeps for the account goes first, while the session can still say whose it is: its
+        // notifications (data/push). If that cannot reach the backend, nothing is ended and the person can try again;
+        // a call already sent still finishes when the connection returns, under the session it belongs to.
+        const stopped = await attempt(async () => {
+          await Promise.allSettled([...signOutListeners].map(async (listener) => await listener()));
+        });
+        if (stopped) return stopped;
         await signOut();
         return null;
       },
@@ -192,7 +198,10 @@ export function useAccountActions(): AccountActions {
         });
         if (refused) return refused === words.unknown ? notices.deleteFailed : refused;
         setSignedOutNotice(notices.deleting);
-        await Promise.allSettled([...signOutListeners].map(async (listener) => await listener()));
+        // The backend has already removed the account's phones; this only tidies this one, and never holds deletion up.
+        await attempt(async () => {
+          await Promise.allSettled([...signOutListeners].map(async (listener) => await listener()));
+        }, { timeoutMs: 5_000 });
         await signOut();
         return null;
       },

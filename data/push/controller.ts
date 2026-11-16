@@ -163,7 +163,9 @@ export function createPushController(deps: {
         // Best effort; the next launch tries again.
       }
     },
-    /** For sign-out, before the session ends: this phone stops receiving this account's notifications. Never throws. */
+    /** For sign-out, before the session ends: this phone stops receiving this account's notifications. Never throws.
+     * The backend's answer, even a refusal (the session had already ended), forgets the token here. While the backend
+     * cannot be reached the call waits, and sign-out stops rather than end the session first (data/account/live.ts). */
     async remove(): Promise<void> {
       try {
         const memory = state.memory ?? (await deps.readMemory());

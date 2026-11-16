@@ -1,4 +1,5 @@
 import { useEffect, useSyncExternalStore } from "react";
+import { onSignOut } from "../account";
 import { isLiveData, isStoreBuild } from "../source";
 import { createPushController, offerDue, pushKind, type PushKind } from "./controller";
 import { pushDevice } from "./device";
@@ -67,3 +68,7 @@ export function useNotificationTaps(open: (caseId: string) => void) {
 export function removePushRegistration(): Promise<void> {
   return isLiveData ? controller.remove() : Promise.resolve();
 }
+
+// Signing out runs this first (data/account/live.ts), so the old account's notifications stop reaching this phone and
+// the next account to sign in here can register it. While the backend cannot be reached, sign-out waits and then stops.
+if (isLiveData) onSignOut(removePushRegistration);
