@@ -86,7 +86,6 @@ const message = (error) => String(error?.data ?? error?.message ?? error);
 // The single-owner demo refuses to serve a deployment that holds any account (convex/access.ts), so the demo is shown
 // first, on a backend that holds none, and at the end refusing once accounts exist.
 const UNAVAILABLE = "turtl is unavailable right now. Please try again later.";
-const LOGGED = /Refused a call: AUTH_REQUIRED is unset, empty or "false", which makes this deployment the single-owner demo, but it holds accounts \(rows in authAccounts\)/;
 const refused = (error) => message(error).includes(UNAVAILABLE);
 const onAFreshBackend = async (call) => {
   try {
@@ -96,12 +95,15 @@ const onAFreshBackend = async (call) => {
     throw error;
   }
 };
-// What the operator sees: `npx convex run` prints the function's log lines with its error.
-const refusedWithLogLine = async (name, args = {}) => {
-  const answer = await convex("run", name, JSON.stringify(args)).then(() => null, (error) => `${error.stdout}\n${error.stderr}`);
-  assert.ok(answer, `${name} answered`);
-  assert.ok(answer.includes(UNAVAILABLE), answer);
-  assert.match(answer, LOGGED);
+// What the operator sees: the monitor's cron writes one line to the backend log when it first finds the demo closed,
+// and again at most once a day (convex/access.ts, noteClosedDemo), and checks nothing.
+const loggedOnceAndMonitorStill = async () => {
+  const first = await admin.mutation(ref("access:noteClosedDemo"), {});
+  const again = await admin.mutation(ref("access:noteClosedDemo"), {});
+  assert.equal(first.closed, true);
+  assert.ok(first.loggedAt !== null && again.loggedAt === first.loggedAt, "the line was written once, not once a call");
+  const tick = await admin.action(ref("monitor:tick"), {});
+  assert.match(tick.skipped ?? "", /holds accounts but runs as the single-owner demo, so the monitor checked nothing/);
 };
 let passed = 0;
 const step = async (name, body) => {
@@ -377,7 +379,7 @@ try {
     await assert.rejects(admin.query(fn.status, {}), refused, "nobody is the single owner of these accounts' projects");
     await assert.rejects(admin.action(fn.create, {}), refused);
     await assert.rejects(bob.client.query(fn.list, {}), refused, "nor is a signed-in owner served as the demo");
-    await refusedWithLogLine("practice/projects:status");
+    await loggedOnceAndMonitorStill();
   });
 
   console.log(`\n${passed} checks passed.`);

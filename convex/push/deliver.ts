@@ -2,7 +2,7 @@ import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { internalAction, internalMutation, internalQuery, type MutationCtx } from "../_generated/server";
-import { accessEnforced, ownsApp, SOLO_ACCOUNT } from "../access";
+import { accessEnforced, demoHoldsAccounts, ownsApp, SOLO_ACCOUNT } from "../access";
 import { vNoticeEvent } from "../constants";
 import { MAX_LIVE_TOKENS, receives } from "./devices";
 import { NOT_REGISTERED, receiptsFromExpo, sendToExpo } from "./expo";
@@ -32,6 +32,8 @@ export const recipients = internalQuery({
     }),
   ),
   handler: async (ctx, { caseId }) => {
+    // The single-owner demo on a deployment that holds accounts notifies nobody (convex/access.ts).
+    if (await demoHoldsAccounts(ctx)) return null;
     const row = await ctx.db.get(caseId);
     const app = row ? await ctx.db.get(row.appId) : null;
     if (!app) return null;

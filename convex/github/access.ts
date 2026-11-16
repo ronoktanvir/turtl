@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import { internalAction, type ActionCtx } from "../_generated/server";
-import { accessEnforced, SOLO_ACCOUNT } from "../access";
+import { accessEnforced, demoHoldsAccountsInAction, SOLO_ACCOUNT, UNAVAILABLE } from "../access";
 import { githubToken } from "../prTracking/github";
 import { readApp, readRepositoryInstallation } from "./api";
 import manifest from "./app-manifest.json";
@@ -56,6 +56,9 @@ export async function repositoryAccess(ctx: ActionCtx, repo: string, owner: Repo
   if (!REPOSITORY_PATTERN.test(repo)) return { ok: false, reason: "invalid_repository", message: `"${repo}" is not a repository in owner/name form.` };
   const jwt = await signAppJwt(app.appId, app.privateKey);
   if (!jwt) return appIncomplete(repo, UNREADABLE_KEY);
+  // The single-owner demo on a deployment that holds accounts hands out no installation's token (convex/access.ts).
+  // Asked here, where the demo starts reading turtl's records; GITHUB_TOKEN above is never set in production.
+  if (await demoHoldsAccountsInAction(ctx)) return { ok: false, reason: "github_error", message: UNAVAILABLE };
 
   let account: string | null = null;
   if (accessEnforced()) {

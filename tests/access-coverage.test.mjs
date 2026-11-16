@@ -38,6 +38,8 @@ const NOT_CHECKS = new Set([
   "MAX_PROJECTS", "MAX_CASES_PER_PROJECT", "accessEnforced", "ownsApp", "ownerActor", "projectCases", "devToolsEnabled",
   "hostsBookingDemo", "requireBookingDemo", "refuseDemoWithAccounts", "refuseDemoWithAccountsInAction", "refuseSignInToDemo",
   "account", "app", "caseAccess", "appGuard", "caseGuard", "demoOpen", "pending",
+  // Whether the demo is closed because the deployment holds accounts (review finding 20): about the deployment, not the caller.
+  "demoHoldsAccounts", "demoHoldsAccountsInAction", "demoClosed", "noteClosedDemo",
   // Facts about a session, asked after a check has said who is calling (convex/push/devices.ts).
   "sessionLive", "callerSession",
 ]);

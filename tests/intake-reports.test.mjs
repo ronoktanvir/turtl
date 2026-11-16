@@ -73,6 +73,8 @@ const INDEXES = {
   "intakeRateWindows.by_bucket_and_window": ["bucket", "windowStart"],
   // convex/access.ts asks whether a signed-in password account has confirmed its email address (none waits here).
   "authUnconfirmed.by_account": ["account"],
+  // The single-owner demo first checks the deployment holds no account, which reads projects by owner (convex/access.ts).
+  "apps.by_owner": ["ownerId"],
 };
 
 function backend({ identity = null } = {}) {
@@ -92,6 +94,7 @@ function backend({ identity = null } = {}) {
         const q = {
           eq(field, value) { assert.equal(field, fields[position++], `Index ${name} read out of order`); tests.push((row) => row[field] === value); return q; },
           lt(field, value) { tests.push((row) => row[field] < value); return q; },
+          gt(field, value) { tests.push((row) => row[field] > value); return q; },
         };
         build?.(q);
         list = list.filter((row) => tests.every((t) => t(row)));
@@ -131,6 +134,13 @@ function backend({ identity = null } = {}) {
     db,
     auth: { getUserIdentity: async () => identity },
     scheduler: { runAfter: async (delay, fn, args) => { scheduled.push({ delay, path: fn.path, args }); } },
+    // An action's question, answered by the real function over this database (the consent gate asks one in the demo
+    // too, whether the deployment holds accounts: convex/access.ts).
+    runQuery: async (fn, args) => {
+      const segments = fn.path.split(".").slice(1);
+      const name = segments.pop();
+      return await load("convex/" + segments.join("/") + ".ts")[name].handler(ctx, args);
+    },
   };
   return { ctx, rows, scheduled, insert: db.insert };
 }

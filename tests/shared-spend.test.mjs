@@ -407,9 +407,13 @@ test("the account's day starts again at midnight UTC, and older days are dropped
 
 test("the single-owner demo has no shares: nothing is read or written for them", async () => {
   await withEnv({ AUTH_REQUIRED: undefined }, async () => {
-    const ctx = { runQuery: () => assert.fail("the demo asked the database"), runMutation: () => assert.fail("the demo wrote spend") };
+    // The demo's one question is whether the deployment holds accounts (review finding 20, convex/access.ts), asked
+    // through the gate's check: never an admission, a hold or a share.
+    const asked = [];
+    const ctx = { runQuery: async (fn) => (asked.push(fn.path), { ok: true, account: "solo-owner" }), runMutation: () => assert.fail("the demo wrote spend") };
     const gate = gates.gateFor(ctx, { appId: "apps:1" });
     assert.equal((await gate.open("openai", "send", 1)).ok, true);
+    assert.deepEqual(asked, ["internal.consent.gate.check"]);
     await gate.spent(1);
   });
 });

@@ -26,7 +26,7 @@ const define = (definition) => definition;
 const access = load("../convex/access.ts", {
   "convex/values": { ConvexError, v },
   "./_generated/api": { internal: ref("internal") },
-  "./_generated/server": { internalQuery: define },
+  "./_generated/server": { internalQuery: define, internalMutation: define },
   "./auth/confirmed": load("../convex/auth/confirmed.ts", {}),
 });
 

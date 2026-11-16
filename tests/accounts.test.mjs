@@ -215,15 +215,21 @@ function fakeDb(indexes) {
         return { take: async (count) => structuredClone(rows(table).filter(holds).slice(0, count)) };
       },
       withIndex: (name, build) => {
-        const fields = indexes[table]?.[name];
+        // The demo's check that the deployment holds no account reads projects by their owner (convex/access.ts).
+        const fields = indexes[table]?.[name] ?? (table === "apps" && name === "by_owner" ? ["ownerId"] : undefined);
         assert.ok(fields, `${table} has no index ${name}`);
         const conditions = [];
         const tests = { eq: (a, b) => a === b, lt: (a, b) => a < b, lte: (a, b) => a <= b, gt: (a, b) => a > b, gte: (a, b) => a >= b };
         const range = Object.fromEntries(Object.entries(tests).map(([operator, holds]) => [operator, (field, value) => (conditions.push([field, value, holds]), range)]));
         build(range);
         conditions.forEach(([field], position) => assert.equal(field, fields[position], `${table}.${name} cannot be read by ${field} here`));
-        const matched = () => structuredClone(rows(table).filter((row) => conditions.every(([field, value, holds]) => holds(row[field], value))));
-        return { first: async () => matched()[0] ?? null, take: async (count) => matched().slice(0, count), unique: async () => matched()[0] ?? null };
+        let descending = false;
+        const matched = () => {
+          const found = structuredClone(rows(table).filter((row) => conditions.every(([field, value, holds]) => holds(row[field], value))));
+          return descending ? found.reverse() : found;
+        };
+        const reader = { order: (direction) => ((descending = direction === "desc"), reader), first: async () => matched()[0] ?? null, take: async (count) => matched().slice(0, count), unique: async () => matched()[0] ?? null };
+        return reader;
       },
     }),
   };
@@ -551,7 +557,7 @@ test("users.account goes through internal.access.account: the account id signed 
         assert.ok(["internal.access.account", "internal.access.demoOpen"].includes(fn.path), fn.path);
         // A query's context: a live session, no account rows (the demo's own check reads that table), and no hold on
         // the account (with accounts on, signedInAccount asks whether its email address is still unconfirmed).
-        const none = { withIndex: () => none, first: async () => null, unique: async () => null };
+        const none = { withIndex: () => none, order: () => none, first: async () => null, unique: async () => null };
         const db = { normalizeId: (table, id) => (id.startsWith(table + ":") ? id : null), get: async (id) => ({ _id: id, expirationTime: Date.now() + 60_000 }), query: () => none };
         return await access[fn.path.split(".").pop()].handler({ auth, db }, args);
       },

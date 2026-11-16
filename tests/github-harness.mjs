@@ -32,8 +32,9 @@ const otherTables = {
   apps: defineTable({ name: v.string(), ownerId: v.optional(v.string()) }).index("by_owner", ["ownerId"]),
   cases: defineTable({ appId: v.string() }),
   ownerPasscodeConfig: defineTable({ passcodeDigest: v.string() }),
-  // Convex Auth's accounts, empty here: the single-owner demo first checks there are none (convex/access.ts).
+  // Convex Auth's accounts and users, empty here: the single-owner demo first checks there are none (convex/access.ts).
   authAccounts: defineTable({ userId: v.string(), provider: v.string(), providerAccountId: v.string() }),
+  users: defineTable({ email: v.optional(v.string()) }),
 };
 
 const keys = generateKeyPairSync("rsa", { modulusLength: 2048 });
@@ -146,12 +147,18 @@ function createBackend(load, overrides = {}) {
         const range = {
           eq: (field, value) => (conditions.push(["eq", field, value]), range),
           lt: (field, value) => (conditions.push(["lt", field, value]), range),
+          gt: (field, value) => (conditions.push(["gt", field, value]), range),
         };
         build(range);
         conditions.forEach(([, field], position) => assert.equal(field, fields[position], table + "." + name + " cannot be read by " + field + " here"));
-        const matched = () =>
-          structuredClone(rowsOf(table).filter((row) => conditions.every(([operator, field, value]) => (operator === "eq" ? row[field] === value : row[field] < value))));
-        return {
+        const holds = { eq: (a, b) => a === b, lt: (a, b) => a < b, gt: (a, b) => a > b };
+        let descending = false;
+        const matched = () => {
+          const rows = structuredClone(rowsOf(table).filter((row) => conditions.every(([operator, field, value]) => holds[operator](row[field], value))));
+          return descending ? rows.reverse() : rows;
+        };
+        const reader = {
+          order: (direction) => ((descending = direction === "desc"), reader),
           collect: async () => matched(),
           first: async () => matched()[0] ?? null,
           take: async (count) => matched().slice(0, count),
@@ -161,6 +168,7 @@ function createBackend(load, overrides = {}) {
             return rows[0] ?? null;
           },
         };
+        return reader;
       },
     }),
   };

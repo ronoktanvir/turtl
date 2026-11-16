@@ -2,7 +2,7 @@ import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import { internalAction, type ActionCtx } from "../_generated/server";
-import { accessEnforced } from "../access";
+import { accessEnforced, demoHoldsAccountsInAction } from "../access";
 import { gateFor } from "../consent/gate";
 import { repositoryAccess } from "../github/access";
 import { findPullRequestNumber, startCapyThread } from "../prTracking/capy";
@@ -127,6 +127,8 @@ export async function syncPreparation(ctx: ActionCtx, row: Doc<"onboardingPrepar
 export const refreshActive = internalAction({
   args: {},
   handler: async (ctx): Promise<number> => {
+    // The single-owner demo on a deployment that holds accounts follows nothing (convex/access.ts).
+    if (await demoHoldsAccountsInAction(ctx)) return 0;
     let started = 0;
     for (let claims = 0; claims < FOLLOW_CLAIMS; claims++) {
       const { ids, more }: { ids: Id<"onboardingPreparations">[]; more: boolean } = await ctx.runMutation(internal.onboarding.records.claimDue, {});

@@ -2,7 +2,7 @@ import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { internalMutation, internalQuery, type ActionCtx, type QueryCtx } from "../_generated/server";
-import { accessEnforced, SOLO_ACCOUNT } from "../access";
+import { accessEnforced, demoHoldsAccounts, SOLO_ACCOUNT, UNAVAILABLE } from "../access";
 import { deploymentSpendToday } from "../spend/ceilings";
 import { accountDay, holdModelCall, intakeSpendToday, monthSpend, threadsToday } from "../spend/ledger";
 import {
@@ -92,7 +92,8 @@ const isModelCall = (service: string, purpose: Purpose) => purpose === "send" &&
 // cost comes back: admit holds it, check (which only asks) does not.
 async function decide(ctx: Pick<QueryCtx, "db">, { scope, service, purpose, allowance = "account" }: Args): Promise<Decision> {
   const no = (reason: string): Decision => ({ answer: { ok: false, reason }, hold: null });
-  if (!accessEnforced()) return { answer: { ok: true, account: SOLO_ACCOUNT }, hold: null };
+  // The demo says yes, unless the deployment holds accounts: then it is no demo, and nothing leaves (convex/access.ts).
+  if (!accessEnforced()) return (await demoHoldsAccounts(ctx)) ? no(UNAVAILABLE) : { answer: { ok: true, account: SOLO_ACCOUNT }, hold: null };
   const { account, appId, raisedByMonitor } = await ownerOf(ctx, scope);
   if (purpose === "erase") return { answer: { ok: true, account: account ?? "" }, hold: null };
   if (!account) return no(refusal.noOwner(serviceName(service)));
@@ -185,7 +186,7 @@ export function gateFor(ctx: Runner, scope: Scope, allowance: Allowance = "accou
 
   // `estimateUsd` set: the call is about to be sent, so a model call is counted at once (admit); otherwise only asked.
   const ask = async (service: Outbound, purpose: Purpose, admitting: { estimateUsd?: number } | null): Promise<Answer> => {
-    if (!enforced) return { ok: true, account: SOLO_ACCOUNT };
+    if (!enforced) return await ctx.runQuery(internal.consent.gate.check, { scope, service, purpose });
     // Deleting the owner's copies at a vendor needs no permission: it sends nothing but the ids to remove.
     if (purpose === "erase") return { ok: true, account: account ?? "" };
     const args = { scope, service, purpose, ...(allowance !== "account" && { allowance }) };

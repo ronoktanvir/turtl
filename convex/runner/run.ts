@@ -8,6 +8,7 @@ import {
   internalQuery,
   type MutationCtx,
 } from "../_generated/server";
+import { demoHoldsAccounts } from "../access";
 import { CLOSED_CASE_STATUSES, UNEXPECTED_STOP } from "../constants";
 import type { CaseStatus, Stage } from "../constants";
 import {
@@ -105,6 +106,8 @@ async function askOwner(ctx: MutationCtx, row: Doc<"cases">) {
 export const advance = internalMutation({
   args: { caseId: v.id("cases") },
   handler: async (ctx, { caseId }): Promise<void> => {
+    // The single-owner demo on a deployment that holds accounts starts no step; the case waits (convex/access.ts).
+    if (await demoHoldsAccounts(ctx)) return;
     const row = await ctx.db.get(caseId);
     if (!row || isClosed(row.status)) return;
     const steps = await loadSteps(ctx, caseId);
@@ -157,6 +160,8 @@ export const advance = internalMutation({
 export const loadInput = internalQuery({
   args: { attemptId: v.id("stepAttempts") },
   handler: async (ctx, { attemptId }): Promise<LoadedInput | null> => {
+    // ...and runs none that was already dispatched.
+    if (await demoHoldsAccounts(ctx)) return null;
     const attempt = await ctx.db.get(attemptId);
     if (!attempt || attempt.status !== "running") return null;
     const step = await ctx.db.get(attempt.stepId);

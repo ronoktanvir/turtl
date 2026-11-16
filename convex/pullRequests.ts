@@ -3,7 +3,7 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalAction, type ActionCtx } from "./_generated/server";
 import { action, mutation, query } from "./functions";
-import { canSeeCase, guardCaseInAction, ownerActor, requireDevTools } from "./access";
+import { canSeeCase, demoHoldsAccountsInAction, guardCaseInAction, ownerActor, requireDevTools } from "./access";
 import { gateFor } from "./consent/gate";
 import { repositoryAccess, type Purpose } from "./github/access";
 import { findPullRequestNumber } from "./prTracking/capy";
@@ -114,6 +114,8 @@ export const refresh = action({
 export const refreshActive = internalAction({
   args: {},
   handler: async (ctx): Promise<number> => {
+    // The single-owner demo on a deployment that holds accounts follows nothing (convex/access.ts).
+    if (await demoHoldsAccountsInAction(ctx)) return 0;
     let started = 0;
     for (let claims = 0; claims < FOLLOW_CLAIMS; claims++) {
       const { ids, more }: { ids: Id<"pullRequests">[]; more: boolean } = await ctx.runMutation(internal.prTracking.records.claimDue, {});

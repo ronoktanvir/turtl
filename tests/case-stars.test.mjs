@@ -44,6 +44,8 @@ test("another account's case, or no sign-in, reads as not available and changes 
 test("the single-owner demo stars without a passcode", async () => {
   await withEnv({ AUTH_REQUIRED: undefined }, async () => {
     const db = world();
+    // A demo deployment: every project is the one owner's (one another account owned would close the demo).
+    for (const id of ["apps:1", "apps:2"]) await db.patch(id, { ownerId: "solo-owner" });
     await star(db, null, "cases:2", true);
     assert.equal(db.rows("cases")[1].starred, true);
   });

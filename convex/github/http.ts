@@ -1,7 +1,7 @@
 import type { HttpRouter } from "convex/server";
 import { internal } from "../_generated/api";
 import { httpAction, type ActionCtx } from "../_generated/server";
-import { accessEnforced } from "../access";
+import { accessEnforced, demoHoldsAccountsInAction, UNAVAILABLE } from "../access";
 import { exchangeCode, listUserInstallations, listUserRepositories, readUser, revokeUserToken, REPOSITORIES_PER_PAGE, type UserInstallation } from "./api";
 import { authorizeUrl, CALLBACK_PATH, connectConfig, SETUP_PATH, webhookSecret, type ConnectConfig } from "./config";
 import { MAX_LEFT_OUT, MAX_LINK_REPOSITORIES, MAX_LINKS } from "./links";
@@ -40,6 +40,9 @@ export const receiveWebhook = httpAction(async (ctx, request) => {
   if (!read.ok) {
     return read.code === "UNSUPPORTED_EVENT" ? json({ ok: true, outcome: "ignored" }) : refuse(400, read.code, "The delivery's payload is not one turtl can read.");
   }
+  // The single-owner demo on a deployment that holds accounts records nothing (convex/access.ts). Asked only for a
+  // delivery turtl would act on, so a refused or ignored one still reads nothing.
+  if (await demoHoldsAccountsInAction(ctx)) return refuse(503, "UNAVAILABLE", UNAVAILABLE);
   const oversized = read.value.added.length > MAX_REPOSITORIES;
   const outcome: "applied" | "duplicate" | "ignored" = await ctx.runMutation(internal.github.installations.receive, {
     deliveryId,
@@ -68,6 +71,7 @@ const backTo = (returnTo: string, params: Record<string, string>) => redirect(`$
 const installed = () => page(200, "Go back to turtl", "turtl's GitHub App was installed or changed on GitHub. Go back to turtl. If turtl does not show your repositories, tap Connect GitHub there again.");
 const linkExpired = () => page(400, "This link has expired", "It was already used, or it is more than 15 minutes old. Go back to turtl and tap Connect GitHub again. Nothing was connected.");
 const notSetUp = () => page(503, "Connecting GitHub is not set up", "This turtl backend cannot connect GitHub yet. Nothing was connected.");
+const unavailable = () => page(503, "turtl is unavailable", `${UNAVAILABLE} Nothing was connected.`);
 
 // GET /github/setup: where GitHub sends a person after they install or change the app. The installation id GitHub
 // puts in this address is not read, because anyone can type one. With the state of an attempt that is still waiting,
@@ -78,6 +82,7 @@ export const setup = httpAction(async (ctx, request) => {
   const state = url.searchParams.get("state");
   const attempt = connect.ok && state ? await ctx.runQuery(internal.github.connect.waiting, { stateHash: await sha256(state) }) : null;
   if (!connect.ok || !state || !attempt) return installed();
+  if (await demoHoldsAccountsInAction(ctx)) return unavailable();
   // GitHub asked an organization's owner to approve the app; nothing is installed yet.
   if (url.searchParams.get("setup_action") === "request") return backTo(attempt.returnTo, { github: "requested" });
   return redirect(await authorizeUrl(connect, state, attempt.codeVerifier));
@@ -154,6 +159,7 @@ export const callback = httpAction(async (ctx, request) => {
   const connect = connectConfig();
   if (!connect.ok) return notSetUp();
   const state = url.searchParams.get("state");
+  if (state && (await demoHoldsAccountsInAction(ctx))) return unavailable();
   const claimed = state ? await ctx.runMutation(internal.github.connect.claim, { stateHash: await sha256(state) }) : null;
   if (!claimed) return linkExpired();
   const stop = async (result: "cancelled" | "failed" | "none") => {

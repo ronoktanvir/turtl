@@ -28,6 +28,7 @@ const esModules = { "@convex-dev/auth/server": await import("@convex-dev/auth/se
 // Tables that deleting an account leaves alone, and why. Adding one here needs a reason a reviewer would accept.
 const EXEMPT = {
   ownerPasscodeConfig: "The single-owner demo's passcode digest. It belongs to no account, and accounts mode never reads it.",
+  closedDemoNotices: "When the backend log last said the demo is closed because the deployment holds accounts: one deployment-wide time, naming no account.",
   bookingDemoSettings: "The booking demo's own switches. The demo app is turtl's test patient, not an account's data.",
   bookingDemoBookings: "Bookings the booking demo's test journeys made in the demo app. No account's data.",
   bookingDemoAttempts: "The booking demo's own log of booking attempts. No account's data.",

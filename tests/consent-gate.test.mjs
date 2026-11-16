@@ -81,16 +81,22 @@ test("a yes covers exactly the services, and the version of each, that were on t
   assert.deepEqual(services.standingOf({ ...agreement, withdrawnAt: 9 }), { answer: "withdrawn", allowed: [], needsAnswer: false });
 });
 
-test("in the demo the gate says yes without reading or writing anything", async () => {
+// Review finding 20: the demo's yes holds only on a deployment that holds no account, so the gate reads that (the four
+// empty ranges of demoHoldsAccounts in convex/access.ts) and nothing else, and writes nothing.
+test("in the demo the gate says yes after one look that the deployment holds no account, and writes nothing", async () => {
   await withEnv(DEMO, async () => {
-    assert.deepEqual(await gates.check.handler({ db: untouchable }, { scope: { appId: "apps:1" }, service: "anthropic", purpose: "send" }), { ok: true, account: "solo-owner" });
-    const ctx = { runQuery: () => assert.fail("the demo asked the database"), runMutation: () => assert.fail("the demo wrote spend") };
+    const db = world({ apps: [{ _id: "apps:1", name: "Booking", ownerId: "solo-owner" }], cases: [] });
+    assert.deepEqual(await gates.check.handler({ db }, { scope: { appId: "apps:1" }, service: "anthropic", purpose: "send" }), { ok: true, account: "solo-owner" });
+    assert.deepEqual(db.reads, [["first", "authAccounts"], ["first", "users"], ["index", "apps", "by_owner"], ["index", "apps", "by_owner"]], "only whether it holds accounts");
+    const asked = [];
+    const ctx = { runQuery: async (fn, args) => (asked.push(fn.path), await gates.check.handler({ db }, args)), runMutation: () => assert.fail("the demo wrote spend") };
     const gate = gates.gateFor(ctx, { appId: "apps:1" });
     for (const service of ["openai", "supermemory", "capy", "keiki", "anthropic", "google"]) {
       assert.equal(await gate.blocked(service), null);
       assert.equal((await gate.open(service)).ok, true);
     }
     assert.equal(await gate.blocked("capy", "start_thread"), null);
+    assert.ok(asked.every((path) => path === "internal.consent.gate.check"));
     await gate.spent(3);
     await gate.threadStarted("request-1");
   });
@@ -148,7 +154,8 @@ test("a list that changed after the answer asks again, and a stale yes is refuse
 
 test("the status tells the app whether to ask, and never asks in the demo or before sign-in", async () => {
   await withEnv(DEMO, async () => {
-    const status = await permission.status.handler({ db: world(), auth: signedIn(null) }, {});
+    // A demo deployment: its projects are the one owner's (one another account owned would close the demo).
+    const status = await permission.status.handler({ db: world({ apps: [{ _id: "apps:1", name: "Booking", ownerId: "solo-owner" }] }), auth: signedIn(null) }, {});
     assert.deepEqual([status.enforced, status.needsAnswer], [false, false]);
     assert.equal(status.services.length, 4);
   });

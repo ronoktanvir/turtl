@@ -219,7 +219,8 @@ test("the gear sheet's line: where the account stands, and nothing in the demo",
     codingThreads: [{ _id: "codingThreads:1", account: ADA, day: "2026-11-15", requestId: "turtl:1", startedAt: 1 }],
   });
   await withEnv({ AUTH_REQUIRED: undefined }, async () => {
-    const demo = await status.mine.handler({ db, auth: signedIn(null) }, {});
+    // A demo deployment: its project is the one owner's (one another account owned would close the demo).
+    const demo = await status.mine.handler({ db: world({ apps: [{ _id: "apps:1", ownerId: "solo-owner" }] }), auth: signedIn(null) }, {});
     assert.deepEqual([demo.enforced, demo.spentUsd, demo.threadsToday], [false, 0, 0]);
   });
   await withEnv(ACCOUNTS, async () => {

@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import { internalQuery, type ActionCtx } from "../_generated/server";
-import { accessEnforced } from "../access";
+import { accessEnforced, demoHoldsAccountsInAction } from "../access";
 import { openSecret } from "../secrets/open";
 import { liveAddressProblem, liveOrigin, requestRefusal } from "./address";
 import { DEMO_APP, type TokenRead, type WatchedApp } from "./client";
@@ -54,7 +54,8 @@ const refusing = (reason: string): WatchedApp => ({
 });
 
 export async function watchedApp(ctx: Pick<ActionCtx, "runQuery">, project: ProjectRef): Promise<WatchedApp> {
-  if (!accessEnforced()) return DEMO_APP;
+  // The demo's one app, unless the deployment holds accounts: then it is no demo, and nothing is sent (convex/access.ts).
+  if (!accessEnforced()) return (await demoHoldsAccountsInAction(ctx)) ? refusing("turtl is unavailable right now, so it sent nothing") : DEMO_APP;
   const found: { ok: true; appId: string; origin: string } | { ok: false; reason: string } = await ctx.runQuery(internal.protectedApp.watched.target, project);
   if (!found.ok) return refusing(found.reason);
   let token: Promise<TokenRead> | null = null;

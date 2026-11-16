@@ -3,6 +3,8 @@ import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { internalAction, internalMutation, internalQuery, type ActionCtx } from "./_generated/server";
 import { accessEnforced, MAX_PROJECTS } from "./access";
+
+const CLOSED_DEMO_SKIPPED = "This deployment holds accounts but runs as the single-owner demo, so the monitor checked nothing (the backend log says why).";
 import { CLOSED_CASE_STATUSES } from "./constants";
 import { controlBase, readErrors, runJourneyCheck, type WatchedApp } from "./protectedApp/client";
 import { watchedApp } from "./protectedApp/watched";
@@ -250,7 +252,12 @@ const MAX_CLAIMS_PER_TICK = 20;
 export const tick = internalAction({
   args: {},
   handler: async (ctx): Promise<MonitorResult> => {
-    if (!accessEnforced()) return await checkJourneys(ctx);
+    if (!accessEnforced()) {
+      // A deployment that holds accounts and lost AUTH_REQUIRED is not the demo: it checks nothing, so it opens no case
+      // and sends no request, and the backend log says why once (convex/access.ts, noteClosedDemo).
+      const { closed }: { closed: boolean } = await ctx.runMutation(internal.access.noteClosedDemo, {});
+      return closed ? { skipped: CLOSED_DEMO_SKIPPED } : await checkJourneys(ctx);
+    }
     const swept: Swept = { started: [], skipped: [] };
     for (let claims = 0; claims < MAX_CLAIMS_PER_TICK; claims++) {
       const { started, skipped, more }: Swept & { more: boolean } = await ctx.runMutation(internal.protectedApp.watching.claim, {});
