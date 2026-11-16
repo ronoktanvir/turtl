@@ -1,12 +1,23 @@
 import { ConvexProvider, ConvexReactClient } from "convex/react";
 import { Stack } from "expo-router";
-import { StyleSheet, Text, View } from "react-native";
+import { StatusBar, StyleSheet, Text, View } from "react-native";
 import { DevTools } from "../components/dev/DevTools";
+import { ThemeProvider, useTheme } from "../theme";
 
 const convexUrl = process.env.EXPO_PUBLIC_CONVEX_URL;
 const convex = convexUrl
   ? new ConvexReactClient(convexUrl, { unsavedChangesWarning: false })
   : null;
+
+function Screens() {
+  const { colors, scheme } = useTheme();
+  return (
+    <>
+      <StatusBar barStyle={scheme === "dark" ? "light-content" : "dark-content"} />
+      <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.bg } }} />
+    </>
+  );
+}
 
 export default function RootLayout() {
   if (!convex) {
@@ -21,10 +32,12 @@ export default function RootLayout() {
   }
 
   return (
-    <ConvexProvider client={convex}>
-      <Stack screenOptions={{ headerShown: false }} />
-      <DevTools />
-    </ConvexProvider>
+    <ThemeProvider>
+      <ConvexProvider client={convex}>
+        <Screens />
+        <DevTools />
+      </ConvexProvider>
+    </ThemeProvider>
   );
 }
 
