@@ -8,7 +8,7 @@ import { labels, useTheme } from "../../theme";
 import { Button, EdgeFade, Icon, Screen, T, Turtle, ZoomPressable, useReducedMotion } from "../ui";
 import { DROP_FULL, Droplet, dropBack, fillDrop, handOffPulse, usePull, useWheelPull } from "../ui/pulse";
 import { swipeTravel } from "../ui/swipe";
-import { issueState, type IssueTurtle } from "./issueState";
+import { firstToReview, issueState, type IssueTurtle } from "./issueState";
 
 const turtles: Record<IssueTurtle, number> = {
   affected: require("../../assets/turtle/affected-laptop.png"),
@@ -35,7 +35,8 @@ export default function BeginScreen({ type }: { type: CaseType }) {
   const { width, height } = useWindowDimensions();
   const { colors } = useTheme();
   const reduced = useReducedMotion();
-  const firstId = cases?.[0]?.id;
+  // The first issue with something to review: an app that is not answering has none, so it is opened from its card.
+  const firstId = firstToReview(cases ?? []);
   const drop = useRef(new Animated.Value(0)).current;
   const pulled = useRef(0);
   const opening = useRef(false);
@@ -82,7 +83,7 @@ export default function BeginScreen({ type }: { type: CaseType }) {
 
   const centre = insets.top + zone.y + arrowY; // the arrow's centre, from the top of the window
   const reach = Math.hypot(width / 2, Math.max(centre, height - centre)) + 2;
-  const listed = project && cases && cases.length > 0;
+  const listed = project && cases && cases.length > 0 && !!firstId;
 
   return (
     <Screen testID={`begin-${type}`}>
