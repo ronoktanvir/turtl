@@ -300,6 +300,25 @@ test("with accounts on, only the account that owns the app can delete its report
   });
 });
 
+test("the app deletes a report through the owner passcode and says why it could not", async () => {
+  const calls = [];
+  let answer = { reportCount: 1, people: 1 };
+  mocks["data/live/client"] = {
+    errorMessage: (error) => error.data ?? error.message,
+    useLiveQuery: (query, args) => ({ query: query.path, args }),
+    requireLiveClient: () => ({ mutation: async (fn, args) => { calls.push({ path: fn.path, args }); if (answer instanceof Error) throw answer; return answer; } }),
+  };
+  mocks["data/live/ownerPasscode"] = { withOwnerPasscode: (work) => work("correct horse") };
+  const client = loader()("data/reports/live.ts");
+  assert.deepEqual(client.useCustomerReports("cases:1"), { query: "api.intake.records.forCase", args: { caseId: "cases:1" } });
+  assert.deepEqual(await client.deleteCustomerReport("cases:1", "reports:2"), { reportCount: 1, people: 1 });
+  assert.deepEqual(calls, [{ path: "api.intake.records.deleteReport", args: { caseId: "cases:1", reportId: "reports:2", passcode: "correct horse" } }]);
+  answer = Object.assign(new Error("Server Error"), { data: "That report is not available. It may already have been deleted." });
+  await assert.rejects(client.deleteCustomerReport("cases:1", "reports:2"), /not available/);
+  const example = loader()("data/reports/example.ts");
+  assert.equal(example.useCustomerReports("case-1"), null, "example data shows no report control");
+});
+
 test("deleteAppReports removes every report of an app in batches, for deleting an account", async () => {
   await withEnv({}, async () => {
     const b = backend();
