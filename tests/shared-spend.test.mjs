@@ -399,6 +399,55 @@ test("ATTACK (finding 23): the floor is only for an outage turtl's checks found 
   });
 });
 
+// Statement 2: what the guarantee costs the operator. Floor spend is outside the shared day, so the worst day is the
+// ceiling plus the floors actually used; each account's month (MODEL_SPEND_LIMIT_USD) counts its floor spend too.
+test("the operator's worst case is the ceiling plus the floors used, and no account's floor passes its month", async (t) => {
+  // Forty fresh accounts doing everything they may, then Alice's outage.
+  const day = await attack(t, {}, { count: 40 });
+  // Each drew its whole floor, and no more than one call past it.
+  assert.ok(day.maxFloor <= 1.25 + DIAGNOSIS.estimate, JSON.stringify(day));
+  assert.ok(day.floors >= 40 * 1.25 && day.floors <= 40 * (1.25 + DIAGNOSIS.estimate), JSON.stringify(day));
+  // None of it is in the shared day: that is exactly what the accounts spent within their shares.
+  assert.ok(Math.abs(day.sharedAfter - day.accountsShared) < 1e-3, JSON.stringify(day));
+  const operator = day.sharedAfter + day.floors + day.aliceFloor;
+  const bound = limits.deploymentModelSpendPerDayUsd() + 41 * (1.25 + DIAGNOSIS.estimate);
+  assert.ok(operator <= bound, `$${operator.toFixed(2)} of at most $${bound.toFixed(2)}`);
+  console.log(`forty fresh accounts and Alice: shared day $${day.sharedAfter.toFixed(2)}, floors $${(day.floors + day.aliceFloor).toFixed(2)}`);
+
+  // One account drawing its whole floor every day: its month stops it at $20, within sixteen days ($1.25 a day, and
+  // each day up to one call past it).
+  t.mock.timers.reset();
+  t.mock.timers.enable({ apis: ["Date"], now: Date.parse("2026-12-01T09:00:00Z") });
+  await withEnv(ACCOUNTS, async () => {
+    const db = world({ mallory: 1 }, { newAccounts: ["mallory"] });
+    const ctx = actions(db);
+    const refusals = [];
+    for (let n = 0; n < 31; n++) {
+      t.mock.timers.setTime(Date.parse("2026-12-01T09:00:00Z") + n * DAY);
+      const window = new Date(Date.now()).toISOString().slice(0, 10);
+      await db.insert("deploymentTotals", { name: "model_usd_day", window, value: 25, updatedAt: 1 });
+      refusals.push((await spendAll(ctx, { caseId: "cases:mallory-0" }, DIAGNOSIS, 20)).refusal);
+    }
+    const month = await ledger.monthSpend({ db }, "users:mallory", Date.now());
+    // The month is checked against costs that came back, so the calls of the burst that reached it can pass it, by no
+    // more than the floor holds at once.
+    assert.ok(month >= 20 && month <= 20 + 1.25 + DIAGNOSIS.estimate, `$${month.toFixed(2)} in December`);
+    const overLimit = limits.spendRefusal.overLimit(20, Date.now());
+    const over = refusals.indexOf(overLimit);
+    assert.ok(over >= 14 && over <= 16, `the month stopped it on day ${over + 1}`);
+    assert.ok(refusals.slice(0, over).every((reason) => reason === limits.spendRefusal.floorUsed(1.25)), "until then, its floor each day");
+    assert.ok(refusals.slice(over).every((reason) => reason === overLimit), "and then nothing for the rest of the month");
+  });
+
+  // The arithmetic in convex/spend/README.md, from the settings' defaults: in a day, at most the 200 accounts the
+  // sign-up limits let in that day (100 through Apple or GitHub, 100 confirmed password accounts) plus the accounts
+  // already there can draw a floor; in a month, each at most its $20.
+  const signUpsPerDay = limits.DEFAULT_NEW_ACCOUNTS_PER_DAY + limits.DEFAULT_CONFIRMED_SIGNUPS_PER_DAY;
+  assert.equal(signUpsPerDay, 200);
+  assert.equal(limits.DEFAULT_DEPLOYMENT_MODEL_SPEND_PER_DAY_USD + limits.DEFAULT_OUTAGE_FLOOR_PER_DAY_USD * signUpsPerDay, 275);
+  assert.equal(30 * limits.DEFAULT_DEPLOYMENT_MODEL_SPEND_PER_DAY_USD + Math.min(30 * limits.DEFAULT_OUTAGE_FLOOR_PER_DAY_USD, limits.DEFAULT_MODEL_SPEND_LIMIT_USD) * 30 * signUpsPerDay, 120_750);
+});
+
 // What finding the cause of one practice-app break costs, call by call, with the default models: a quick diagnosis, a
 // careful one when the quick one is unsure, the fixes on offer, and a look for a broader cause. English prompts of
 // these lengths, about four characters to a token; each call is held at its estimate until its cost comes back.
