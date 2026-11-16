@@ -1,21 +1,25 @@
 import { useLocalSearchParams, useRouter, type Href } from "expo-router";
-import { useMemo } from "react";
-import { Image, PanResponder, Pressable, ScrollView, View, useWindowDimensions } from "react-native";
+import { useEffect, useMemo, useRef, type ComponentRef } from "react";
+import { Image, PanResponder, Platform, Pressable, ScrollView, View, useWindowDimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useCases, useDataStatus, useProject } from "../../data";
-import type { CaseSummary, CaseType } from "../../data/types";
-import { labels, useTheme, type TokenName } from "../../theme";
+import type { CaseType } from "../../data/types";
+import { labels, useTheme } from "../../theme";
 import { Button, Icon, Screen, T, Turtle, ZoomPressable } from "../ui";
+import { issueState, type IssueTurtle } from "./issueState";
+import { downwardTravel, sidewaysTravel, wheelSwipeUp, type Wheel } from "./wheel";
 
-function issueState(item: CaseSummary): { label: string; color: TokenName; image: number } {
-  if (item.status === "resolved") return { label: "Resolved", color: "statusClear", image: require("../../assets/turtle/clear.png") };
-  if (item.status === "declined") return { label: "Declined", color: "textMuted", image: require("../../assets/turtle/needs_you.png") };
-  if (item.status === "unresolved") return { label: "Unresolved", color: "statusAffected", image: require("../../assets/turtle/affected-laptop.png") };
-  if (item.health === "affected") return { label: "Urgent issue", color: "statusAffected", image: require("../../assets/turtle/affected-laptop.png") };
-  if (item.status === "needs_approval" || item.status === "ready_to_merge") return { label: "Needs review", color: "statusReview", image: require("../../assets/turtle/review.png") };
-  if (item.status === "new") return { label: "New issue", color: "statusNew", image: require("../../assets/turtle/new.png") };
-  return { label: "Currently working", color: "statusWorking", image: require("../../assets/turtle/working-laptop.png") };
-}
+type WheelEvent = Wheel & { preventDefault(): void };
+type WheelTarget = { scrollLeft: number; addEventListener(type: "wheel", listener: (event: WheelEvent) => void, options: { passive: boolean }): void; removeEventListener(type: "wheel", listener: (event: WheelEvent) => void): void };
+
+const turtles: Record<IssueTurtle, number> = {
+  affected: require("../../assets/turtle/affected-laptop.png"),
+  needs_you: require("../../assets/turtle/needs_you.png"),
+  working: require("../../assets/turtle/working-laptop.png"),
+  clear: require("../../assets/turtle/clear.png"),
+  review: require("../../assets/turtle/review.png"),
+  new: require("../../assets/turtle/new.png"),
+};
 
 function exactTime(at: number) {
   return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(at);
@@ -36,15 +40,44 @@ export default function BeginScreen({ type }: { type: CaseType }) {
     onMoveShouldSetPanResponder: (_, gesture) => gesture.dy < -10 && Math.abs(gesture.dy) > Math.abs(gesture.dx),
     onPanResponderRelease: (_, gesture) => { if (gesture.dy < -40 && firstId) router.push(`/review/${firstId}` as Href); },
   }), [firstId, router]);
+  // In a browser there is no finger. A mouse wheel moves the strip of cards sideways, and a two-finger swipe up
+  // on a trackpad, which arrives as wheel events, opens the first card the way a swipe on a phone does.
+  const strip = useRef<ComponentRef<typeof ScrollView>>(null);
+  const below = useRef<ComponentRef<typeof View>>(null);
+  const listed = !!project && !!firstId; // the strip is on screen only once both the project and its cases are here
+  useEffect(() => {
+    if (Platform.OS !== "web" || !listed) return;
+    const cards = (strip.current as unknown as { getScrollableNode(): WheelTarget } | null)?.getScrollableNode();
+    const area = below.current as unknown as WheelTarget | null;
+    if (!cards || !area) return;
+    const swipedUp = wheelSwipeUp();
+    const slide = (event: WheelEvent) => {
+      const travel = sidewaysTravel(event);
+      if (!travel) return;
+      event.preventDefault();
+      cards.scrollLeft += travel;
+    };
+    const open = (event: WheelEvent) => {
+      if (Math.abs(event.deltaX) >= Math.abs(event.deltaY)) return;
+      event.preventDefault();
+      if (swipedUp(downwardTravel(event), Date.now())) router.push(`/review/${firstId}` as Href);
+    };
+    cards.addEventListener("wheel", slide, { passive: false });
+    area.addEventListener("wheel", open, { passive: false });
+    return () => {
+      cards.removeEventListener("wheel", slide);
+      area.removeEventListener("wheel", open);
+    };
+  }, [listed, firstId, router]);
 
   return (
     <Screen testID={`begin-${type}`}>
-      <Pressable accessibilityRole="button" accessibilityLabel="Back to project" testID="header-back" onPress={() => router.canGoBack() ? router.back() : router.replace(`/project/${projectId}` as Href)} style={{ marginLeft: 12, marginTop: 4, width: 44, height: 44, alignItems: "center", justifyContent: "center" }}>
+      <Pressable accessibilityRole="button" accessibilityLabel="Back to project" testID="header-back" onPress={() => router.canGoBack() ? router.back() : router.replace(`/project/${projectId}` as Href)} style={{ marginLeft: 8, marginTop: 4, width: 44, height: 44, alignItems: "center", justifyContent: "center" }}>
         <Icon name="ArrowLeft" color="textMuted" />
       </Pressable>
       <T variant="heading" accessibilityRole="header" style={{ textAlign: "center", marginTop: 8, marginBottom: 16 }}>{type === "fix" ? "Current issues" : labels.features}</T>
       {project === null ? (
-        <View style={{ padding: 20, gap: 16 }}><T>Project not found</T><Button label="Back to projects" onPress={() => router.replace("/projects" as Href)} testID="begin-not-found-back" /></View>
+        <View style={{ padding: 20, gap: 16 }}><T>Project not found</T><Button label="Back to Projects" onPress={() => router.replace("/projects" as Href)} testID="begin-not-found-back" /></View>
       ) : cases === undefined || project === undefined ? (
         <View>{errors.length === 0 && <T color="textMuted" style={{ textAlign: "center", padding: 20 }}>Loading…</T>}</View>
       ) : cases.length === 0 ? (
@@ -52,19 +85,19 @@ export default function BeginScreen({ type }: { type: CaseType }) {
       ) : (
         <>
           <View>
-            <ScrollView horizontal testID="begin-case-strip" showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 20, paddingVertical: 8, gap: 14 }}>
+            <ScrollView ref={strip} horizontal testID="begin-case-strip" showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 20, paddingVertical: 8, gap: 14 }}>
               {cases.map((item) => {
                 const state = issueState(item);
                 return <ZoomPressable key={item.id} accessibilityRole="button" testID={`begin-case-${item.id}`} onPress={() => router.push(`/review/${item.id}` as Href)} style={({ pressed }) => ({ width: Math.min(288, width - 64), minHeight: height < 650 ? 224 : 254, borderRadius: 22, borderWidth: 1, borderColor: colors[state.color], backgroundColor: pressed ? colors.surfaceRaised : colors.surface, padding: 20, gap: 18 })}>
                   <T variant="heading" style={{ flex: 1 }}>{item.title}</T>
                   <T variant="small" color="textMuted" testID={`begin-date-${item.id}`}>{exactTime(item.happenedAt)}</T>
                   {type === "feature" && item.reportCount !== undefined && <T variant="small" color="textMuted">{item.reportCount} asked</T>}
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }} testID={`begin-status-${item.id}`}><Image source={state.image} style={{ width: 40, height: 40 }} accessibilityLabel={state.label} /><T variant="small" color={state.color} style={{ flexShrink: 1 }}>{state.label}</T></View>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }} testID={`begin-status-${item.id}`}><Image source={turtles[state.turtle]} style={{ width: 40, height: 40 }} accessibilityLabel={state.label} /><T variant="small" color={state.color} style={{ flexShrink: 1 }}>{state.label}</T></View>
                 </ZoomPressable>;
               })}
             </ScrollView>
           </View>
-          <View {...pan.panHandlers} style={{ flex: 1, justifyContent: "flex-end", alignItems: "center", paddingBottom: insets.bottom + 24, paddingTop: 16 }}>
+          <View ref={below} {...pan.panHandlers} style={{ flex: 1, justifyContent: "flex-end", alignItems: "center", paddingBottom: insets.bottom + 24, paddingTop: 16 }}>
             <Pressable onPress={openFirst} accessibilityRole="button" accessibilityLabel="Swipe up to review" testID="begin-review" style={({ pressed }) => ({ alignItems: "center", gap: 8, opacity: pressed ? 0.6 : 1 })}>
               <View style={{ opacity: 0.45 }}><Icon name="ArrowUp" size={height < 650 ? 64 : 84} color="text" strokeWidth={1.15} /></View>
               <T variant="heading" font="text">Swipe up to review</T>

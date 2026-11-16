@@ -45,7 +45,7 @@ export default function Login() {
           <Reveal><Logo health="clear" width={240} /></Reveal>
         </View>
         <Reveal delay={100} style={{ gap: 12, width: "100%", maxWidth: 400, alignSelf: "center" }}>
-          <Button label="Login" testID="login-enter" onPress={() => open("/sign-in")} style={{ minHeight: 52, borderRadius: 16 }} />
+          <Button label="Log in" testID="login-enter" onPress={() => open("/sign-in")} style={{ minHeight: 52, borderRadius: 16 }} />
           <View style={{ flexDirection: "row", gap: 12 }}>
             {providers.map((provider) => (
               <Pressable key={provider.id} testID={`login-${provider.id}`} accessibilityRole="button" accessibilityLabel={provider.a11y} accessibilityState={{ busy: busy === provider.id, disabled: busy !== null }} disabled={busy !== null} onPress={() => void withProvider(provider.id)} style={({ pressed }) => ({ flex: 1, minHeight: 50, borderWidth: 1, borderColor: colors.border, borderRadius: 16, flexDirection: "row", gap: 10, justifyContent: "center", alignItems: "center", backgroundColor: pressed ? colors.surfaceRaised : colors.surface, opacity: busy !== null && busy !== provider.id ? 0.65 : 1 })}>
