@@ -582,7 +582,9 @@ test("users.account goes through internal.access.account: the account id signed 
       auth,
       runQuery: async (fn, args) => {
         assert.equal(fn.path, "internal.access.account");
-        return await access.account.handler({ auth }, args);
+        // A query's context: a live session, and no account rows (the demo's own check reads that table).
+        const db = { normalizeId: (table, id) => (id.startsWith(table + ":") ? id : null), get: async (id) => ({ _id: id, expirationTime: Date.now() + 60_000 }), query: () => ({ first: async () => null }) };
+        return await access.account.handler({ auth, db }, args);
       },
     };
   };

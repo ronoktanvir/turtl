@@ -108,7 +108,9 @@ test("a token is stored in one table that only github/tokens.ts reads, and only 
   const publicNames = Object.entries(connect).filter(([, fn]) => fn?.visibility === "public").map(([name]) => name);
   assert.deepEqual(publicNames.sort(), ["begin", "disconnect", "finish", "refresh", "repositories", "status"]);
   for (const name of ["status", "repositories"]) assert.match(connect[name].handler.toString(), /currentAccount\)?\(ctx\)/, name);
-  for (const name of ["begin", "finish", "refresh", "disconnect"]) assert.match(connect[name].handler.toString(), /requireAccount\)?\(ctx\)/, name);
+  assert.match(connect.finish.handler.toString(), /requireAccount\)?\(ctx\)/, "finish");
+  // An action has no database to check the session, so it asks through internal.access.account (review finding 17).
+  for (const name of ["begin", "refresh", "disconnect"]) assert.match(connect[name].handler.toString(), /internal\.access\.account/, name);
 
   const { stub, backend, load, access } = await world(t);
   stub.install({ id: 7001, login: "octo", repositories: ["octo/app"] });

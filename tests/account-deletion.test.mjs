@@ -690,7 +690,7 @@ test("the single-owner demo has no account to delete, and a signed-out caller is
   await assert.rejects(w.backend.call("api.account.deletion.request", {}, null), (error) => message(error) === "Sign in to continue.");
 });
 
-test("an ended session signs nobody in, though its token has not expired; demo and actions are unchanged", async () => {
+test("an ended session signs nobody in, though its token has not expired; an action's context, with no database, is refused", async () => {
   const access = createLoader()("convex/access.ts");
   const sessions = { "authSessions:1": { _id: "authSessions:1", expirationTime: Date.now() + 60_000 }, "authSessions:2": { _id: "authSessions:2", expirationTime: 0 } };
   const db = { normalizeId: (table, id) => (id.startsWith(table + ":") ? id : null), get: async (id) => sessions[id] ?? null };
@@ -701,7 +701,10 @@ test("an ended session signs nobody in, though its token has not expired; demo a
     assert.equal(await access.signedInAccount(as("users:7|authSessions:1")), "users:7");
     assert.equal(await access.signedInAccount(as("users:7|authSessions:2")), null, "an expired session");
     assert.equal(await access.signedInAccount(as("users:7|authSessions:3")), null, "a deleted session");
-    assert.equal(await access.signedInAccount(as("users:7|authSessions:3", false)), "users:7", "an action has no database and asks through internal.access");
+    // An action has no database, so it cannot check the session here; it asks through internal.access (review finding 17).
+    for (const helper of ["signedInAccount", "requireAccount", "currentAccount"]) {
+      await assert.rejects(access[helper](as("users:7|authSessions:3", false)), /needs the database to check the session/, helper);
+    }
     assert.equal(await access.signedInAccount(as("alice|session-1")), "alice", "a subject that names no session is read as before");
   } finally {
     if (saved === undefined) delete process.env.AUTH_REQUIRED;

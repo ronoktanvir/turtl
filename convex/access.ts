@@ -34,7 +34,7 @@ export const NOT_AVAILABLE = "That project is not available on this account.";
 export const DEV_TOOLS_DISABLED = "Dev tools are disabled on this deployment.";
 export const BOOKING_DEMO_CLOSED = "The booking demo does not run on this deployment.";
 
-type AuthCtx = Pick<QueryCtx, "auth">;
+type DbCtx = Pick<QueryCtx, "db">;
 type ReadCtx = Pick<QueryCtx, "auth" | "db">;
 type AskCtx = Pick<ActionCtx, "runQuery">;
 
@@ -42,25 +42,33 @@ export function accessEnforced(): boolean {
   return process.env.AUTH_REQUIRED === "true";
 }
 
+/** The context's database, which checking a session needs. An action has none and asks through internal.access.*;
+ * a helper here that is handed an action's context refuses, rather than skip the session check. */
+function databaseOf(ctx: Partial<DbCtx>): DbCtx["db"] {
+  if (!ctx.db) throw new Error("convex/access.ts needs the database to check the session. From an action, ask through ctx.runQuery(internal.access.account, {}).");
+  return ctx.db;
+}
+
 /** The signed-in account's id, or null. Convex Auth writes "<users id>|<session id>" as the token's subject. A token
  * stays valid for up to an hour after its session ends (signed out elsewhere, or the account is being deleted), so
- * where there is a database the session must still be live. Actions have none; they ask through internal.access.*. */
-export async function signedInAccount(ctx: AuthCtx): Promise<string | null> {
+ * the session must still be live. Actions have no database; they ask through internal.access.*. */
+export async function signedInAccount(ctx: ReadCtx): Promise<string | null> {
+  const db = databaseOf(ctx);
   const identity = await ctx.auth.getUserIdentity();
   if (!identity) return null;
   const [account, session] = identity.subject.split("|");
   // Only a subject naming a real session id is checked; one that names none (an admin's test identity) reads as before.
-  const db = (ctx as Partial<ReadCtx>).db;
-  const sessionId = db?.normalizeId && session ? db.normalizeId("authSessions", session) : null;
-  if (db && sessionId) {
+  const sessionId = session ? db.normalizeId("authSessions", session) : null;
+  if (sessionId) {
     const row = await db.get(sessionId);
     if (!row || row.expirationTime <= Date.now()) return null;
   }
   return account;
 }
 
-/** The account that owned records are filed under. With accounts on, throws unless someone is signed in. */
-export async function requireAccount(ctx: AuthCtx): Promise<string> {
+/** The account that owned records are filed under. With accounts on, throws unless someone is signed in with a live
+ * session, which needs the database: an action asks through internal.access.account instead. */
+export async function requireAccount(ctx: ReadCtx): Promise<string> {
   if (!accessEnforced()) return SOLO_ACCOUNT;
   const account = await signedInAccount(ctx);
   if (!account) throw new ConvexError(SIGN_IN_REQUIRED);
@@ -68,7 +76,7 @@ export async function requireAccount(ctx: AuthCtx): Promise<string> {
 }
 
 /** The same answer without throwing: null when accounts are on and nobody is signed in. */
-export async function currentAccount(ctx: AuthCtx): Promise<string | null> {
+export async function currentAccount(ctx: ReadCtx): Promise<string | null> {
   return accessEnforced() ? await signedInAccount(ctx) : SOLO_ACCOUNT;
 }
 
@@ -234,6 +242,7 @@ export function requireBookingDemo(): void {
   if (!hostsBookingDemo()) throw new ConvexError(BOOKING_DEMO_CLOSED);
 }
 
+/** How an action asks who is calling: here the session is checked against the database, which an action has not. */
 export const account = internalQuery({
   args: {},
   returns: v.string(),

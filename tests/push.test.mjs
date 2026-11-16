@@ -83,6 +83,8 @@ function createBackend(load, identity) {
     return null;
   };
   const db = {
+    // Ids here are "<table><n>aaaaaaaa"; the subject's session part ("session") names no session row.
+    normalizeId: (table, id) => (typeof id === "string" && new RegExp(`^${table}\\d+a+$`).test(id) ? id : null),
     get: async (id) => structuredClone(locate(id)?.rows[locate(id).index] ?? null),
     insert: async (table, fields) => {
       const row = { _id: `${table}${++counter}aaaaaaaa`, _creationTime: Date.now(), ...checked(table, structuredClone(fields)) };
