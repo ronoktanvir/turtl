@@ -396,8 +396,8 @@ test("5. a password account cannot make a project, connect GitHub, store a secre
   // A wrong code does nothing; the code in the email (the link fills it in) confirms.
   await assert.rejects(w.call("api.auth.confirmation.confirm", { code: guess() }, me), refusal(words.wrongCode));
   const link = w.standIn.lastLink("new@example.com");
-  assert.match(link, /^turtl:\/\/confirm-email\?code=[0-9A-Z-]{23}$/);
-  await w.call("api.auth.confirmation.confirm", { code: new URL(link).searchParams.get("code") }, me);
+  assert.match(link, /^turtl:\/\/confirm-email\?emailCode=[0-9A-Z-]{23}$/);
+  await w.call("api.auth.confirmation.confirm", { code: new URL(link).searchParams.get("emailCode") }, me);
   assert.equal((await w.call("api.users.viewer", {}, me)).confirmed, true);
   assert.equal(await w.call("api.auth.confirmation.status", {}, me), null);
   assert.ok((await w.call("api.onboarding.projects.add", { repoUrl: "https://github.com/new/shop" }, me)).projectId, "now it can");
@@ -626,9 +626,9 @@ test("the emails are short and plain, say what to do and that they can be ignore
     assert.ok(message.text.split(/\s+/).length < 110, "short");
     assert.ok(!/<script|<img|<style|https?:\/\//i.test(message.html), "nothing but paragraphs and the turtl:// link");
   }
-  assert.match(reset.text, /turtl:\/\/reset-password\?email=o'neil%2Btest%40example\.com&code=ABCDE-01234-56789-FGHJK/);
-  assert.match(reset.html, /href="turtl:\/\/reset-password\?email=o&#39;neil%2Btest%40example\.com&#38;code=ABCDE-01234-56789-FGHJK"/, "escaped in HTML");
-  assert.match(confirm.text, /turtl:\/\/confirm-email\?code=ABCDE-01234-56789-FGHJK/);
+  assert.match(reset.text, /turtl:\/\/reset-password\?email=o'neil%2Btest%40example\.com&emailCode=ABCDE-01234-56789-FGHJK/);
+  assert.match(reset.html, /href="turtl:\/\/reset-password\?email=o&#39;neil%2Btest%40example\.com&#38;emailCode=ABCDE-01234-56789-FGHJK"/, "escaped in HTML");
+  assert.match(confirm.text, /turtl:\/\/confirm-email\?emailCode=ABCDE-01234-56789-FGHJK/);
   assert.match(confirm.text, /deletes it after 7 days/);
   // Codes: twenty from the alphabet, varied; pasted any way they come.
   const { randomCode } = w.load("convex/auth/codes.ts");
@@ -672,4 +672,32 @@ test("emailed codes are forgotten a day after they were sent", async (t) => {
   at(t, START + DAY + 1);
   assert.equal(await w.call("internal.auth.codes.prune"), 1);
   assert.deepEqual(w.db.rows("authEmailCodes"), []);
+});
+
+// ---------------------------------------------------------------------------------------------- the app
+
+test("the app holds an unconfirmed account at Check your email, and the email's link only fills the screen in", async (t) => {
+  const w = await world(t);
+  const { accountStatus, gateTarget, SIGNED_OUT_ROUTES } = w.load("data/account/status.ts");
+  const on = { accounts: true, github: false, passwordReset: true };
+  const inside = { isLoading: false, isAuthenticated: true };
+  assert.equal(accountStatus({ live: true, storeBuild: true, mode: on, auth: inside, confirmed: false }), "unconfirmed");
+  assert.equal(accountStatus({ live: true, storeBuild: true, mode: on, auth: inside, confirmed: undefined }), "checking", "not known yet");
+  assert.equal(accountStatus({ live: true, storeBuild: true, mode: on, auth: inside, confirmed: true }), "signedIn");
+  for (const route of ["projects", "project", "add-project", "ai-permission", "sign-in", "", undefined]) assert.equal(gateTarget("unconfirmed", route), "/confirm-email", String(route));
+  assert.equal(gateTarget("unconfirmed", "confirm-email"), null);
+  assert.equal(gateTarget("signedIn", "confirm-email"), "/projects", "a confirmed account has nothing to confirm");
+  assert.equal(gateTarget("signedOut", "confirm-email"), "/", "signed out, Login first");
+  assert.ok(!SIGNED_OUT_ROUTES.includes("confirm-email"));
+  // The screens: a link opens them with the code filled in; only a tap on the button sends it.
+  for (const [file, action] of [["app/confirm-email.tsx", "confirmEmail"], ["app/reset-password.tsx", "resetPassword"]]) {
+    const source = readFileSync(join(root, file), "utf8");
+    assert.match(source, /useLocalSearchParams/, file + " reads the link");
+    const effects = [...source.matchAll(/useEffect\(\(\) => \{([\s\S]*?)\}, \[/g)].map((match) => match[1]).join("\n");
+    assert.ok(!effects.includes(action), file + " never sends the code by itself");
+    for (const testID of [...source.matchAll(/testID="([^"]+)"/g)].map((match) => match[1])) assert.ok(testID.length > 0);
+  }
+  const confirm = readFileSync(join(root, "app/confirm-email.tsx"), "utf8");
+  for (const testID of ["confirm-email", "confirm-code", "confirm-submit", "confirm-resend", "confirm-start-over", "confirm-sign-out"]) assert.ok(confirm.includes(`"${testID}"`), testID);
+  assert.ok(!/<Text[\s>]|#[0-9a-fA-F]{3,6}\b|fontFamily/.test(confirm), "components and tokens only");
 });

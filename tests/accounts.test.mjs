@@ -503,7 +503,8 @@ test("the app's sign-in gate: who sees what, and where they are sent", async (t)
   assert.equal(accountStatus({ live: true, storeBuild: true, mode: undefined, auth: out }), "checking");
   assert.equal(accountStatus({ live: true, storeBuild: false, mode: on, auth: loading }), "checking");
   assert.equal(accountStatus({ live: true, storeBuild: false, mode: on, auth: out }), "signedOut");
-  assert.equal(accountStatus({ live: true, storeBuild: true, mode: on, auth: inside }), "signedIn");
+  assert.equal(accountStatus({ live: true, storeBuild: true, mode: on, auth: inside, confirmed: true }), "signedIn");
+  assert.equal(accountStatus({ live: true, storeBuild: true, mode: on, auth: inside, confirmed: undefined }), "checking", "until users.viewer says whether the address is confirmed");
   for (const route of ["projects", "project", "case", "live", "review", "add-project", "+not-found"]) assert.equal(gateTarget("signedOut", route), "/", route);
   for (const route of [undefined, "", "sign-in", "sign-up", "reset-password"]) {
     assert.equal(gateTarget("signedOut", route), null);

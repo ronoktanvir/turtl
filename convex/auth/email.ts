@@ -15,11 +15,13 @@ import { emailService } from "./settings";
 
 export type Message = { subject: string; text: string; html: string };
 
-/** The link in an email: it opens turtl's reset or confirm screen with the code (and for a reset, the address) filled in. */
+/** The link in an email: it opens turtl's reset or confirm screen with the code (and for a reset, the address) filled in.
+ * The parameter is emailCode, not code: Convex Auth's provider in a browser takes a ?code= in the page's address for
+ * its own sign-in codes. */
 export function codeLink(purpose: Purpose, code: string, email: string): string {
   return purpose === "reset"
-    ? `${APP_LINK_PREFIX}reset-password?email=${encodeURIComponent(email)}&code=${formatCode(code)}`
-    : `${APP_LINK_PREFIX}confirm-email?code=${formatCode(code)}`;
+    ? `${APP_LINK_PREFIX}reset-password?email=${encodeURIComponent(email)}&emailCode=${formatCode(code)}`
+    : `${APP_LINK_PREFIX}confirm-email?emailCode=${formatCode(code)}`;
 }
 
 const escape = (text: string) => text.replace(/[&<>"']/g, (character) => `&#${character.charCodeAt(0)};`);
