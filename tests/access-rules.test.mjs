@@ -608,9 +608,20 @@ test("AUTH_STAND_IN_URL: with accounts on, sign-in trusts no stand-in server unl
     const w = world(t, { ...HOSTED, CONVEX_CLOUD_URL: "not a url", ...reset });
     assert.equal(w.load("convex/auth/settings.ts").standInUrl(), undefined, "an address that cannot be read is not local");
   }
-  for (const env of [{ ...LOCAL }, {}]) {
-    const w = world(t, { ...env, ...reset });
-    assert.equal(w.load("convex/auth/settings.ts").appleKeysUrl(), "https://stand-in.example/apple/auth/keys", "a local backend and the demo keep it");
+  // Review, "Worth a second look": a self-hosted backend left on its default address reads as local. With accounts on
+  // it is still not pointed at another server: a stand-in counts only when it is on this machine too.
+  {
+    const w = world(t, { ...LOCAL, ...reset });
+    assert.equal(w.load("convex/auth/settings.ts").standInUrl(), undefined, "a local backend ignores a stand-in on another host");
+    assert.equal(w.load("convex/auth/settings.ts").appleKeysUrl(), "https://appleid.apple.com/auth/keys");
+  }
+  {
+    const w = world(t, { ...LOCAL, ...reset, AUTH_STAND_IN_URL: "http://127.0.0.1:8202" });
+    assert.equal(w.load("convex/auth/settings.ts").appleKeysUrl(), "http://127.0.0.1:8202/apple/auth/keys", "a local backend keeps a stand-in on this machine");
+  }
+  {
+    const w = world(t, reset);
+    assert.equal(w.load("convex/auth/settings.ts").appleKeysUrl(), "https://stand-in.example/apple/auth/keys", "the demo keeps it");
   }
 });
 
