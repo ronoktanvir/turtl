@@ -1049,7 +1049,7 @@ test("never passed: when the app goes down only the real check counts, and the c
   const [opened, ...more] = notAnswering(w);
   assert.deepEqual(more, []);
   assert.equal(opened.status, "waiting_for_app");
-  assert.match(opened.impact, /^turtl's last 3 tries of the "Check 0" check got no usable answer: turtl could not connect to the app\./);
+  assert.equal(opened.impact, 'At least three tries in a row of the "Check 0" check got no usable answer: turtl could not connect to the app.');
   assert.ok(!/Health|Ready/.test(opened.impact), opened.impact);
   assert.deepEqual(counts(w, appId), [3, 0, 0]);
   up = true;
@@ -1108,7 +1108,7 @@ test("never passed, R9: the single-owner demo does the same", async (t) => {
   await minutes(t, w, 60, 63);
   const [opened, ...more] = notAnswering(w);
   assert.deepEqual([more, opened.appId], [[], appId]);
-  assert.match(opened.impact, /^turtl's last 3 tries of the "Book" check got no usable answer/);
+  assert.match(opened.impact, /^At least three tries in a row of the "Book" check got no usable answer/);
   up = true;
   await minutes(t, w, 63, 64);
   const [attempt] = w.rows("stepAttempts").filter((row) => row.caseId === opened._id);

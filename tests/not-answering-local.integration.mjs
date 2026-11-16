@@ -208,7 +208,7 @@ test("cases for an app that stops answering, on a local Convex backend", { timeo
     assert.deepEqual([row.steps.map((step) => step.status), row.attempts.map((attempt) => attempt.status)], [["waiting"], ["waiting"]]);
     say(`accounts: case opened: status ${row.status}, signature ${row.signature}, one step ${row.steps[0].status}`);
     say(`accounts: what the case says: "${row.impact}"`);
-    assert.match(row.impact, /^turtl's last 3 tries of 2 checks \("Book 1" and "Book 2"\) got no usable answer/, "it names the real checks only");
+    assert.match(row.impact, /^At least three tries in a row of each of 2 checks \("Book 1" and "Book 2"\) got no usable answer/, "it names the real checks only");
     const shown = await overview();
     const [health, ...real] = [shown.find((check) => check.name === "Health"), ...shown.filter((check) => check.name !== "Health")];
     assert.ok(real.every((check) => check.state === "failing" && check.notAnswering?.tries >= 3), JSON.stringify(shown));
