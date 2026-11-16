@@ -776,6 +776,97 @@ test("with AUTH_REQUIRED unset and an account present, every public function ref
   assert.equal(snapshot(w), before, "nothing was written");
 });
 
+// ---- Cross-account calls (review, "Coverage tripwire") ----
+// tests/access-coverage.test.mjs proves each public function calls a check; this proves the check guards the ids the
+// function reads. Every public function that takes the id of a project, a case, or a row that hangs off one is called
+// as alice with bob's ids, through every shape of its arguments. Each must refuse or answer as if the row did not
+// exist: nothing of bob's comes back, and nothing in the database changes.
+
+// Ids passed as text, by argument name. An argument made with v.id() names its table itself.
+const ID_FIELDS = {
+  id: "cases", caseId: "cases", appId: "apps", projectId: "apps", proposalId: "proposals", keyId: "intakeKeys", reportId: "reports",
+  preferenceId: "ownerPreferences", suggestionId: "preferenceSuggestions", inspectionId: "onboardingInspections",
+  findingId: "structuralFindings", memoryId: "recoveryMemories", permissionId: "permissions", agentRunId: "agentRuns",
+};
+
+// Every shape of a value the validator accepts that carries an id, filled with bob's ids; other values are plausible.
+function samples(json, name, ids) {
+  switch (json.type) {
+    case "id":
+      return [ids[json.tableName]];
+    case "string":
+      return [ID_FIELDS[name] ? ids[ID_FIELDS[name]] : name === "message" ? "What is this?" : "x"];
+    case "number":
+      return [1];
+    case "boolean":
+      return [true];
+    case "bytes":
+      return [new ArrayBuffer(8)];
+    case "literal":
+      return [json.value];
+    case "union":
+      return json.value.flatMap((member) => samples(member, name, ids));
+    case "array":
+      return [[]];
+    case "null":
+      return [null];
+    case "object":
+      return Object.entries(json.value).reduce(
+        (shapes, [field, { fieldType, optional }]) => (optional && !carriesId(fieldType, field) ? shapes : shapes.flatMap((shape) => samples(fieldType, field, ids).map((value) => ({ ...shape, [field]: value })))),
+        [{}],
+      );
+    default:
+      return [{}];
+  }
+}
+const carriesId = (json, name) => json.type === "id" || (json.type === "string" && name in ID_FIELDS) || ((json.type === "union" ? json.value : json.type === "object" ? Object.entries(json.value).map(([field, { fieldType }]) => ({ ...fieldType, field })) : []).some((member) => carriesId(member, member.field ?? name)));
+const argsJson = (definition) => ({ type: "object", value: Object.fromEntries(Object.entries(definition.args ?? {}).map(([field, validator]) => [field, { fieldType: validator.json, optional: validator.isOptional === "optional" }])) });
+
+test("as one account, every public function that takes an id refuses another account's ids or answers as if they did not exist", async (t) => {
+  const w = world(t, { AUTH_REQUIRED: "true" });
+  const { alice, bob } = await seed(w);
+  const { db } = w.backend;
+  // Bob's rows in every table a public function takes an id of.
+  const bobs = { apps: bob.appId, cases: bob.caseId, proposals: bob.proposalId, ownerPreferences: bob.preferenceId };
+  bobs.reports = w.backend.rows("reports").find((row) => row.appId === bob.appId)._id;
+  bobs.intakeKeys = await db.insert("intakeKeys", { appId: bob.appId, key: "bob-key", createdAt: 1 });
+  bobs.preferenceSuggestions = await db.insert("preferenceSuggestions", { appId: bob.appId, caseId: bob.caseId, statement: "bob's suggestion", source: "chat", status: "pending", createdAt: 1 });
+  bobs.onboardingInspections = await db.insert("onboardingInspections", { appId: bob.appId, repo: "bob/salon", folders: [], status: "done", items: [], suggestions: [] });
+  bobs.recoveryMemories = await db.insert("recoveryMemories", { appId: bob.appId, sourceCaseId: bob.caseId, signature: "bob", symptoms: "bob's salon is down", conditions: [], conditionChecks: [], cause: "bob's cause" });
+  bobs.permissions = await db.insert("permissions", { appId: bob.appId, memoryId: bobs.recoveryMemories, actionType: "set_feature_flag", grantedBy: { kind: "owner", identity: "bob" }, grantedAt: 1, scope: { environment: "production", resourceRef: "flags#bob" }, parameterConstraints: [], conditions: [] });
+  bobs.agentRuns = await db.insert("agentRuns", { caseId: bob.caseId, appId: bob.appId, taskType: "plan", config: { modelId: "bob-model" } });
+  bobs.structuralFindings = await db.insert("structuralFindings", { appId: bob.appId, caseId: bob.caseId, agentRunId: bobs.agentRuns, hypothesis: "bob's hypothesis", evidence: [] });
+  t.mock.method(console, "error", () => {});
+  t.mock.method(console, "warn", () => {});
+  t.mock.method(console, "log", () => {});
+
+  const asAlice = w.as("alice");
+  const tried = [];
+  for (const { module, name } of publicFunctionsByFile()) {
+    const definition = w.load(`convex/${module}.ts`)[name];
+    const json = argsJson(definition);
+    if (!carriesId(json, "")) continue;
+    for (const args of samples(json, "", bobs)) {
+      const before = snapshot(w);
+      let outcome;
+      try {
+        outcome = { answer: await asAlice(module, name, args) };
+      } catch (error) {
+        outcome = { refused: message(error), plain: typeof error?.data === "string" };
+      }
+      const label = `${module}:${name}(${JSON.stringify(args)})`;
+      tried.push(label);
+      assert.equal(snapshot(w), before, `${label} changed the database`);
+      // A refusal in plain words: the function's own sentence, or the dev tools' (requireDevTools throws a plain Error).
+      if ("refused" in outcome) assert.ok(outcome.plain || outcome.refused === "Dev tools are disabled on this deployment.", `${label} failed instead of refusing: ${outcome.refused}`);
+      else assert.doesNotMatch(JSON.stringify(outcome.answer) ?? "", /bob|salon/i, `${label} answered with bob's records`);
+    }
+  }
+  assert.ok(tried.length >= 50, `only ${tried.length} calls were made`);
+  // Alice's own ids still work through the same path, so the refusals above are about whose rows they are.
+  assert.equal((await asAlice("cases", "get", { id: alice.caseId }))._id, alice.caseId);
+});
+
 test("with AUTH_REQUIRED unset and no account, the demo serves as before", async (t) => {
   const w = world(t);
   const { alice, bob } = await seed(w);
