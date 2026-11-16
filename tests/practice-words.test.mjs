@@ -28,3 +28,9 @@ test("the booking app's evidence and fixes do not claim customers", () => {
     for (const words of [known.reason, known.whatChanges, known.whatMightBeLost, known.factsSay ?? ""]) assert.doesNotMatch(words, /customer/i, words);
   }
 });
+
+test("a practice app's before-check does not list a phone check it can never have", () => {
+  const detect = read("convex/runner/handlers/detect_or_receive.ts");
+  assert.match(detect, /\.\.\.\(app\?\.practice \? \[\] : \[\{ criterionId: CRITERIA\.device\.id/);
+  assert.match(detect, /uncoveredCriterionIds: app\?\.practice \? \[\] : \[CRITERIA\.device\.id\]/);
+});
