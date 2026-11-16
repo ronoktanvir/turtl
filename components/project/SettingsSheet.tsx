@@ -6,6 +6,7 @@ import type { ApprovalMode } from "../../data/types";
 import { useTheme, type ThemeMode } from "../../theme";
 import { Button, Icon, Sheet, T } from "../ui";
 import OwnerPasscodeSettings from "./OwnerPasscodeSettings";
+import PreferencesSettings from "./PreferencesSettings";
 
 function Choice({ label, selected, disabled, onPress, testID, icon: Symbol }: { label: string; selected: boolean; disabled?: boolean; onPress: () => void; testID: string; icon: LucideIcon }) {
   const { colors } = useTheme();
@@ -49,6 +50,7 @@ export default function SettingsSheet({ visible, onClose, projectId }: { visible
       <T color="textMuted">Each Auto permission permits one action with its pinned values, bound to this app version, for at most 3 uses. It requires 2 verified recoveries. Every other fix still needs your approval.</T>
       {error && <T color="statusAffected" accessibilityRole="alert">{error}</T>}
     </View>
+    <PreferencesSettings projectId={projectId} />
     {isLiveData && visible && <OwnerPasscodeSettings />}
     <View style={{ gap: 12, marginTop: 8 }}>
       <T variant="heading">Theme</T>

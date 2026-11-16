@@ -97,7 +97,8 @@ export const listenerCases: CaseDetail[] = [{
   fixes: [
     {
       key: "listener_database_ranking", title: "Efficient database ranking", kind: "repair", recommended: true, delivery: "pull_request",
-      why: [{ text: "Ask the database how many scores are higher instead of " }, { text: "downloading and sorting every score", cite: "cite-rank-scan" }, { text: ". This is the narrowest candidate: the game keeps showing a rank and the answer flow stays the same. It is a recommendation to test, not a measured fix." }],
+      preferences: [{ id: "pref-answer-flow", statement: "Keep the answer flow the same, even if ranks take more work." }],
+      why: [{ text: "You asked to keep the answer flow the same, so the fix that keeps it comes first. " }, { text: "Ask the database how many scores are higher instead of " }, { text: "downloading and sorting every score", cite: "cite-rank-scan" }, { text: ". This is the narrowest candidate: the game keeps showing a rank and the answer flow stays the same. It is a recommendation to test, not a measured fix." }],
       whatChanges: "Replace historyRank's full-history transfer with database-side ranking using the existing streak index where useful. Preserve rank = 1 + the number of strictly higher scores, including ties and an empty history.",
       whatMightBeLost: "No gameplay is intentionally removed. Exact counting can still scan many index entries, so an indexed query is not a guarantee that every answer meets the deadline.",
       howChecked: "Before merge, run several rounds against the same 1,600,000-score fixture within the unchanged 2,000 ms deadline. Check Higher/Lower, streaks, rank ties, retries, one saved final score and unchanged history. These checks have not run for this candidate.",
@@ -106,6 +107,7 @@ export const listenerCases: CaseDetail[] = [{
     },
     {
       key: "listener_decouple_ranking", title: "Decouple ranking from gameplay", kind: "repair", recommended: false, delivery: "pull_request",
+      pastDecisions: "You turned down a fix that hid players' ranks the last time answers were slow.",
       why: [{ text: "The next round should not depend on " }, { text: "waiting for a global rank", cite: "cite-rank-wait" }, { text: ". Return the saved answer first and load ranking separately, so a slow rank does not stop play." }],
       whatChanges: "Separate ranking from the answer response, add an honest pending or unavailable rank state, and keep the guarded answer and final-score write intact.",
       whatMightBeLost: "Players may temporarily have no global rank. This changes the response contract and the screen, and needs bounded ranking work so the database is not overwhelmed in the background.",

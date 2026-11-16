@@ -12,8 +12,120 @@ import {
   runJourneyCheck,
   topErrorCode,
 } from "../../protectedApp/client";
-import type { StepHandler } from "../contract";
-import { evidenceRow, loadJourneyContext, type Facts } from "./journey";
+import type { Revision } from "../../constants";
+import { supplyContext } from "../../learning/context";
+import type { ActionCtx } from "../../_generated/server";
+import type { HandlerInput, StepHandler } from "../contract";
+import { evidenceRow, loadJourneyContext, type Facts, type JourneyContext } from "./journey";
+
+// The four app reads (health, flags, revision, error window) behind one helper with the AppEvidence shape
+// of handoffs/seams/gather-evidence.md, so TURA-34 can swap its source for collector steps. The journey
+// check, memory recall, and context recording stay in the handler.
+export type AppEvidence = {
+  facts: Facts;
+  missing: string[];
+  revision: Revision;
+  refs: { kind: "evidence"; id: Id<"evidence">; label: string }[];
+  readCount: number;
+  sourceCount: 4;
+};
+
+export async function readAppEvidence(ctx: ActionCtx, input: HandlerInput, context: JourneyContext): Promise<AppEvidence> {
+  const { base } = context;
+  const [errors, flags, health, revisionText] = await Promise.all([
+    readErrors(base),
+    call(`${base}/flags`, { credentialRef: CREDENTIAL_REF }),
+    call(`${base}/health`),
+    readRevision(base),
+  ]);
+  const revision = revisionOf(revisionText, base);
+  const facts: Facts = {};
+  const rows: ReturnType<typeof evidenceRow>[] = [];
+  const missing: string[] = [];
+
+  const flagValue =
+    flags.kind === "response" && flags.status === 200
+      ? (flags.body as { recommendationsEnabled?: unknown } | null)
+          ?.recommendationsEnabled
+      : undefined;
+  if (typeof flagValue === "boolean") {
+    facts["flags.recommendationsEnabled"] = flagValue;
+    rows.push(
+      evidenceRow(input, revision, {
+        kind: "flags",
+        title: flagValue
+          ? "Recommendations are turned on."
+          : "Recommendations are turned off.",
+        body: `recommendationsEnabled is ${flagValue}.`,
+        sourceRef: "GET /flags",
+      }),
+    );
+  } else {
+    missing.push(`the recommendations flag (${describeFailure(flags)})`);
+  }
+
+  const healthValue =
+    health.kind === "response" &&
+    health.status === 200 &&
+    typeof (health.body as { ok?: unknown } | null)?.ok === "boolean"
+      ? (health.body as { ok: boolean }).ok
+      : undefined;
+  const healthOk = healthValue === true;
+  if (healthValue !== undefined) facts["health.ok"] = healthValue;
+  else missing.push(`health (${describeFailure(health)})`);
+  rows.push(
+    evidenceRow(input, revision, {
+      kind: "health",
+      title: healthOk
+        ? "The booking app's server answered its health check."
+        : `The booking app's health check failed: ${describeFailure(health)}.`,
+      body: "A passing health check only proves the server responds, not that booking works.",
+      sourceRef: "GET /health",
+    }),
+  );
+
+  if (errors.ok) {
+    const { counts } = errors.body;
+    const top = topErrorCode(errors.body);
+    facts["errors.totalBookings"] = counts.totalBookings;
+    facts["errors.failedBookings"] = counts.failedBookings;
+    facts["errors.errorRate"] = counts.errorRate;
+    facts["errors.topCode"] = top;
+    rows.push(
+      evidenceRow(input, revision, {
+        kind: "errors",
+        title: `${counts.failedBookings} of ${counts.totalBookings} customer booking attempts failed in the last 15 minutes.`,
+        body: `Error rate ${Math.round(counts.errorRate * 100)}%. Most common error: ${top}.${errors.body.window.truncated ? " The sample was capped at 1,000 attempts." : ""}`,
+        sourceRef: "GET /errors",
+      }),
+    );
+  } else {
+    missing.push(`failed bookings (${errors.reason})`);
+  }
+
+  if (revisionText) {
+    facts["app.revision"] = revisionText;
+    rows.push(
+      evidenceRow(input, revision, {
+        kind: "revision",
+        title: `The booking app reports revision ${revisionText}.`,
+        sourceRef: "GET /revision",
+      }),
+    );
+  } else {
+    missing.push("the app's revision");
+  }
+
+  const ids: Id<"evidence">[] = await ctx.runMutation(internal.protectedApp.records.addEvidence, { rows });
+  return {
+    facts,
+    missing,
+    revision,
+    refs: ids.map((id, i) => ({ kind: "evidence" as const, id, label: rows[i].kind })),
+    readCount: 4 - missing.length,
+    sourceCount: 4,
+  };
+}
 
 // Reads the booking app fresh and hands on a flat set of facts (keys in handoffs/phase2-seams.md).
 export const handler: StepHandler = {
@@ -31,115 +143,40 @@ export const handler: StepHandler = {
     }
     const loaded = await loadJourneyContext(ctx, input);
     if (!loaded.ok) return { status: "failed", error: loaded.reason };
-    const { base, journey, check } = loaded.context;
-
-    const [outcome, errors, flags, health, revisionText] = await Promise.all([
+    const { journey, check } = loaded.context;
+    const [outcome, app] = await Promise.all([
       runJourneyCheck(check),
-      readErrors(base),
-      call(`${base}/flags`, { credentialRef: CREDENTIAL_REF }),
-      call(`${base}/health`),
-      readRevision(base),
+      readAppEvidence(ctx, input, loaded.context),
     ]);
-    const revision = revisionOf(revisionText, base);
+    const { revision } = app;
     const facts: Facts = {};
-    const rows: ReturnType<typeof evidenceRow>[] = [];
     const missing: string[] = [];
-
+    let journeyRefs: AppEvidence["refs"] = [];
+    let observed = "";
     if (outcome.ok) {
       const { result } = outcome;
+      observed = journeyBody(result);
       facts["journey.verdict"] = result.verdict;
       facts["journey.failedStep"] = result.failedStep ?? "none";
       facts["journey.errorCode"] = result.error?.code ?? "none";
-      rows.push(
-        evidenceRow(input, revision, {
-          kind: "journey_check",
-          title: describeJourney(result),
-          body: journeyBody(result),
-          sourceRef: `POST /journey-check (${journey.checkVersion})`,
-        }),
-      );
+      const [id]: Id<"evidence">[] = await ctx.runMutation(internal.protectedApp.records.addEvidence, {
+        rows: [
+          evidenceRow(input, revision, {
+            kind: "journey_check",
+            title: describeJourney(result),
+            body: journeyBody(result),
+            sourceRef: `POST /journey-check (${journey.checkVersion})`,
+          }),
+        ],
+      });
+      journeyRefs = [{ kind: "evidence", id, label: "journey_check" }];
     } else {
       missing.push(`the booking check (${outcome.reason})`);
     }
-
-    const flagValue =
-      flags.kind === "response" && flags.status === 200
-        ? (flags.body as { recommendationsEnabled?: unknown } | null)
-            ?.recommendationsEnabled
-        : undefined;
-    if (typeof flagValue === "boolean") {
-      facts["flags.recommendationsEnabled"] = flagValue;
-      rows.push(
-        evidenceRow(input, revision, {
-          kind: "flags",
-          title: flagValue
-            ? "Recommendations are turned on."
-            : "Recommendations are turned off.",
-          body: `recommendationsEnabled is ${flagValue}.`,
-          sourceRef: "GET /flags",
-        }),
-      );
-    } else {
-      missing.push(`the recommendations flag (${describeFailure(flags)})`);
-    }
-
-    const healthValue =
-      health.kind === "response" &&
-      health.status === 200 &&
-      typeof (health.body as { ok?: unknown } | null)?.ok === "boolean"
-        ? (health.body as { ok: boolean }).ok
-        : undefined;
-    const healthOk = healthValue === true;
-    if (healthValue !== undefined) facts["health.ok"] = healthValue;
-    else missing.push(`health (${describeFailure(health)})`);
-    rows.push(
-      evidenceRow(input, revision, {
-        kind: "health",
-        title: healthOk
-          ? "The booking app's server answered its health check."
-          : `The booking app's health check failed: ${describeFailure(health)}.`,
-        body: "A passing health check only proves the server responds, not that booking works.",
-        sourceRef: "GET /health",
-      }),
-    );
-
-    if (errors.ok) {
-      const { counts } = errors.body;
-      const top = topErrorCode(errors.body);
-      facts["errors.totalBookings"] = counts.totalBookings;
-      facts["errors.failedBookings"] = counts.failedBookings;
-      facts["errors.errorRate"] = counts.errorRate;
-      facts["errors.topCode"] = top;
-      rows.push(
-        evidenceRow(input, revision, {
-          kind: "errors",
-          title: `${counts.failedBookings} of ${counts.totalBookings} customer booking attempts failed in the last 15 minutes.`,
-          body: `Error rate ${Math.round(counts.errorRate * 100)}%. Most common error: ${top}.${errors.body.window.truncated ? " The sample was capped at 1,000 attempts." : ""}`,
-          sourceRef: "GET /errors",
-        }),
-      );
-    } else {
-      missing.push(`failed bookings (${errors.reason})`);
-    }
-
-    if (revisionText) {
-      facts["app.revision"] = revisionText;
-      rows.push(
-        evidenceRow(input, revision, {
-          kind: "revision",
-          title: `The booking app reports revision ${revisionText}.`,
-          sourceRef: "GET /revision",
-        }),
-      );
-    } else {
-      missing.push("the app's revision");
-    }
-
-    const ids: Id<"evidence">[] = await ctx.runMutation(
-      internal.protectedApp.records.addEvidence,
-      { rows },
-    );
-    if (!outcome.ok && !errors.ok && flagValue === undefined) {
+    Object.assign(facts, app.facts);
+    missing.push(...app.missing);
+    const revisionText = typeof facts["app.revision"] === "string" ? facts["app.revision"] : null;
+    if (!outcome.ok && !("errors.totalBookings" in facts) && !("flags.recommendationsEnabled" in facts)) {
       return {
         status: "failed",
         error: `Could not read the booking app: ${missing.join("; ")}.`,
@@ -188,19 +225,27 @@ export const handler: StepHandler = {
       : recalled.candidates.length
         ? " No remembered recovery applies, so investigation will run in full."
         : " No recovery memory was found.";
+    const context = await supplyContext(ctx, {
+      caseRow: input.case,
+      stepAttemptId: input.attempt._id,
+      facts,
+      observed,
+      revision: revisionText,
+      memories: recalled.candidates,
+    }).catch((error: unknown) => ({
+      uses: [],
+      summary: `No context sources were recorded: ${error instanceof Error ? error.message : "recording failed"}.`,
+    }));
     return {
       status: "done",
       summary: missing.length
-        ? `Read ${read} of 5 sources from the booking app. Could not read ${missing.join("; ")}.${recallNote}`
-        : `Read the booking check, failed bookings, the recommendations flag, health and revision from the booking app.${recallNote}`,
+        ? `Read ${read} of 5 sources from the booking app. Could not read ${missing.join("; ")}.${recallNote} ${context.summary}`
+        : `Read the booking check, failed bookings, the recommendations flag, health and revision from the booking app.${recallNote} ${context.summary}`,
       handoff: {
         note: "Facts from the booking app are in this attempt's output.",
         refs: [
-          ...ids.map((id, i) => ({
-            kind: "evidence",
-            id,
-            label: rows[i].kind,
-          })),
+          ...journeyRefs,
+          ...app.refs,
           ...memoryEvidence.map((id) => ({
             kind: "evidence",
             id,
@@ -219,6 +264,7 @@ export const handler: StepHandler = {
           matchedMemoryId: matched ? applicable!._id : null,
           summary: recalled.summary,
         },
+        context: { uses: context.uses, summary: context.summary },
       },
     };
   },

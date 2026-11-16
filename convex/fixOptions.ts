@@ -2,6 +2,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { Criterion, Delivery, OptionKind, ProposalOption, Span } from "./constants";
 import { checkParameters } from "./decisions";
 import { modelId as diagnosisModelId } from "./diagnosis";
+import { fingerprint, pastDecisionLine, recommend, type TurnedDown } from "./learning/rules";
 import type { Facts } from "./runner/handlers/journey";
 
 declare const process: { env: Record<string, string | undefined> };
@@ -33,6 +34,8 @@ export type FixOption = {
   codeIds?: string[];
   proposedInChat?: boolean;
   delivery: Delivery;
+  preferences?: { id: string; statement: string }[];
+  pastDecisions?: string;
 };
 
 export function toFixOption(option: ProposalOption): FixOption {
@@ -50,6 +53,10 @@ export function toFixOption(option: ProposalOption): FixOption {
     ...(option.codeIds && { codeIds: option.codeIds }),
     ...(option.proposedInChat && { proposedInChat: true }),
     delivery: option.delivery ?? "action",
+    ...(option.preferences?.length && {
+      preferences: option.preferences.map((p) => ({ id: p.preferenceId as string, statement: p.statement })),
+    }),
+    ...(option.pastDecisions && { pastDecisions: option.pastDecisions }),
   };
 }
 
@@ -202,7 +209,31 @@ const PLAN_PROMPT = [
   "Each fix must differ in substance from the others: two fixes that change the same thing in the same way are one fix, and fewer distinct fixes are better than overlapping ones.",
   "Mark exactly one fix recommended: the one the owner should approve first. While customers are affected, restoring service usually comes first.",
   "Offer nothing that is neither the catalog action nor a code change.",
+  "pastDecisions are how the owner decided earlier cases on this app: what turtl recommended, what the owner did and their note. Weigh them. If you recommend something the owner turned down under the same conditions, say why in plain words in its why.",
+  'context is code, documents, past cases and recovery memories turtl gathered; possiblyStale ones were recorded at another app revision and need fresh evidence before you rely on them. On every fix, add "contextRefs": the refs of the context entries it relies on, or [].',
 ].join("\n");
+
+const PREFERENCE_PROMPT = [
+  "ownerPreferences are what the owner told turtl matters for this app. They are not evidence: never use one to claim a cause or that a fix works.",
+  "Weigh them when you choose the recommended fix. When a preference rules a fix out and another offered fix addresses the failure while honouring it, recommend the fix that honours it, even if it is slower, and start its why with \"You asked to ..., so ...\". If you still recommend a fix that goes against a preference, say plainly in its why why it is still the right first step.",
+  'On every fix, add "preferences": an object from preference ref to "honours" or "against", for each preference the fix keeps or breaks. Turning off a feature the owner asked to keep is "against"; changing code so that feature keeps working is "honours". Leave out preferences the fix does not bear on, and use {} when none apply.',
+].join("\n");
+const NO_PREFERENCES_PROMPT =
+  "The owner has stated no preferences for this app. Never write that the owner asked for, wants or prefers anything.";
+
+// A sentence claiming the owner asked for something, kept only on a fix that cites a stored preference.
+const OWNER_CLAIM = /[^.]*\byou (asked|want|wanted|prefer)[^.]*\.\s*/gi;
+
+export type PlanPreference = { id: Id<"ownerPreferences">; statement: string };
+export type PlanContext = {
+  id: Id<"contextUses">;
+  kind: string;
+  label: string;
+  detail: string;
+  helpedBefore: boolean;
+  stale: boolean;
+};
+export type PlanFeedback = { turnedDown: TurnedDown; conditionsText: string; recent: unknown[] };
 
 export type PlanInput = {
   base: ProposalOption;
@@ -215,13 +246,30 @@ export type PlanInput = {
   facts: Facts;
   cause: string | null;
   evidence: Doc<"evidence">[];
+  preferences: PlanPreference[];
+  feedback: PlanFeedback;
+  context: PlanContext[];
 };
+
+const judged = (raw: unknown, verdict: "honours" | "against") => {
+  const map = (raw as Record<string, unknown> | null)?.preferences;
+  if (!map || typeof map !== "object" || Array.isArray(map)) return [];
+  return Object.entries(map as Record<string, unknown>).flatMap(([ref, value]) => (value === verdict ? [ref] : []));
+};
+
+const refsOf = (raw: unknown, field: string) =>
+  Array.isArray((raw as Record<string, unknown> | null)?.[field])
+    ? ((raw as Record<string, unknown>)[field] as unknown[]).filter((r): r is string => typeof r === "string")
+    : [];
 
 // Proposal options for the plan step: the catalog option always, plus up to three code changes from the
 // model, with exactly one recommended when anything supports a recommendation. With no model answer the
-// catalog option is offered alone, as before.
-export async function planFixes(input: PlanInput): Promise<{ options: ProposalOption[]; note: string }> {
-  const { base, basis } = input;
+// catalog option is offered alone, as before. The owner's preferences and past decisions shape which fix
+// is recommended (learning/rules.ts); they never make a fix recommended that the facts don't support.
+export async function planFixes(
+  input: PlanInput,
+): Promise<{ options: ProposalOption[]; note: string; modelAnswered: boolean; noModelReason?: string }> {
+  const { base, basis, preferences, feedback, context } = input;
   const baseWhy: Span[] = [
     {
       text: input.remembered
@@ -229,14 +277,119 @@ export async function planFixes(input: PlanInput): Promise<{ options: ProposalOp
         : `${input.cause ?? "The cause is not established."} Turning off recommendations removes that wait, so customers can finish booking again.`,
     },
   ];
-  const fallback = (reason: string) => ({
-    options: [{ ...base, why: baseWhy, delivery: "action" as const }],
-    note: `Only the catalog action is offered: ${reason}.`,
-  });
+  const prefRef = (i: number) => `P${i + 1}`;
+  const ctxRef = (i: number) => `C${i + 1}`;
+  const baseSupported = input.remembered || input.baseRecommended;
+
+  // Recommends one option, cites the preferences that shaped it, and says how the owner decided before.
+  const settle = (
+    options: ProposalOption[],
+    flagged: string[],
+    cited: Map<string, { preferenceRefs: string[]; againstPreferenceRefs: string[]; contextRefs: string[] }>,
+    rulePick: string | null,
+  ) => {
+    const prefsFor = (key: string, field: "preferenceRefs" | "againstPreferenceRefs" = "preferenceRefs") =>
+      (cited.get(key)?.[field] ?? []).flatMap((ref) => {
+        const at = preferences.findIndex((_, i) => prefRef(i) === ref);
+        return at === -1 ? [] : [preferences[at]];
+      });
+    const choice = recommend({
+      candidates: options.map((o) => ({
+        key: o.key,
+        fingerprint: fingerprint(o),
+        supported: o.key === base.key ? baseSupported : true,
+        confidence: o.confidence,
+        modelFlagged: flagged.includes(o.key),
+        preferenceIds: prefsFor(o.key).map((p) => p.id),
+        againstPreferenceIds: prefsFor(o.key, "againstPreferenceRefs").map((p) => p.id),
+      })),
+      rulePick,
+      turnedDown: feedback.turnedDown,
+    });
+    for (const option of options) {
+      option.recommended = option.key === choice.key;
+      const shaped = prefsFor(option.key);
+      const against = prefsFor(option.key, "againstPreferenceRefs").filter((p) => !shaped.includes(p));
+      if (against.length && !(option.why ?? []).some((span) => /goes against what you asked/i.test(span.text))) {
+        option.why = [...(option.why ?? []), { text: ` This goes against what you asked: "${against[0].statement}"` }];
+      }
+      if (!shaped.length && !against.length && option.why) {
+        option.why = option.why
+          .map((span) => ({ ...span, text: span.text.replace(OWNER_CLAIM, "") }))
+          .filter((span) => span.text.trim());
+      }
+      if (shaped.length) {
+        option.preferences = shaped.map((p) => ({ preferenceId: p.id, statement: p.statement }));
+        const why = option.why ?? [];
+        const replaced = choice.reason === "preference" ? options.find((o) => o.key === choice.replacedKey) : undefined;
+        if (option.recommended && replaced) {
+          option.why = [
+            { text: `You asked: "${shaped[0].statement}" So turtl recommends this instead of "${replaced.title}", which goes against it. \"${replaced.title}\" is still offered if you would rather restore service that way. ` },
+            ...why.map((span) => ({ ...span, text: span.text.replace(OWNER_CLAIM, "") })).filter((span) => span.text.trim()),
+          ];
+        } else if (option.recommended && !why.some((span) => /you asked/i.test(span.text))) {
+          option.why = [{ text: `You asked: "${shaped[0].statement}" ` }, ...why];
+        }
+      }
+      const used = (cited.get(option.key)?.contextRefs ?? []).flatMap((ref) => {
+        const at = context.findIndex((_, i) => ctxRef(i) === ref);
+        return at === -1 ? [] : [context[at].id];
+      });
+      if (used.length) option.contextIds = used;
+      const history = feedback.turnedDown[fingerprint(option)];
+      const role =
+        choice.reason === "feedback" && option.key === choice.replacedKey
+          ? "demoted"
+          : choice.reason === "kept_despite_feedback" && option.recommended
+            ? "kept"
+            : "other";
+      const line = pastDecisionLine(history, feedback.conditionsText, role);
+      if (line) option.pastDecisions = line;
+      if (choice.reason === "feedback" && option.recommended) {
+        const replaced = options.find((o) => o.key === choice.replacedKey);
+        option.pastDecisions = `Recommended instead of "${replaced?.title}", which you turned down ${(feedback.turnedDown[fingerprint(replaced!)]?.count ?? 2) === 2 ? "twice" : `${feedback.turnedDown[fingerprint(replaced!)]?.count} times`} when ${feedback.conditionsText}.`;
+      }
+    }
+    const shapedBy = options.find((o) => o.recommended)?.preferences?.length ?? 0;
+    const notes = [
+      choice.reason === "preference" ? "Your preferences changed which fix is recommended." : "",
+      shapedBy && choice.reason !== "preference" ? "The recommended fix cites your preferences." : "",
+      choice.reason === "feedback"
+        ? `Not recommending "${options.find((o) => o.key === choice.replacedKey)?.title}": you turned it down twice under the same conditions.`
+        : "",
+      choice.reason === "kept_despite_feedback"
+        ? "The recommended fix was turned down twice before under the same conditions; it is still recommended because no other fix fits, and the owner is told why."
+        : "",
+    ];
+    return { choice, notes: notes.filter(Boolean) };
+  };
+
+  const fallback = (reason: string) => {
+    const options = [{ ...base, why: baseWhy, delivery: "action" as const }];
+    const { notes } = settle(options, [], new Map(), baseSupported ? base.key : null);
+    return {
+      options,
+      note: [
+        `Only the catalog action is offered: ${reason}.`,
+        preferences.length ? "Your preferences were not weighed because no model answered." : "",
+        ...notes,
+      ]
+        .filter(Boolean)
+        .join(" "),
+      modelAnswered: false,
+      noModelReason: reason,
+    };
+  };
 
   const entry = pullRequestEntry(input.catalog);
   const answer = await askJson(
-    entry ? PLAN_PROMPT : `${PLAN_PROMPT}\nThis app cannot ship code changes yet: offer only the catalog action.`,
+    [
+      PLAN_PROMPT,
+      preferences.length ? PREFERENCE_PROMPT : NO_PREFERENCES_PROMPT,
+      entry ? "" : "This app cannot ship code changes yet: offer only the catalog action.",
+    ]
+      .filter(Boolean)
+      .join("\n"),
     {
       app: input.appName,
       case: { title: input.caseRow.title, impact: input.caseRow.impact },
@@ -249,8 +402,19 @@ export async function planFixes(input: PlanInput): Promise<{ options: ProposalOp
         whatChanges: base.whatChanges,
         whatMightBeLost: base.whatMightBeLost,
         factsSupportIt: input.baseRecommended,
+        ownerTurnedDownUnderSameConditions: feedback.turnedDown[fingerprint(base)]?.count ?? 0,
       },
       rememberedRecovery: input.remembered,
+      ownerPreferences: preferences.map((p, i) => ({ ref: prefRef(i), statement: p.statement })),
+      pastDecisions: feedback.recent,
+      context: context.map((c, i) => ({
+        ref: ctxRef(i),
+        kind: c.kind,
+        label: c.label,
+        detail: c.detail,
+        helpedAVerifiedFixBefore: c.helpedBefore,
+        possiblyStale: c.stale,
+      })),
     },
   );
   if (!answer.ok) return fallback(answer.reason);
@@ -264,6 +428,13 @@ export async function planFixes(input: PlanInput): Promise<{ options: ProposalOp
       delivery: "action",
     },
   ];
+  const cited = new Map<string, { preferenceRefs: string[]; againstPreferenceRefs: string[]; contextRefs: string[] }>();
+  const citesOf = (raw: unknown) => ({
+    preferenceRefs: judged(raw, "honours"),
+    againstPreferenceRefs: judged(raw, "against"),
+    contextRefs: refsOf(raw, "contextRefs"),
+  });
+  if (usesBase) cited.set(base.key, citesOf(usesBase));
   const flagged: string[] = usesBase?.recommended === true ? [base.key] : [];
   let dropped = 0;
   for (const raw of fixes) {
@@ -276,6 +447,7 @@ export async function planFixes(input: PlanInput): Promise<{ options: ProposalOp
     const key = keyFor(draft.title, options.map((o) => o.key));
     try {
       options.push(pullRequestOption(entry, draft, basis, key));
+      cited.set(key, citesOf(raw));
       if (raw.recommended === true) flagged.push(key);
     } catch {
       dropped++;
@@ -283,21 +455,22 @@ export async function planFixes(input: PlanInput): Promise<{ options: ProposalOp
   }
 
   // The catalog action keeps its rule-based recommendation (memory and permissions depend on it); otherwise
-  // the model's pick among the code changes stands, then the most confident one.
+  // the model's pick among the code changes stands, then the most confident one. Preferences and past
+  // decisions may then move it (learning/rules.ts).
   const drafts = options.slice(1);
-  const pick =
-    input.remembered || input.baseRecommended
-      ? base.key
-      : (flagged.find((key) => key !== base.key) ??
-        drafts.reduce<ProposalOption | null>((best, o) => (!best || o.confidence > best.confidence ? o : best), null)
-          ?.key ??
-        null);
-  for (const option of options) option.recommended = option.key === pick;
+  const rulePick = baseSupported
+    ? base.key
+    : (flagged.find((key) => key !== base.key) ??
+      drafts.reduce<ProposalOption | null>((best, o) => (!best || o.confidence > best.confidence ? o : best), null)
+        ?.key ??
+      null);
+  const { choice, notes: learned } = settle(options, flagged, cited, rulePick);
 
   const notes = [
     `${options.length} fix${options.length === 1 ? "" : "es"} offered (${fixesModelId()}).`,
     dropped ? `${dropped} suggestion(s) were not offered: ${entry ? "incomplete, over the limit of four, or outside the catalog's constraints" : "this app has no pull request action in its catalog, so code changes cannot be approved yet"}.` : "",
-    pick ? "" : "No fix is recommended: the facts don't point to the catalog action and no code change was offered.",
+    choice.key ? "" : "No fix is recommended: the facts don't point to the catalog action and no code change was offered.",
+    ...learned,
   ];
-  return { options: orderFixes(options), note: notes.filter(Boolean).join(" ") };
+  return { options: orderFixes(options), note: notes.filter(Boolean).join(" "), modelAnswered: true };
 }

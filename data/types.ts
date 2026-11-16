@@ -101,6 +101,8 @@ export type FixOption = {
   codeIds?: string[]; // CodeRef ids this fix replaces
   proposedInChat?: boolean;
   delivery?: "action" | "pull_request"; // pull_request: approving opens a pull request instead of changing the live app (added in 1.1)
+  preferences?: { id: string; statement: string }[]; // owner preferences that shaped this fix; shown apart from evidence
+  pastDecisions?: string; // one plain sentence on how the owner decided similar cases before
 };
 
 export type PlanStep = {
@@ -160,7 +162,12 @@ export type ChatMessage = {
   text: string;
   at: number;
   proposedFix?: FixOption;
+  proposedPreference?: { id: string; statement: string; status: "pending" | "saved" | "dismissed" };
 };
+
+export type OwnerPreference = { id: string; statement: string; source: "settings" | "chat" | "decision_note"; createdAt: number };
+export type PreferenceSuggestion = { id: string; statement: string; source: "chat" | "decision_note"; createdAt: number };
+export type Preferences = { preferences: OwnerPreference[]; suggestions: PreferenceSuggestion[] };
 
 export type NetCluster = { id: string; name: string; summary: string; health?: Health };
 export type NetNode = {

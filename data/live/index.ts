@@ -4,8 +4,9 @@ import { useCase } from "./case";
 export { useAgentWork, useCase } from "./case";
 export { useProjects, useProject, useCases, useApprovalSettings } from "./projects";
 export { useChat, useCodeNetwork } from "./network";
-export { approveFix, stopEnactment, mergePullRequest, setApprovals, approvePreventionCheck } from "./ownerActions";
+export { approveFix, declineFixes, stopEnactment, mergePullRequest, setApprovals, approvePreventionCheck, addPreference, removePreference, confirmPreference, dismissPreference } from "./ownerActions";
 export { useStructuralFindings } from "./structural";
+export { usePreferences } from "./preferences";
 export { setStarred } from "./actions";
 
 export function useEnactmentNow(caseId: string): number {
