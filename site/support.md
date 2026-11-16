@@ -17,7 +17,7 @@ If you think you have found a security problem, write to the same address and pu
 
 ### What does turtl need from me?
 
-An account (email and password, Sign in with Apple, or GitHub), a GitHub repository, and a live app to watch. turtl reads the repositories you choose, checks the app regularly, and opens a case when a check fails. To have turtl write code changes, add your own Capy key in Settings, under Coding agent.
+An account (email and password, Sign in with Apple, or GitHub; with an email address, you confirm it with a code turtl emails you), a GitHub repository, and a live app to watch. turtl reads the repositories you choose, checks the app regularly, and opens a case when a check fails or a customer reports a problem. To have turtl write code changes, add your own Capy key in Settings, under Coding agent. To see how it works first, tap Try a practice app: turtl runs a small booking app for you to break on purpose and watch it fix.
 
 ### Why does turtl ask for my microphone?
 
