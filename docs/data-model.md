@@ -6,8 +6,8 @@ All tables are defined in [`convex/schema.ts`](../convex/schema.ts), which also 
 
 ## Cases and their steps
 
-- `apps`: `name`, optional `repoUrl`, `productionUrl`, `revision`, `ownerId`, `isSample`. With `AUTH_REQUIRED=true`, `ownerId` is the account that owns the project, and [`convex/access.ts`](../convex/access.ts) lets a caller reach only projects whose `ownerId` is their own account; in the single-owner demo every project belongs to the one owner (`solo-owner`).
-- `cases`: `appId`, optional `journeyId` and `matchedMemoryId`, `title`, `impact` (plain language), `kind` (`outage`, `bug_report`, `feature_request`), `raisedBy` (`monitor`, `owner`, `customer`) with optional `raisedByRef` naming the actual user, service, or customer, `status`, optional `signature`, `reportCount`, `distinctRequesterCount`, `resolvedAt`, `isSample`. Statuses: `open`, `investigating`, `waiting_for_owner`, `executing`, `waiting_for_deploy`, `verifying`, `restored`, `resolved`, `unresolved`, `declined`. `restored` means service is back; `resolved` means the permanent repair is finished.
+- `apps`: `name`, optional `repoUrl`, `productionUrl`, `revision`, `ownerId`, `isSample`. With accounts on (`AUTH_REQUIRED` set to anything but empty or `false`), `ownerId` is the account that owns the project, and [`convex/access.ts`](../convex/access.ts) lets a caller reach only projects whose `ownerId` is their own account; in the single-owner demo every project belongs to the one owner (`solo-owner`).
+- `cases`: `appId`, optional `journeyId` and `matchedMemoryId`, `title`, `impact` (plain language), `kind` (`outage`, `bug_report`, `feature_request`), `raisedBy` (`monitor`, `owner`, `customer`) with optional `raisedByRef` naming the actual user, service, or customer, `status`, optional `signature`, `reportCount`, `distinctRequesterCount`, `resolvedAt`, `isSample`, and `starred` (the owner's "look at this later"; nothing in turtl acts on it). Statuses: `open`, `investigating`, `waiting_for_owner`, `executing`, `waiting_for_deploy`, `verifying`, `restored`, `resolved`, `unresolved`, `declined`. `restored` means service is back; `resolved` means the permanent repair is finished.
 - `steps`: the stable, logical steps of a case's workflow. `caseId`, `key` (unique within the case), `title`, `dependsOn` (keys of steps in the same case), `kind` (`function`, `agent`, `approval`), `purpose` (a stage id), `status` (`pending`, `running`, `waiting`, `done`, `failed`, `skipped`), optional `skipReason`, `currentAttemptId` and `staged` (dev staging, see the [runner README](../convex/runner/README.md#dev-staging)). A new case gets an initial template of eight steps, one per stage, in a chain.
 - `stepAttempts`: one row per execution of a step. `stepId`, `caseId`, `attempt` (from 1), `status` (`running`, `waiting`, `done`, `failed`), optional `startedAt`, `finishedAt`, `summary`, `handoff`, `error`, `externalRef`, `inputRefs` (the parent attempts it consumed), `output`, `outputRefs`, `scheduledJobs` (the ids of the scheduled jobs it started, so Stop and account deletion can cancel them by id), `lateResultAt` and `lateResult`.
 
@@ -38,12 +38,12 @@ How the runner drives these helpers (scheduling, approval, retries, timeouts, an
 | `recoveryMemories` | A verified recovery turtl can offer again, with the conditions that must hold. |
 | `permissions` | A scoped permission the owner granted to run one action on its own. |
 | `ownerPreferences` | A preference the owner stated about an app. |
-| `agentRuns` | One model or agent run, with its configuration, routing reason and outcome. |
+| `agentRuns` | One model or agent run, with its configuration, routing reason and outcome. A run waiting to be scored has `nextSettleAt`, and the settling cron takes due runs through the `by_settled_and_next` index in bounded batches; one that never finishes is settled as such after 30 days. |
 | `contextSources` | Code, a document, an architecture note or a decision indexed as context for an app. |
 | `ownerNotices` | One owner alert per case and event, with its outcome. |
 | `ownerPasscodeConfig` | The hash of the owner passcode. |
 | `fixChatMessages` | The Investigate further chat about a case. |
-| `pullRequests` | A pull request turtl follows for an approved code change. |
+| `pullRequests` | A pull request turtl follows for an approved code change. Syncing takes due rows by `nextSyncAt` (the `by_settled_and_next_sync` index) and slows down for rows that never settle. |
 | `intakeKeys`, `intakeRateWindows`, `reportTriage`, `intakeLocks` | Customer intake: see [`convex/intake/README.md`](../convex/intake/README.md). |
 | `revylRuns`, `revylScreenshots` | Revyl device runs and the screenshots they kept. |
 | `voiceTurns` | One spoken turn about a case (the audio is never stored). |
@@ -54,12 +54,13 @@ How the runner drives these helpers (scheduling, approval, retries, timeouts, an
 | `ownerDecisions`, `preferenceSuggestions`, `contextUses` | What the owner decided, preferences waiting for confirmation, and context that helped a fix: [`convex/learning/README.md`](../convex/learning/README.md). |
 | `onboardingInspections`, `onboardingPreparations` | Reading a new project's repository, and the pull request that prepares it: [`convex/onboarding/README.md`](../convex/onboarding/README.md). |
 | `githubInstallations`, `githubInstallationRepositories`, `githubInstallationTokens`, `githubWebhookDeliveries`, `githubConnectAttempts`, `githubInstallationLinks` | The GitHub App: installations, the repositories each covers, cached tokens, webhook deliveries, Connect GitHub attempts, and which account uses which installation: [`convex/github/README.md`](../convex/github/README.md). |
-| `pushTokens`, `pushSends` | The owner's phones and what each push did: [`convex/push/README.md`](../convex/push/README.md). |
-| `users`, `authAccounts`, `authSessions`, `authRefreshTokens`, `authVerificationCodes`, `authVerifiers`, `authRateLimits`, `authAppleNonces`, `authAppleTokens`, `authPasswordResets` | Accounts and sign-in (Convex Auth's tables and turtl's own): [`convex/auth/README.md`](../convex/auth/README.md). |
+| `pushTokens`, `pushSends` | The owner's phones and what each push did. Each phone's row keeps the `sessionId` that registered it, and the phone receives only while that session is alive: [`convex/push/README.md`](../convex/push/README.md). |
+| `users`, `authAccounts`, `authSessions`, `authRefreshTokens`, `authVerificationCodes`, `authVerifiers`, `authRateLimits`, `authAppleNonces`, `authAppleTokens`, `authEmailCodes`, `authUnconfirmed` | Accounts and sign-in (Convex Auth's tables and turtl's own). `authAppleTokens` holds Apple's refresh token sealed under `SECRETS_ENCRYPTION_KEY`; `authEmailCodes` holds a hash of each emailed reset or confirmation code under a hash of the address, for a day; `authUnconfirmed` lists password accounts that have not confirmed their address yet, deleted after 7 days if they never do: [`convex/auth/README.md`](../convex/auth/README.md). |
 | `aiConsents` | Each account's answers on the AI permission screen: [`convex/consent/README.md`](../convex/consent/README.md). |
-| `modelSpend`, `codingThreads`, `intakeDays`, `deploymentTotals` | Spend and use counted against the limits: [`convex/spend/README.md`](../convex/spend/README.md). |
+| `modelSpend`, `codingThreads`, `intakeDays`, `deploymentTotals`, `accountSpendDays` | Spend and use counted against the limits, including each account's share of the deployment's day (`accountSpendDays`): [`convex/spend/README.md`](../convex/spend/README.md). |
 | `accountDeletions` | The record of an account deletion: [`convex/account/README.md`](../convex/account/README.md). |
 | `secrets` | A project's sealed control token or an account's sealed coding agent key: [`convex/secrets/README.md`](../convex/secrets/README.md). |
-| `watchedProjects`, `monitorCursor` | With accounts on, the monitor's state for each project, and where its sweep over the projects stands (`convex/protectedApp/watching.ts`). |
+| `watchedProjects`, `monitorCursor` | With accounts on, the monitor's state for each project that has checks (when it is next due, and how long it has failed the same way), and how far the monitor has looked through the checks added to every project (`convex/protectedApp/watching.ts`). |
+| `practiceApps`, `practiceBookings` | A practice project's app: its switches, the SHA-256 of its control token and the day's breaks, and the test bookings its check makes and deletes: [`convex/practice/`](../convex/practice). |
 
 The validators for most of these rows are in `convex/constants.ts`, and the comment above each table in `convex/schema.ts` states the rules its mutations must keep.
