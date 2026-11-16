@@ -38,13 +38,16 @@ async function readWithFallback<T>(path: string, token: string | undefined): Pro
   return { read, token, rejected: false };
 }
 
+// A file at a commit. A token GitHub rejects makes raw.githubusercontent.com answer 404, so a failed read with
+// a token is retried without it, which still reads a public repository.
 export async function readRaw(repo: string, sha: string, path: string, token: string | undefined): Promise<string | null> {
   try {
     const response = await fetch(`https://raw.githubusercontent.com/${repo}/${sha}/${path.split("/").map(encodeURIComponent).join("/")}`, {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
       signal: AbortSignal.timeout(RAW_TIMEOUT_MS),
     });
-    return response.ok ? await response.text() : null;
+    if (response.ok) return await response.text();
+    return token ? await readRaw(repo, sha, path, undefined) : null;
   } catch {
     return null;
   }

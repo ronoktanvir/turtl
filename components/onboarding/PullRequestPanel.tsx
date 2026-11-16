@@ -16,7 +16,7 @@ export function canMergePreparation(pr?: PullRequest): boolean {
   return pr?.state === "open" && pr.checks === "passing" && pr.mergeable;
 }
 
-export function PullRequestPanel({ pr, merging, refreshing, onMerge, onRefresh }: { pr: PullRequest; merging: boolean; refreshing: boolean; onMerge: () => void; onRefresh: () => void }) {
+export function PullRequestPanel({ pr, showMerge, merging, refreshing, onMerge, onRefresh }: { pr: PullRequest; showMerge: boolean; merging: boolean; refreshing: boolean; onMerge: () => void; onRefresh: () => void }) {
   const { colors } = useTheme();
   const canMerge = canMergePreparation(pr);
   return (
@@ -41,7 +41,7 @@ export function PullRequestPanel({ pr, merging, refreshing, onMerge, onRefresh }
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
           <Icon name="GitBranch" color="textMuted" size={16} />
           <T variant="small" color="textMuted" style={{ flex: 1 }}>Latest commit</T>
-          <T variant="mono" color="textMuted" testID="prepare-pr-head">{pr.headSha}</T>
+          <T variant="mono" color="textMuted" testID="prepare-pr-head">{pr.headSha.slice(0, 7)}</T>
         </View>
         {pr.checkRuns.map((run) => {
           const color = run.status === "passed" ? "statusClear" : run.status === "failed" ? "statusAffected" : "textMuted";
@@ -56,7 +56,7 @@ export function PullRequestPanel({ pr, merging, refreshing, onMerge, onRefresh }
       </View>
       {pr.state === "open" && (
         <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-          <Button label={merging ? "Merging…" : "Merge"} icon="GitMerge" disabled={!canMerge || merging} onPress={onMerge} testID="prepare-merge" />
+          {showMerge && <Button label={merging ? "Merging…" : "Merge"} icon="GitMerge" disabled={!canMerge || merging} onPress={onMerge} testID="prepare-merge" />}
           <T variant="small" color={canMerge ? "statusClear" : pr.checks === "failing" ? "statusAffected" : "textMuted"} style={{ flex: 1 }} testID="prepare-ci">{ciState(pr)}</T>
         </View>
       )}

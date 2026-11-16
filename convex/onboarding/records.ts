@@ -223,7 +223,8 @@ async function upsertJourney(ctx: MutationCtx, appId: Id<"apps">, entry: Omit<Do
   return await ctx.db.insert("journeys", { appId, ...entry });
 }
 
-// Registers the checks and switches that answered on the live app, and stores every check's result.
+// Registers the checks and switches that answered on the live app, and stores every check's result. A check
+// that does not answer now is never registered; one registered by an earlier check stays, and says so.
 export const register = internalMutation({
   args: {
     id: v.id("onboardingPreparations"),
@@ -256,8 +257,17 @@ export const register = internalMutation({
         const actionCatalogId = existing?._id ?? (await ctx.db.insert("actionCatalog", { appId: row.appId, ...fields }));
         if (existing) await ctx.db.patch(existing._id, fields);
         results.push({ ...result, actionCatalogId });
+      } else if (result.kind === "flag" || result.kind === "recovery_hook") {
+        const earlier = (
+          await ctx.db
+            .query("actionCatalog")
+            .withIndex("by_app_and_type", (q) => q.eq("appId", row.appId).eq("type", result.kind === "flag" ? "set_feature_flag" : "recovery_switch"))
+            .collect()
+        ).find((entry) => entry.name === result.name);
+        results.push(earlier ? { ...result, actionCatalogId: earlier._id, detail: `${result.detail} It stays registered from an earlier check.` } : result);
       } else {
-        results.push(result);
+        const earlier = (await ctx.db.query("journeys").withIndex("by_app", (q) => q.eq("appId", row.appId)).collect()).find((journey) => journey.name === result.name);
+        results.push(earlier ? { ...result, journeyId: earlier._id, detail: `${result.detail} It stays registered from an earlier check.` } : result);
       }
     }
     await ctx.db.patch(id, { registration: { status: "done", ref, checks: results, checkedAt: Date.now() } });

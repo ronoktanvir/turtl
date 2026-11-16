@@ -144,16 +144,21 @@ export async function checkLive(base: string, manifest: ReturnType<typeof parseM
     const response = await call(url(entry), { credentialRef: credential(entry) });
     const answered = response.kind === "response";
     const ok = answered && response.status === 200;
+    const notReady = kind === "readiness" && answered && response.status === 503 && typeof response.body === "object" && response.body !== null;
     checks.push({
       result: {
         kind,
         name: entry.name,
         url: url(entry),
-        state: ok ? "works" : answered ? "failing" : "no_response",
-        detail: ok ? `Answered 200 in ${response.durationMs} ms.` : answered ? `Answered ${describeFailure(response)} instead of 200.` : `No answer: ${describeFailure(response)}.`,
+        state: ok ? "works" : notReady ? "failing" : "no_response",
+        detail: ok
+          ? `Answered 200 in ${response.durationMs} ms.`
+          : notReady
+            ? "Answered that the app is not ready to serve customers now."
+            : `Not registered: ${answered ? `answered ${describeFailure(response)} instead of 200` : describeFailure(response)}.`,
         checkedAt,
       },
-      ...(answered && {
+      ...((ok || notReady) && {
         journey: {
           name: entry.name,
           description: entry.description ?? (kind === "health" ? "The server answers its health check." : "The app says it can serve customers now."),
@@ -179,7 +184,7 @@ export async function checkLive(base: string, manifest: ReturnType<typeof parseM
         detail: !outcome.ok
           ? `Not registered: ${outcome.reason}.`
           : passed
-            ? `The check passed (${outcome.result.steps.length} steps, run ${outcome.result.runId}).`
+            ? `The check passed all ${outcome.result.steps.length} steps.`
             : `The check failed at "${outcome.result.failedStep ?? "unknown"}"${outcome.result.error?.code ? ` (${outcome.result.error.code})` : ""}.`,
         checkedAt,
       },
@@ -210,7 +215,7 @@ export async function checkLive(base: string, manifest: ReturnType<typeof parseM
         url: url(entry),
         state: ok ? "works" : response.kind === "response" ? "failing" : "no_response",
         detail: ok
-          ? `Reads ${entry.field} = ${String(value)}. turtl can switch it after your approval.`
+          ? `It answers, and it is ${value ? "on" : "off"} now. turtl switches it only after your approval.`
           : `Not registered: ${response.kind === "response" ? `${describeFailure(response)}${response.status === 200 ? ` without a boolean ${entry.field}` : ""}` : describeFailure(response)}.`,
         checkedAt,
       },

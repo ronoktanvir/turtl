@@ -146,7 +146,7 @@ export default function Prepare() {
           )}
 
           {o.pullRequest && (
-            <PullRequestPanel pr={o.pullRequest} merging={busy === "merge"} refreshing={busy === "refresh"} onMerge={() => { setError(null); setMerging({ title: o.pullRequest!.title, headSha: o.pullRequest!.headSha }); }} onRefresh={() => void run("refresh", () => refreshPreparation(o.projectId))} />
+            <PullRequestPanel pr={o.pullRequest} showMerge={o.stage === "pr_open"} merging={busy === "merge"} refreshing={busy === "refresh"} onMerge={() => { setError(null); setMerging({ title: o.pullRequest!.title, headSha: o.pullRequest!.headSha }); }} onRefresh={() => void run("refresh", () => refreshPreparation(o.projectId))} />
           )}
           {refused && (
             <View style={{ flexDirection: "row", gap: 10, padding: 16, backgroundColor: colors.surface, borderRadius: 16 }}>
@@ -179,7 +179,7 @@ export default function Prepare() {
       </Sheet>
 
       <Sheet visible={merging !== null} onClose={() => { if (busy !== "merge") setMerging(null); }} title={"Merge: " + (merging?.title ?? "") + "?"} testID="prepare-merge-sheet">
-        <T>{"turtl merges commit " + (merging?.headSha ?? "") + ", the version shown here. Then it checks each new endpoint on your live app."}</T>
+        <T>{"turtl merges commit " + (merging?.headSha.slice(0, 7) ?? "") + ", the version shown here. Then it checks each new endpoint on your live app."}</T>
         <View style={{ gap: 10 }}>
           <Button label={busy === "merge" ? "Merging…" : "Merge"} icon="GitMerge" disabled={busy !== null} onPress={() => void merge()} testID="prepare-merge-confirm" />
           <Button label="Cancel" kind="plain" disabled={busy === "merge"} onPress={() => setMerging(null)} testID="prepare-merge-cancel" />
