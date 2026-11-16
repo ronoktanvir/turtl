@@ -1,6 +1,7 @@
 import { ConvexError, v } from "convex/values";
 import { internal } from "../_generated/api";
-import { internalAction, internalMutation, internalQuery, mutation } from "../_generated/server";
+import { internalAction, internalMutation, internalQuery } from "../_generated/server";
+import { mutation } from "../functions";
 import { guardRow } from "../access";
 import { requireOwnerPasscode } from "../ownerPasscode";
 import { call, CHECK_VERSION, describeFailure } from "../protectedApp/client";
@@ -27,6 +28,11 @@ export const approve = mutation({
     return null;
   },
 });
+
+// The owner reads this on the case: where the run stopped, in words, never the app's error code.
+export function failedRunWords(failedStep: string | undefined): string {
+  return failedStep ? `Its first run failed at the "${failedStep.replace(/_/g, " ")}" step.` : "Its first run failed.";
+}
 
 export const load = internalQuery({
   args: { findingId: v.id("structuralFindings") },
@@ -63,7 +69,6 @@ export const runOnce = internalAction({
     }
     const verdict = body.verdict as "passed" | "failed";
     const failedStep = typeof body.failedStep === "string" ? body.failedStep : undefined;
-    const code = typeof body.error?.code === "string" ? ` (${body.error.code})` : "";
     await ctx.runMutation(internal.structural.checks.settle, {
       findingId,
       outcome: {
@@ -74,7 +79,7 @@ export const runOnce = internalAction({
           summary:
             verdict === "passed"
               ? "Its first run passed: a test booking was saved while the scenario was applied."
-              : `Its first run failed at the "${failedStep ?? "unknown"}" step${code}. The monitor will open a case for it.`,
+              : `${failedRunWords(failedStep)} The monitor will open a case for it.`,
           at,
         },
       },

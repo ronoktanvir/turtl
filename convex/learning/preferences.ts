@@ -1,7 +1,9 @@
+import { NO_SUPERMEMORY } from "../constants";
 import { ConvexError, v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
-import { internalAction, internalMutation, internalQuery, mutation, query, type ActionCtx } from "../_generated/server";
+import { internalAction, internalMutation, internalQuery, type ActionCtx } from "../_generated/server";
+import { mutation, query } from "../functions";
 import { canSeeApp, guardApp, guardRow } from "../access";
 import { gateFor } from "../consent/gate";
 import { requireOwnerPasscode } from "../ownerPasscode";
@@ -176,7 +178,7 @@ export const storeSupermemoryId = internalMutation({
 export const index = internalAction({
   args: { preferenceId: v.id("ownerPreferences") },
   handler: async (ctx, { preferenceId }): Promise<{ indexed: boolean; reason?: string; supermemoryId?: string }> => {
-    if (!process.env.SUPERMEMORY_API_KEY) return { indexed: false, reason: "SUPERMEMORY_API_KEY is not set." };
+    if (!process.env.SUPERMEMORY_API_KEY) return { indexed: false, reason: `${NO_SUPERMEMORY}.` };
     const row: Doc<"ownerPreferences"> | null = await ctx.runQuery(internal.learning.preferences.get, { preferenceId });
     if (!row) return { indexed: false, reason: "The preference was removed before it was indexed." };
     const gate = gateFor(ctx, { appId: row.appId });
@@ -216,7 +218,7 @@ export async function applicablePreferences(
   const rows: Doc<"ownerPreferences">[] = await ctx.runQuery(internal.learning.preferences.forApp, { appId });
   if (!rows.length) return { preferences: [], summary: "You have not told turtl what matters for this app yet." };
   let ranked: string[] = [];
-  let how = "SUPERMEMORY_API_KEY is not set, so they were not ranked";
+  let how = `they were not ranked, because ${NO_SUPERMEMORY}`;
   const gate = gateFor(ctx, { appId });
   const refused = process.env.SUPERMEMORY_API_KEY ? await gate.blocked("supermemory") : null;
   if (refused) how = `they were not ranked because ${refused}`;

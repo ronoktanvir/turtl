@@ -68,7 +68,9 @@ export function createLoader(mocks = {}) {
  * for a table read only by id. Rows are checked against nothing else; reads must name a declared index, in order.
  */
 export function memoryDb(tables, seed = {}) {
-  const rows = new Map(Object.keys(tables).map((name) => [name, structuredClone(seed[name] ?? [])]));
+  // Sign-ins, users and projects are always there, empty unless seeded: in the single-owner demo every public function
+  // first checks the deployment holds no account (convex/access.ts, demoHoldsAccounts), which reads all three.
+  const rows = new Map(Object.keys({ authAccounts: null, users: null, apps: null, ...tables }).map((name) => [name, structuredClone(seed[name] ?? [])]));
   let counter = 1000;
   let clock = 0;
   for (const list of rows.values()) for (const row of list) row._creationTime ??= ++clock;
@@ -87,6 +89,11 @@ export function memoryDb(tables, seed = {}) {
   const db = {
     reads,
     rows: (table) => structuredClone(rowsOf(table)),
+    /** Every table as it is now, for restore(): Convex undoes every write of a mutation that throws, and a test can too. */
+    snapshot: () => new Map([...rows].map(([name, list]) => [name, structuredClone(list)])),
+    restore: (saved) => {
+      for (const [name, list] of saved) rows.set(name, structuredClone(list));
+    },
     normalizeId: (table, id) => (typeof id === "string" && id.startsWith(table + ":") ? id : null),
     get: async (id) => {
       reads.push(["get", id]);
@@ -109,9 +116,15 @@ export function memoryDb(tables, seed = {}) {
       found.list.splice(found.index, 1);
     },
     query: (table) => ({
+      // A read of at most one row in creation order, as ctx.db.query(table).first() is in Convex.
+      first: async () => {
+        reads.push(["first", table]);
+        return structuredClone(rowsOf(table).toSorted((a, b) => a._creationTime - b._creationTime)[0] ?? null);
+      },
       withIndex: (name, build) => {
         reads.push(["index", table, name]);
-        const fields = tables[table]?.export().indexes.find((index) => index.indexDescriptor === name)?.fields;
+        // A project's owner index is the schema's even when the test names the table without it (demoHoldsAccounts).
+        const fields = tables[table]?.export().indexes.find((index) => index.indexDescriptor === name)?.fields ?? (table === "apps" && name === "by_owner" ? ["ownerId"] : undefined);
         assert.ok(fields, table + " has no index " + name);
         const conditions = [];
         // eq on the leading fields, then at most a range (lt, lte, gt, gte) on the next one, as Convex allows.

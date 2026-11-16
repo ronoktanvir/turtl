@@ -72,6 +72,8 @@ function overviewQuery({ visible = true } = {}) {
   return load("../convex/screens/overview.ts", {
     "convex/values": values,
     "../_generated/server": { query: (definition) => definition },
+    // The public builder, without its demo check (convex/functions.ts), which tests/access-rules.test.mjs covers.
+    "../functions": { query: (definition) => definition },
     // The single-owner demo's read: another project's map of the same repository may stand in. With accounts on only the
     // caller's own projects' maps do (tests/access-rules.test.mjs, review finding 9).
     "../access": { visibleApp: async (ctx, appId) => (visible ? await ctx.db.get(appId) : null), accessEnforced: () => false, visibleApps: async () => [] },
@@ -139,6 +141,23 @@ test("a project still being prepared says so, and one without a repository has n
   t.onboardingPreparations = [{ _id: "p1", appId: "app1", neverBreak: [] }];
   t.onboardingInspections = [{ _id: "i1", appId: "app1", status: "running", items: [] }];
   assert.deepEqual(await overviewQuery().handler({ db: fakeDb(t) }, { projectId: "app1" }), { checks: [], preparation: "in_progress", map: null });
+});
+
+test("a project whose repository could not be read says so, rather than that turtl is still preparing it", async () => {
+  const t = tables();
+  t.journeys = [];
+  t.onboardingPreparations = [{ _id: "p1", appId: "app1", neverBreak: [] }];
+  t.onboardingInspections = [{ _id: "i1", appId: "app1", status: "failed", items: [] }];
+  assert.equal((await overviewQuery().handler({ db: fakeDb(t) }, { projectId: "app1" })).preparation, "unreadable");
+  const { readFileSync } = await import("node:fs");
+  const watching = readFileSync(new URL("../components/project/Watching.tsx", import.meta.url), "utf8");
+  assert.match(watching, /preparation === "unreadable" \? \(/);
+  assert.match(watching, /turtl couldn't read this project's repository, so it is not watching anything yet\. Open Preparation/);
+  const home = readFileSync(new URL("../app/project/[projectId]/index.tsx", import.meta.url), "utf8");
+  assert.match(home, /const unreadable = onboarding\?\.stage === "inspection_failed";/);
+  assert.match(home, /const shown = \(unreadable \|\| failing\) && project\?\.health === "clear" \? "needs_you" : project\?\.health \?\? "clear";/);
+  assert.match(home, /<HealthWord health=\{shown\}/);
+  assert.match(home, /const failing = !!overview\?\.checks\.some\(\(check\) => check\.state === "failing"\);/);
 });
 
 // --- The old case list and case screen are gone from store builds (RC-05) ---

@@ -32,11 +32,71 @@ export const spendTables = {
     casesOpened: v.number(),
     updatedAt: v.number(),
   }).index("by_app_and_day", ["appId", "day"]),
-  // Deployment-wide running totals that belong to no account (finding 7): new accounts per clock hour and per day, and
+  // One row per account per calendar day (UTC) on which it asked a model: what its own calls cost (ownUsd) and what its
+  // projects' customer reports cost (intakeUsd), each checked against the account's share of the deployment's day
+  // (finding 12), plus the calls let through whose cost has not come back yet (held, MODEL_CALL_HOLD_USD each), so a
+  // burst cannot pass the share. Older days are deleted as new ones start; the rows go with the account.
+  accountSpendDays: defineTable({
+    account: v.string(),
+    day: v.string(),
+    ownUsd: v.number(),
+    ownHeldUsd: v.number(),
+    intakeUsd: v.number(),
+    intakeHeldUsd: v.number(),
+    // What finding the cause of its practice app's cases cost (PRACTICE_AI_PER_DAY_USD), kept apart from its own calls
+    // but checked within the same share. Missing on a row from before it was kept: nothing yet.
+    practiceUsd: v.optional(v.number()),
+    practiceHeldUsd: v.optional(v.number()),
+    // What its own outages cost past the shared day, on the floor no other account can use up (OUTAGE_FLOOR_PER_DAY_USD).
+    // Not in the deployment's day: the operator's worst day is the ceiling plus the floors used. Missing: nothing yet.
+    floorUsd: v.optional(v.number()),
+    floorHeldUsd: v.optional(v.number()),
+    calls: v.number(),
+    updatedAt: v.number(),
+  }).index("by_account_and_day", ["account", "day"]),
+  // One row per calendar day (UTC) on which a model was asked, for the deployment's hard stop
+  // (DEPLOYMENT_MODEL_HARD_STOP_PER_DAY_USD): what every account's floor cost (the shared day's cost is model_usd_day in
+  // deploymentTotals), what every call let through whose cost has not come back yet is held at, whichever share it
+  // spends, and when the backend log was told the stop was reached. Older days are deleted as a new one starts. It names
+  // no account, so it is not deleted with one.
+  deploymentModelDays: defineTable({
+    day: v.string(),
+    floorUsd: v.number(),
+    heldUsd: v.number(),
+    // The part of heldUsd held for calls on a floor; the rest is held in the shared day, and counts against its ceiling.
+    // Missing on a row from before it was kept: nothing yet.
+    floorHeldUsd: v.optional(v.number()),
+    stopLoggedAt: v.optional(v.number()),
+    updatedAt: v.number(),
+  }).index("by_day", ["day"]),
+  // One row per model call the gate let through whose cost has not come back yet (fifth review, finding 26): whose
+  // account, which share and day it was held on, what it is held at, and when the hold runs out (MODEL_CALL_HOLD_MS).
+  // Its cost replaces it; an error status from the vendor releases it at nothing; past expiresAt the sweep counts it at
+  // its hold. Rows last minutes, and go with the account (counted at their holds in the deployment's day).
+  modelCallHolds: defineTable({
+    account: v.string(),
+    day: v.string(),
+    share: v.union(v.literal("own"), v.literal("intake"), v.literal("practice"), v.literal("floor")),
+    appId: v.optional(v.id("apps")),
+    heldUsd: v.number(),
+    expiresAt: v.number(),
+  })
+    .index("by_expires", ["expiresAt"])
+    .index("by_account_and_expires", ["account", "expiresAt"]),
+  // Deployment-wide running totals that belong to no account (finding 7): new accounts per clock hour and per day (Apple
+  // and GitHub sign-ups, password sign-ups, and password accounts confirming their address, each counted apart), and
   // every account's model spend per day. `window` is the hour ("2026-11-15T12") or the day ("2026-11-15"), UTC. Older
   // windows of a name are deleted as a new one starts. Not deleted with an account: the totals count everyone.
   deploymentTotals: defineTable({
-    name: v.union(v.literal("accounts_hour"), v.literal("accounts_day"), v.literal("model_usd_day")),
+    name: v.union(
+      v.literal("accounts_hour"),
+      v.literal("accounts_day"),
+      v.literal("model_usd_day"),
+      v.literal("password_signups_hour"),
+      v.literal("password_signups_day"),
+      v.literal("confirmations_hour"),
+      v.literal("confirmations_day"),
+    ),
     window: v.string(),
     value: v.number(),
     updatedAt: v.number(),

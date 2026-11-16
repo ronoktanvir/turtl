@@ -35,12 +35,19 @@ export const CRITERIA = {
     id: "recommendations_off",
     description: "The booking app reports recommendations turned off.",
   },
+  // Only a practice app (convex/practice) has a backup store.
+  backupStoreOn: {
+    id: "backup_store_on",
+    description: "The booking app reports new bookings going to its backup store.",
+  },
 } satisfies Record<string, Criterion>;
 
 export const DONE_MEANS: Criterion[] = [CRITERIA.health, CRITERIA.journey, CRITERIA.device];
+/** A practice app (convex/practice) has no booking screen, so a device run is not part of what done means there. */
+export const PRACTICE_DONE_MEANS: Criterion[] = [CRITERIA.health, CRITERIA.journey];
 
 export const DEVICE_NOT_COVERED =
-  "Not covered: no Revyl run of the booking screen on a device is wired up yet, so this was not checked.";
+  "turtl does not check the booking screen on a real phone yet, so this part was not checked.";
 
 export const controlBase = () => process.env.PROTECTED_APP_URL?.replace(/\/+$/, "") || null;
 
@@ -196,20 +203,22 @@ export async function runJourneyCheck(config: { url: string; credentialRef?: str
   };
 }
 
+// The owner reads these two on the case. The error code is kept as a fact (journey.errorCode, gather_context), the
+// revision on the evidence row, and the run id is the app's own record of its test booking, so none is written here.
 export function describeJourney(result: JourneyResult) {
   if (result.verdict === "passed") {
     return "The booking check passed: a test booking was saved and matched its confirmation.";
   }
-  const code = result.error?.code ? ` (${result.error.code})` : "";
-  return `The booking check failed at the "${result.failedStep ?? "unknown"}" step${code}, so no booking was saved.`;
+  return result.failedStep
+    ? `The booking check failed at the "${result.failedStep.replace(/_/g, " ")}" step, so no booking was saved.`
+    : "The booking check failed, so no booking was saved.";
 }
 
 export function journeyBody(result: JourneyResult) {
   const lines = result.steps.map((s) => `${s.step}: ${s.verdict}. ${s.detail}`);
-  if (result.error) lines.push(`Error ${result.error.code}: ${result.error.message}`);
-  lines.push(
-    `Cleanup ${result.cleanup.ok ? "succeeded" : "failed"} (${result.cleanup.deletedBookings} test booking(s) deleted). Run ${result.runId} on revision ${result.revision}.`,
-  );
+  if (result.error) lines.push(`Error: ${result.error.message}`);
+  const deleted = result.cleanup.deletedBookings;
+  lines.push(`Cleanup ${result.cleanup.ok ? "succeeded" : "failed"} (${deleted} test ${deleted === 1 ? "booking" : "bookings"} deleted).`);
   return lines.join("\n");
 }
 

@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import { internalAction } from "./_generated/server";
 import { gateFor, type Gate } from "./consent/gate";
-import { demoOnly } from "./demoSettings";
+import { demoOnly, standInOnly } from "./demoSettings";
 
 declare const process: { env: Record<string, string | undefined> };
 
@@ -30,7 +30,8 @@ export async function sendOwnerNotice(gate: Gate, text: string): Promise<NoticeR
   }
   const opened = await gate.open("keiki");
   if (!opened.ok) return { outcome: "not_configured" };
-  const baseUrl = (process.env.KEIKI_BASE_URL || DEFAULT_BASE_URL).replace(/\/+$/, "");
+  // A stand-in address for tests; with accounts on it is honoured only on a local backend, so the key goes to Keiki.
+  const baseUrl = (standInOnly(process.env.KEIKI_BASE_URL) || DEFAULT_BASE_URL).replace(/\/+$/, "");
 
   try {
     const response = await opened.fetch(

@@ -1,11 +1,12 @@
+import { NO_SUPERMEMORY } from "../constants";
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
-import type { Id } from "../_generated/dataModel";
 import { internalMutation, type ActionCtx } from "../_generated/server";
-import { revokeToken } from "../auth/appleTokens";
+import { openKept, revokeToken, type KeptToken } from "../auth/appleTokens";
 import { appleClient } from "../auth/settings";
 import { gateFor } from "../consent/gate";
 import { plainFailure } from "../consent/outbound";
+import { sealingKey } from "../secrets/seal";
 import { deleteNamespace } from "../supermemory";
 import type { VendorTask } from "./schema";
 
@@ -17,8 +18,9 @@ declare const process: { env: Record<string, string | undefined> };
 //
 // - Supermemory: each namespace the account's projects wrote to is deleted whole (DELETE /ns/<namespace>). It sends
 //   only the name, so it goes through the AI permission gate as an "erase", which needs no permission.
-// - GitHub: internal.github.connect.disconnectAccount uninstalls turtl's GitHub App from every installation only this
-//   account uses, and removes turtl's records of it.
+// - GitHub: internal.github.connect.disconnectAccount uninstalls turtl's GitHub App from every installation on the
+//   person's own GitHub account that only this account uses, and removes turtl's records of it. From an
+//   organization's installation (or anyone else's) it removes only this account's link and the cached token.
 // - Apple: each Sign in with Apple refresh token kept for the account is revoked (convex/auth/appleTokens.ts).
 
 export type Outcome = { ok: true; skipped?: boolean; note?: string } | { ok: false; note: string };
@@ -32,7 +34,7 @@ export async function runVendorTask(ctx: ActionCtx, account: string, task: Pick<
 async function eraseNamespace(ctx: ActionCtx, account: string, namespace: string): Promise<Outcome> {
   if (!namespace) return { ok: true, skipped: true, note: "No namespace was named." };
   // Without a key turtl never wrote to Supermemory, and cannot reach it to delete.
-  if (!process.env.SUPERMEMORY_API_KEY) return { ok: true, skipped: true, note: "SUPERMEMORY_API_KEY is not set on this deployment, so turtl kept nothing at Supermemory." };
+  if (!process.env.SUPERMEMORY_API_KEY) return { ok: true, skipped: true, note: `${NO_SUPERMEMORY}, so turtl kept nothing there.` };
   try {
     const deleted = await deleteNamespace(gateFor(ctx, { account }), namespace);
     return { ok: true, note: deleted ? "Deleted at Supermemory." : "Supermemory had nothing under this name." };
@@ -43,22 +45,30 @@ async function eraseNamespace(ctx: ActionCtx, account: string, namespace: string
 
 async function disconnectGithub(ctx: ActionCtx, account: string): Promise<Outcome> {
   const installationIds: number[] = await ctx.runQuery(internal.github.links.installationsOf, { account });
-  const result: { ok: boolean; disconnected: number; failed: { installationId: number; message: string }[] } = await ctx.runAction(
+  const result: { ok: boolean; disconnected: number; failed: { installationId: number; message: string }[]; stillInstalled?: unknown[] } = await ctx.runAction(
     internal.github.connect.disconnectAccount,
     { account },
   );
   if (!result.ok) return { ok: false, note: [...new Set(result.failed.map((failure) => failure.message))].join(" ") || "GitHub did not confirm." };
   if (installationIds.length) await ctx.runMutation(internal.account.vendors.forgetInstallationNames, { installationIds });
-  return { ok: true, note: installationIds.length ? `turtl's access ended for ${installationIds.length} GitHub installation(s).` : "turtl had no access to GitHub for this account." };
+  // An organization's installation, or one someone else uses, is not this account's to remove: its link is gone, and
+  // the app stays installed there. The note names no account, so the deletion record holds nothing personal.
+  const kept = result.stillInstalled?.length ?? 0;
+  const ended = installationIds.length ? `turtl's access ended for ${installationIds.length} GitHub installation(s).` : "turtl had no access to GitHub for this account.";
+  return { ok: true, note: kept ? `${ended} ${kept} of them stay installed on GitHub until their owners remove turtl there.` : ended };
 }
 
 async function revokeApple(ctx: ActionCtx, account: string): Promise<Outcome> {
-  const tokens: { id: Id<"authAppleTokens">; refreshToken: string }[] = await ctx.runQuery(internal.auth.appleTokens.tokensOf, { account });
+  const tokens: KeptToken[] = await ctx.runQuery(internal.auth.appleTokens.tokensOf, { account });
   if (!tokens.length) return { ok: true, skipped: true, note: "No Sign in with Apple token was kept for this account." };
   const client = appleClient();
   if (!client) return { ok: false, note: "AUTH_APPLE_TEAM_ID, AUTH_APPLE_KEY_ID and AUTH_APPLE_PRIVATE_KEY are not all set, so turtl cannot revoke the Apple token yet." };
+  const key = await sealingKey();
   for (const token of tokens) {
-    const revoked = await revokeToken(client, token.refreshToken);
+    // Opened here, in the action that sends it to Apple, and nowhere else.
+    const opened = await openKept(token, account, key);
+    if (!opened.ok) return { ok: false, note: `${opened.reason}.` };
+    const revoked = await revokeToken(client, opened.refreshToken);
     if (!revoked.ok) return { ok: false, note: `${revoked.reason}.` };
     await ctx.runMutation(internal.auth.appleTokens.forget, { id: token.id });
   }

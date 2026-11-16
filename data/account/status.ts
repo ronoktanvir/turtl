@@ -3,27 +3,35 @@ import type { AccountMode, AccountStatus } from "./types";
 
 // The decisions behind the sign-in gate, kept free of React so tests can read them.
 
-export function accountStatus({ live, storeBuild, mode, auth }: {
+/** `confirmed`: whether the signed-in account's email address is confirmed (users.viewer), undefined while it loads. */
+export function accountStatus({ live, storeBuild, mode, auth, confirmed }: {
   live: boolean;
   storeBuild: boolean;
   mode: AccountMode | undefined;
   auth: { isLoading: boolean; isAuthenticated: boolean };
+  confirmed: boolean | undefined;
 }): AccountStatus {
   if (!live) return "demo";
   if (mode === undefined) return "checking";
   if (!mode.accounts) return storeBuild ? "accountsOff" : "demo";
   if (auth.isLoading) return "checking";
-  return auth.isAuthenticated ? "signedIn" : "signedOut";
+  if (!auth.isAuthenticated) return "signedOut";
+  if (confirmed === undefined) return "checking";
+  return confirmed ? "signedIn" : "unconfirmed";
 }
 
 /** The routes someone may see signed out. Everything else needs a session when accounts are on. */
 export const SIGNED_OUT_ROUTES = ["", "sign-in", "sign-up", "reset-password"] as const;
 
+/** The one screen a password account sees until it confirms its email address. */
+export const CONFIRM_ROUTE = "confirm-email";
+
 /** Where the gate sends someone from the route whose first segment is `first`, or null to leave them there. */
-export function gateTarget(status: AccountStatus, first: string | undefined): "/" | "/projects" | null {
+export function gateTarget(status: AccountStatus, first: string | undefined): "/" | "/projects" | "/confirm-email" | null {
   const signedOutRoute = (SIGNED_OUT_ROUTES as readonly string[]).includes(first ?? "");
   if (status === "signedOut" && !signedOutRoute) return "/";
-  if (status === "signedIn" && signedOutRoute) return "/projects";
+  if (status === "signedIn" && (signedOutRoute || first === CONFIRM_ROUTE)) return "/projects";
+  if (status === "unconfirmed" && first !== CONFIRM_ROUTE) return "/confirm-email";
   return null;
 }
 

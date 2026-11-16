@@ -24,7 +24,18 @@ export type GithubStatus = {
 
 export type GithubRepository = { fullName: string; private?: boolean; installationId: number; accountLogin: string };
 
-export type GithubDisconnect = { ok: boolean; disconnected: number; failed: { installationId: number; message: string }[] };
+export type GithubDisconnect = {
+  ok: boolean;
+  disconnected: number;
+  failed: { installationId: number; message: string }[];
+  /** Installations turtl stopped using for this account but left installed, because they are not this person's to remove. */
+  stillInstalled?: { installationId: number; accountLogin: string; message: string }[];
+};
+
+/** Repositories GitHub listed that turtl left out of the picker, each with a sentence saying why. */
+export type GithubLeftOut = { fullName: string; message: string };
+
+export type GithubRefresh = { ok: boolean; problems: string[]; leftOut?: GithubLeftOut[] };
 
 /** What GitHub's last redirect said, in the github= parameter of the address that opened Add project. */
 export type GithubReturn = "connected" | "cancelled" | "failed" | "none" | "requested";

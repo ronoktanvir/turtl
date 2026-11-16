@@ -6,6 +6,16 @@ export function listNames(names: string[]): string {
   return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
 }
 
+/**
+ * Whether the permission screen shows "turtl will work without AI" with its Continue: right after Not now, and when
+ * the screen opened at the start of the app (?from=start) for someone who has already said Not now, such as after a
+ * reload before they pressed Continue. Without this, a reload showed the whole list again with no way on but a
+ * second Not now.
+ */
+export function showsDeclined(declinedHere: boolean, atStart: boolean, status: Pick<AiPermission, "answer" | "needsAnswer">): boolean {
+  return declinedHere || (atStart && status.answer === "declined" && !status.needsAnswer);
+}
+
 export const day = (at: number) => new Date(at).toLocaleDateString("en-GB", { day: "numeric", month: "long" });
 
 const lower = (text: string) => text.charAt(0).toLowerCase() + text.slice(1);

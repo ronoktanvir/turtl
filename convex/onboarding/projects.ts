@@ -1,7 +1,8 @@
 import { ConvexError, v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
-import { action, mutation, query, type MutationCtx } from "../_generated/server";
+import { type MutationCtx } from "../_generated/server";
+import { action, mutation, query } from "../functions";
 import { accessEnforced, canSeeApp, guardApp, guardAppInAction, requireAccount, visibleApps } from "../access";
 import { requireOwnerPasscode } from "../ownerPasscode";
 import { ceilingRefusal, projectsPerAccount } from "../spend/limits";
@@ -9,10 +10,11 @@ import { repositoryAccess } from "../github/access";
 import { mergePullRequest, readPullRequest } from "../prTracking/github";
 import { pullRequestOf } from "../prTracking/validators";
 import { liveAddressProblem } from "../protectedApp/address";
+import { checkSoon } from "../protectedApp/watching";
 import { accountSecret } from "../secrets/store";
 import { CONNECT_CODING_AGENT } from "../secrets/words";
 import { normalizeFolders, parseGithubUrl, READINESS_ITEMS } from "./detect";
-import { latestInspection, preparationFor } from "./records";
+import { latestInspection, NOT_FOLLOWED, preparationFor } from "./records";
 import { syncPreparation } from "./prepare";
 import { hasWork, stageOf } from "./stage";
 
@@ -68,9 +70,10 @@ export const add = mutation({
   handler: async (ctx, { repoUrl, liveUrl, folders, passcode }) => {
     const account = await requireAccount(ctx);
     await requireOwnerPasscode(ctx, passcode);
-    // Each project brings its own limits (customer-report keys and allowance), so an account has at most so many.
+    // Each project brings its own limits (customer-report keys and allowance), so an account has at most so many. Its one
+    // practice project (convex/practice) does not take a place.
     const cap = projectsPerAccount();
-    if (accessEnforced() && (await ctx.db.query("apps").withIndex("by_owner", (q) => q.eq("ownerId", account)).take(cap)).length >= cap) {
+    if (accessEnforced() && (await ctx.db.query("apps").withIndex("by_owner", (q) => q.eq("ownerId", account)).take(cap + 1)).filter((app) => !app.practice).length >= cap) {
       throw new ConvexError(ceilingRefusal.projects(cap));
     }
     const parsed = parseGithubUrl(repoUrl);
@@ -99,7 +102,7 @@ export const add = mutation({
       ...(productionUrl && { productionUrl }),
       ownerId: account,
     });
-    await ctx.db.insert("onboardingPreparations", { appId, neverBreak: [] });
+    await ctx.db.insert("onboardingPreparations", { appId, neverBreak: [], nextSyncAt: NOT_FOLLOWED });
     await startInspection(ctx, appId, parsed.repo, scope);
     return { projectId: appId as string };
   },
@@ -169,6 +172,8 @@ export const approve = mutation({
     await ctx.db.patch(preparation._id, {
       blocked: undefined,
       approvedAt: Date.now(),
+      // The cron follows it from now on (convex/prTracking/follow.ts).
+      nextSyncAt: Date.now(),
       inspectionId: inspection._id,
       requestId: `turtl-onboarding:${preparation._id}:${inspection._id}`,
       repo: inspection.repo,
@@ -202,7 +207,7 @@ export const merge = action({
     const row: Doc<"onboardingPreparations"> | null = await ctx.runQuery(internal.onboarding.records.forApp, { projectId });
     if (!row || row.number === undefined || !row.repo) return { ok: false, reason: "This project has no preparation pull request yet." };
     if (row.settledAt !== undefined) return { ok: false, reason: "turtl is no longer following this pull request." };
-    const access = await repositoryAccess(ctx, row.repo, { appId: row.appId });
+    const access = await repositoryAccess(ctx, row.repo, { appId: row.appId }, "change");
     if (!access.ok) return { ok: false, reason: `${access.message} Nothing was merged.` };
     const token = access.token;
     if (!token) return { ok: false, reason: "turtl has no GitHub access that can merge in this repository. Connect it to turtl through GitHub (Add project, Connect GitHub), or merge it on GitHub yourself. Nothing was merged." };
@@ -248,6 +253,9 @@ export const checkAgain = mutation({
     }
     await ctx.db.patch(preparation._id, { registration: { ...(preparation.registration ?? { checks: [] }), status: "checking", ...(accessEnforced() && { requestedAt: now }) } });
     await ctx.scheduler.runAfter(0, internal.onboarding.prepare.register, { preparationId: preparation._id });
+    // The owner asked: the monitor checks the project at its next tick and every minute after, even if it had spaced
+    // its checks out while the app kept failing the same way.
+    await checkSoon(ctx, preparation.appId);
     return null;
   },
 });

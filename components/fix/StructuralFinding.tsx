@@ -5,6 +5,7 @@ import type { StructuralFinding } from "../../data/types";
 import { useTheme } from "../../theme";
 import { Button, Card, Icon, Sheet, T } from "../ui";
 import { SpanText, type Sources } from "./Evidence";
+import { deeperCauseTitle } from "./counts";
 import { kindLabel } from "./FixCard";
 
 // The deeper cause on the Overview. It names its prevention check and where that check stands; approving the
@@ -16,7 +17,7 @@ export function StructuralFindingCard({ finding, sources, id }: { finding: Struc
     <Card style={{ gap: 16 }} testID={id("structural-finding")}>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
         <Icon name="Layers" size={20} color="brandDeep" />
-        <T variant="strong" style={{ flex: 1 }}>{"A deeper cause across " + finding.connectedCaseCount + " cases"}</T>
+        <T variant="strong" style={{ flex: 1 }}>{deeperCauseTitle(finding.connectedCaseCount)}</T>
         <T variant="small" color="textMuted">{Math.round(finding.confidence * 100) + "% confident"}</T>
       </View>
       <T>{finding.hypothesis}</T>

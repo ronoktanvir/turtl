@@ -75,11 +75,16 @@ const fromFile = {
   JWKS: JSON.stringify({ keys: [{ use: "sig", ...(await exportJWK(signing.publicKey)) }] }),
   AUTH_APPLE_PRIVATE_KEY: apple.appleClient.privateKey.trimEnd().replace(/\n/g, " "),
   GITHUB_APP_PRIVATE_KEY: githubKeys.privateKey.export({ type: "pkcs8", format: "pem" }),
+  // Seals the Apple refresh token kept at sign-in (convex/auth/appleTokens.ts); without it none is kept to revoke.
+  SECRETS_ENCRYPTION_KEY: randomBytes(32).toString("base64"),
 };
 const plain = {
   AUTH_REQUIRED: "true",
   SITE_URL: "http://localhost:8111",
   AUTH_STAND_IN_URL: front,
+  // A password sign-up confirms its address with an emailed code; the stand-in receives the email, not Resend.
+  AUTH_RESEND_KEY: "stand-in-key",
+  AUTH_EMAIL_FROM: "turtl <no-reply@example.com>",
   AUTH_APPLE_TEAM_ID: apple.appleClient.teamId,
   AUTH_APPLE_KEY_ID: apple.appleClient.keyId,
   SUPERMEMORY_API_KEY: memory.apiKey,
@@ -129,6 +134,7 @@ try {
     const email = `${label}-${randomBytes(3).toString("hex")}@example.com`;
     const secret = password();
     const signedIn = await signIn("password", { email, password: secret, flow: "signUp" });
+    await signedIn.client.mutation(ref("auth/confirmation:confirm"), { code: apple.lastCode(email) });
     accounts[label] = { ...signedIn, email, secret, label };
   }
   const nonce = randomBytes(32).toString("hex");
@@ -222,6 +228,8 @@ try {
   await step("an account made with Sign in with Apple has its Apple token kept at sign-in and revoked on deletion", async () => {
     const kept = [...apple.appleRefreshTokens.keys()];
     assert.equal(kept.length, 1, "the sign-in traded Apple's code for a refresh token");
+    const held = JSON.stringify(accounts.carol.before.rows.authAppleTokens ?? []);
+    assert.ok(held.includes("sealedToken") && !held.includes(kept[0]), "turtl keeps it sealed, never in the clear");
     await deleteAndWait(accounts.carol);
     assert.deepEqual(apple.appleRevoked, [{ token: kept[0], hint: "refresh_token" }]);
     const after = await admin.query(ref("account/localProof:find"), { markers: accounts.carol.markers });

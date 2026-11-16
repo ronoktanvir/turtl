@@ -61,7 +61,8 @@ function createLoader(mocks = {}) {
 }
 
 // The one index outside convex/push that these functions read, as convex/schema.ts declares it.
-const OTHER_INDEXES = { ownerNotices: { by_case_and_event: ["caseId", "event"] } };
+// The single-owner demo first checks the deployment holds no account, which reads apps by their owner (convex/access.ts).
+const OTHER_INDEXES = { ownerNotices: { by_case_and_event: ["caseId", "event"] }, apps: { by_owner: ["ownerId"] } };
 
 // An in-memory database. Push tables are checked against convex/push/schema.ts: only named fields, only declared
 // indexes, read by their fields in order. A patch with an undefined field removes it, as Convex does.
@@ -83,6 +84,8 @@ function createBackend(load, identity) {
     return null;
   };
   const db = {
+    // Ids here are "<table><n>aaaaaaaa"; the subject's session part ("session") names no session row.
+    normalizeId: (table, id) => (typeof id === "string" && new RegExp(`^${table}\\d+a+$`).test(id) ? id : null),
     get: async (id) => structuredClone(locate(id)?.rows[locate(id).index] ?? null),
     insert: async (table, fields) => {
       const row = { _id: `${table}${++counter}aaaaaaaa`, _creationTime: Date.now(), ...checked(table, structuredClone(fields)) };
@@ -103,6 +106,16 @@ function createBackend(load, identity) {
       found.rows.splice(found.index, 1);
     },
     query: (table) => ({
+      // The single-owner demo first checks that Convex Auth's accounts table is empty (convex/access.ts).
+      first: async () => structuredClone(rowsOf(table)[0] ?? null),
+      // In creation order; the cursor names the last row returned, so deleting rows from a page skips nothing.
+      paginate: async ({ cursor, numItems }) => {
+        const order = (row) => Number(/\d+/.exec(row._id.slice(table.length))[0]);
+        const after = cursor ? Number(cursor) : 0;
+        const rest = rowsOf(table).filter((row) => order(row) > after).sort((a, b) => order(a) - order(b));
+        const page = rest.slice(0, numItems);
+        return { page: structuredClone(page), isDone: rest.length <= numItems, continueCursor: page.length ? String(order(page.at(-1))) : String(after) };
+      },
       withIndex: (name, build) => {
         const fields = schema[table]?.export().indexes.find((index) => index.indexDescriptor === name)?.fields ?? OTHER_INDEXES[table]?.[name];
         assert.ok(fields, `${table} has no index ${name}`);
@@ -110,12 +123,13 @@ function createBackend(load, identity) {
         const range = {
           eq: (field, value) => (conditions.push(["eq", field, value]), range),
           gt: (field, value) => (conditions.push(["gt", field, value]), range),
+          lt: (field, value) => (conditions.push(["lt", field, value]), range),
         };
         build(range);
         conditions.forEach(([, field], position) => assert.equal(field, fields[position], `${table}.${name} cannot be read by ${field} here`));
         let descending = false;
         const matched = () => {
-          const rows = rowsOf(table).filter((row) => conditions.every(([op, field, value]) => (op === "eq" ? row[field] === value : row[field] !== undefined && row[field] > value)));
+          const rows = rowsOf(table).filter((row) => conditions.every(([op, field, value]) => (op === "eq" ? row[field] === value : op === "lt" ? row[field] === undefined || row[field] < value : row[field] !== undefined && row[field] > value)));
           const key = fields.find((field) => !conditions.some(([, f]) => f === field));
           const sorted = key ? [...rows].sort((a, b) => (a[key] ?? -Infinity) - (b[key] ?? -Infinity)) : rows;
           return structuredClone(descending ? sorted.reverse() : sorted);
@@ -134,7 +148,9 @@ function createBackend(load, identity) {
       },
     }),
   };
-  const auth = { getUserIdentity: async () => (identity.current ? { subject: `${identity.current}|session` } : null) };
+  // A caller is an account ("alice": a token naming no session, as an admin's identity does) or a full subject
+  // ("alice|authSessions3aaaaaaaa", from signIn below: a Convex Auth token naming its session).
+  const auth = { getUserIdentity: async () => (identity.current ? { subject: identity.current.includes("|") ? identity.current : `${identity.current}|session` } : null) };
   const scheduler = { runAfter: async (delay, fn, args) => void scheduled.push({ delay, path: fn.path, args: structuredClone(args) }) };
   async function run(path, args = {}) {
     const segments = path.split(".").slice(1);
@@ -185,7 +201,13 @@ async function world(t, { accounts = false } = {}) {
     return { appId, caseId };
   };
   const notice = async (caseId, event) => backend.db.insert("ownerNotices", { caseId, event, outcome: "pending", observedAt: Date.now() });
-  return { stub, load, backend, as, call, seed, notice };
+  // Convex Auth's sessions: signIn makes one (a day long) and returns the subject a token for it carries; endSession
+  // deletes it, as signing out, a password reset or account deletion does; expire lets it run out.
+  const signIn = async (account) => `${account}|${await backend.db.insert("authSessions", { userId: account, expirationTime: Date.now() + 86_400_000 })}`;
+  const sessionOf = (subject) => subject.split("|")[1];
+  const endSession = async (subject) => backend.db.delete(sessionOf(subject));
+  const expire = async (subject) => backend.db.patch(sessionOf(subject), { expirationTime: Date.now() - 1 });
+  return { stub, load, backend, as, call, seed, notice, signIn, endSession, expire };
 }
 
 // ——— What a notification says ———
@@ -272,8 +294,11 @@ test("with accounts on, a phone is filed under the signed-in account and nobody 
   assert.equal((await w.call("api.push.devices.status", { token: TOKEN("a") })).registered, false, "bob cannot see alice's phone");
   await w.call("api.push.devices.remove", { token: TOKEN("a") });
   assert.equal(w.backend.rows("pushTokens").length, 1, "bob cannot remove alice's phone");
-  await w.call("api.push.devices.refresh", { token: TOKEN("b"), platform: "ios", previousToken: TOKEN("a") });
-  assert.deepEqual(w.backend.rows("pushTokens").map((row) => [row.token, row.account]).sort(), [[TOKEN("a"), "alice"], [TOKEN("b"), "bob"]], "a refresh never removes another account's token");
+  // A refresh never registers a phone (only turning notifications on does), and never removes another account's token.
+  assert.equal(await w.call("api.push.devices.refresh", { token: TOKEN("b"), platform: "ios", previousToken: TOKEN("a") }), false);
+  assert.deepEqual(w.backend.rows("pushTokens").map((row) => [row.token, row.account]), [[TOKEN("a"), "alice"]], "a refresh never removes another account's token");
+  await w.call("api.push.devices.register", { token: TOKEN("b"), platform: "ios" });
+  assert.deepEqual(w.backend.rows("pushTokens").map((row) => [row.token, row.account]).sort(), [[TOKEN("a"), "alice"], [TOKEN("b"), "bob"]]);
   // Review finding 11: a token live on alice's account cannot be moved to bob by registering or refreshing it, so
   // knowing alice's token does not take her notifications. Signing out on that phone frees it.
   await assert.rejects(w.call("api.push.devices.register", { token: TOKEN("a"), platform: "android" }), /still gets notifications for another turtl account/);
@@ -398,6 +423,110 @@ test("no phone, no owner, a quiet event or a failing Expo each send nothing more
   assert.equal(await w.call("internal.push.deliver.forNotice", { noticeId: await w.notice(daves.caseId, "handled_under_permission"), caseId: daves.caseId, event: "handled_under_permission" }), "failed");
 });
 
+// ——— Sessions: a phone receives an account's notifications only while the session that registered it is alive ———
+// The rest of review finding 18. Delivery sent to every phone an account had registered, whatever had happened to the
+// session that registered it, so a phone lost before a password reset kept receiving the account's project names.
+
+const tokensOf = (w) => w.backend.rows("pushTokens").map((row) => [row.token, row.account]).sort();
+const deliver = async (w, owner) => {
+  const { caseId } = await w.seed(`${owner}'s shop`, owner);
+  const outcome = await w.call("internal.push.deliver.forNotice", { noticeId: await w.notice(caseId, "needs_decision"), caseId, event: "needs_decision" });
+  const sent = w.stub.sends().filter((request) => request.body.some((message) => message.data.caseId === caseId));
+  return { outcome, to: sent.flatMap((request) => request.body.map((message) => message.to)).sort() };
+};
+
+test("ATTACK (finding 18, sessions): after a password reset ends every session, the lost phone receives nothing more and is forgotten", async (t) => {
+  const w = await world(t, { accounts: true });
+  const lost = await w.signIn("alice");
+  w.as(lost);
+  await w.call("api.push.devices.register", { token: TOKEN("lost"), platform: "ios" });
+  const kept = await w.signIn("alice");
+  w.as(kept);
+  await w.call("api.push.devices.register", { token: TOKEN("kept"), platform: "ios" });
+  // Alice resets her password on the phone she still has: every session ends, and that phone signs in again. At its
+  // next launch it files its token under the new session.
+  await w.endSession(lost);
+  await w.endSession(kept);
+  w.as(await w.signIn("alice"));
+  assert.equal(await w.call("api.push.devices.refresh", { token: TOKEN("kept"), platform: "ios" }), true);
+  w.as(null);
+  assert.deepEqual((await deliver(w, "alice")).to, [TOKEN("kept")], "the lost phone gets nothing");
+  // The reset forgets the phones whose session it ended (convex/auth/password.ts calls this).
+  await w.call("internal.push.devices.forgetEnded", { account: "alice" });
+  assert.deepEqual(tokensOf(w), [[TOKEN("kept"), "alice"]]);
+});
+
+test("a session that runs out stops its phone's notifications, and the hourly sweep removes it; the demo's phones are untouched", async (t) => {
+  {
+    const w = await world(t, { accounts: true });
+    const session = await w.signIn("alice");
+    w.as(session);
+    await w.call("api.push.devices.register", { token: TOKEN("alice"), platform: "ios" });
+    w.as(null);
+    assert.deepEqual((await deliver(w, "alice")).to, [TOKEN("alice")]);
+    await w.expire(session);
+    assert.deepEqual(await deliver(w, "alice"), { outcome: null, to: [] }, "no live phone, so no push and no record");
+    assert.deepEqual(await w.call("internal.push.devices.sweep", {}), { removed: 1, more: false });
+    assert.deepEqual(tokensOf(w), []);
+  }
+  {
+    const w = await world(t);
+    await w.call("api.push.devices.register", { token: TOKEN("demo"), platform: "ios" });
+    assert.deepEqual(await w.call("internal.push.devices.sweep", {}), { removed: 0, more: false });
+    assert.deepEqual((await deliver(w, "solo-owner")).to, [TOKEN("demo")], "the demo sends as before");
+  }
+});
+
+test("ATTACK (finding 18, sessions): another account on the same phone can turn notifications on once the first account's session has ended, and not before", async (t) => {
+  const w = await world(t, { accounts: true });
+  const alice = await w.signIn("alice");
+  w.as(alice);
+  await w.call("api.push.devices.register", { token: TOKEN("shared"), platform: "ios" });
+  w.as(await w.signIn("bob"));
+  // Review finding 11 still holds: a token live on alice's account cannot be taken by knowing it.
+  await assert.rejects(w.call("api.push.devices.register", { token: TOKEN("shared"), platform: "ios" }), /still gets notifications for another turtl account/);
+  // Alice signed out, but the phone could not reach turtl to remove its token: her session ended all the same.
+  await w.endSession(alice);
+  await w.call("api.push.devices.register", { token: TOKEN("shared"), platform: "ios" });
+  assert.deepEqual(tokensOf(w), [[TOKEN("shared"), "bob"]]);
+  w.as(null);
+  assert.deepEqual((await deliver(w, "alice")).to, []);
+  assert.deepEqual((await deliver(w, "bob")).to, [TOKEN("shared")]);
+});
+
+test("ATTACK (finding 18, sessions): a refresh never files a phone under an account that did not turn its notifications on", async (t) => {
+  const w = await world(t, { accounts: true });
+  const alice = await w.signIn("alice");
+  w.as(alice);
+  await w.call("api.push.devices.register", { token: TOKEN("deleted"), platform: "ios" });
+  await w.call("api.push.devices.register", { token: TOKEN("ended"), platform: "ios" });
+  // Alice's account is deleted while the phone that kept "deleted" is offline; and her other session ends.
+  await w.call("internal.push.devices.removeAccount", { account: "alice" });
+  w.as(alice);
+  await w.call("api.push.devices.register", { token: TOKEN("ended"), platform: "ios" });
+  await w.endSession(alice);
+  // Bob signs in on those phones. Their launches refresh the tokens they kept, which must not register bob.
+  w.as(await w.signIn("bob"));
+  assert.equal(await w.call("api.push.devices.refresh", { token: TOKEN("deleted"), platform: "ios" }), false);
+  assert.equal(await w.call("api.push.devices.refresh", { token: TOKEN("ended"), platform: "ios" }), false);
+  assert.equal(await w.call("api.push.devices.refresh", { token: TOKEN("new"), platform: "ios", previousToken: TOKEN("deleted") }), false);
+  assert.deepEqual(tokensOf(w), [[TOKEN("ended"), "alice"]], "nothing is filed under bob");
+  w.as(null);
+  assert.deepEqual((await deliver(w, "bob")).to, []);
+});
+
+test("a phone registered before sessions were kept receives nothing with accounts on, until its app files it under its session", async (t) => {
+  const w = await world(t, { accounts: true });
+  for (const name of ["old", "older"]) await w.backend.db.insert("pushTokens", { account: "alice", token: TOKEN(name), platform: "ios", addedAt: 1, lastSeenAt: 1 });
+  assert.deepEqual((await deliver(w, "alice")).to, []);
+  w.as(await w.signIn("alice"));
+  assert.equal(await w.call("api.push.devices.refresh", { token: TOKEN("old"), platform: "ios" }), true, "the same account's launch files it under its session");
+  w.as(null);
+  assert.deepEqual((await deliver(w, "alice")).to, [TOKEN("old")]);
+  assert.deepEqual(await w.call("internal.push.devices.sweep", {}), { removed: 1, more: false });
+  assert.deepEqual(tokensOf(w), [[TOKEN("old"), "alice"]]);
+});
+
 // ——— The phone: data/push/controller.ts ———
 
 function phone({ permission = "undetermined", answer = "granted", token = TOKEN("phone"), supported = true } = {}) {
@@ -417,13 +546,21 @@ function phone({ permission = "undetermined", answer = "granted", token = TOKEN(
   return { device, calls, state };
 }
 
-function controllerWith(device, { memory = {}, failRemove = false } = {}) {
+// refreshes: false stands for a backend that no longer files the token under the signed-in account (a refresh never
+// registers a phone: only turning notifications on does).
+function controllerWith(device, { memory = {}, failRemove = false, refreshes = true } = {}) {
   const { createPushController } = createLoader()("data/push/controller.ts");
   const server = { calls: [], tokens: new Set() };
   const backend = {
     useStatus: () => undefined,
     register: async (token, platform) => { server.calls.push(["register", token, platform]); server.tokens.add(token); },
-    refresh: async (token, platform, previous) => { server.calls.push(["refresh", token, previous]); if (previous) server.tokens.delete(previous); server.tokens.add(token); },
+    refresh: async (token, platform, previous) => {
+      server.calls.push(["refresh", token, previous]);
+      if (!refreshes) return false;
+      if (previous) server.tokens.delete(previous);
+      server.tokens.add(token);
+      return true;
+    },
     remove: async (token) => { server.calls.push(["remove", token]); if (failRemove) throw new Error("Sign in to continue."); server.tokens.delete(token); },
   };
   const stored = { value: structuredClone(memory) };
@@ -516,6 +653,15 @@ test("at launch a changed token replaces the old one, and a phone whose notifica
   const never = controllerWith(phone({ permission: "granted" }).device);
   await never.controller.keepFresh();
   assert.deepEqual(never.server.calls, [], "a phone that never turned notifications on registers nothing on its own");
+});
+
+test("ATTACK (finding 18, sessions): at launch, a kept token the backend no longer files under this account is forgotten, so the next account turns notifications on itself", async () => {
+  const p = phone({ permission: "granted", token: TOKEN("kept") });
+  const { controller, server, stored } = controllerWith(p.device, { memory: { token: TOKEN("kept"), offered: true }, refreshes: false });
+  await controller.keepFresh();
+  assert.deepEqual(server.calls, [["refresh", TOKEN("kept"), undefined]], "it only asked; it registered nothing");
+  assert.deepEqual(stored.value, { offered: true }, "the phone forgets the token, so its notifications read as off");
+  assert.equal(server.tokens.size, 0);
 });
 
 test("a tapped notification opens only a case id", () => {

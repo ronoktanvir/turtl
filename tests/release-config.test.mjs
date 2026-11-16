@@ -4,7 +4,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { readFileSync } from "node:fs";
 import { deploymentProblems, markdownTable, variables } from "../release/backend-env.mjs";
-import { appConfigProblems, easProblems, privacyManifestProblems } from "../release/store-checks.mjs";
+import { appConfigProblems, collectedDataProblems, easProblems, privacyManifestProblems } from "../release/store-checks.mjs";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 
@@ -14,6 +14,12 @@ test("app.json carries what the App Store needs: iPhone only, export compliance,
 
 test("the privacy manifest declares every reason the installed native libraries declare", () => {
   assert.deepEqual(privacyManifestProblems(root), []);
+});
+
+test("the privacy manifest lists exactly the data types the App Privacy answers say turtl collects", () => {
+  assert.deepEqual(collectedDataProblems(root), []);
+  const collected = JSON.parse(readFileSync(new URL("../app.json", import.meta.url), "utf8")).expo.ios.privacyManifests.NSPrivacyCollectedDataTypes;
+  assert.ok(collected.length >= 4, "accounts and push alone make four types: email, name, user id, device id");
 });
 
 test("eas.json has a development, a preview and a production profile, each with its own environment", () => {
@@ -56,4 +62,30 @@ test("a production backend is refused without its keys, with a dev switch, or wi
   assert.match(deploymentProblems([...required, "GITHUB_TOKEN"])[0], /GITHUB_TOKEN is set and must never be set/);
   assert.match(deploymentProblems([...required, "DEV_TOOLS_ENABLD"])[0], /DEV_TOOLS_ENABLD is set but has no row/);
   assert.ok(variables.some((row) => row.name === "DEV_TOOLS_ENABLED" && row.production === "never"));
+});
+
+// Review finding 13: any AUTH_REQUIRED value but unset, empty or "false" turns accounts on, and those three are the
+// open demo. Production must say exactly "true"; the check reads that one value, which is not a secret, and never prints it.
+test("a production backend whose AUTH_REQUIRED is not exactly \"true\" is refused when the check can see the value", () => {
+  const required = variables.filter((row) => row.production === "required").map((row) => row.name);
+  assert.deepEqual(variables.filter((row) => row.exactly !== undefined).map((row) => [row.name, row.exactly, !!row.secret]), [["AUTH_REQUIRED", "true", false]]);
+  assert.deepEqual(deploymentProblems(required, { AUTH_REQUIRED: "true" }), []);
+  assert.deepEqual(deploymentProblems(required), [], "names only: nothing to compare");
+  for (const value of ["TRUE", "True", "1", "yes", " true", "true ", "", "false"]) {
+    const problems = deploymentProblems(required, { AUTH_REQUIRED: value });
+    assert.deepEqual(problems, ['AUTH_REQUIRED must be exactly "true" in production, and it is set to something else.'], JSON.stringify(value));
+  }
+  const check = (input) => spawnSync(process.execPath, [fileURLToPath(new URL("../release/check-backend-env.mjs", import.meta.url)), "--stdin"], { input, encoding: "utf8" });
+  const listing = (value) => required.map((name) => (name === "AUTH_REQUIRED" ? `${name}=${value}` : `${name}=not-read-${name}`)).join("\n") + "\n";
+  const refused = check(listing(" true"));
+  assert.equal(refused.status, 1);
+  assert.match(refused.stderr, /AUTH_REQUIRED must be exactly "true"/);
+  assert.match(refused.stdout, /AUTH_REQUIRED \(required, NOT exactly "true"\)/);
+  assert.ok(!(refused.stdout + refused.stderr).includes("not-read-"), "no other value is printed");
+  const passed = check(listing("true"));
+  assert.equal(passed.status, 0, passed.stderr);
+  assert.match(passed.stdout, /AUTH_REQUIRED \(required, exactly "true"\)/);
+  const namesOnly = check(required.join("\n") + "\n");
+  assert.equal(namesOnly.status, 0, namesOnly.stderr);
+  assert.match(namesOnly.stdout, /AUTH_REQUIRED \(required, value not read: check it is exactly "true"\)/);
 });

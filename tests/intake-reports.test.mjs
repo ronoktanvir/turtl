@@ -63,6 +63,7 @@ const { contactRef } = load("convex/intake/rules.ts");
 const INDEXES = {
   "reports.by_app_and_provider_event": ["appId", "provider", "providerEventId"],
   "reports.by_case_and_requester": ["caseId", "fromRef"],
+  "reports.by_case_and_received": ["caseId", "receivedAt"],
   "reportTriage.by_report": ["reportId"],
   "reportTriage.by_app_and_status": ["appId", "status"],
   "reportTriage.by_case": ["caseId"],
@@ -70,6 +71,10 @@ const INDEXES = {
   "stepAttempts.by_case": ["caseId"],
   "intakeKeys.by_key": ["key"],
   "intakeRateWindows.by_bucket_and_window": ["bucket", "windowStart"],
+  // convex/access.ts asks whether a signed-in password account has confirmed its email address (none waits here).
+  "authUnconfirmed.by_account": ["account"],
+  // The single-owner demo first checks the deployment holds no account, which reads projects by owner (convex/access.ts).
+  "apps.by_owner": ["ownerId"],
 };
 
 function backend({ identity = null } = {}) {
@@ -89,9 +94,17 @@ function backend({ identity = null } = {}) {
         const q = {
           eq(field, value) { assert.equal(field, fields[position++], `Index ${name} read out of order`); tests.push((row) => row[field] === value); return q; },
           lt(field, value) { tests.push((row) => row[field] < value); return q; },
+          gt(field, value) { tests.push((row) => row[field] > value); return q; },
         };
         build?.(q);
         list = list.filter((row) => tests.every((t) => t(row)));
+        // Rows in the order of the index's next field, as Convex returns them.
+        const next = fields[position];
+        if (next) list.sort((a, b) => (a[next] < b[next] ? -1 : a[next] > b[next] ? 1 : 0));
+        return chain;
+      },
+      order(direction) {
+        if (direction === "desc") list.reverse();
         return chain;
       },
       take: async (n) => list.slice(0, n),
@@ -121,6 +134,13 @@ function backend({ identity = null } = {}) {
     db,
     auth: { getUserIdentity: async () => identity },
     scheduler: { runAfter: async (delay, fn, args) => { scheduled.push({ delay, path: fn.path, args }); } },
+    // An action's question, answered by the real function over this database (the consent gate asks one in the demo
+    // too, whether the deployment holds accounts: convex/access.ts).
+    runQuery: async (fn, args) => {
+      const segments = fn.path.split(".").slice(1);
+      const name = segments.pop();
+      return await load("convex/" + segments.join("/") + ".ts")[name].handler(ctx, args);
+    },
   };
   return { ctx, rows, scheduled, insert: db.insert };
 }

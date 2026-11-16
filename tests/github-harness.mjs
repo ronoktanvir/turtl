@@ -32,6 +32,9 @@ const otherTables = {
   apps: defineTable({ name: v.string(), ownerId: v.optional(v.string()) }).index("by_owner", ["ownerId"]),
   cases: defineTable({ appId: v.string() }),
   ownerPasscodeConfig: defineTable({ passcodeDigest: v.string() }),
+  // Convex Auth's accounts and users, empty here: the single-owner demo first checks there are none (convex/access.ts).
+  authAccounts: defineTable({ userId: v.string(), provider: v.string(), providerAccountId: v.string() }),
+  users: defineTable({ email: v.optional(v.string()) }),
 };
 
 const keys = generateKeyPairSync("rsa", { modulusLength: 2048 });
@@ -131,6 +134,7 @@ function createBackend(load, overrides = {}) {
     },
     normalizeId: (table, id) => (typeof id === "string" && id.startsWith(table + ":") ? id : null),
     query: (table) => ({
+      first: async () => structuredClone(rowsOf(table)[0] ?? null),
       take: async (count) => structuredClone(rowsOf(table).slice(0, count)),
       unique: async () => {
         assert.ok(rowsOf(table).length <= 1, table + ": unique() matched " + rowsOf(table).length + " rows");
@@ -143,12 +147,18 @@ function createBackend(load, overrides = {}) {
         const range = {
           eq: (field, value) => (conditions.push(["eq", field, value]), range),
           lt: (field, value) => (conditions.push(["lt", field, value]), range),
+          gt: (field, value) => (conditions.push(["gt", field, value]), range),
         };
         build(range);
         conditions.forEach(([, field], position) => assert.equal(field, fields[position], table + "." + name + " cannot be read by " + field + " here"));
-        const matched = () =>
-          structuredClone(rowsOf(table).filter((row) => conditions.every(([operator, field, value]) => (operator === "eq" ? row[field] === value : row[field] < value))));
-        return {
+        const holds = { eq: (a, b) => a === b, lt: (a, b) => a < b, gt: (a, b) => a > b };
+        let descending = false;
+        const matched = () => {
+          const rows = structuredClone(rowsOf(table).filter((row) => conditions.every(([operator, field, value]) => holds[operator](row[field], value))));
+          return descending ? rows.reverse() : rows;
+        };
+        const reader = {
+          order: (direction) => ((descending = direction === "desc"), reader),
           collect: async () => matched(),
           first: async () => matched()[0] ?? null,
           take: async (count) => matched().slice(0, count),
@@ -158,6 +168,7 @@ function createBackend(load, overrides = {}) {
             return rows[0] ?? null;
           },
         };
+        return reader;
       },
     }),
   };
@@ -257,7 +268,38 @@ async function world(t, { app = true, connect = false, accounts = false, mocks, 
     );
     return { status: response.status, body: await response.json() };
   };
-  return { stub, load, backend, mints, deliver, open, http, access: (repo, owner = { account: SOLO }) => repositoryAccess(backend.ctx, repo, owner) };
+  return { stub, load, backend, mints, deliver, open, http, access: (repo, owner = { account: SOLO }, purpose) => repositoryAccess(backend.ctx, repo, owner, purpose) };
+}
+
+// A world with Connect GitHub set up, and the person's side of it: `account` taps Connect GitHub in the app, `login` is
+// who is signed in to github.com, and `choice` is what they do there (see willInstall in scripts/github-app/stub.mjs).
+async function connectWorld(t, options = {}) {
+  const w = await world(t, { connect: true, ...options });
+  const project = async (ownerId) => {
+    const appId = await w.backend.insert("apps", { name: "app", ...(ownerId && { ownerId }) });
+    return { appId, caseId: await w.backend.insert("cases", { appId }) };
+  };
+  // `account` taps Connect GitHub in the app; `login` is who is signed in to github.com; `choice` is what they do there.
+  const begin = async (account, login, choice, returnTo = "app") => {
+    w.stub.signIn(login);
+    if (choice !== undefined) w.stub.willInstall(choice);
+    const { url } = await w.backend.call("github.connect.begin", { returnTo }, account);
+    return url;
+  };
+  const connectAs = async (account, login, choice, returnTo) => {
+    const url = await begin(account, login, choice, returnTo);
+    const landed = await w.open(url);
+    const back = new URL(landed.url);
+    return { url, landed, back, result: back.searchParams.get("github"), ticket: back.searchParams.get("ticket") };
+  };
+  const connected = async (account, login, choice) => {
+    const { ticket, result } = await connectAs(account, login, choice);
+    assert.equal(result, "connected");
+    return await w.backend.call("github.connect.finish", { ticket }, account);
+  };
+  const status = (account) => w.backend.call("github.connect.status", {}, account);
+  const pickable = async (account) => (await w.backend.call("github.connect.repositories", {}, account)).map((repository) => repository.fullName);
+  return { ...w, project, begin, connectAs, connected, status, pickable };
 }
 
 const installation = (id, login, { selection = "selected", suspended = false } = {}) => ({
@@ -281,6 +323,7 @@ const changed = (action, id, login, { added = [], removed = [], selection = "sel
 export {
   APP_ID,
   changed,
+  connectWorld,
   created,
   createBackend,
   createLoader,

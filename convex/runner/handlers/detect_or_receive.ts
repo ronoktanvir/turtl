@@ -20,7 +20,7 @@ import { evidenceRow, loadJourneyContext, type JourneyContext } from "./journey"
 const MAX_REPORT_EVIDENCE = 10;
 
 // Runs the journey check and the health check once and records them as the "before" verification.
-async function checkBefore(ctx: ActionCtx, input: HandlerInput, { base, journey, check, watched }: JourneyContext) {
+async function checkBefore(ctx: ActionCtx, input: HandlerInput, { base, journey, check, watched, app }: JourneyContext) {
   const startedAt = Date.now();
   const revision = revisionOf(await readRevision(base, watched), base);
   const [health, outcome] = await Promise.all([call(`${base}/health`, { app: watched }), runJourneyCheck(check, watched)]);
@@ -55,7 +55,8 @@ async function checkBefore(ctx: ActionCtx, input: HandlerInput, { base, journey,
       criterionResults: [
         { criterionId: CRITERIA.health.id, status: healthOk ? "passed" : "failed", summary: healthTitle, evidenceIds: [healthId] },
         { criterionId: CRITERIA.journey.id, status: passed ? "passed" : "failed", summary: describeJourney(result), evidenceIds: [checkId] },
-        { criterionId: CRITERIA.device.id, status: "uncovered", summary: DEVICE_NOT_COVERED, evidenceIds: [] },
+        // A practice app has no booking screen (PRACTICE_DONE_MEANS), so a phone check is not part of it at all.
+        ...(app?.practice ? [] : [{ criterionId: CRITERIA.device.id, status: "uncovered" as const, summary: DEVICE_NOT_COVERED, evidenceIds: [] }]),
       ],
       evidenceIds: [checkId, healthId],
       startedAt,
@@ -63,7 +64,7 @@ async function checkBefore(ctx: ActionCtx, input: HandlerInput, { base, journey,
       verdict: passed ? "passed" : "failed",
       coverage: {
         coveredCriterionIds: [CRITERIA.health.id, CRITERIA.journey.id],
-        uncoveredCriterionIds: [CRITERIA.device.id],
+        uncoveredCriterionIds: app?.practice ? [] : [CRITERIA.device.id],
       },
       summary: `Before any change: ${describeJourney(result)}`,
     },

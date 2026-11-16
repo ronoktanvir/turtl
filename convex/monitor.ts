@@ -3,6 +3,8 @@ import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { internalAction, internalMutation, internalQuery, type ActionCtx } from "./_generated/server";
 import { accessEnforced, MAX_PROJECTS } from "./access";
+
+const CLOSED_DEMO_SKIPPED = "This deployment holds accounts but runs as the single-owner demo, so the monitor checked nothing (the backend log says why).";
 import { CLOSED_CASE_STATUSES } from "./constants";
 import { controlBase, readErrors, runJourneyCheck, type WatchedApp } from "./protectedApp/client";
 import { watchedApp } from "./protectedApp/watched";
@@ -44,8 +46,11 @@ function describeImpact(
   failedStep: string,
   counts: { totalBookings: number; failedBookings: number; errorRate: number } | null,
   countsReason: string | null,
+  practice = false,
 ) {
-  const check = `The booking check fails at the "${failedStep}" step, so a booking cannot be completed.`;
+  const check = `The booking check fails at the "${failedStep.replace(/_/g, " ")}" step, so a booking cannot be completed.`;
+  // A practice app (convex/practice) has no customers: only turtl's test booking ever fails on it.
+  if (practice) return { title: "Booking is failing", impact: `${check} This is your practice app, which has no customers, so only turtl's test booking failed.` };
   if (!counts) {
     return {
       title: "Customers may not be able to book",
@@ -64,12 +69,26 @@ function describeImpact(
   };
 }
 
-// A passing check of the journey, from the monitor or from verify, re-arms its signature.
+// A passing check of the journey, from the monitor or from verify, re-arms its signature, and starts its run of passes
+// if it was not passing.
 export const recordPass = internalMutation({
   args: { journeyId: v.id("journeys"), observedAt: v.number() },
   handler: async (ctx, { journeyId, observedAt }) => {
     const journey = await ctx.db.get(journeyId);
-    if (journey && observedAt > (journey.lastPassedAt ?? 0)) await ctx.db.patch(journeyId, { lastPassedAt: observedAt });
+    if (journey && observedAt > (journey.lastPassedAt ?? 0)) {
+      await ctx.db.patch(journeyId, { lastPassedAt: observedAt, ...(journey.passingSince === undefined && { passingSince: observedAt }) });
+    }
+  },
+});
+
+// A check of the journey that got no answer ends its run of passes, as a failure does (openCase).
+export const recordMiss = internalMutation({
+  args: { journeyId: v.id("journeys") },
+  returns: v.null(),
+  handler: async (ctx, { journeyId }) => {
+    const journey = await ctx.db.get(journeyId);
+    if (journey?.passingSince !== undefined) await ctx.db.patch(journeyId, { passingSince: undefined });
+    return null;
   },
 });
 
@@ -87,6 +106,9 @@ export const openCase = internalMutation({
     const journey = await ctx.db.get(journeyId);
     if (!journey) throw new Error("Journey not found.");
     if (journey.lastPassedAt !== undefined && observedAt < journey.lastPassedAt) return { opened: false as const, reason: "this observation is older than the journey's latest passing check" };
+    // How long it had been passing before this failure, which the failure ends (convex/consent/gate.ts, the reserve).
+    const passingForMs = journey.passingSince !== undefined ? Math.max(0, observedAt - journey.passingSince) : 0;
+    if (journey.passingSince !== undefined) await ctx.db.patch(journeyId, { passingSince: undefined });
     const signature = signatureFor(journeyId);
     const previous = await ctx.db
       .query("cases")
@@ -109,9 +131,9 @@ export const openCase = internalMutation({
     const { title, impact } = journey.preventionFindingId
       ? {
           title: `A prevention check failed: ${journey.name}`,
-          impact: `${journey.description} It failed at the "${failedStep}" step. ${counts ? `${counts.failedBookings} of ${counts.totalBookings} customer booking attempts failed in the last 15 minutes.` : `Customer booking counts could not be read (${countsReason ?? "unknown reason"}).`}`,
+          impact: `${journey.description} It failed at the "${failedStep.replace(/_/g, " ")}" step. ${counts ? `${counts.failedBookings} of ${counts.totalBookings} customer booking attempts failed in the last 15 minutes.` : `Customer booking counts could not be read (${countsReason ?? "unknown reason"}).`}`,
         }
-      : describeImpact(failedStep, counts, countsReason);
+      : describeImpact(failedStep, counts, countsReason, (await ctx.db.get(journey.appId))?.practice === true);
     const caseId = await startCaseRun(ctx, {
       appId: journey.appId,
       journeyId,
@@ -122,6 +144,7 @@ export const openCase = internalMutation({
       raisedByRef: `journey check: ${journey.name}`,
       signature,
     });
+    await ctx.db.patch(caseId, { passingForMs });
     const app = await ctx.db.get(journey.appId);
     await ctx.scheduler.runAfter(0, internal.notices.notifyOwner, {
       caseId,
@@ -149,7 +172,10 @@ export type MonitorResult = { skipped: string } | { checked: Checked[] } | Swept
 async function checkJourney(ctx: ActionCtx, journey: Runnable, base: string, app: WatchedApp): Promise<Checked> {
   const observedAt = Date.now();
   const outcome = await runJourneyCheck(journey, app);
-  if (!outcome.ok) return { journeyId: journey.journeyId, outcome: "check_error", detail: outcome.reason };
+  if (!outcome.ok) {
+    await ctx.runMutation(internal.monitor.recordMiss, { journeyId: journey.journeyId });
+    return { journeyId: journey.journeyId, outcome: "check_error", detail: outcome.reason };
+  }
   const { result } = outcome;
   if (result.verdict === "passed") {
     await ctx.runMutation(internal.monitor.recordPass, { journeyId: journey.journeyId, observedAt });
@@ -205,10 +231,23 @@ const vChecked = v.object({
   reason: v.optional(v.string()),
 });
 
+/**
+ * What every check of a project failed with, when none passed: one short signature, the same each time the project
+ * fails the same way (watching.ts spaces its checks out then). Null when a check passed or none ran.
+ */
+export function failureOf(checked: Checked[]): string | null {
+  if (!checked.length || checked.some((check) => check.outcome === "passed")) return null;
+  const text = checked.map((check) => `${check.journeyId} ${check.outcome} ${check.detail}`).sort().join("\n");
+  let hash = 5381;
+  for (let i = 0; i < text.length; i++) hash = ((hash * 33) ^ text.charCodeAt(i)) >>> 0;
+  return `${checked.length}:${hash.toString(16)}`;
+}
+
 export const checkProject = internalAction({
   args: { appId: v.id("apps") },
   returns: v.object({ checked: v.array(vChecked) }),
   handler: async (ctx, { appId }): Promise<{ checked: Checked[] }> => {
+    let failure: string | null | undefined;
     try {
       const plan: { base: string; journeys: Runnable[] } | null = await ctx.runQuery(internal.protectedApp.watching.plan, { appId });
       if (!plan) return { checked: [] };
@@ -218,19 +257,35 @@ export const checkProject = internalAction({
         const turn = plan.journeys.slice(start, start + CONCURRENT_CHECKS);
         checked.push(...(await Promise.all(turn.map((journey) => checkJourney(ctx, journey, plan.base, app)))));
       }
+      failure = failureOf(checked);
       return { checked };
     } finally {
-      await ctx.runMutation(internal.protectedApp.watching.finish, { appId, checkedAt: Date.now() });
+      await ctx.runMutation(internal.protectedApp.watching.finish, { appId, checkedAt: Date.now(), ...(failure !== undefined && { failure }) });
     }
   },
 });
 
-// Run by convex/crons.ts. The demo checks its one app; with accounts on, the next projects get their turn.
+/** Claims one tick makes at most: CLAIM_BATCH due projects each, so up to 2,000 projects start their checks a minute. */
+const MAX_CLAIMS_PER_TICK = 20;
+
+// Run by convex/crons.ts. The demo checks its one app; with accounts on, every due project gets its check, claimed a
+// batch at a time until a claim comes back short.
 export const tick = internalAction({
   args: {},
   handler: async (ctx): Promise<MonitorResult> => {
-    if (!accessEnforced()) return await checkJourneys(ctx);
-    const { started, skipped }: Swept = await ctx.runMutation(internal.protectedApp.watching.claim, {});
-    return { started, skipped };
+    if (!accessEnforced()) {
+      // A deployment that holds accounts and lost AUTH_REQUIRED is not the demo: it checks nothing, so it opens no case
+      // and sends no request, and the backend log says why once (convex/access.ts, noteClosedDemo).
+      const { closed }: { closed: boolean } = await ctx.runMutation(internal.access.noteClosedDemo, {});
+      return closed ? { skipped: CLOSED_DEMO_SKIPPED } : await checkJourneys(ctx);
+    }
+    const swept: Swept = { started: [], skipped: [] };
+    for (let claims = 0; claims < MAX_CLAIMS_PER_TICK; claims++) {
+      const { started, skipped, more }: Swept & { more: boolean } = await ctx.runMutation(internal.protectedApp.watching.claim, {});
+      swept.started.push(...started);
+      swept.skipped.push(...skipped);
+      if (!more) break;
+    }
+    return swept;
   },
 });

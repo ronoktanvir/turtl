@@ -14,5 +14,5 @@ export function overviewFromOnboarding(onboarding: Onboarding | null, map: Overv
     state: check.state === "works" ? "passing" as const : "failing" as const,
     ...(check.state === "works" && { lastPassedAt: check.checkedAt }),
   }]);
-  return { checks, preparation: !onboarding ? "none" : settled.includes(onboarding.stage) ? "done" : "in_progress", map };
+  return { checks, preparation: !onboarding ? "none" : onboarding.stage === "inspection_failed" ? "unreadable" : settled.includes(onboarding.stage) ? "done" : "in_progress", map };
 }

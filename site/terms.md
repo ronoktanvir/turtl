@@ -16,7 +16,7 @@ You must be at least 18. You must own the app and the repository you connect, or
 
 ## 2. What turtl does
 
-turtl checks the live app you connect, opens a case when a check fails or a customer reports a problem, and uses AI services to work out a likely cause and to propose fixes. It acts only when you approve, or within a permission you have given it in advance and can withdraw at any time.
+turtl checks the live app you connect, opens a case when a check fails or a customer reports a problem, and uses AI services to work out a likely cause and to propose fixes. It acts only when you approve, or within a permission you have given it in advance and can withdraw at any time. How much AI it uses for your account is limited each day and each month, and turtl as a whole stops using AI for the day once it reaches the most it spends; when a limit is reached, turtl says so and works with its own rules until the limit resets.
 
 ## 3. What turtl cannot promise
 
@@ -26,7 +26,7 @@ turtl checks the live app you connect, opens a case when a check fails or a cust
 
 ## 4. Your account
 
-Keep your sign-in details and your passcode to yourself. You are responsible for what happens through your account. Tell us at once at {% include blank.html value=site.data.operator.contact_email label="contact email" %} if you think someone else has used it.
+If you sign up with an email address, confirm it with the code turtl emails you; an account whose address is not confirmed within 7 days is deleted. Keep your sign-in details to yourself. You are responsible for what happens through your account. Tell us at once at {% include blank.html value=site.data.operator.contact_email label="contact email" %} if you think someone else has used it.
 
 ## 5. Your code and content
 
@@ -46,7 +46,7 @@ You agree:
 
 ## 7. Other companies' services
 
-turtl works through services run by other companies, including GitHub, OpenAI, Supermemory, Capy, Revyl, Keiki, and Convex. Your use of GitHub is under your own agreement with GitHub. We are not responsible for those services, and turtl may stop working, or lose a feature, if one of them changes or ends.
+turtl works through services run by other companies, including GitHub, OpenAI, Supermemory, Capy, Revyl, Expo, Resend, Apple, and Convex, listed in the [privacy policy](../privacy/). Your use of GitHub, of Capy with your own key, and of Sign in with Apple is under your own agreement with each of them. We are not responsible for those services, and turtl may stop working, or lose a feature, if one of them changes or ends.
 
 ## 8. Price
 
@@ -54,9 +54,7 @@ turtl is free. If we ever charge for it, we will tell you first, and nothing wil
 
 ## 9. Ending
 
-You can stop using turtl and delete your account at any time in the app's settings. We may suspend or close an account that breaks these terms or puts turtl or other people at risk, and we may stop offering turtl. Where we can, we will give you notice and time to take your data out.
-
-{% include review.html note="Account deletion in the app is being built (checklist RC-23). Apple requires it wherever an app lets people create an account." %}
+You can stop using turtl and delete your account at any time in the app: on Projects, tap your picture, then Delete account. We may suspend or close an account that breaks these terms or puts turtl or other people at risk, and we may stop offering turtl. Where we can, we will give you notice and time to take your data out.
 
 ## 10. No warranty
 

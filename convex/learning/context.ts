@@ -13,6 +13,8 @@ import type { Facts } from "./rules";
 
 const MAX_CODE = 4;
 const MAX_DETAIL = 600;
+/** The project's newest context sources read when choosing what to offer first. */
+const SOURCES_READ = 500;
 const STOP_WORDS = new Set(["the", "and", "can't", "cant", "with", "from", "that", "this", "none", "failed", "customers", "right", "now"]);
 
 type Kind = Doc<"contextSources">["kind"];
@@ -44,10 +46,13 @@ export const sources = internalQuery({
       .query("codeNetworks")
       .withIndex("by_project", (q) => q.eq("projectId", appId))
       .first();
+    // The project's newest sources: one is kept for each past case and memory used as context, so they grow with the
+    // project's cases. A source older than the newest SOURCES_READ is no longer offered first, even if it helped.
     const known = await ctx.db
       .query("contextSources")
       .withIndex("by_app", (q) => q.eq("appId", appId))
-      .collect();
+      .order("desc")
+      .take(SOURCES_READ);
     const exists = async (row: Doc<"contextSources">) => {
       if (row.kind === "past_case") {
         const id = ctx.db.normalizeId("cases", row.sourceRef.replace("cases/", ""));

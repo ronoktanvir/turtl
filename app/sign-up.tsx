@@ -32,7 +32,7 @@ export default function SignUp() {
   };
   return (
     <FormScreen title="Create your account" testID="sign-up">
-      <T color="textMuted">All turtl needs is an email address and a password.</T>
+      <T color="textMuted">All turtl needs is an email address and a password. Then you'll confirm the address with a code turtl emails you.</T>
       <Field label="Email" testID="sign-up-email" value={email} onChangeText={setEmail} keyboardType="email-address" textContentType="username" autoComplete="email" editable={!busy} returnKeyType="next" />
       <Field label="Password" testID="sign-up-password" hint={`At least ${MIN_PASSWORD_LENGTH} characters.`} value={password} onChangeText={setPassword} secureTextEntry textContentType="newPassword" autoComplete="new-password" editable={!busy} returnKeyType="go" onSubmitEditing={() => void submit()} />
       {error && <T font="text" color="statusAffected" accessibilityRole="alert" testID="sign-up-error">{error}</T>}

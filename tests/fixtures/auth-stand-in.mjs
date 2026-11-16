@@ -8,7 +8,8 @@ import { exportJWK, exportPKCS8, generateKeyPair, jwtVerify, SignJWT } from "jos
 // - Apple's token endpoints (/apple/auth/token and /apple/auth/revoke), which check the client secret the way Apple
 //   documents it (ES256, signed by the team's Sign in with Apple key, naming the team, the bundle id and Apple), trade
 //   a code from issueAppleCode once for a refresh token, and keep each revoked token,
-// - Resend's send endpoint (/email/emails), which keeps each message so a test can read the reset code.
+// - Resend's send endpoint (/email/emails), which keeps each message so a test can read the code in it (a password
+//   reset, or confirming a new account's address).
 // Point a deployment at it with AUTH_STAND_IN_URL. Nothing here talks to GitHub, Apple or Resend.
 
 export const STAND_IN_GITHUB_USER = {
@@ -20,6 +21,9 @@ export const STAND_IN_GITHUB_USER = {
   avatar_url: "https://avatars.stand-in.invalid/u/4242.png",
 };
 export const STAND_IN_GITHUB_EMAIL = "octo-owner@example.com";
+
+// A code turtl emails (convex/auth/rules.ts): four groups of five from Crockford's alphabet, on a line of its own.
+const CODE = /^([0-9A-HJKMNP-TV-Z]{5}(?:-[0-9A-HJKMNP-TV-Z]{5}){3})$/m;
 
 export async function startAuthStandIn({ host = "127.0.0.1", port = 0, githubUser = STAND_IN_GITHUB_USER, bundleId = "com.turtl.oncall" } = {}) {
   const { privateKey, publicKey } = await generateKeyPair("RS256", { extractable: true });
@@ -132,7 +136,10 @@ export async function startAuthStandIn({ host = "127.0.0.1", port = 0, githubUse
     },
     appleRefreshTokens,
     appleRevoked,
-    lastCode: () => emails.at(-1)?.text?.match(/\b(\d{8})\b/)?.[1] ?? null,
+    /** The code in the newest email (to this address, when one is named), as it is printed there: ABCDE-FGHJK-MNPQR-STVWX. */
+    lastCode: (to) => [...emails].reverse().find((email) => !to || email.to?.includes(to))?.text?.match(CODE)?.[1] ?? null,
+    /** The turtl:// link in the newest email (to this address, when one is named). */
+    lastLink: (to) => [...emails].reverse().find((email) => !to || email.to?.includes(to))?.text?.match(/(turtl:\/\/\S+)/)?.[1] ?? null,
     close: () => new Promise((resolve) => server.close(resolve)),
   };
 }

@@ -1,7 +1,8 @@
 import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { internalQuery, type ActionCtx, type QueryCtx } from "./_generated/server";
+import { internalMutation, internalQuery, type ActionCtx, type QueryCtx } from "./_generated/server";
+import { addressConfirmed, unconfirmedAccount } from "./auth/confirmed";
 import type { Actor } from "./constants";
 
 declare const process: { env: Record<string, string | undefined> };
@@ -9,12 +10,16 @@ declare const process: { env: Record<string, string | undefined> };
 // Who is calling, and is this project theirs. Every public function asks here, so the rule lives in one file;
 // tests/access-coverage.test.mjs fails CI for a public function that does not.
 //
-// AUTH_REQUIRED on the deployment picks the mode:
-// - unset: the single-owner demo. Every caller is the one owner, as before accounts existed, and owner
-//   decisions are guarded by the owner passcode (convex/ownerPasscode.ts).
-// - "true": accounts. A caller must be signed in, and reaches only the projects whose ownerId is their account
-//   and what hangs off them. Owner decisions are authorised by being that owner; no passcode is asked for.
+// AUTH_REQUIRED on the deployment picks the mode, and fails closed:
+// - unset, empty, or exactly "false": the single-owner demo. Every caller is the one owner, as before accounts
+//   existed, and owner decisions are guarded by the owner passcode (convex/ownerPasscode.ts). The demo makes no
+//   accounts, and refuses to serve a deployment that holds any (refuseDemoWithAccounts): one that served accounts and
+//   then lost the variable closes, instead of handing every account's projects to anyone.
+// - anything else: accounts. "true", and also "TRUE", "1", " true" or a typo, each of which meant to turn them on.
+//   A caller must be signed in, and reaches only the projects whose ownerId is their account and what hangs off
+//   them. Owner decisions are authorised by being that owner; no passcode is asked for.
 //
+// Every public function is made with the builders in convex/functions.ts, which run refuseDemoWithAccounts first.
 // Identity does not travel with ctx.scheduler or a cron: check at the public function, then pass ids on.
 //
 // Two families of checks:
@@ -34,42 +39,127 @@ export const NOT_AVAILABLE = "That project is not available on this account.";
 export const DEV_TOOLS_DISABLED = "Dev tools are disabled on this deployment.";
 export const BOOKING_DEMO_CLOSED = "The booking demo does not run on this deployment.";
 
-type AuthCtx = Pick<QueryCtx, "auth">;
+type DbCtx = Pick<QueryCtx, "db">;
 type ReadCtx = Pick<QueryCtx, "auth" | "db">;
 type AskCtx = Pick<ActionCtx, "runQuery">;
 
+/** Accounts mode, unless AUTH_REQUIRED is unset, empty, or exactly "false". */
 export function accessEnforced(): boolean {
-  return process.env.AUTH_REQUIRED === "true";
+  const value = process.env.AUTH_REQUIRED;
+  return value !== undefined && value !== "" && value !== "false";
+}
+
+// The single-owner demo on a deployment that holds accounts is closed: nothing serves or acts in the demo's terms.
+// Every public function refuses (convex/functions.ts), and so do the paths that run without a caller: the monitor's
+// cron, customer reports, the consent gate for every outbound call, GitHub's callback and webhook, GitHub tokens, the
+// owners' apps, the runner and push delivery (each says where it asks). The monitor's cron writes the one log line.
+
+/** What the person sees. The backend log says why. */
+export const UNAVAILABLE = "turtl is unavailable right now. Please try again later.";
+const DEMO_WITH_ACCOUNTS =
+  'turtl is closed: AUTH_REQUIRED is unset, empty or "false", which makes this deployment the single-owner demo, but it ' +
+  "holds accounts (a sign-in, a user, or a project another account owns), and the demo would hand every account's " +
+  "projects to anyone. Every public function refuses, and nothing runs in the demo's terms: no check, no customer " +
+  "report, no outbound call, no GitHub change, no step of a case. Set AUTH_REQUIRED=true to serve the accounts again.";
+/** The log line again at most this often while the deployment stays closed. */
+const CLOSED_LOG_EVERY_MS = 24 * 60 * 60_000;
+
+/** Whether this is the single-owner demo on a deployment that holds accounts: any sign-in row, any user, or any
+ * project whose owner is not the demo's one owner. With accounts on: false, and nothing is read. In the demo: four
+ * reads of at most one row each, which on a working demo find nothing. */
+export async function demoHoldsAccounts(ctx: DbCtx): Promise<boolean> {
+  if (accessEnforced()) return false;
+  const { db } = ctx;
+  if ((await db.query("authAccounts").first()) !== null || (await db.query("users").first()) !== null) return true;
+  // Owners sort as text, so another account's id sorts after the demo's own or before it; a project with no owner
+  // sorts first of all, so the last one before the demo's tells which.
+  if ((await db.query("apps").withIndex("by_owner", (q) => q.gt("ownerId", SOLO_ACCOUNT)).first()) !== null) return true;
+  const before = await db.query("apps").withIndex("by_owner", (q) => q.lt("ownerId", SOLO_ACCOUNT)).order("desc").first();
+  return before !== null && before.ownerId !== undefined;
+}
+
+/** The same from an action, through one internal query; with accounts on it asks nothing. */
+export async function demoHoldsAccountsInAction(ctx: AskCtx): Promise<boolean> {
+  return !accessEnforced() && (await ctx.runQuery(internal.access.demoClosed, {}));
+}
+
+/** Refuses when this is the single-owner demo and the deployment holds accounts (demoHoldsAccounts). With accounts on:
+ * nothing, no read. convex/functions.ts runs it before every public query and mutation. It writes no log line of its
+ * own: a refused call can save nothing, so the monitor's cron writes the one line (noteClosedDemo). */
+export async function refuseDemoWithAccounts(ctx: DbCtx): Promise<void> {
+  if (await demoHoldsAccounts(ctx)) throw new ConvexError(UNAVAILABLE);
+}
+
+/** The same before every public action, which has no database: one internal query in the demo, nothing with accounts on. */
+export async function refuseDemoWithAccountsInAction(ctx: AskCtx): Promise<void> {
+  if (!accessEnforced()) await ctx.runQuery(internal.access.demoOpen, {});
+}
+
+export const NO_SIGN_IN = "This turtl has no accounts, so there is nothing to sign in to.";
+
+/** For Convex Auth's callback inside the mutation that makes or updates an account's user (convex/auth.ts). The demo
+ * makes none: anyone may call sign-in, and a single account closes the demo (refuseDemoWithAccounts). */
+export function refuseSignInToDemo(): void {
+  if (!accessEnforced()) throw new ConvexError(NO_SIGN_IN);
+}
+
+/** The context's database, which checking a session needs. An action has none and asks through internal.access.*;
+ * a helper here that is handed an action's context refuses, rather than skip the session check. */
+function databaseOf(ctx: Partial<DbCtx>): DbCtx["db"] {
+  if (!ctx.db) throw new Error("convex/access.ts needs the database to check the session. From an action, ask through ctx.runQuery(internal.access.account, {}).");
+  return ctx.db;
 }
 
 /** The signed-in account's id, or null. Convex Auth writes "<users id>|<session id>" as the token's subject. A token
  * stays valid for up to an hour after its session ends (signed out elsewhere, or the account is being deleted), so
- * where there is a database the session must still be live. Actions have none; they ask through internal.access.*. */
-export async function signedInAccount(ctx: AuthCtx): Promise<string | null> {
+ * the session must still be live. Actions have no database; they ask through internal.access.*. */
+export async function signedInAccount(ctx: ReadCtx): Promise<string | null> {
+  const db = databaseOf(ctx);
   const identity = await ctx.auth.getUserIdentity();
   if (!identity) return null;
   const [account, session] = identity.subject.split("|");
   // Only a subject naming a real session id is checked; one that names none (an admin's test identity) reads as before.
-  const db = (ctx as Partial<ReadCtx>).db;
-  const sessionId = db?.normalizeId && session ? db.normalizeId("authSessions", session) : null;
-  if (db && sessionId) {
-    const row = await db.get(sessionId);
-    if (!row || row.expirationTime <= Date.now()) return null;
-  }
+  const sessionId = session ? db.normalizeId("authSessions", session) : null;
+  if (sessionId && !(await sessionLive({ db }, sessionId))) return null;
+  // Email confirmation, checked here and nowhere else (see "email confirmation" at the end of this file).
+  if (accessEnforced() && !(await addressConfirmed(db, account))) return null;
   return account;
 }
 
-/** The account that owned records are filed under. With accounts on, throws unless someone is signed in. */
-export async function requireAccount(ctx: AuthCtx): Promise<string> {
-  if (!accessEnforced()) return SOLO_ACCOUNT;
+/** Whether a Convex Auth session is still live: its row is there (signing out, a password reset and account deletion
+ * delete it) and it has not run out. */
+export async function sessionLive(ctx: DbCtx, sessionId: Id<"authSessions">): Promise<boolean> {
+  const row = await ctx.db.get(sessionId);
+  return !!row && row.expirationTime > Date.now();
+}
+
+/** The session the caller's token names. Convex Auth's tokens always name one; an identity the operator's admin key
+ * stands for may name none, and then this is null. Ask after requireAccount, which has checked the session is live. */
+export async function callerSession(ctx: ReadCtx): Promise<Id<"authSessions"> | null> {
+  const db = databaseOf(ctx);
+  const session = (await ctx.auth.getUserIdentity())?.subject.split("|")[1];
+  return session ? db.normalizeId("authSessions", session) : null;
+}
+
+/** The demo's one owner, once the deployment is known to hold no account. These two answers are what everything else
+ * about the caller builds on, so they check it too, for a function not made with convex/functions.ts. */
+async function soloAccount(ctx: Partial<DbCtx>): Promise<string> {
+  await refuseDemoWithAccounts({ db: databaseOf(ctx) });
+  return SOLO_ACCOUNT;
+}
+
+/** The account that owned records are filed under. With accounts on, throws unless someone is signed in with a live
+ * session, which needs the database: an action asks through internal.access.account instead. */
+export async function requireAccount(ctx: ReadCtx): Promise<string> {
+  if (!accessEnforced()) return await soloAccount(ctx);
   const account = await signedInAccount(ctx);
   if (!account) throw new ConvexError(SIGN_IN_REQUIRED);
   return account;
 }
 
 /** The same answer without throwing: null when accounts are on and nobody is signed in. */
-export async function currentAccount(ctx: AuthCtx): Promise<string | null> {
-  return accessEnforced() ? await signedInAccount(ctx) : SOLO_ACCOUNT;
+export async function currentAccount(ctx: ReadCtx): Promise<string | null> {
+  return accessEnforced() ? await signedInAccount(ctx) : await soloAccount(ctx);
 }
 
 export function ownsApp(app: Pick<Doc<"apps">, "ownerId">, account: string): boolean {
@@ -219,7 +309,7 @@ export function devToolsEnabled(): boolean {
 }
 
 export function requireDevTools(message = DEV_TOOLS_DISABLED): void {
-  if (!devToolsEnabled()) throw new Error(message);
+  if (!devToolsEnabled()) throw new ConvexError(message);
 }
 
 /** The booking demo (convex/bookingDemo) shares a deployment with turtl only as a hosting shortcut, and its
@@ -234,10 +324,45 @@ export function requireBookingDemo(): void {
   if (!hostsBookingDemo()) throw new ConvexError(BOOKING_DEMO_CLOSED);
 }
 
+/** How an action asks who is calling: here the session is checked against the database, which an action has not. */
 export const account = internalQuery({
   args: {},
   returns: v.string(),
   handler: async (ctx) => await requireAccount(ctx),
+});
+
+/** refuseDemoWithAccountsInAction's read. */
+export const demoOpen = internalQuery({
+  args: {},
+  returns: v.null(),
+  handler: async (ctx) => {
+    await refuseDemoWithAccounts(ctx);
+    return null;
+  },
+});
+
+/** demoHoldsAccountsInAction's read. */
+export const demoClosed = internalQuery({
+  args: {},
+  returns: v.boolean(),
+  handler: async (ctx) => await demoHoldsAccounts(ctx),
+});
+
+/** For the monitor's cron, every minute: whether the demo is closed, writing the reason to the backend log when it is
+ * first seen and then at most once a day while it lasts. Returns when the line was last written. */
+export const noteClosedDemo = internalMutation({
+  args: {},
+  returns: v.object({ closed: v.boolean(), loggedAt: v.union(v.number(), v.null()) }),
+  handler: async (ctx) => {
+    if (!(await demoHoldsAccounts(ctx))) return { closed: false, loggedAt: null };
+    const now = Date.now();
+    const notice = await ctx.db.query("closedDemoNotices").first();
+    if (notice && now - notice.loggedAt < CLOSED_LOG_EVERY_MS) return { closed: true, loggedAt: notice.loggedAt };
+    console.error(DEMO_WITH_ACCOUNTS);
+    if (notice) await ctx.db.patch(notice._id, { loggedAt: now });
+    else await ctx.db.insert("closedDemoNotices", { loggedAt: now });
+    return { closed: true, loggedAt: now };
+  },
 });
 
 export const app = internalQuery({
@@ -268,4 +393,22 @@ export const caseGuard = internalQuery({
   args: { caseId: v.string(), refusal: v.optional(v.string()) },
   returns: v.string(),
   handler: async (ctx, { caseId, refusal }) => await guardCase(ctx, caseId, refusal),
+});
+
+// ---------------------------------------------------------------------------------------------- email confirmation
+// With accounts on, a password account must confirm its email address before it reaches anything (convex/auth/
+// confirmation.ts). Until then signedInAccount reads it as signed out, so every check above refuses it: it can make no
+// project, connect no GitHub, store no secret, give no AI permission and so spend nothing. Accounts made with Apple or
+// GitHub count as confirmed. Only the "check your email" screen's functions reach an unconfirmed account, through these.
+
+/** The signed-in account while it still has to confirm its email address, or null: signed out, confirmed, or the demo. */
+export async function pendingAccount(ctx: ReadCtx): Promise<string | null> {
+  return accessEnforced() ? await unconfirmedAccount(ctx) : null;
+}
+
+/** pendingAccount for an action. */
+export const pending = internalQuery({
+  args: {},
+  returns: v.union(v.string(), v.null()),
+  handler: async (ctx) => await pendingAccount(ctx),
 });

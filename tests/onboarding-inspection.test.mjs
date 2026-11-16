@@ -13,6 +13,7 @@ function load(path) {
   cache.set(path, module);
   runInThisContext(`(function(require, exports, module) { ${outputText}\n})`, { filename: path })(
     (name) => {
+      if (name === "../codeNetwork/redact") return load("../convex/codeNetwork/redact.ts");
       assert.ok(name.startsWith("./"), `Unexpected import: ${name}`);
       return load(`../convex/onboarding/${name.slice(2)}.ts`);
     },

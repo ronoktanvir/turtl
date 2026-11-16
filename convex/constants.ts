@@ -282,6 +282,9 @@ export const vJourney = v.object({
   check: vCheck,
   checkVersion: v.string(),
   lastPassedAt: v.optional(v.number()),
+  // Since when it has passed every time it was checked: set by a pass when unset, cleared by anything else (a failure, or
+  // no answer). A case records how long it had been passing (cases.passingForMs) for the outage reserve.
+  passingSince: v.optional(v.number()),
   // Set on a prevention check registered from a structural finding (convex/structural).
   preventionFindingId: v.optional(v.id("structuralFindings")),
 });
@@ -316,6 +319,8 @@ export const vEvidence = v.object({
   body: v.optional(v.string()),
   url: v.optional(v.string()),
   sourceRef: v.optional(v.string()),
+  // Set on a gather step's copy of evidence an earlier step recorded: the original row. Screens show the original once.
+  copyOf: v.optional(v.id("evidence")),
   observedAt: v.number(),
   environment: v.string(),
   revision: vRevision,
@@ -623,3 +628,14 @@ export type AgentEvaluation = Infer<typeof vAgentEvaluation>;
 export type AgentRun = Infer<typeof vAgentRun>;
 export type ContextSource = Infer<typeof vContextSource>;
 export type OutputRef = Infer<typeof vOutputRef>;
+
+// Words for the owner when a service turtl uses is not connected on this backend. They land in step summaries and
+// reasons a case shows, so they never name a setting: the operator finds those in convex/README and the logs.
+export const NO_MODEL_REASON = "no AI model is connected to turtl yet, so none was asked";
+export const NO_SUPERMEMORY = "Supermemory is not connected to turtl";
+/** A flag's name as the owner says it: "recommendationsEnabled" is "recommendations". */
+export function settingName(flag: string): string {
+  return flag.replace(/(Enabled|_enabled|Flag)$/, "").replace(/([a-z])([A-Z])/g, "$1 $2").replace(/_+/g, " ").toLowerCase().trim() || flag;
+}
+/** For a step that stopped on a thrown error: what the owner reads. The error itself goes to the backend's log. */
+export const UNEXPECTED_STOP = "This step stopped on an unexpected problem, so turtl could not finish it.";

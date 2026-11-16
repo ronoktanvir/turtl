@@ -1,4 +1,4 @@
-import { mutation } from "../_generated/server";
+import { mutation } from "../functions";
 import { requireDevTools } from "../access";
 import { registerCodeChangeAction } from "../prTracking/catalog";
 import { registerBookingApp } from "../protectedApp/registry";

@@ -4,7 +4,7 @@ import type { PlanStep, PullRequest } from "../../data/types";
 import { useTheme, type TokenName } from "../../theme";
 import { Icon, Reveal, T, type IconName } from "../ui";
 import { AgentRuns } from "./AgentRuns";
-import { formatDuration, formatStart } from "./timing";
+import { formatDuration, formatStart, tookDuration } from "./timing";
 
 const status: Record<PlanStep["status"], { label: string; color: TokenName; icon: IconName }> = {
   pending: { label: "Waiting", color: "textMuted", icon: "GitBranch" },
@@ -27,7 +27,7 @@ export function PlanGraph({ steps, pullRequest, now }: { steps: PlanStep[]; pull
         const timing = step.startedAt !== undefined
           ? `Started ${formatStart(step.startedAt)}` + (
             step.finishedAt !== undefined
-              ? ` · took ${formatDuration(step.finishedAt - step.startedAt)}`
+              ? ` · took ${tookDuration(step.finishedAt - step.startedAt)}`
               : step.status === "running" ? ` · ${formatDuration(now - step.startedAt)} elapsed` : ""
           )
           : step.status === "skipped" ? "Not run"

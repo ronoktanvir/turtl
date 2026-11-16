@@ -1,5 +1,6 @@
 import { Image, View, useWindowDimensions } from "react-native";
 import { useTheme } from "../../theme";
+import PracticeStart from "../practice/PracticeStart";
 import { Button, Icon, Reveal, T, type IconName } from "../ui";
 
 // Home before the first project: what turtl does, and one way forward. Nothing here should read as an error.
@@ -33,6 +34,9 @@ export default function FirstRun({ onAdd }: { onAdd: () => void }) {
       <Reveal delay={160} style={{ gap: 12 }}>
         <Button label="Add your first project" icon="Plus" onPress={onAdd} testID="first-run-add-project" style={{ minHeight: 52, borderRadius: 16 }} />
         <T variant="small" color="textMuted" style={{ textAlign: "center" }}>You'll need its GitHub repository. The address of the live app helps too.</T>
+      </Reveal>
+      <Reveal delay={200}>
+        <PracticeStart testID="first-run-practice" />
       </Reveal>
     </View>
   );

@@ -1,10 +1,11 @@
-import { useLocalSearchParams, type Href } from "expo-router";
+import { useLocalSearchParams, useRouter, type Href } from "expo-router";
 import { useState } from "react";
 import { KeyboardAvoidingView, Platform, Pressable, View } from "react-native";
 import AiNotice from "../../../components/consent/AiNotice";
 import { Constellation, type NetworkSelection } from "../../../components/network/Constellation";
 import { NetworkChat } from "../../../components/network/NetworkChat";
 import { Header, HealthWord, Icon, Reveal, Screen, T, Turtle } from "../../../components/ui";
+import { Empty } from "../../../components/ui/Empty";
 import { useCodeNetwork, useDataStatus, useProject } from "../../../data";
 import { useTheme } from "../../../theme";
 
@@ -15,6 +16,7 @@ export default function Investigate() {
   const network = useCodeNetwork(projectId);
   const { errors } = useDataStatus();
   const { colors } = useTheme();
+  const router = useRouter();
   const [selection, setSelection] = useState<NetworkSelection>(null);
   const [chatOpen, setChatOpen] = useState(false);
   const select = (next: NetworkSelection) => { setChatOpen(false); setSelection(next); };
@@ -27,11 +29,13 @@ export default function Investigate() {
     <Screen testID="investigate-screen">
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
         <Header title="Investigate" fallback={back} right={<Icon name="Network" color="brandDeep" />} />
-        {project !== null && <AiNotice uses={["openai", "supermemory"]} cannot="map your code or answer questions about it" style={{ marginHorizontal: 20, marginTop: 8 }} />}
+        {project !== null && !project?.practice && <AiNotice uses={["openai", "supermemory"]} cannot="map your code or answer questions about it" style={{ marginHorizontal: 20, marginTop: 8 }} />}
         {project === null ? (
           <View style={{ flex: 1, padding: 28, justifyContent: "center", alignItems: "center", gap: 20 }}>
             <T style={{ textAlign: "center" }} testID="investigate-not-found">This project is no longer available.</T>
           </View>
+        ) : project?.practice ? (
+          <Empty testID="investigate-practice" message="The practice app has no repository, so turtl has no code to map, show or change." hint="Maps of code, code evidence and code changes need a connected repository. Add your own project to see them." action={{ label: "Back to project", onPress: () => (router.canGoBack() ? router.back() : router.replace(back)), testID: "investigate-practice-back" }} />
         ) : network === undefined || project === undefined ? (
           <View style={{ padding: 20 }}>{errors.length === 0 && <T color="textMuted">Loading the map of your code…</T>}</View>
         ) : !network || network.nodes.length === 0 ? (

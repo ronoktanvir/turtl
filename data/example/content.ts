@@ -3,8 +3,9 @@ import { listenerProject, listenerCases, listenerNetwork, listenerPlans, listene
 import { listenerFeatures, featurePlans, featureReplies, featureAfterShots } from "./listener-features";
 import { withExampleInstructions, withExampleSends } from "./instructions";
 import { listenerStructural } from "./structural";
+import { practiceLearned, practicePlans } from "./practice";
 
-export type ProjectSeed = Pick<Project, "id" | "name" | "iconUrl" | "summary" | "repoUrl" | "productionUrl" | "approvals">;
+export type ProjectSeed = Pick<Project, "id" | "name" | "iconUrl" | "summary" | "repoUrl" | "productionUrl" | "approvals" | "practice">;
 export type StepSeed = {
   key: string;
   title: string;
@@ -41,7 +42,7 @@ export const caseReplies: Record<string, string[]> = { ...listenerReplies, ...fe
 export const headChangesOnce = listenerCases.filter((item) => item.health === "needs_you").flatMap((item) => item.fixes.slice(0, 1).map((fix) => fix.key));
 
 export function planFor(fix: FixOption): StepSeed[] {
-  return featurePlans[fix.key] ?? listenerPlans[fix.key] ?? [
+  return practicePlans[fix.key] ?? featurePlans[fix.key] ?? listenerPlans[fix.key] ?? [
     { key: "write", title: "Write the change", detail: fix.whatChanges, summary: "The proposed change is ready for review." },
     { key: "open_pr", title: "Open a pull request", detail: "The change stays on its own branch until you merge.", summary: "Pull request opened.", effect: "open_pr" },
     { key: "checks", title: "Run the checks", detail: fix.howChecked, summary: "The checks passed.", effect: "checks" },
@@ -56,6 +57,7 @@ export function pullRequestFor(item: CaseDetail, fix: FixOption): PullRequest {
 }
 
 export function learnedFor(fix: FixOption): string {
+  if (practiceLearned[fix.key]) return practiceLearned[fix.key];
   return `${fix.title} lets the game advance without scanning the entire score history on every answer.`;
 }
 

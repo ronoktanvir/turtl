@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { query } from "../_generated/server";
+import { query } from "../functions";
 import { canSeeCase } from "../access";
 
 // Read-only: who worked on each step of a case and why, and the council's consolidated view. With accounts on, only

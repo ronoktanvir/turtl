@@ -6,8 +6,9 @@ import * as live from "./live";
 // useAccountActions() signs in and out; onSignOut() lets any part of the app clear what it keeps for the person
 // before the session ends. useSignedOutNotice() is the one line Login shows after an account was deleted.
 
-export type { Account, AccountActions, AccountMode, AccountStatus, SignInMethod, Viewer } from "./types";
+export type { Account, AccountActions, AccountMode, AccountStatus, Confirmation, SignInMethod, Viewer } from "./types";
 export const useAccount = isLiveData ? live.useAccount : example.useAccount;
 export const useAccountActions = isLiveData ? live.useAccountActions : example.useAccountActions;
+export const useConfirmation = isLiveData ? live.useConfirmation : example.useConfirmation;
 export const onSignOut = live.onSignOut;
-export { setSignedOutNotice, useSignedOutNotice } from "./notice";
+export { rememberLinkedCode, setSignedOutNotice, takeLinkedCode, useSignedOutNotice } from "./notice";

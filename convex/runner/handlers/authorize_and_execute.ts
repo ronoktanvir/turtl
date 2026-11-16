@@ -1,3 +1,4 @@
+import { settingName } from "../../constants";
 import { internal } from "../../_generated/api";
 import type { Doc, Id } from "../../_generated/dataModel";
 import { runCodeChange } from "../../prTracking/execute";
@@ -40,7 +41,7 @@ export const handler: StepHandler = {
     const { mode, action }: Claim = await ctx.runMutation(internal.protectedApp.records.claimAction, {
       actionId: latest._id,
     });
-    const refs = [{ kind: "action", id: action._id, label: action.type }];
+    const refs = [{ kind: "action", id: action._id, label: action.type === "set_feature_flag" ? "A change to an app setting" : "An action on your app" }];
     if (mode === "completed") {
       return { status: "done", summary: `Already done: ${action.result ?? "the action completed earlier."}`, handoff: { note: "The action had already completed.", refs } };
     }
@@ -96,7 +97,7 @@ export const handler: StepHandler = {
       await finish(ctx, action._id, "failed", result);
       return { status: "failed", error: result };
     }
-    const result = `Turned ${flag} ${value ? "on" : "off"}: the booking app confirmed ${flag} = ${value}.`;
+    const result = `Turned ${settingName(flag)} ${value ? "on" : "off"}, and the booking app confirmed the change.`;
     await finish(ctx, action._id, "completed", result, refOf(sent.body));
     return { status: "done", summary: result, externalRef: refOf(sent.body), handoff: { note: result, refs } };
   },

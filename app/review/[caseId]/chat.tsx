@@ -6,12 +6,14 @@ import AiNotice from "../../../components/consent/AiNotice";
 import { AskBar } from "../../../components/execution/AskBar";
 import { ApproveSheet, FixCard } from "../../../components/fix/FixCard";
 import { useTalkSession } from "../../../components/voice/useTalkSession";
-import { Button, devToolsOn, Header, Reveal, Screen, T, Turtle, useReducedMotion } from "../../../components/ui";
+import { Button, Header, Reveal, Screen, T, Turtle, useReducedMotion } from "../../../components/ui";
+import { useDevToolsOn } from "../../../components/ui/devTools";
 import { confirmPreference, dismissPreference, useCase, useChat } from "../../../data";
 import type { ChatMessage, FixOption } from "../../../data/types";
 import { useTheme } from "../../../theme";
 
 export default function InvestigateFurther() {
+  const devToolsOn = useDevToolsOn();
   const { caseId } = useLocalSearchParams<{ caseId: string }>();
   const c = useCase(caseId);
   const chat = useChat({ kind: "case", caseId });

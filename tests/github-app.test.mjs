@@ -97,9 +97,10 @@ test("a token is stored in one table that only github/tokens.ts reads, and only 
   // convex/account/registry.ts names the table only to say GitHub's disconnect removes it when an account is deleted.
   assert.deepEqual(mentions.sort(), ["convex/account/registry.ts", "convex/github/schema.ts", "convex/github/tokens.ts"]);
   for (const path of sources("convex/github")) {
-    const imported = /import \{([^}]+)\} from "\.\.\/_generated\/server"/.exec(readFileSync(resolve(root, path), "utf8"))?.[1] ?? "";
-    const names = imported.split(",").map((name) => name.replace(/\btype\b/, "").trim()).filter(Boolean);
-    const publicKinds = names.filter((name) => ["query", "mutation", "action"].includes(name));
+    // Public builders come from convex/functions.ts (review finding 13); the raw ones in _generated/server count too.
+    const source = readFileSync(resolve(root, path), "utf8");
+    const importedFrom = (module) => (new RegExp(`import \\{([^}]+)\\} from "\\.\\./${module}"`).exec(source)?.[1] ?? "").split(",").map((name) => name.replace(/\btype\b/, "").trim()).filter(Boolean);
+    const publicKinds = [...importedFrom("_generated/server"), ...importedFrom("functions")].filter((name) => ["query", "mutation", "action"].includes(name));
     if (path === "convex/github/connect.ts") assert.deepEqual(publicKinds, ["action", "mutation", "query"]);
     else assert.deepEqual(publicKinds, [], path + " registers a public function");
   }
@@ -107,8 +108,18 @@ test("a token is stored in one table that only github/tokens.ts reads, and only 
   const connect = createLoader()("convex/github/connect.ts");
   const publicNames = Object.entries(connect).filter(([, fn]) => fn?.visibility === "public").map(([name]) => name);
   assert.deepEqual(publicNames.sort(), ["begin", "disconnect", "finish", "refresh", "repositories", "status"]);
-  for (const name of ["status", "repositories"]) assert.match(connect[name].handler.toString(), /currentAccount\)?\(ctx\)/, name);
-  for (const name of ["begin", "finish", "refresh", "disconnect"]) assert.match(connect[name].handler.toString(), /requireAccount\)?\(ctx\)/, name);
+  // Each function's own text, from the file: the builders in convex/functions.ts wrap the handler, so its toString()
+  // is the wrapper's.
+  const connectSource = readFileSync(resolve(root, "convex/github/connect.ts"), "utf8");
+  const textOf = (name) => {
+    const start = connectSource.indexOf(`export const ${name} = `);
+    assert.ok(start >= 0, name + " is not exported from connect.ts");
+    return connectSource.slice(start).split(/\nexport /)[0];
+  };
+  for (const name of ["status", "repositories"]) assert.match(textOf(name), /currentAccount\(ctx\)/, name);
+  assert.match(textOf("finish"), /requireAccount\(ctx\)/, "finish");
+  // An action has no database to check the session, so it asks through internal.access.account (review finding 17).
+  for (const name of ["begin", "refresh", "disconnect"]) assert.match(textOf(name), /internal\.access\.account/, name);
 
   const { stub, backend, load, access } = await world(t);
   stub.install({ id: 7001, login: "octo", repositories: ["octo/app"] });
@@ -303,9 +314,11 @@ test("a partly configured app stops repository access instead of falling back to
     const refused = await access("octo/app");
     assert.equal(refused.ok, false);
     assert.equal(refused.reason, "app_incomplete");
-    assert.match(refused.message, message);
+    // The operator's detail names the setting; the owner's message does not.
+    assert.match(refused.detail, message);
+    assert.equal(refused.message, "turtl's connection to GitHub is not working on this backend yet, so it cannot reach octo/app. Nothing is wrong with your repository.");
     assert.equal(JSON.stringify(refused).includes(LEGACY_TOKEN), false);
-    assert.equal(refused.message.includes("AAAA"), false, "the key never appears in a message");
+    assert.equal(JSON.stringify(refused).includes("AAAA"), false, "the key never appears in a message");
     for (const name of Object.keys(variables)) delete process.env[name];
   }
   assert.deepEqual(stub.requests, []);

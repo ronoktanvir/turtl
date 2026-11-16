@@ -13,6 +13,19 @@ export const HARNESS_VERSION = "turtl-structural-v1";
 export const PROMPT_VERSION = "structural-prompt-v1";
 const HISTORY_LIMIT = 50;
 const RELATED_LIMIT = 8;
+// What the structural step reads is bounded, however large the project grows (its cases come from the monitor and from
+// customers' reports, so others can grow them). Past these, what is lost:
+/** The project's newest cases read; the HISTORY_LIMIT before this one are taken from them. Only when more than 150
+ * cases opened between this case and its examination does it see fewer than HISTORY_LIMIT earlier ones. */
+const CASES_READ = 200;
+/** The project's newest findings read: an older finding that already connects these cases is not seen, and the step
+ * examines them again (one more model call) instead of skipping. */
+const FINDINGS_READ = 200;
+/** A case's first evidence rows read: the step offers the first 20 (or 8) that are not memory matches, so only a case
+ * with more than 80 memory matches among its first 100 rows offers fewer. */
+const EVIDENCE_READ = 100;
+/** A case's newest verifications, first actions and recovery memories read: older ones of a case with more are not. */
+const PER_CASE_READ = 50;
 const CODE_NODE_LIMIT = 40;
 const ATTACH_RETRY_MS = 5_000;
 const ATTACH_TRIES = 60;
@@ -30,11 +43,12 @@ async function historyRow(ctx: QueryCtx, row: Doc<"cases">): Promise<HistoryCase
   const learned = await ctx.db
     .query("recoveryMemories")
     .withIndex("by_source_case", (q) => q.eq("sourceCaseId", row._id))
-    .collect();
+    .take(PER_CASE_READ);
   const verifications = await ctx.db
     .query("verifications")
     .withIndex("by_case", (q) => q.eq("caseId", row._id))
-    .collect();
+    .order("desc")
+    .take(PER_CASE_READ);
   return {
     id: row._id,
     title: row.title,
@@ -68,8 +82,9 @@ export const examineContext = internalQuery({
     }
     const all = await ctx.db
       .query("cases")
-      .withIndex("by_app_and_signature", (q) => q.eq("appId", row.appId))
-      .collect();
+      .withIndex("by_app", (q) => q.eq("appId", row.appId))
+      .order("desc")
+      .take(CASES_READ);
     const earlier = all
       .filter((c) => c._id !== caseId && c._creationTime < row._creationTime)
       .sort((a, b) => b._creationTime - a._creationTime)
@@ -83,7 +98,8 @@ export const examineContext = internalQuery({
     const findings = await ctx.db
       .query("structuralFindings")
       .withIndex("by_app", (q) => q.eq("appId", row.appId))
-      .collect();
+      .order("desc")
+      .take(FINDINGS_READ);
     const covering = findings.find((f) => relatedCaseIds.every((id) => f.connectedCaseIds.includes(id)));
     if (covering) {
       const source = await ctx.db.get(covering.caseId);
@@ -96,7 +112,7 @@ export const examineContext = internalQuery({
 
     const known: Record<string, KnownRecord> = {};
     const evidenceOf = async (id: Id<"cases">, limit: number) =>
-      (await ctx.db.query("evidence").withIndex("by_case", (q) => q.eq("caseId", id)).collect())
+      (await ctx.db.query("evidence").withIndex("by_case", (q) => q.eq("caseId", id)).take(EVIDENCE_READ))
         .filter((e) => e.kind !== "memory_match")
         .slice(0, limit)
         .map((e) => {
@@ -127,8 +143,8 @@ export const examineContext = internalQuery({
       const id = item.id as Id<"cases">;
       const relatedRow = earlier.find((c) => c._id === id)!;
       known[id] = { kind: "case", label: caseLabel(relatedRow) };
-      const actions = await ctx.db.query("actions").withIndex("by_case", (q) => q.eq("caseId", id)).collect();
-      const verifications = await ctx.db.query("verifications").withIndex("by_case", (q) => q.eq("caseId", id)).collect();
+      const actions = await ctx.db.query("actions").withIndex("by_case", (q) => q.eq("caseId", id)).take(PER_CASE_READ);
+      const verifications = await ctx.db.query("verifications").withIndex("by_case", (q) => q.eq("caseId", id)).order("desc").take(PER_CASE_READ);
       const memories = (
         await Promise.all(item.memoryIds.map((memoryId) => ctx.db.get(memoryId as Id<"recoveryMemories">)))
       ).filter((m): m is Doc<"recoveryMemories"> => !!m);

@@ -37,6 +37,7 @@ const access = load("../convex/access.ts", {
   "convex/values": values,
   "./_generated/api": { internal: anything },
   "./_generated/server": server,
+  "./auth/confirmed": load("../convex/auth/confirmed.ts", {}),
 });
 const demoSettings = load("../convex/demoSettings.ts", { "./access": access });
 const capy = load("../convex/prTracking/capy.ts", { "../demoSettings": demoSettings });
@@ -44,6 +45,8 @@ const githubConfig = load("../convex/github/config.ts", { "../demoSettings": dem
 const decisions = load("../convex/decisions.ts", {
   "convex/values": values,
   "./_generated/server": server,
+  // The public builders, without their demo check (convex/functions.ts), which tests/access-rules.test.mjs covers.
+  "./functions": server,
   "./access": access,
   "./constants": { CLOSED_CASE_STATUSES: ["resolved", "unresolved", "declined"] },
   "./learning/feedback": { recordDecision: async () => {} },
@@ -59,6 +62,7 @@ const fixOptions = load("../convex/fixOptions.ts", {
   "./learning/rules": { fingerprint: () => "", pastDecisionLine: () => null, recommend: () => ({ key: null }) },
   "./spend/limits": { modelCost: () => 0 }, // what a call cost is not under test here
   "./prTracking/capy": capy,
+  "./constants": { NO_MODEL_REASON: "no AI model is connected to turtl yet, so none was asked" },
 });
 
 const prEntry = {
@@ -110,6 +114,7 @@ function backend(options, version = 3) {
     "convex/values": values,
     "./_generated/api": { internal: anything },
     "./_generated/server": server,
+    "./functions": server,
     "./access": access,
     "./consent/gate": consentGate,
     "./constants": { vDecisionStatus: values.v.any(), vDelivery: values.v.any(), vOptionKind: values.v.any(), vSpan: values.v.any() },

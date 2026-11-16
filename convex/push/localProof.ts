@@ -31,6 +31,29 @@ export const seed = internalMutation({
   },
 });
 
+/** A user with one live sign-in session, as Convex Auth makes them, so the proof can act as that session; and its end,
+ * as signing out or a password reset deletes it. */
+export const session = internalMutation({
+  args: {},
+  returns: v.object({ userId: v.id("users"), sessionId: v.id("authSessions") }),
+  handler: async (ctx) => {
+    requireLocalProof();
+    const userId = await ctx.db.insert("users", { name: "Push proof" });
+    const sessionId = await ctx.db.insert("authSessions", { userId, expirationTime: Date.now() + 60 * 60_000 });
+    return { userId, sessionId };
+  },
+});
+
+export const endSession = internalMutation({
+  args: { sessionId: v.id("authSessions") },
+  returns: v.null(),
+  handler: async (ctx, { sessionId }) => {
+    requireLocalProof();
+    if (await ctx.db.get(sessionId)) await ctx.db.delete(sessionId);
+    return null;
+  },
+});
+
 export const snapshot = internalQuery({
   args: { caseId: v.id("cases") },
   returns: v.any(),

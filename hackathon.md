@@ -7,11 +7,11 @@
 - **Frontend:** Other (Expo iOS simulator build on Revyl cloud devices; no public hosted frontend)
 - **Convex deployment:** https://patient-kudu-956.convex.cloud
 - **Components:** none
-- **Convex features:** schema, tables, indexes, queries, mutations, actions, internal functions, HTTP actions, crons, scheduled functions, file storage, realtime queries
-- **Auth:** none
+- **Convex features:** authentication (Convex Auth), schema, tables, indexes, queries, mutations, actions, internal functions, HTTP actions, crons, scheduled functions, file storage, realtime queries
+- **Auth:** Convex Auth (`@convex-dev/auth` 0.0.98): email and password (with the address confirmed by an emailed code), Sign in with Apple, and GitHub, whenever `AUTH_REQUIRED` is set to anything but empty or `false`. Unset, empty or `false`, the deployment is the single-owner demo: nobody signs in, and it refuses to run if it holds any account
 - **AI models:** gpt-5.4-mini (Quick look diagnosis, and by default fix proposals, case chat, report triage and preference reading; `DIAGNOSIS_MODEL` and `FIXES_MODEL` override it), gpt-6.1-sol (Careful review diagnosis and council consolidation), gpt-5.5 and gpt-6.1-terra (council members), gpt-5.4 (broader-cause examination, `STRUCTURAL_MODEL` overrides it), gpt-6-luna (assistant chat, code network and onboarding inspection, `OPENAI_MODEL` overrides it), gpt-4o-mini-transcribe and gpt-4o-mini-tts (voice); claude-sonnet-4-5 and gemini-2.5-pro join the council only when `ANTHROPIC_API_KEY` or `GEMINI_API_KEY` is set. All are called through each provider's API, not the Convex AI Gateway
 - **Started:** 2026-11-15T20:37:34Z
-- **Last updated:** 2026-11-16T06:51:03Z
+- **Last updated:** 2026-11-16T16:00:00Z
 
 ## Log
 
@@ -188,3 +188,168 @@ Pull request #53 rewrote the README as the repository's front page, with screens
 
 ### 2026-11-16 - 0b482e4
 Pull request #58 landed #56, #45, #46, #47, #50, #48, #49, #54, #55, #57 and #53 together, each with its own merge commit. Only the first two merged cleanly; every other conflict was two branches adding to the same list in a shared registry such as `convex/schema.ts`, `convex/crons.ts` or `data/index.ts`, and each resolution kept both sides. Two tests that load modules through a fixed list of allowed imports broke once the branches met: `tests/preferences.test.mjs` now stubs `./structural`, and `tests/workflow-evidence.test.mjs` now loads `convex/routing/validators.ts`. The combined head passed typecheck and 227 tests and was pushed to a local backend; nothing was deployed.
+
+### 2026-11-15 - fbf6fed
+Added `convex/access.ts`, the one place that decides who is calling and whether a project is theirs. With `AUTH_REQUIRED` unset the deployment stays the single-owner demo; with `AUTH_REQUIRED=true` a caller must be signed in and reaches only projects whose `ownerId` is their account. Nothing called it yet (`convex/access.ts`).
+
+### 2026-11-15 - 3a02df0
+Pushed notifications to the owner's phone through Expo's push service when a case needs their decision or a fix they allowed in advance has run. The words come from one pure function: the project's name as the title, one fixed sentence per event, and only the case id as data, so no customer's words, error or code can reach a locked screen. A Notifications row in the gear sheet asks the phone only when the owner taps, and a tap opens the case. Proven against a stand-in for Expo in tests and on a local backend; nothing has reached a real phone, which needs an Apple Developer membership. Convex features: tables, mutations, queries, internal actions, scheduled functions (`convex/push/`, `convex/notices.ts`, `components/push/`, `data/push/`).
+
+### 2026-11-15 - 82ad039
+Refused to send any deployment secret but the watched app's own token. A check's `credentialRef` names the setting turtl sends as a bearer token, and onboarding read it from a project's `turtl.json`, so with several owners a project could have named `OPENAI_API_KEY` and had turtl send it to that project's server. The request helper now refuses every other name before a request is made (`convex/protectedApp/`, `convex/onboarding/`).
+
+### 2026-11-15 - 74d9b99
+Kept Home's header turtle green and greeted an account with no projects with a first-run screen. A project with nothing open now shows what turtl is watching and when each check last passed, a screen that fails to draw says so with "Try again" and "Go to Projects" instead of going blank, and store builds send the old case list and case screen (`/live`, `/case/<id>`) to Projects. Covered by unit tests. Convex features: queries (`app/projects.tsx`, `app/_layout.tsx`, `convex/screens/overview.ts`).
+
+### 2026-11-15 - 848e701
+Made the booking demo honour turtl's prevention scenario, so approving "Book while recommendations are slow" can register. A customer's contact is now kept only as a keyed hash used to count one person once, and an owner can delete one report from its case. The report form became a self-contained folder any owner can copy, the microphone prompt now says recordings go to OpenAI, and `eas submit` reads the dynamic store listing. Covered by unit tests (`convex/bookingDemo/`, `convex/intake/`, `protected-app/report/`, `app.config.ts`).
+
+### 2026-11-15 - 8652293
+Made every public backend function ask `convex/access.ts` who is calling. With accounts on, another account's project, case or child row reads as missing and writes refuse with the function's own "not found" sentence; with accounts off nothing changes. A signed-in owner replaces the shared passcode in accounts mode, and the unused assistant action was deleted. `tests/access-coverage.test.mjs` parses every module and fails for a public function that does not ask (`convex/`, `tests/access-coverage.test.mjs`).
+
+### 2026-11-15 - 01867f0
+Made the case screens match the owner's design and made Approve show what will be sent. The coding agent now receives, word for word, the instructions stored when the fix was proposed, and the Approve sheet shows them behind "See the full instructions", open from the start when a model read customers' messages. Live steps, evidence and actions are named in plain words, the council moved to Logs and the prevention check to Fixes, and the Settings copy was restored. Covered by unit tests (`convex/fixes.ts`, `convex/fixOptions.ts`, `components/fix/`, `data/live/`).
+
+### 2026-11-15 - 9c1cc16
+Showed "Can't reach turtl" over an open sheet, so an owner who tapped Approve as the network dropped no longer sees a sheet stuck on "Approving…" with no reason (`app/_layout.tsx`, `components/ui/`).
+
+### 2026-11-15 - 7b26038
+Brought this log up to date through #58: one entry per merged pull request, headed by its merge commit, and one for the combination (`hackathon.md`).
+
+### 2026-11-15 - 1792828
+Added sign-in with Convex Auth 0.0.98: email and password, Sign in with Apple through the iPhone's own sheet, and GitHub through the same GitHub App that reaches repositories. Accounts are never merged by email. With accounts on, or in a store build, the Login screen signs people in and keeps the app behind it; Google's button is gone. A password reset by emailed code (Resend) switches on only when its key and sender are set, and sends at most one email a minute. Apple's refresh token is kept so it can be revoked later. Proven against stand-ins for Apple, GitHub and Resend; nothing has run against Apple. Convex features: authentication, tables, HTTP actions (`convex/auth.ts`, `convex/auth/`, `app/sign-in.tsx`, `app/sign-up.tsx`, `data/account/`).
+
+### 2026-11-15 - cb56eda
+Asked the owner before anything goes to an AI service. Every call to OpenAI, Supermemory, Capy or Keiki now passes a gate that, in accounts mode, refuses until the account has said yes on a screen listing each service and what it receives, read from `store/data-practices.json`; taking the permission back stops the next call. Each account also gets a monthly model allowance ($20 by default) and five coding-agent threads a day. Secrets are masked in repository content before it leaves turtl, and the code map no longer passes OpenAI's raw error text on. Covered by unit tests against stand-ins. Convex features: tables, mutations, queries, internal queries (`convex/consent/`, `convex/spend/`, `convex/codeNetwork/redact.ts`, `app/ai-permission.tsx`).
+
+### 2026-11-16 - a04b384
+Listed every variable the backend reads in the release table, so the release check knows each one by name (`release/backend-env.mjs`, `release/backend-runbook.md`).
+
+### 2026-11-16 - a21100e
+Let an owner connect GitHub from Add project, pick a repository, and disconnect. turtl never trusts the installation id GitHub puts in the setup address: GitHub confirms the person, and each installation is tied to the account that connected it. Disconnect touches only installations the account actually uses. Proven against a stand-in that plays GitHub and the person's browser, in tests and on a local backend; no real GitHub App exists yet. Convex features: HTTP actions, actions, internal mutations, tables (`convex/github/`, `app/add-project.tsx`).
+
+### 2026-11-16 - 6412a9b
+Added `vercel.json`, which builds the Expo web export and answers every path with its single page. With no backend address set, the build shows the built-in example data (`vercel.json`).
+
+### 2026-11-16 - 68ec36c
+Kept ordinary text in Capriola and titles in Righteous where a few screens had them the other way round (`components/`, `app/`).
+
+### 2026-11-16 - fb01311
+Fixed what running the combined app with accounts on turned up: the project and case sub-screens say "not found" for a project the owner cannot see, a rules-judged Preparation report says "No model answered" once, and the workflow browser test finds Chrome on a Mac (`app/project/`, `tests/workflow-browser.test.mjs`).
+
+### 2026-11-16 - 0e67a4c
+Pull request #59 landed the App Store's first wave on `main`: the access rule, push, the first run, the demo-app changes, the case screens, sign-in, the AI permission and spend limits, Connect GitHub, and the fixes above, each with its own merge commit. Nothing was deployed, and no store build has run.
+
+### 2026-11-16 - efea476
+Closed findings 3 to 9 and 11 of a security review of accounts mode. Stop and verify cancel a case's scheduled jobs by id instead of reading every account's; a project's overview counts only the caller's own code maps; a push token live on another account is refused; repository access goes only through an installation linked to the project's owner; the backend refuses the demo's deployment-wide variables when accounts are on; customer reports get their own daily allowance and case cap; the deployment caps new accounts, total model spend, projects and report keys; and the password reset stays open to an owner a stranger is trying to lock out. Covered by unit tests (`convex/runner/jobs.ts`, `convex/spend/`, `convex/auth/email.ts`, `convex/demoSettings.ts`, `convex/github/access.ts`).
+
+### 2026-11-16 - afb1506
+Set every piece of text that is not a full sentence (titles, names, labels, status words, counts, dates) in Righteous, and sentences in Capriola. The text component decides from the words it draws; errors, chat messages and quoted words are set in Capriola by hand. A follow-up, 826ed48, set the last few fonts the rule needed (`components/ui/typeface.ts`, `components/ui/index.tsx`).
+
+### 2026-11-16 - 17fb5ff
+Redesigned the issue list and the opened issue. The list takes the top half of the screen as compact rows (state turtle, title, date) with "Swipe up to begin review" below, and a green drop carries one screen into the next. An opened issue is headed by its own name, the Overview, Logs and Code tabs each have their own colour and regroup around the selected one, and Fixes is its own page, reached by swiping past the end of the issue or a button. Covered by unit tests and the UI citation test (`components/project/BeginScreen.tsx`, `components/fix/CasePage.tsx`, `components/fix/CaseTabs.tsx`, `components/ui/pulse.tsx`).
+
+### 2026-11-16 - 36717d5
+Let an owner delete their account from the app: "Delete account" under Sign out, in the gear sheet and in the account sheet behind Home's profile picture, only for a signed-in account. Accepting it ends every session and removes the ways to sign in at once; a resumable job then stops the account's work, waits for running actions to finish, deletes its copies at Supermemory, disconnects its GitHub installations, revokes its Apple token, and deletes its projects, cases, files and the account. A test fails for any table the deletion does not cover. Proven on a local backend against stand-ins for Supermemory, GitHub and Apple. Convex features: mutations, actions, crons, scheduled functions, file storage (`convex/account/`, `components/account/`).
+
+### 2026-11-16 - b2e0e4b
+Gave each project its own control token and each account its own coding agent key, sealed with AES-GCM under `SECRETS_ENCRYPTION_KEY` and never returned by a public function. With accounts on, turtl sends a project's requests only to its own address with its own token, watches every project in turns, and starts every Capy thread with the owner's own key on a repository the owner connected. Owners can make, see and revoke their project's report keys, Revyl is sent only its own key, and every GitHub call goes through one address. Proven in tests and on a local backend. Convex features: actions, internal mutations, tables (`convex/secrets/`, `convex/protectedApp/`, `convex/prTracking/codingAgent.ts`, `components/secrets/`).
+
+### 2026-11-16 - c312a93
+Pull request #60 made ten interface fixes from a critique of every screen: "Log in" and "Projects" said the same way everywhere, every control at least 44 points, green text that passes contrast in the light theme, project names kept whole at 320 wide, empty states on two bare screens, a feature request no longer called an urgent issue, and the Fix and Features lists usable with a mouse and a trackpad (`app/`, `components/`, `theme/`).
+
+### 2026-11-16 - 2f99bfe
+Merged `main`, with #60, into the wave-2 branch. The issue list keeps the redesigned layout and takes #60's state words and turtles; #60's sideways card strip, which the redesign removed, goes with its test. Typecheck, the backend typecheck, 453 tests, a local Convex push and the release preflight passed; nothing was deployed.
+
+### 2026-11-16 - 065f727
+Pull request #61 landed the App Store's second wave on `main`: the security review's fixes, account deletion, each project's own control token and each account's own coding agent key, the redesigned issue list and case screens, the typeface rule, and the critique's ten fixes. Nothing was deployed, and no store build has run.
+
+### 2026-11-16 - b127289
+Fixed what a second pass over the combined app found on a local backend with accounts on: stars stored on the case through an access-checked mutation, Logs without database ids, run ids or error codes, missing services and settings named in plain words, a project whose repository could not be read no longer saying "All clear", the Dev pill and the old case list hidden with accounts on, and the running-fix screen held together at 320 wide.
+
+### 2026-11-16 - 00037c4
+Brought every document up to the wave-2 commit: a new data-practices audit, App Privacy answers with Email Address, Name, User ID and Device ID, a privacy policy, terms and support page that describe accounts, deletion, notifications, emails and the AI permission, 50 more checklist lines ticked with their proof, and the review notes, README, this log and `docs/`. The permission screen's list now names what each AI service really receives, so every account is asked again.
+
+### 2026-11-16 - 480fc17
+Fixed what the second test pass found in files other work owned at the time: the control token row is right the moment a token is saved, owners no longer read setting names (they go to the backend log), journey text no longer carries error codes or run ids, the approval step's time leaves out the wait for the owner, and a case that closed because turtl could not reach the app says so and what to do. Such a case stays closed; a new check or report opens a new one.
+
+### 2026-11-16 - ae4798f
+Added the practice project (`convex/practice/`): a signed-in account can make one from the first-run screen or Add project, and turtl serves a small booking app for it at the deployment's own address under `/practice/<project>/`, with the project's own control token. The owner breaks it from the project page, up to ten times a day, turtl's ordinary watching opens a case, and the ordinary flow fixes it. It has no repository, never calls GitHub or a coding agent, and goes with the account. `practice/review:prepare` gives the App Review account its project with a case open.
+
+### 2026-11-16 - e6324d9
+Made turtl act on GitHub only where the person may change things: Connect GitHub links only repositories the person can push to and says why each other one is missing, turtl asks GitHub again before a merge or coding-agent work, and disconnecting or deleting an account uninstalls only an installation on the person's own GitHub account that no other account uses. An organisation's installation is unlinked, and the person is told who can remove it.
+
+### 2026-11-16 - 8011d60
+Made the accounts switch fail closed: `AUTH_REQUIRED` unset, empty or `false` is the single-owner demo and any other value turns accounts on, and the demo refuses to serve a deployment that holds any account. Every public function is now made with the builders in `convex/functions.ts`, which check that first, and a test fails for one that is not. Signing out removes the phone's push registration, GitHub's actions check that the session is alive, Apple refresh tokens are sealed at rest, and Keiki's and Revyl's base addresses are honoured only for a stand-in on a local backend.
+
+### 2026-11-16 - e44afc7
+Made the four local proofs true of the fail-closed rule: each shows the demo on a backend with no account, then the refusal once an account exists, both the sentence the caller reads and the line in the backend log. The secrets proof had passed for the wrong reason and now seeds a sign-in row for each owner.
+
+### 2026-11-16 - a189b62
+Made sign-up confirm the email address: a password account reads as signed out everywhere and sees only "Check your email" until it enters the code turtl emails through Resend, and one that never confirms is deleted after seven days. Reset and confirmation codes are twenty characters, arrive as a `turtl://` link and as text to paste, work for a day, and at most five of each kind go to one address a day. A completed reset ends every other session. Password sign-ups, confirmations, and Apple and GitHub sign-ups each have their own hourly and daily ceilings.
+
+### 2026-11-16 - ad3d5cb
+Brought the practice proof and the App Review account under confirmed sign-up: the proof's two accounts confirm with the code the stand-in received, `auth/review:ensureAccount` marks the review account's address confirmed, and `practice/review:prepare` refuses an account that is not confirmed.
+
+### 2026-11-16 - 4e92400
+Gave each account a daily share of the deployment's AI ceiling, and another for its customers' reports, admitted in the same transaction that checks the share, with the end of each day kept for diagnosing outages. When a ceiling is reached turtl says why and explains with its own rules; the case still opens. The monitor now keeps a next-check time for each project that has checks and starts one action for each due project, checking a project that fails the same way after 1, 2, 4, 8, then every 15 minutes. Pull-request and preparation syncing take due rows in bounded batches, and a live address must use the default https port.
+
+### 2026-11-16 - 275159d
+Went through the practice project as a new person would, from sign-up to account deletion, at both widths and in both themes. The flow worked; the wording did not, in places: the example build no longer opens a backend connection, step ids read as words, turtl's own reading says what it knows without guessing at a cause, a broken practice app says "Practice app broken" instead of "Users affected", and the empty repository picker fits both kinds of person.
+
+### 2026-11-16 - 65ddc8c
+Bounded six more reads that grew without limit: settling agent runs now looks at each waiting run on its own schedule through an index, and settles one that never finishes after 30 days; the structural step reads the newest 200 cases; past-case notes, a memory's uses, the day's council reviews and context sources read a bounded number of rows. `tests/bounded-reads.test.mjs` requires it.
+
+### 2026-11-16 - 9c2d407
+Made a phone receive notifications only while the session that registered it is alive, so a lost phone stops receiving project names once its owner resets their password elsewhere. A reset removes the account's ended phones at once and an hourly sweep removes the rest; registrations from before the change receive nothing until the app is opened signed in to the same account.
+
+### 2026-11-16 - 8686894
+Took the bigger items from the practice pass: the theme a person chooses is kept across launches and read before the first screen draws, the running-fix screen shows Stop only while a fix is under way and Merge only for an open pull request, an empty Fix list on a project whose check is still failing says why no issue is open, the practice sheet at its daily limit says when it resets, the two checks a case records are labelled, and turtl offers typing in place of talking only when typing would work.
+
+### 2026-11-16 - d0d28bb
+Made the checks panel show the warning triangle in the failing colour while any check is failing, instead of a green shield above a row that said "Not passing".
+
+### 2026-11-16 - a2fcd6e
+Sent basic security headers with the web export (`vercel.json`): no content sniffing, no framing by other sites, a referrer limited to the origin across sites, and no camera or location, with the microphone kept for the page itself because Talk uses it.
+
+### 2026-11-16 - f5625a1
+Made every document true of wave 3, and took Keiki off the AI permission screen: accounts mode never sent it anything, so it is now demo-only like the council's Anthropic and Google models, and the gate refuses it with accounts on. The sentence under the list now says the screen asks only about AI services and that turtl uses the others each for one job. Each account is asked about AI once more because the list changed.
+
+### 2026-11-16 - d7397ae
+Made the Delete account screen say what Disconnect and the privacy policy already said: turtl's app stays installed on an organization's GitHub until one of its owners removes it.
+
+### 2026-11-16 - 0065cf3
+Kept the outage reserve for real outages on established projects: it admits only a case the monitor raised on a project that is not a practice app, whose check had passed for a day before it failed, on an account at least two weeks old. A practice app's cases get their own $2.00 a day and never draw on the reserve, and a call's cost estimate counts the bytes sent. About twenty-two established accounts acting together can still use up a day; the operator's settings for that are in the runbook.
+
+### 2026-11-16 - 8c5a028
+Closed the gaps in masking secrets before repository content leaves: nothing from a secret file leaves in any form, text is masked before it is shortened, every string the onboarding inspection sends has been masked, and more shapes of secret are recognised while lockfile hashes, digests, commit hashes and ids are kept. On a realistic repository it changes no ordinary line and lets no planted secret through.
+
+### 2026-11-16 - ab9a02f
+Made reset and confirmation links carry only the code, so a link someone else sends cannot set a password on, or sign anyone into, another account; the reset screen uses the address this phone last asked to reset, kept for a day, and says whose account is about to change. One email domain may take a tenth of each sign-up ceiling (a large mail provider a half), and `EMAILS_PER_DAY` bounds every email turtl sends, of which sign-ups may use at most two thirds, so a flood of sign-ups cannot take an owner's reset.
+
+### 2026-11-16 - 56105ee
+Closed the demo on a deployment that holds accounts: with `AUTH_REQUIRED` unset there, the monitor, customer reports, the AI permission gate, GitHub's pages and webhook, requests to owners' apps, the runner and push delivery refuse too, with one log line a day saying why. A project's live address may no longer be the deployment's own site or API; a practice project is the one exception, for its own path only.
+
+### 2026-11-16 - b019a6e
+Fixed a step of the local proof for each project's own control token, which assumed every monitor tick checks every project. It now waits for that project's own next check and proves the same things as before.
+
+### 2026-11-16 - a00a2e2
+Refused turtl's own address as a project's live app however its host is spelled: addresses are compared as the network reads them, in lower case and without a trailing dot, so a variant spelling of the backend's own address no longer gets through.
+
+### 2026-11-16 - b52d84b
+Brought every document to the finished wave-3 code and pinned the App Store pack's audit to `56105ee`: emails that carry only a code, secret masking, the closed demo, the outage reserve and the practice allowance, and what the app keeps on the phone. A read of the site as an owner would read it fixed an over-claim about deletion and added answers on resets and on apps that do not answer.
+
+### 2026-11-16 - 937a361
+Made sure a full day of emails cannot stop an owner's reset: each confirmed address's first reset email of the day is sent even when `EMAILS_PER_DAY` is used up, and a sign-up that cannot be emailed now makes no account and offers Sign in with Apple or GitHub, or an email address tomorrow.
+
+### 2026-11-16 - 4eea484
+Made sure an owner's own outage is always diagnosed: each account has $1.25 a day (`OUTAGE_FLOOR_PER_DAY_USD`), outside the shared day, for finding the cause of an outage turtl's checks found on its own real project, which no other account can use up. A practice app's allowance now sits inside the account's own share.
+
+### 2026-11-16 - 9d5bb95
+Put a hard stop on what the deployment spends on AI in a day (`DEPLOYMENT_MODEL_HARD_STOP_PER_DAY_USD`, twice the daily ceiling unless set, $50 with the defaults), the shared day and every account's floor together, so a month costs at most $1,550.
+
+### 2026-11-16 - b173a40
+Documented the outage floor, the hard stop, the first reset of the day and the stricter own-address rule, and pinned the App Store pack's audit to `9d5bb95`.
+
+### 2026-11-16 - fb2a04b
+Made a failed model call give its hold back: a call the AI service refuses with an error status releases its hold at once, and one that times out keeps it for ten minutes and is then counted at its hold, settled by a sweep each minute (`modelCallHolds`). No hold lasts until midnight any more.

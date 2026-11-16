@@ -15,9 +15,14 @@ export const words = {
   passwordTooLong: `Choose a password of at most ${MAX_PASSWORD_LENGTH} characters.`,
   passwordIsEmail: "Choose a password that isn't your email address.",
   badEmail: "Enter your email address, like name@example.com.",
-  tooManyTries: "Too many wrong passwords for this account. Wait an hour and try again, or reset your password.",
-  wrongCode: "That code didn't work. Check the latest email from turtl, or ask for a new code.",
+  tooManyTries: "Too many wrong passwords for this account. Reset your password to get back in now, or wait an hour and try again.",
+  wrongCode: "That code didn't work. Copy the whole code from the newest email from turtl, or tap the link in it.",
+  // One answer for a mistyped code, a used or expired one, and one emailed to another address, so it never says whose
+  // code it is (finding 21).
+  wrongResetCode: "That code doesn't work for this email address. Check the address, and use the newest email turtl sent to it.",
   resetOff: "Password reset by email isn't available yet. Contact support and we'll help you back in.",
+  signUpOff: "Signing up with an email address isn't available on this server yet. Sign up with Apple or GitHub instead.",
+  emailNotSent: "turtl couldn't send the email just now. Try again in a few minutes.",
   appleRefused: "Apple didn't confirm this sign-in. Try Sign in with Apple again.",
   appleElsewhere: "Sign in with Apple works in the turtl app on iPhone. Here, log in with your email and password or with GitHub.",
   githubRefused: "GitHub didn't confirm this sign-in. Try Sign in with GitHub again.",
@@ -49,6 +54,35 @@ export function passwordProblem(password: unknown, email?: string | null): strin
   if (COMMON.has(lower) || /^(.)\1+$/.test(password)) return words.weakPassword;
   if (email && lower === email.toLowerCase()) return words.passwordIsEmail;
   return null;
+}
+
+// Codes turtl emails: one to reset a password, one to confirm the address of a new password account. Each is 20
+// letters and digits from Crockford's alphabet (no I, L, O or U), about 100 bits, so guessing is hopeless and there is
+// no count of wrong tries for a stranger to use up. People paste it, or tap the email's turtl:// link, which fills it in.
+
+export const CODE_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+export const CODE_LENGTH = 20;
+/** How long an emailed code works. As long as the window of CODE_EMAILS_PER_DAY, so the newest email always works
+ * until another can be sent (convex/auth/codes.ts says why). */
+export const CODE_VALID_HOURS = 24;
+/** Emails of one kind (reset, or confirm) turtl sends one address in any 24 hours. */
+export const CODE_EMAILS_PER_DAY = 5;
+/** A password account that never confirms its address is deleted this many days after sign-up. */
+export const UNCONFIRMED_DAYS = 7;
+
+/** The code as typed or pasted: any case, spaces, dashes and the look-alikes O, I and L allowed. Null unless it is a
+ * whole code. */
+export function normalizeCode(text: unknown): string | null {
+  if (typeof text !== "string" || text.length > 200) return null;
+  const cleaned = text.toUpperCase().replace(/[\s\-_.]/g, "").replace(/O/g, "0").replace(/[IL]/g, "1");
+  if (cleaned.length !== CODE_LENGTH) return null;
+  for (const character of cleaned) if (!CODE_ALPHABET.includes(character)) return null;
+  return cleaned;
+}
+
+/** "ABCDE-FGHJK-MNPQR-STVWX": how a code is shown in an email. */
+export function formatCode(code: string): string {
+  return (code.match(/.{1,5}/g) ?? []).join("-");
 }
 
 /** Only the app's own link and the configured site may receive a sign-in code. */

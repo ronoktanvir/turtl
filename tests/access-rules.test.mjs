@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { createHash, generateKeyPairSync } from "node:crypto";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
 import { test } from "node:test";
@@ -19,10 +19,10 @@ const nodeRequire = createRequire(import.meta.url);
 // cannot reach, so it is loaded up front and handed out by the loader below.
 const esModules = { "@convex-dev/auth/server": await import("@convex-dev/auth/server") };
 const VARIABLES = [
-  "AUTH_REQUIRED", "DEV_TOOLS_ENABLED", "PROTECTED_APP_CONTROL_SECRET_SHA256", "PROTECTED_APP_URL", "CODE_NETWORK_CHAT_ENABLED", "OPENAI_API_KEY", "SUPERMEMORY_API_KEY",
+  "AUTH_REQUIRED", "DEV_TOOLS_ENABLED", "PROTECTED_APP_CONTROL_SECRET_SHA256", "PROTECTED_APP_URL", "PROTECTED_APP_CONTROL_SECRET", "CODE_NETWORK_CHAT_ENABLED", "OPENAI_API_KEY", "SUPERMEMORY_API_KEY",
   // Demo-only and stand-in variables (finding 8), what they need beside them, and the deployment's own address.
   "GITHUB_TOKEN", "GITHUB_APP_ID", "GITHUB_APP_PRIVATE_KEY", "GITHUB_APP_SLUG", "GITHUB_APP_WEBHOOK_SECRET", "AUTH_STAND_IN_URL", "AUTH_RESEND_KEY", "AUTH_EMAIL_FROM",
-  "KEIKI_API_KEY", "KEIKI_AGENT_ID", "KEIKI_OWNER_CONTACT", "EXPO_PUSH_API_URL", "REVYL_API_KEY", "REVYL_BOOKING_WORKFLOW_ID", "CONVEX_CLOUD_URL",
+  "KEIKI_API_KEY", "KEIKI_AGENT_ID", "KEIKI_OWNER_CONTACT", "EXPO_PUSH_API_URL", "REVYL_API_KEY", "REVYL_BOOKING_WORKFLOW_ID", "CONVEX_CLOUD_URL", "CONVEX_SITE_URL", "CUSTOM_AUTH_SITE_URL",
   // Limits (findings 5 and 7).
   "INTAKE_CASES_PER_DAY", "INTAKE_SPEND_PER_DAY_USD", "PROJECTS_PER_ACCOUNT", "INTAKE_KEYS_PER_PROJECT",
 ];
@@ -31,16 +31,16 @@ const SIGN_IN = "Sign in to continue.";
 const NOT_AVAILABLE = "That project is not available on this account.";
 
 const ref = (path) => new Proxy({ path }, { get: (target, key) => (key === "path" ? target.path : ref(path + "." + String(key))) });
-const registered = (kind) => (definition) => ({ kind, ...definition });
+const registered = (kind, visibility = "public") => (definition) => ({ kind, visibility, ...definition });
 const generated = {
   "convex/_generated/api": { api: ref("api"), internal: ref("internal"), components: ref("components") },
   "convex/_generated/server": {
     query: registered("query"),
     mutation: registered("mutation"),
     action: registered("action"),
-    internalQuery: registered("query"),
-    internalMutation: registered("mutation"),
-    internalAction: registered("action"),
+    internalQuery: registered("query", "internal"),
+    internalMutation: registered("mutation", "internal"),
+    internalAction: registered("action", "internal"),
     httpAction: (handler) => handler,
   },
 };
@@ -83,7 +83,8 @@ function createLoader(mocks) {
         const data = JSON.parse(readFileSync(resolve(root, key), "utf8"));
         return { ...data, default: data };
       }
-      return load(resolve(root, key + ".ts"));
+      // A folder's module is its index.ts (convex/runner/handlers).
+      return load(resolve(root, existsSync(resolve(root, key + ".ts")) ? key + ".ts" : key + "/index.ts"));
     };
     runInThisContext("(function(require, exports, module) { " + outputText + "\n})", { filename: file })(require, module.exports, module);
     return module.exports;
@@ -221,7 +222,8 @@ function createBackend(load) {
 }
 
 // One isolated world per test: fresh modules, empty tables, and only the variables the test sets.
-function world(t, env = {}) {
+// `real` names stand-ins to leave out, so those modules load as they are.
+function world(t, env = {}, { real = [] } = {}) {
   const saved = Object.fromEntries(VARIABLES.map((name) => [name, process.env[name]]));
   for (const name of VARIABLES) delete process.env[name];
   Object.assign(process.env, env);
@@ -232,7 +234,9 @@ function world(t, env = {}) {
     }
   });
   const calls = [];
-  const load = createLoader(standIns(calls));
+  const mocks = standIns(calls);
+  for (const name of real) delete mocks[name];
+  const load = createLoader(mocks);
   const backend = createBackend(load);
   const identity = (account) => (account ? { subject: account + "|session-1", tokenIdentifier: "https://auth.test|" + account } : null);
   // Calls a public function by module and name, as the given account (or signed out with null).
@@ -249,10 +253,12 @@ function world(t, env = {}) {
 const digest = (text) => createHash("sha256").update(text).digest("hex");
 
 // Two accounts, each with one project and one case waiting on a proposal, and a customer report on each case.
-async function seed({ backend }) {
+// In the single-owner demo every project is the one owner's: a project another account owns would mean the deployment
+// holds accounts, and then the demo serves nothing (convex/access.ts, demoHoldsAccounts).
+async function seed({ backend, access }) {
   const { db } = backend;
   const project = async (owner, name) => {
-    const appId = await db.insert("apps", { name, ownerId: owner, repoUrl: `https://github.com/${owner}/${name}`, productionUrl: `https://${owner}.test` });
+    const appId = await db.insert("apps", { name, ownerId: access.accessEnforced() ? owner : access.SOLO_ACCOUNT, repoUrl: `https://github.com/${owner}/${name}`, productionUrl: `https://${owner}.test` });
     const caseId = await db.insert("cases", { appId, title: `${name} is down`, impact: "Nobody can book.", kind: "outage", raisedBy: "monitor", status: "waiting_for_owner" });
     const stepId = await db.insert("steps", { caseId, key: "plan", title: "Plan", dependsOn: [], kind: "agent", purpose: "plan", status: "done" });
     const actionCatalogId = await db.insert("actionCatalog", {
@@ -438,9 +444,10 @@ test("the demo is unchanged: one owner, every project, and the owner passcode as
   assert.equal((await anyone("intake/records", "forCase", { caseId: bob.caseId })).people, 1);
   const { projectId } = await anyone("onboarding/projects", "add", { repoUrl: "https://github.com/acme/web", passcode: PASSCODE });
   assert.equal(w.backend.rows("apps").find((app) => app._id === projectId).ownerId, "solo-owner");
-  // The demo's actions ask nothing extra, and still answer as before.
+  // The demo's actions still answer as before. The one thing they ask first is that the deployment holds no account
+  // (convex/functions.ts, review finding 13).
   assert.deepEqual(await anyone("codeNetwork/ask", "ask", { scope: { kind: "project", projectId: alice.appId }, message: "What is this?" }), { outcome: "not_configured", missing: ["CODE_NETWORK_CHAT_ENABLED", "SUPERMEMORY_API_KEY", "OPENAI_API_KEY"] });
-  assert.deepEqual(w.backend.runs, []);
+  assert.deepEqual(w.backend.runs, ["internal.access.demoOpen"]);
 });
 
 test("dev tools refuse with accounts on whatever DEV_TOOLS_ENABLED says, and open in the demo", async (t) => {
@@ -559,6 +566,40 @@ test("EXPO_PUSH_API_URL: with accounts on, phones' tokens go to Expo unless this
   }
 });
 
+// Review, "Worth a second look": REVYL_BASE_URL and KEIKI_BASE_URL moved the operator's own keys to whatever host they
+// named, on any deployment. They are stand-in addresses now, like EXPO_PUSH_API_URL above.
+test("ATTACK (review): REVYL_BASE_URL and KEIKI_BASE_URL: with accounts on, the operator's keys go to Revyl and Keiki unless this backend is a local one", async (t) => {
+  const sent = [];
+  t.mock.method(globalThis, "fetch", async (input, init) => (sent.push({ host: new URL(String(input)).host, key: init?.headers?.Authorization }), new Response(JSON.stringify({ task_id: "task-1" }), { status: 200 })));
+  const revyl = { REVYL_API_KEY: "operator-revyl-key", REVYL_BASE_URL: "https://stand-in.example" };
+  {
+    const w = world(t, { ...HOSTED, ...revyl });
+    // An account's verify step names its own workflow; the key is the operator's.
+    const started = await w.load("convex/revyl/runs.ts").startRun(w.ctxFor(null).actionCtx, { phase: "after", workflowId: "wf-account" });
+    assert.equal(started.outcome, "started");
+    assert.deepEqual(sent, [{ host: "backend.revyl.ai", key: "Bearer operator-revyl-key" }], "the key went to Revyl, not to the address the variable names");
+  }
+  for (const env of [{ ...LOCAL }, {}]) {
+    const w = world(t, { ...env, ...revyl, REVYL_BASE_URL: "http://127.0.0.1:8215" });
+    assert.equal(w.load("convex/revyl/api.ts").revylConfig({ workflowId: "wf" }).config.baseUrl, "http://127.0.0.1:8215", "a local backend and the demo keep it");
+  }
+
+  const keikiSent = [];
+  const gate = { open: async () => ({ ok: true, fetch: async (input) => (keikiSent.push(new URL(String(input)).host), new Response(JSON.stringify({ results: [{ outcome: "ran" }] }))) }) };
+  const keiki = { KEIKI_API_KEY: "operator-keiki-key", KEIKI_AGENT_ID: "agent-1", KEIKI_OWNER_CONTACT: "+15550000000", KEIKI_BASE_URL: "http://127.0.0.1:8216" };
+  {
+    const w = world(t, keiki);
+    assert.equal((await w.load("convex/keiki.ts").sendOwnerNotice(gate, "The shop needs a decision.")).outcome, "ran");
+    assert.deepEqual(keikiSent, ["127.0.0.1:8216"], "the demo keeps its stand-in");
+  }
+  {
+    // With accounts on Keiki texts nobody today (KEIKI_OWNER_CONTACT is the demo's), and its address is Keiki's own.
+    const w = world(t, { ...HOSTED, ...keiki, KEIKI_BASE_URL: "https://stand-in.example" });
+    assert.deepEqual(await w.load("convex/keiki.ts").sendOwnerNotice(gate, "Alice's shop needs a decision."), { outcome: "not_configured" });
+    assert.deepEqual(keikiSent, ["127.0.0.1:8216"], "nothing more was sent");
+  }
+});
+
 test("AUTH_STAND_IN_URL: with accounts on, sign-in trusts no stand-in server unless this backend is a local one", async (t) => {
   const reset = { AUTH_RESEND_KEY: "re_stand_in", AUTH_EMAIL_FROM: "turtl <no-reply@example.com>", AUTH_STAND_IN_URL: "https://stand-in.example" };
   {
@@ -566,16 +607,27 @@ test("AUTH_STAND_IN_URL: with accounts on, sign-in trusts no stand-in server unl
     const settings = w.load("convex/auth/settings.ts");
     assert.equal(settings.standInUrl(), undefined);
     assert.equal(settings.appleKeysUrl(), "https://appleid.apple.com/auth/keys", "Apple's own keys decide an Apple sign-in");
-    assert.equal(settings.resetEmail().endpoint, "https://api.resend.com/emails");
+    assert.equal(settings.emailService().endpoint, "https://api.resend.com/emails");
     assert.equal((await settings.check.handler({}, {})).standIn, false);
   }
   {
     const w = world(t, { ...HOSTED, CONVEX_CLOUD_URL: "not a url", ...reset });
     assert.equal(w.load("convex/auth/settings.ts").standInUrl(), undefined, "an address that cannot be read is not local");
   }
-  for (const env of [{ ...LOCAL }, {}]) {
-    const w = world(t, { ...env, ...reset });
-    assert.equal(w.load("convex/auth/settings.ts").appleKeysUrl(), "https://stand-in.example/apple/auth/keys", "a local backend and the demo keep it");
+  // Review, "Worth a second look": a self-hosted backend left on its default address reads as local. With accounts on
+  // it is still not pointed at another server: a stand-in counts only when it is on this machine too.
+  {
+    const w = world(t, { ...LOCAL, ...reset });
+    assert.equal(w.load("convex/auth/settings.ts").standInUrl(), undefined, "a local backend ignores a stand-in on another host");
+    assert.equal(w.load("convex/auth/settings.ts").appleKeysUrl(), "https://appleid.apple.com/auth/keys");
+  }
+  {
+    const w = world(t, { ...LOCAL, ...reset, AUTH_STAND_IN_URL: "http://127.0.0.1:8202" });
+    assert.equal(w.load("convex/auth/settings.ts").appleKeysUrl(), "http://127.0.0.1:8202/apple/auth/keys", "a local backend keeps a stand-in on this machine");
+  }
+  {
+    const w = world(t, reset);
+    assert.equal(w.load("convex/auth/settings.ts").appleKeysUrl(), "https://stand-in.example/apple/auth/keys", "the demo keeps it");
   }
 });
 
@@ -692,4 +744,330 @@ test("Stop cancels the case's own scheduled jobs by id and reads no one else's",
   assert.deepEqual(alicesJobs.map(state), ["canceled", "canceled"], "the run and its time limit are cancelled");
   assert.deepEqual(bobsJobs.map(state), ["pending", "pending"], "nobody else's job is touched");
   assert.deepEqual(w.backend.systemReads, [], "no read of the whole _scheduled_functions table");
+});
+
+// ---- Review finding 13: AUTH_REQUIRED fails closed ----
+
+const UNAVAILABLE = "turtl is unavailable right now. Please try again later.";
+
+// Any value but unset, empty or "false" meant to turn accounts on, so it does: a signed-out stranger sees nothing.
+for (const value of ["TRUE", "True", "1", "yes", " true", "true "]) {
+  test(`ATTACK (finding 13): AUTH_REQUIRED=${JSON.stringify(value)} is accounts mode, so a signed-out stranger lists no account's projects or cases`, async (t) => {
+    const w = world(t, { AUTH_REQUIRED: value });
+    const { alice } = await seed(w);
+    // A production deployment has no owner passcode.
+    for (const row of w.backend.rows("ownerPasscodeConfig")) await w.backend.db.delete(row._id);
+    assert.equal(w.access.accessEnforced(), true);
+    const stranger = w.as(null);
+    assert.deepEqual(await stranger("screens/projects", "list"), []);
+    assert.deepEqual(await stranger("cases", "list"), []);
+    await refuses(stranger("decisions", "approve", { proposalId: alice.proposalId, version: 1, optionKey: "recover" }), SIGN_IN);
+    assert.deepEqual((await w.as("alice")("screens/projects", "list")).map((p) => p.app._id), [alice.appId], "alice sees her own project only");
+  });
+}
+
+test("AUTH_REQUIRED unset, empty, or exactly \"false\" is the single-owner demo; anything else is accounts", (t) => {
+  for (const env of [{}, { AUTH_REQUIRED: "" }, { AUTH_REQUIRED: "false" }]) assert.equal(world(t, env).access.accessEnforced(), false, JSON.stringify(env));
+  for (const value of ["true", "TRUE", "1", "yes", " true", "true ", "False", "0", "no", "off", "ture"]) assert.equal(world(t, { AUTH_REQUIRED: value }).access.accessEnforced(), true, value);
+});
+
+// Every public function in convex/, found by the plain pattern tests/access-coverage.test.mjs checks its scan against.
+function publicFunctionsByFile() {
+  const files = (dir) =>
+    readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+      const path = resolve(dir, entry.name);
+      if (entry.isDirectory()) return entry.name === "_generated" ? [] : files(path);
+      return entry.name.endsWith(".ts") && !entry.name.endsWith(".d.ts") ? [path] : [];
+    });
+  return files(resolve(root, "convex")).flatMap((file) =>
+    [...readFileSync(file, "utf8").matchAll(/^export const (\w+) = (query|mutation|action)\(/gm)].map(([, name]) => ({ module: file.slice(root.length + 1 + "convex/".length, -3), name })),
+  );
+}
+
+const snapshot = (w) => JSON.stringify(Object.keys(w.load("convex/schema.ts").default.tables).map((table) => w.backend.rows(table)));
+
+async function accountsHeld(w) {
+  const userId = await w.backend.db.insert("users", { email: "alice@example.com" });
+  await w.backend.db.insert("authAccounts", { userId, provider: "password", providerAccountId: "alice@example.com" });
+}
+
+// The variable going missing (or emptied, or set to "false") on a deployment that has served accounts must not open
+// it: the demo refuses to serve when the deployment holds any account.
+test("ATTACK (finding 13): with AUTH_REQUIRED unset on a deployment that holds an account, a stranger is refused, and the log says why once", async (t) => {
+  for (const env of [{}, { AUTH_REQUIRED: "" }, { AUTH_REQUIRED: "false" }]) {
+    const w = world(t, env);
+    const { alice } = await seed(w);
+    await accountsHeld(w);
+    const logged = t.mock.method(console, "error", () => {});
+    const stranger = w.as(null);
+    await refuses(stranger("screens/projects", "list"), UNAVAILABLE);
+    await refuses(stranger("cases", "list"), UNAVAILABLE);
+    await refuses(stranger("decisions", "approve", { proposalId: alice.proposalId, version: 1, optionKey: "recover", passcode: PASSCODE }), UNAVAILABLE);
+    await refuses(stranger("users", "account"), UNAVAILABLE);
+    // A refused call saves nothing, so the monitor's cron writes the one line (review finding 20): once, not a minute.
+    assert.equal(logged.mock.callCount(), 0);
+    const tick = w.load("convex/monitor.ts").tick;
+    for (let minute = 0; minute < 3; minute++) await tick.handler(w.ctxFor(null).actionCtx, {});
+    assert.equal(logged.mock.callCount(), 1);
+    assert.match(String(logged.mock.calls[0].arguments[0]), /AUTH_REQUIRED is unset, empty or "false", which makes this deployment the single-owner demo, but it holds accounts/);
+    logged.mock.restore();
+  }
+});
+
+// ---- Review finding 20: nothing runs in the demo's terms on a deployment that holds accounts ----
+
+const APP_KEY = generateKeyPairSync("rsa", { modulusLength: 2048 }).privateKey.export({ type: "pkcs1", format: "pem" });
+const CLOSED_DEMO_SKIPPED = "This deployment holds accounts but runs as the single-owner demo, so the monitor checked nothing (the backend log says why).";
+
+// "Holds accounts", each way it can: a sign-in, a user, or a project another account owns (one left mid-deletion,
+// or after the sign-in tables were wiped or restored from an older copy).
+const HELD = {
+  "a sign-in": async (w) => accountsHeld(w),
+  "a user and nothing else": async (w) => void (await w.backend.db.insert("users", { email: "left@example.com" })),
+  "a project another account owns, with no sign-in or user left": async (w) => void (await w.backend.db.insert("apps", { name: "left", ownerId: "jx7dkqxmalice", productionUrl: "https://left.test" })),
+  "a project whose owner sorts after the demo's": async (w) => void (await w.backend.db.insert("apps", { name: "later", ownerId: "zz9owner", productionUrl: "https://later.test" })),
+};
+
+for (const [how, hold] of Object.entries(HELD)) {
+  test(`ATTACK (finding 20): with AUTH_REQUIRED unset and ${how}, the monitor opens no case and sends nothing, intake keeps nothing, and the gate refuses`, async (t) => {
+    // The booking demo's address and secret, and turtl's GitHub App, as a deployment that served accounts would have.
+    const w = world(t, { PROTECTED_APP_URL: "https://booking.test/booking-demo", PROTECTED_APP_CONTROL_SECRET: "deployment-secret", GITHUB_APP_ID: "4242", GITHUB_APP_PRIVATE_KEY: APP_KEY });
+    const { alice } = await seed(w);
+    await hold(w);
+    t.mock.method(console, "error", () => {});
+    const sent = recordingFetch(t);
+    const ctx = w.ctxFor(null);
+    const access = w.access;
+    assert.equal(await access.demoHoldsAccounts(ctx), true);
+    // The monitor's cron: every account's journeys, at any address, would be checked with the deployment's secret.
+    await w.backend.db.insert("journeys", { appId: alice.appId, name: "Book", description: "Book.", checkVersion: "v1", check: { kind: "http", config: { url: "https://alice.test/journey-check", method: "POST", expectedStatus: 200, credentialRef: "PROTECTED_APP_CONTROL_SECRET" } } });
+    const cases = w.backend.rows("cases").length;
+    assert.deepEqual(await w.load("convex/monitor.ts").tick.handler(ctx.actionCtx, {}), { skipped: CLOSED_DEMO_SKIPPED });
+    assert.deepEqual(sent, [], "no request left");
+    assert.equal(w.backend.rows("cases").length, cases, "no case opened");
+    // A customer report with a project's key.
+    await w.backend.db.insert("intakeKeys", { appId: alice.appId, key: "alice-key", createdAt: 1 });
+    const reports = w.backend.rows("reports").length;
+    const received = await w.load("convex/intake/records.ts").receive.handler(ctx, { key: "alice-key", text: "I can't book." });
+    assert.deepEqual(received, { ok: false, status: 503, code: "UNAVAILABLE", message: UNAVAILABLE });
+    assert.equal(w.backend.rows("reports").length, reports, "the report was not kept");
+    // The consent gate, for every outbound call an action makes.
+    const gate = w.load("convex/consent/gate.ts").gateFor(ctx.actionCtx, { appId: alice.appId });
+    for (const service of ["openai", "supermemory", "capy", "keiki"]) assert.deepEqual(await gate.open(service), { ok: false, reason: UNAVAILABLE }, service);
+    assert.equal(await gate.blocked("supermemory", "erase"), UNAVAILABLE);
+    // GitHub credentials, requests to an owner's app, and push delivery.
+    assert.deepEqual(await w.load("convex/github/access.ts").repositoryAccess(ctx.actionCtx, "alice/shop", { appId: alice.appId }), { ok: false, reason: "github_error", message: UNAVAILABLE });
+    const app = await w.load("convex/protectedApp/watched.ts").watchedApp(ctx.actionCtx, { appId: alice.appId });
+    assert.equal(app.refuse("https://alice.test/journey-check"), "turtl is unavailable right now, so it sent nothing");
+    assert.equal(await w.load("convex/push/deliver.ts").recipients.handler(ctx, { caseId: alice.caseId }), null);
+    assert.deepEqual(sent, []);
+  });
+}
+
+test("ATTACK (finding 20): with AUTH_REQUIRED unset and an account present, the runner starts no step and runs none already dispatched", async (t) => {
+  const w = world(t, {}, { real: ["convex/runner/run"] });
+  const { alice } = await seed(w);
+  const stepId = await w.backend.db.insert("steps", { caseId: alice.caseId, key: "investigate", title: "Investigate", dependsOn: [], kind: "agent", purpose: "investigate", status: "pending" });
+  const attemptId = await w.backend.db.insert("stepAttempts", { stepId, caseId: alice.caseId, attempt: 1, status: "running", startedAt: 1 });
+  await w.backend.db.patch(stepId, { currentAttemptId: attemptId });
+  await accountsHeld(w);
+  const run = w.load("convex/runner/run.ts");
+  const ctx = w.ctxFor(null);
+  const attempts = w.backend.rows("stepAttempts").length;
+  await run.advance.handler(ctx, { caseId: alice.caseId });
+  assert.equal(w.backend.rows("stepAttempts").length, attempts, "no attempt started");
+  assert.deepEqual(w.backend.scheduled, [], "nothing dispatched");
+  assert.equal(await run.loadInput.handler(ctx, { attemptId }), null, "an attempt dispatched earlier does not run");
+});
+
+// ---- turtl's own addresses as a live app (third review, "worth a second look") ----
+
+const OWN = { AUTH_REQUIRED: "true", CONVEX_SITE_URL: "https://patient-otter-123.convex.site", CONVEX_CLOUD_URL: "https://patient-otter-123.convex.cloud" };
+
+test("ATTACK (review): a project cannot give turtl's own site or API as its live app, and no request for one goes there", async (t) => {
+  const w = world(t, OWN);
+  const { alice } = await seed(w);
+  const asAlice = w.as("alice");
+  const own = "The live app address must be your app's own address, not turtl's.";
+  // The same addresses spelled another way are still turtl's own: a trailing dot, or capitals (finding 25).
+  const spelled = ["https://patient-otter-123.convex.site.", "https://patient-otter-123.convex.cloud./api/mutation", "https://PATIENT-OTTER-123.convex.site/booking-demo", "https://Patient-Otter-123.Convex.Site./practice/x"];
+  for (const liveUrl of [OWN.CONVEX_SITE_URL, `${OWN.CONVEX_SITE_URL}/booking-demo`, `${OWN.CONVEX_SITE_URL}/practice/${alice.appId}`, `${OWN.CONVEX_SITE_URL}/intake/report?key=x`, OWN.CONVEX_CLOUD_URL, ...spelled]) {
+    await refuses(asAlice("onboarding/projects", "add", { repoUrl: "https://github.com/alice/other", liveUrl }), own);
+  }
+  // On another port or over http the host is still turtl's, and the port and https rules refuse it.
+  await refuses(asAlice("onboarding/projects", "add", { repoUrl: "https://github.com/alice/other", liveUrl: "https://patient-otter-123.convex.site:8443/" }), "The live app address must be the one your customers use, with no port number, like https://app.example.com.");
+  await refuses(asAlice("onboarding/projects", "add", { repoUrl: "https://github.com/alice/other", liveUrl: "http://patient-otter-123.convex.site/" }), "The live app address must start with https://, so what turtl sends your app is always encrypted.");
+  assert.ok(!w.backend.rows("apps").some((app) => app.productionUrl?.includes("convex")), "nothing was registered");
+
+  // A project row that names turtl's site anyway (written before this rule): the monitor's plan skips it, and a request
+  // its turtl.json could name, to any of turtl's own routes, never leaves.
+  const sent = recordingFetch(t);
+  const owner = await w.backend.db.insert("users", { email: "alice@example.com" });
+  await w.backend.db.patch(alice.appId, { productionUrl: OWN.CONVEX_SITE_URL, ownerId: owner });
+  await w.backend.db.insert("journeys", { appId: alice.appId, name: "Book", description: "Book.", checkVersion: "v1", check: { kind: "http", config: { url: `${OWN.CONVEX_SITE_URL}/journey-check`, method: "POST", expectedStatus: 200 } } });
+  const plan = await w.load("convex/protectedApp/watching.ts").planFor(w.ctxFor(null), w.backend.rows("apps").find((app) => app._id === alice.appId));
+  assert.deepEqual(plan, { kind: "skip", reason: own });
+  const ctx = w.ctxFor(owner).actionCtx;
+  const app = await w.load("convex/protectedApp/watched.ts").watchedApp(ctx, { appId: alice.appId });
+  const client = w.load("convex/protectedApp/client.ts");
+  for (const path of ["/booking-demo/flags", "/intake/report", "/github/callback?state=x&code=y", "/practice/other/journey-check"]) {
+    assert.equal((await client.call(OWN.CONVEX_SITE_URL + path, { app, method: "POST" })).kind, "not_sent", path);
+  }
+  for (const path of ["/api/query", "/api/mutation"]) assert.equal((await client.call(OWN.CONVEX_CLOUD_URL + path, { app, method: "POST" })).kind, "not_sent", path);
+  for (const url of ["https://patient-otter-123.convex.site./booking-demo/flags", "https://patient-otter-123.convex.cloud./api/mutation"]) assert.equal((await client.call(url, { app, method: "POST" })).kind, "not_sent", url);
+  assert.deepEqual(sent, [], "no request left");
+});
+
+test("a practice project keeps its checks: turtl's own site under its own path, and nowhere else there", async (t) => {
+  const w = world(t, OWN);
+  const { alice } = await seed(w);
+  const owner = await w.backend.db.insert("users", { email: "alice@example.com" });
+  await w.backend.db.patch(alice.appId, { productionUrl: `${OWN.CONVEX_SITE_URL}/practice/${alice.appId}`, practice: true, ownerId: owner });
+  const row = w.backend.rows("apps").find((candidate) => candidate._id === alice.appId);
+  await w.backend.db.insert("journeys", { appId: alice.appId, name: "Book", description: "Book.", checkVersion: "v1", check: { kind: "http", config: { url: `${row.productionUrl}/journey-check`, method: "POST", expectedStatus: 200 } } });
+  const plan = await w.load("convex/protectedApp/watching.ts").planFor(w.ctxFor(null), row);
+  assert.equal(plan.kind, "run", JSON.stringify(plan));
+  assert.equal(plan.base, row.productionUrl);
+  const app = await w.load("convex/protectedApp/watched.ts").watchedApp(w.ctxFor(owner).actionCtx, { appId: alice.appId });
+  assert.equal(app.refuse(`${row.productionUrl}/journey-check`), null, "its own path");
+  assert.equal(app.refuse(`${row.productionUrl}/flags?x=1`), null);
+  for (const path of [`/practice/${alice.appId}/../../intake/report`, `/practice/${alice.appId}%2f..%2f..%2fbooking-demo/flags`, "/practice/another-project/journey-check", "/booking-demo/flags", "/github/webhook"]) {
+    const refused = app.refuse(OWN.CONVEX_SITE_URL + path);
+    assert.ok(refused === "turtl does not send a project's requests to turtl's own addresses, so it sent nothing" || /only to its own address/.test(refused ?? ""), path + ": " + refused);
+  }
+  assert.ok(app.refuse(`${OWN.CONVEX_CLOUD_URL}/api/mutation`));
+  // A project that is not a practice project may not use a practice path either.
+  await w.backend.db.patch(alice.appId, { practice: undefined });
+  assert.equal((await w.load("convex/protectedApp/watching.ts").planFor(w.ctxFor(null), { ...row, practice: undefined })).kind, "skip");
+});
+
+test("with AUTH_REQUIRED unset and no account, the monitor, intake, the gate and push delivery behave as before", async (t) => {
+  const w = world(t);
+  const { alice } = await seed(w);
+  const ctx = w.ctxFor(null);
+  assert.equal(await w.access.demoHoldsAccounts(ctx), false);
+  assert.deepEqual(await w.load("convex/monitor.ts").tick.handler(ctx.actionCtx, {}), { skipped: "PROTECTED_APP_URL is not set on this deployment, so no journey was checked." });
+  await w.backend.db.insert("intakeKeys", { appId: alice.appId, key: "alice-key", createdAt: 1 });
+  assert.equal((await w.load("convex/intake/records.ts").receive.handler(ctx, { key: "alice-key", text: "I can't book." })).ok, true);
+  const gate = w.load("convex/consent/gate.ts").gateFor(ctx.actionCtx, { appId: alice.appId });
+  assert.deepEqual(await gate.open("supermemory").then((answer) => answer.ok), true);
+  assert.equal(await w.load("convex/push/deliver.ts").recipients.handler(ctx, { caseId: alice.caseId }).then((plan) => plan?.account), "solo-owner");
+});
+
+test("with AUTH_REQUIRED unset and an account present, every public function refuses before it reads or writes anything", async (t) => {
+  const w = world(t);
+  const { alice } = await seed(w);
+  await accountsHeld(w);
+  t.mock.method(console, "error", () => {});
+  const stranger = w.as(null);
+  const before = snapshot(w);
+  const found = publicFunctionsByFile();
+  assert.ok(found.length >= 70, `only ${found.length} public functions found`);
+  for (const { module, name } of found) {
+    assert.equal(w.load(`convex/${module}.ts`)[name].visibility, "public", `${module}:${name}`);
+    // Connect's disconnect asks for the demo's owner passcode before anything else; someone who knows it is still refused.
+    const args = module.endsWith("/connect") && name === "disconnect" ? { passcode: PASSCODE } : { appId: alice.appId, caseId: alice.caseId, projectId: alice.appId };
+    await refuses(stranger(module, name, args), UNAVAILABLE);
+  }
+  assert.equal(snapshot(w), before, "nothing was written");
+});
+
+// ---- Cross-account calls (review, "Coverage tripwire") ----
+// tests/access-coverage.test.mjs proves each public function calls a check; this proves the check guards the ids the
+// function reads. Every public function that takes the id of a project, a case, or a row that hangs off one is called
+// as alice with bob's ids, through every shape of its arguments. Each must refuse or answer as if the row did not
+// exist: nothing of bob's comes back, and nothing in the database changes.
+
+// Ids passed as text, by argument name. An argument made with v.id() names its table itself.
+const ID_FIELDS = {
+  id: "cases", caseId: "cases", appId: "apps", projectId: "apps", proposalId: "proposals", keyId: "intakeKeys", reportId: "reports",
+  preferenceId: "ownerPreferences", suggestionId: "preferenceSuggestions", inspectionId: "onboardingInspections",
+  findingId: "structuralFindings", memoryId: "recoveryMemories", permissionId: "permissions", agentRunId: "agentRuns",
+};
+
+// Every shape of a value the validator accepts that carries an id, filled with bob's ids; other values are plausible.
+function samples(json, name, ids) {
+  switch (json.type) {
+    case "id":
+      return [ids[json.tableName]];
+    case "string":
+      return [ID_FIELDS[name] ? ids[ID_FIELDS[name]] : name === "message" ? "What is this?" : "x"];
+    case "number":
+      return [1];
+    case "boolean":
+      return [true];
+    case "bytes":
+      return [new ArrayBuffer(8)];
+    case "literal":
+      return [json.value];
+    case "union":
+      return json.value.flatMap((member) => samples(member, name, ids));
+    case "array":
+      return [[]];
+    case "null":
+      return [null];
+    case "object":
+      return Object.entries(json.value).reduce(
+        (shapes, [field, { fieldType, optional }]) => (optional && !carriesId(fieldType, field) ? shapes : shapes.flatMap((shape) => samples(fieldType, field, ids).map((value) => ({ ...shape, [field]: value })))),
+        [{}],
+      );
+    default:
+      return [{}];
+  }
+}
+const carriesId = (json, name) => json.type === "id" || (json.type === "string" && name in ID_FIELDS) || ((json.type === "union" ? json.value : json.type === "object" ? Object.entries(json.value).map(([field, { fieldType }]) => ({ ...fieldType, field })) : []).some((member) => carriesId(member, member.field ?? name)));
+const argsJson = (definition) => ({ type: "object", value: Object.fromEntries(Object.entries(definition.args ?? {}).map(([field, validator]) => [field, { fieldType: validator.json, optional: validator.isOptional === "optional" }])) });
+
+test("as one account, every public function that takes an id refuses another account's ids or answers as if they did not exist", async (t) => {
+  const w = world(t, { AUTH_REQUIRED: "true" });
+  const { alice, bob } = await seed(w);
+  const { db } = w.backend;
+  // Bob's rows in every table a public function takes an id of.
+  const bobs = { apps: bob.appId, cases: bob.caseId, proposals: bob.proposalId, ownerPreferences: bob.preferenceId };
+  bobs.reports = w.backend.rows("reports").find((row) => row.appId === bob.appId)._id;
+  bobs.intakeKeys = await db.insert("intakeKeys", { appId: bob.appId, key: "bob-key", createdAt: 1 });
+  bobs.preferenceSuggestions = await db.insert("preferenceSuggestions", { appId: bob.appId, caseId: bob.caseId, statement: "bob's suggestion", source: "chat", status: "pending", createdAt: 1 });
+  bobs.onboardingInspections = await db.insert("onboardingInspections", { appId: bob.appId, repo: "bob/salon", folders: [], status: "done", items: [], suggestions: [] });
+  bobs.recoveryMemories = await db.insert("recoveryMemories", { appId: bob.appId, sourceCaseId: bob.caseId, signature: "bob", symptoms: "bob's salon is down", conditions: [], conditionChecks: [], cause: "bob's cause" });
+  bobs.permissions = await db.insert("permissions", { appId: bob.appId, memoryId: bobs.recoveryMemories, actionType: "set_feature_flag", grantedBy: { kind: "owner", identity: "bob" }, grantedAt: 1, scope: { environment: "production", resourceRef: "flags#bob" }, parameterConstraints: [], conditions: [] });
+  bobs.agentRuns = await db.insert("agentRuns", { caseId: bob.caseId, appId: bob.appId, taskType: "plan", config: { modelId: "bob-model" } });
+  bobs.structuralFindings = await db.insert("structuralFindings", { appId: bob.appId, caseId: bob.caseId, agentRunId: bobs.agentRuns, hypothesis: "bob's hypothesis", evidence: [] });
+  t.mock.method(console, "error", () => {});
+  t.mock.method(console, "warn", () => {});
+  t.mock.method(console, "log", () => {});
+
+  const asAlice = w.as("alice");
+  const tried = [];
+  for (const { module, name } of publicFunctionsByFile()) {
+    const definition = w.load(`convex/${module}.ts`)[name];
+    const json = argsJson(definition);
+    if (!carriesId(json, "")) continue;
+    for (const args of samples(json, "", bobs)) {
+      const before = snapshot(w);
+      let outcome;
+      try {
+        outcome = { answer: await asAlice(module, name, args) };
+      } catch (error) {
+        outcome = { refused: message(error), plain: typeof error?.data === "string" };
+      }
+      const label = `${module}:${name}(${JSON.stringify(args)})`;
+      tried.push(label);
+      assert.equal(snapshot(w), before, `${label} changed the database`);
+      // A refusal in plain words (a ConvexError, whose sentence reaches the person), not a failure.
+      if ("refused" in outcome) assert.ok(outcome.plain, `${label} failed instead of refusing: ${outcome.refused}`);
+      else assert.doesNotMatch(JSON.stringify(outcome.answer) ?? "", /bob|salon/i, `${label} answered with bob's records`);
+    }
+  }
+  assert.ok(tried.length >= 50, `only ${tried.length} calls were made`);
+  // Alice's own ids still work through the same path, so the refusals above are about whose rows they are.
+  assert.equal((await asAlice("cases", "get", { id: alice.caseId }))._id, alice.caseId);
+});
+
+test("with AUTH_REQUIRED unset and no account, the demo serves as before", async (t) => {
+  const w = world(t);
+  const { alice, bob } = await seed(w);
+  const stranger = w.as(null);
+  assert.deepEqual((await stranger("screens/projects", "list")).map((p) => p.app._id), [alice.appId, bob.appId]);
+  assert.deepEqual((await stranger("cases", "list")).map((row) => row._id), [bob.caseId, alice.caseId]);
+  assert.deepEqual(await stranger("users", "mode"), { accounts: false, github: false, passwordReset: false });
 });

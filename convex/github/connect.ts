@@ -1,13 +1,16 @@
 import { ConvexError, v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
-import { action, internalAction, internalMutation, internalQuery, mutation, query, type ActionCtx, type MutationCtx, type QueryCtx } from "../_generated/server";
+import { internalAction, internalMutation, internalQuery, type ActionCtx, type MutationCtx, type QueryCtx } from "../_generated/server";
+import { action, mutation, query } from "../functions";
 import { accessEnforced, currentAccount, requireAccount } from "../access";
 import { requireOwnerPasscode } from "../ownerPasscode";
 import { deleteInstallation } from "./api";
 import { appConfig, authorizeUrl, connectConfig, githubWebUrl, installationSettingsUrl, returnAddress } from "./config";
 import { signAppJwt, UNREADABLE_KEY } from "./jwt";
-import { activeLinks, linkAllows } from "./links";
+import { activeLinks, linkAllows, mergeLeftOut } from "./links";
+import { recheckIfDue } from "./permission";
+import { vLeftOut } from "./schema";
 import { randomSecret, sha256 } from "./secrets";
 import { refreshInstallation } from "./sync";
 
@@ -21,7 +24,12 @@ import { refreshInstallation } from "./sync";
 //    sends the person back to the app with a one-time ticket.
 // 3. finish (the app, signed in): the ticket works only for the account that started the attempt, so a person who
 //    is sent someone else's install link cannot connect their repositories to that person's turtl.
-// 4. disconnect: uninstalls the app at GitHub when no other account uses the installation, and deletes the records.
+// 4. disconnect: uninstalls the app at GitHub from an installation the person may remove (with accounts on, only one on
+//    their own GitHub account) that no other account uses, and deletes the records. From any other installation it
+//    removes only the person's link, and says who can remove the app.
+//
+// With accounts on, an installation in someone else's account links only the repositories GitHub says the person can
+// change (push, maintain or admin), and GitHub is asked again before turtl changes anything there (permission.ts).
 
 const ATTEMPT_MS = 15 * 60_000;
 const TICKET_MS = 10 * 60_000;
@@ -46,7 +54,19 @@ const vDisconnected = v.object({
   ok: v.boolean(),
   disconnected: v.number(),
   failed: v.array(v.object({ installationId: v.number(), message: v.string() })),
+  // Installations turtl stopped using for the caller but left installed on GitHub, because it is not theirs to remove
+  // (an organization's, or someone else's account) or another turtl account still uses it, with a sentence that says
+  // so and who can remove it.
+  stillInstalled: v.array(v.object({ installationId: v.number(), accountLogin: v.string(), message: v.string() })),
 });
+
+/** Who can remove turtl's app from an installation turtl leaves installed, in plain words. */
+export const STILL_INSTALLED = (accountLogin: string, accountType: string | undefined, ownAccount: boolean) =>
+  ownAccount
+    ? `turtl stopped using ${accountLogin} for you. Its app stays installed there because another turtl account still uses it; you can remove it in your settings on GitHub.`
+    : accountType === "Organization"
+      ? `turtl stopped using ${accountLogin} for you, but its app is still installed on ${accountLogin}. Only an owner of ${accountLogin} can remove it, in ${accountLogin}'s settings on GitHub.`
+      : `turtl stopped using ${accountLogin}'s repositories for you, but its app is still installed on ${accountLogin}. Only ${accountLogin} can remove it, in their settings on GitHub.`;
 
 const installationRow = (ctx: QueryCtx, installationId: number) =>
   ctx.db
@@ -138,7 +158,7 @@ export const begin = action({
   args: { returnTo: v.string(), start: v.optional(v.union(v.literal("install"), v.literal("authorize"))) },
   returns: v.object({ url: v.string() }),
   handler: async (ctx, { returnTo, start }) => {
-    const account = await requireAccount(ctx);
+    const account: string = await ctx.runQuery(internal.access.account, {});
     const connect = connectConfig();
     if (!connect.ok) throw new ConvexError(NOT_SET_UP);
     const target = returnAddress(returnTo);
@@ -179,20 +199,24 @@ export const finish = mutation({
   },
 });
 
-// Reads the caller's installations from GitHub again, so the picker shows what GitHub has now.
+// Reads the caller's installations from GitHub again, so the picker shows what GitHub has now. With accounts on it
+// also asks GitHub again what the caller can change in someone else's account (an organization), drops what they no
+// longer can, and returns what GitHub listed for them that turtl left out, with why, for the app to show.
 export const refresh = action({
   args: {},
-  returns: v.object({ ok: v.boolean(), problems: v.array(v.string()) }),
+  returns: v.object({ ok: v.boolean(), problems: v.array(v.string()), leftOut: v.optional(v.array(v.object({ fullName: v.string(), message: v.string() }))) }),
   handler: async (ctx) => {
-    const account = await requireAccount(ctx);
+    const account: string = await ctx.runQuery(internal.access.account, {});
     if (!connectConfig().ok) return { ok: false, problems: [NOT_SET_UP] };
     const installationIds: number[] = await ctx.runQuery(internal.github.connect.linkedInstallations, { account });
     const problems: string[] = [];
     for (const installationId of installationIds) {
       const refreshed = await refreshInstallation(ctx, installationId);
-      if (!refreshed.ok) problems.push(refreshed.message);
+      const rechecked = refreshed.ok && accessEnforced() ? await recheckIfDue(ctx, account, installationId) : refreshed;
+      if (!rechecked.ok) problems.push(rechecked.message);
     }
-    return { ok: problems.length === 0, problems };
+    const leftOut: { fullName: string; message: string }[] = await ctx.runQuery(internal.github.links.leftOutOf, { account });
+    return { ok: problems.length === 0, problems, leftOut };
   },
 });
 
@@ -202,7 +226,7 @@ export const disconnect = action({
   returns: vDisconnected,
   handler: async (ctx, { passcode }) => {
     await ctx.runQuery(internal.github.connect.ownerDecision, { passcode });
-    const account = await requireAccount(ctx);
+    const account: string = await ctx.runQuery(internal.access.account, {});
     return await disconnectAll(ctx, account);
   },
 });
@@ -210,9 +234,12 @@ export const disconnect = action({
 // ---------------------------------------------------------------------------------------------- internal
 
 /**
- * The whole disconnect for one account, for account deletion (RC-23): every installation only this account uses is
- * uninstalled at GitHub, and its token, repositories and links are deleted; the account's links to installations
- * other accounts still use are removed. Safe to run again: it returns what it could not uninstall.
+ * The whole disconnect for one account, for account deletion (RC-23) as well as Disconnect. turtl uninstalls its app
+ * only from an installation the person is entitled to remove and no other account uses: with accounts on, one on
+ * their own GitHub account (in the single-owner demo, any, as before). GitHub gives turtl's app no way to confirm
+ * that someone owns an organization (that needs the organization's Members permission, which turtl does not ask
+ * for), so from an organization's installation, or someone else's, turtl only removes this account's link and its
+ * cached token, and says who can remove the app. Safe to run again: it returns what it could not uninstall.
  */
 export const disconnectAccount = internalAction({
   args: { account: v.string() },
@@ -220,16 +247,30 @@ export const disconnectAccount = internalAction({
   handler: async (ctx, { account }) => await disconnectAll(ctx, account),
 });
 
+export const installationName = internalQuery({
+  args: { installationId: v.number() },
+  returns: v.object({ accountLogin: v.string(), accountType: v.optional(v.string()) }),
+  handler: async (ctx, { installationId }) => {
+    const row = await installationRow(ctx, installationId);
+    return { accountLogin: row?.accountLogin || "that GitHub account", ...(row?.accountType && { accountType: row.accountType }) };
+  },
+});
+
 async function disconnectAll(ctx: ActionCtx, account: string) {
   const installationIds: number[] = await ctx.runQuery(internal.github.links.installationsOf, { account });
   const app = appConfig();
   const jwt = app.state === "ready" ? await signAppJwt(app.appId, app.privateKey) : null;
   const failed: { installationId: number; message: string }[] = [];
+  const stillInstalled: { installationId: number; accountLogin: string; message: string }[] = [];
   let disconnected = 0;
   for (const installationId of installationIds) {
     const others: number = await ctx.runQuery(internal.github.links.otherAccounts, { installationId, account });
-    if (others > 0) {
+    const link: { own: boolean } | null = await ctx.runQuery(internal.github.links.linkFor, { account, installationId });
+    const entitled = !accessEnforced() || link?.own === true;
+    if (others > 0 || !entitled) {
       await ctx.runMutation(internal.github.links.unlink, { account, installationId });
+      const { accountLogin, accountType }: { accountLogin: string; accountType?: string } = await ctx.runQuery(internal.github.connect.installationName, { installationId });
+      stillInstalled.push({ installationId, accountLogin, message: STILL_INSTALLED(accountLogin, accountType, entitled) });
     } else {
       if (!jwt) {
         failed.push({ installationId, message: app.state === "ready" ? UNREADABLE_KEY : "turtl's GitHub App is not configured on this deployment, so turtl could not uninstall it." });
@@ -246,7 +287,7 @@ async function disconnectAll(ctx: ActionCtx, account: string) {
     disconnected += 1;
   }
   if (failed.length === 0) await ctx.runMutation(internal.github.connect.forgetAttempts, { account });
-  return { ok: failed.length === 0, disconnected, failed };
+  return { ok: failed.length === 0, disconnected, failed, stillInstalled };
 }
 
 export const ownerDecision = internalQuery({
@@ -336,14 +377,18 @@ export const confirm = internalMutation({
     ticketHash: v.string(),
     githubUserId: v.number(),
     githubLogin: v.string(),
-    installations: v.array(v.object({ installationId: v.number(), repositories: v.optional(v.array(v.string())) })),
+    // repositories: absent for an installation on the person's own account. checked: GitHub said the person can change
+    // each one listed (accounts on), and leftOut what it listed that they cannot.
+    installations: v.array(
+      v.object({ installationId: v.number(), repositories: v.optional(v.array(v.string())), checked: v.optional(v.boolean()), leftOut: v.optional(v.array(vLeftOut)) }),
+    ),
   },
   returns: v.boolean(),
   handler: async (ctx, { attemptId, ticketHash, githubUserId, githubLogin, installations }) => {
     const attempt = await ctx.db.get(attemptId);
     if (attempt?.status !== "claimed") return false;
     const confirmedAt = Date.now();
-    for (const { installationId, repositories } of installations) {
+    for (const { installationId, repositories, checked, leftOut } of installations) {
       await ctx.db.insert("githubInstallationLinks", {
         account: attempt.account,
         installationId,
@@ -352,6 +397,8 @@ export const confirm = internalMutation({
         githubUserId,
         githubLogin,
         ...(repositories && { repositories: repositories.map((name) => name.toLowerCase()) }),
+        ...(repositories && checked && { checkedAt: confirmedAt }),
+        ...(leftOut?.length && { leftOut: mergeLeftOut([], leftOut) }),
         confirmedAt,
       });
     }

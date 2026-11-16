@@ -1,6 +1,7 @@
 import { ConvexError, v } from "convex/values";
 import type { Infer } from "convex/values";
-import { internalMutation, internalQuery, query } from "../_generated/server";
+import { internalMutation, internalQuery } from "../_generated/server";
+import { query } from "../functions";
 import { canSeeApp } from "../access";
 import { PROVIDER_KEYS } from "../routing/configs";
 import { vCouncilMember } from "./schema";

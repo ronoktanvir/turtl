@@ -42,6 +42,7 @@ export function mapCaseSummary(row: Doc<"cases">, number: number, pullRequest?: 
     status,
     health,
     happenedAt: row._creationTime,
+    ...(row.starred && { starred: true }),
     ...(row.kind === "feature_request"
       ? row.distinctRequesterCount !== undefined && { reportCount: row.distinctRequesterCount }
       : row.reportCount !== undefined && { reportCount: row.reportCount }),
@@ -96,9 +97,118 @@ const verdictWords: Record<string, string> = { passed: "passed", failed: "failed
 const capitalized = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
 const named = (words: Record<string, string>, id: string) => words[id] ?? capitalized(plainWords(id));
 const criterionLine = (status: string, id: string, summary?: string) =>
-  `${status === "uncovered" ? "Not covered" : status === "passed" ? "Passed" : "Failed"} — ${plainWords(id)}${summary ? ": " + summary : ""}`;
-// A model reason that names a deployment setting reads as "no model is connected" to an owner.
-const plainModelReason = (reason: string) => (/_API_KEY|_KEY\b/.test(reason) ? "turtl has no model connected yet" : reason);
+  `${status === "uncovered" ? "Not covered" : status === "passed" ? "Passed" : "Failed"} — ${plainWords(id)}${summary ? ": " + ownerWords(summary) : ""}`;
+// Where a piece of evidence came from, in an owner's words: never a request line, a table name or an id.
+const SOURCES: [RegExp, string][] = [
+  [/^GET \/health\b/, "the app's health check"],
+  [/^GET \/flags\b/, "the app's settings"],
+  [/^GET \/revision\b/, "the version the app reports"],
+  [/^GET \/errors\b/, "the app's record of recent failures"],
+  [/^POST \/journey-check\b/, "turtl's check of the journey"],
+  [/^code:/, "the project's code"],
+  [/^cases\//, "an earlier case"],
+  [/^recoveryMemories\//, "a recovery turtl remembers"],
+  [/^agentRuns\//, "turtl's own work on this case"],
+  [/^reports\//, "a customer's report"],
+  [/^Revyl /, "a test run on a device"],
+];
+const COPY_PREFIX = /^(?:Copied from an earlier step: |Derived from evidence\/[^;]*; stepAttempts\/[^;]*; )/;
+export function plainSource(sourceRef: string): string | null {
+  const ref = sourceRef.replace(COPY_PREFIX, "").trim();
+  for (const [pattern, words] of SOURCES) if (pattern.test(ref)) return words;
+  // Anything else is shown only when it carries no id or request line.
+  return ref && !/[a-z0-9]{16,}|\/|^[A-Z]+ /.test(ref) ? ref : null;
+}
+
+/** The original a gather step's copy of evidence stands for: copyOf, or the id in an older copy's sourceRef. */
+export function copiedFrom(row: { copyOf?: string; sourceRef?: string }): string | undefined {
+  return row.copyOf ?? /^Derived from evidence\/([^;]+);/.exec(row.sourceRef ?? "")?.[1];
+}
+
+// Text meant for an owner, from collectors and checks: an error code in brackets after the words that already say
+// what failed ("(RECOMMENDATIONS_TIMEOUT)") is dropped, and a raw health flag reads as a sentence.
+export function ownerWords(value: string): string {
+  return value
+    .replace(/\s*\((?:[A-Z][A-Z0-9]*_)+[A-Z0-9]+\)/g, "")
+    .replace(/reports health ok is true\b/g, "says it is healthy")
+    .replace(/reports health ok is false\b/g, "says it is not healthy");
+}
+
+// A recorded journey check's body for the Logs: step names in words, the error without its code, and no run id.
+export function journeyBodyWords(body: string): string {
+  return body
+    .split("\n")
+    .map((line) => line
+      .replace(/^([a-z][a-z0-9_]*): (passed|failed|skipped)\. /, (_all, name: string, verdict: string) => `${capitalized(plainWords(name))}: ${verdict}. `)
+      .replace(/^Error [A-Z][A-Z0-9_]*: /, "Error: ")
+      .replace(/\s*Run \S+ on revision \S+\.$/, ""))
+    .join("\n");
+}
+
+// The refusals convex/protectedApp/watched.ts writes when nothing may be sent: the project's address (target) or its
+// control token (TOKEN_WORDS).
+const UNREACHABLE = /so turtl sent nothing|no control token is set for this project|could not open this project's control token|cannot open stored tokens on this backend/;
+
+// Why a remembered recovery does not apply, from convex/memory/checks.ts's lines ("Required condition failed:
+// journey.errorCode equals \"RECOMMENDATIONS_TIMEOUT\"; observed \"BOOKING_STORE_UNAVAILABLE\".") in words. The stored lines
+// stay as they are: the feed reads them too.
+const FACT_WORDS: Record<string, string> = {
+  "journey.errorCode": "the error",
+  "journey.failedStep": "where the booking stopped",
+  "journey.verdict": "the booking check",
+  "flags.recommendationsEnabled": "recommendations",
+  "health.ok": "whether the app answered",
+  "app.revision": "the app's version",
+  "errors.topCode": "the most common error",
+};
+const valueWords = (raw: string) => {
+  let value: unknown = raw;
+  try { value = JSON.parse(raw); } catch { /* left as written */ }
+  if (value === true) return "on";
+  if (value === false) return "off";
+  return String(value).replace(/_+/g, " ").toLowerCase();
+};
+export function recoveryMismatchWords(body: string): string {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const line of body.split("\n")) {
+    const match = /^(?:Required condition failed|Do not use this recovery): (\S+) (?:equals|does not equal|is less than|is at most|is greater than|is at least) (.+); observed (.+)\.$/.exec(line.trim());
+    if (!match) { if (line.trim()) out.push(line.trim()); continue; }
+    const [, field, expected, observed] = match;
+    if (seen.has(field)) continue;
+    seen.add(field);
+    const what = FACT_WORDS[field] ?? "one condition";
+    out.push(`It was for ${what} being ${valueWords(expected)}; this time it is ${valueWords(observed)}.`);
+  }
+  return out.join("\n");
+}
+
+// Detecting and gathering each run the booking check and the health check, so a case holds two of each. They are
+// separate observations, both kept; each says when turtl made it so neither reads as a duplicate.
+const AGAIN = { source: "when turtl looked again", lead: "Looking again, to gather what it knows: " };
+const WHEN: Record<string, { source: string; lead: string }> = {
+  detect_or_receive: { source: "when turtl first noticed", lead: "When turtl first noticed: " },
+  // The two readers that run beside each other after detecting, and the step that gathers what they read.
+  collect_app_state: AGAIN,
+  collect_error_window: AGAIN,
+  gather_context: AGAIN,
+};
+export function whenObserved(purpose: string | undefined): { source: string; lead: string } | null {
+  return (purpose && WHEN[purpose]) || null;
+}
+
+/** What an unresolved case says when it stopped because turtl could not reach the app at all. */
+export function unreachableStop(stepTitle: string): string {
+  return `turtl stopped this case because it could not reach your app, so it sent nothing. The reason is under "${stepTitle}" below: usually the project's control token is missing, or its live address is one turtl may not send to. Fix it in this project's Settings. turtl's next check opens a new case if the problem is still there, and a new report from a customer does too. This case stays closed.`;
+}
+
+// A model reason that names a deployment setting reads as "no model is connected" to an owner. The outage diagnosis's
+// reason already begins "No model answered" (convex/runner/handlers/investigate.ts), and the line that shows it says
+// so itself, so it is said once.
+const plainModelReason = (reason: string) => {
+  const bare = reason.replace(/^No model answered\s*[:.]?\s*/i, "").trim();
+  return /_API_KEY|_KEY\b/.test(bare) ? "turtl has no model connected yet" : bare;
+};
 
 function record(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
@@ -113,7 +223,7 @@ function journeyVisualization(body: string): Visualization | undefined {
   for (const line of body.split("\n")) {
     const match = /^([^:\n]+): (passed|failed|skipped)\. (.*)$/.exec(line);
     if (!match) continue;
-    steps.push({ label: match[1] + (match[2] === "skipped" ? " (skipped)" : ""), state: match[2] === "skipped" ? "not_reached" : match[2] as "passed" | "failed" });
+    steps.push({ label: capitalized(plainWords(match[1])) + (match[2] === "skipped" ? " (skipped)" : ""), state: match[2] === "skipped" ? "not_reached" : match[2] as "passed" | "failed" });
   }
   return steps.length ? { type: "journey", steps } : undefined;
 }
@@ -129,8 +239,10 @@ function enactmentOf(cards: CaseCards, fixes: CaseFixes | undefined, pullRequest
       title: step.title,
       status: step.status === "waiting" ? "pending" : step.status,
       detail: nameSteps([step.status === "waiting" ? "Waiting." : "", step.skipReason, attempt?.handoff, attempt?.error].filter(Boolean).join(" "), cards.steps) || undefined,
-      summary: attempt?.summary && nameSteps(attempt.summary, cards.steps),
-      startedAt: attempt?.startedAt,
+      summary: attempt?.summary && ownerWords(nameSteps(attempt.summary, cards.steps)),
+      // The approval step's attempt opens when turtl starts waiting for the owner. What it did starts at the approval,
+      // which is when the action was requested, so its time is counted from there.
+      startedAt: step.purpose === "authorize_and_execute" && cards.action ? Math.max(cards.action.requestedAt, attempt?.startedAt ?? 0) : attempt?.startedAt,
       finishedAt: attempt?.finishedAt,
     };
   });
@@ -185,9 +297,15 @@ export function mapCaseDetail(
   const bookingDemo = httpCheck?.kind === "http" && /\/booking-demo(?:\/|$)/.test(httpCheck.config.url);
   const staged = bookingDemo || cards.case.isSample || /staged|fixture/i.test(cards.case.title)
     || cards.steps.some((step) => step.staged || /staged|fixture/i.test(step.currentAttempt?.summary ?? ""));
+  // A step that could not reach the app (no control token, an address turtl may not send to) fails every retry within
+  // minutes, and the case closes as unresolved. Closed cases do not run again, so it says what to fix and what happens next.
+  const unreachable = cards.case.status === "unresolved"
+    ? cards.steps.find((step) => step.status === "failed" && UNREACHABLE.test(step.currentAttempt?.error ?? ""))
+    : undefined;
+  if (unreachable) paragraph([{ text: unreachableStop(unreachable.title) }]);
   if (staged && cards.case.raisedBy !== "customer") paragraph([{ text: "This case came from a staged practice failure on the demo app. What it shows is not a real customer problem." }]);
   const names = cards.steps.map((step) => ({ key: step.key, purpose: step.purpose, title: step.title }));
-  const plain = (value: string) => nameSteps(value, names);
+  const plain = (value: string) => ownerWords(nameSteps(value, names));
   const permission = cards.runPermission;
   if (permission && cards.action?.requestedBy === "auto" && cards.action.permissionId === permission._id) {
     const handled = cards.action.status === "completed" && (cards.case.status === "restored" || cards.case.status === "resolved");
@@ -213,12 +331,14 @@ export function mapCaseDetail(
   if (text(diagnosis.cause)) {
     const label = diagnosis.source === "rules" ? "Rule-based reading, not a model diagnosis: " : feature ? "What customers ask for: " : "Likely cause: ";
     paragraph([{ text: label + text(diagnosis.cause) }]);
-    if (diagnosis.source === "rules") paragraph([{ text: "No model answered" + (text(diagnosis.noModelReason) ? ": " + plainModelReason(text(diagnosis.noModelReason)) : ".") }]);
+    // The stored reason may already begin "No model answered:"; it is said once.
+    const reason = text(diagnosis.noModelReason).replace(/^No model answered:\s*/, "");
+    if (diagnosis.source === "rules") paragraph([{ text: "No model answered" + (reason ? ": " + plainModelReason(reason) : ".") }]);
     if (Array.isArray(diagnosis.supportingEvidenceIds)) {
       const supporting = diagnosis.supportingEvidenceIds.filter((id): id is string => typeof id === "string");
       for (const id of supporting) {
         const evidence = cards.evidence.find((row) => row._id === id);
-        if (evidence) paragraph([sourceSpan(evidence.title, id)]);
+        if (evidence) paragraph([sourceSpan(ownerWords(evidence.title), id)]);
       }
     }
   }
@@ -232,10 +352,18 @@ export function mapCaseDetail(
   } : undefined;
 
   for (const evidence of cards.evidence) {
-    logs.push({ id: evidence._id, at: evidence.observedAt, level: "info", source: `Evidence · ${named(evidenceWords, evidence.kind)}`, text: [evidence.title, evidence.body, evidence.sourceRef && `Source: ${evidence.sourceRef}`].filter(Boolean).join("\n") });
+    // A gather step's copy of evidence already on this case is shown once, as its original; citing it opens that.
+    const original = copiedFrom(evidence);
+    if (original && original !== evidence._id && evidenceIds.has(original)) {
+      citations.push({ id: evidence._id, kind: "log", logId: original });
+      continue;
+    }
+    const from = evidence.sourceRef ? plainSource(evidence.sourceRef) : null;
+    const when = whenObserved(cards.steps.find((step) => step._id === evidence.stepId)?.purpose);
+    logs.push({ id: evidence._id, at: evidence.observedAt, level: "info", source: `Evidence · ${named(evidenceWords, evidence.kind)}${when ? " · " + when.source : ""}`, text: [ownerWords(evidence.title), evidence.body && (evidence.kind === "journey_check" ? journeyBodyWords(evidence.body) : evidence.kind === "memory_match" ? recoveryMismatchWords(evidence.body) : evidence.body), from && `From ${from}.`].filter(Boolean).join("\n") });
     citations.push({ id: evidence._id, kind: "log", logId: evidence._id });
     if (evidence.kind === "customer_report" && customerReports?.reports.length) continue;
-    paragraph([sourceSpan(evidence.title, evidence._id)]);
+    paragraph([...(when ? [{ text: when.lead }] : []), sourceSpan(ownerWords(evidence.title), evidence._id)]);
   }
 
   for (const step of cards.steps) {
@@ -274,14 +402,14 @@ export function mapCaseDetail(
     const missing = verification.coverage.uncoveredCriterionIds.filter((criterionId) => !verification.criterionResults.some((result) => result.criterionId === criterionId));
     for (const criterionId of missing) criteria.push(criterionLine("uncovered", criterionId));
     const verdict = verdictWords[verification.verdict] ?? verification.verdict;
-    logs.push({ id, at: verification.completedAt, level: verification.verdict === "failed" ? "error" : verification.verdict === "inconclusive" ? "warn" : "info", source: `Check · ${phase}`, text: [`${phase} — ${verdict}: ${verification.summary}`, ...criteria].join("\n") });
+    logs.push({ id, at: verification.completedAt, level: verification.verdict === "failed" ? "error" : verification.verdict === "inconclusive" ? "warn" : "info", source: `Check · ${phase}`, text: [`${phase} — ${verdict}: ${ownerWords(verification.summary)}`, ...criteria].join("\n") });
     citations.push({ id, kind: "log", logId: id });
-    paragraph([{ text: `${phase} — ${verdict}: ${verification.summary}`, cite: id }]);
+    paragraph([{ text: `${phase} — ${verdict}: ${ownerWords(verification.summary)}`, cite: id }]);
     for (const result of verification.criterionResults) {
       const spans: Span[] = [{ text: criterionLine(result.status, result.criterionId, result.summary) }];
       for (const evidenceId of result.evidenceIds) {
         const evidence = cards.evidence.find((row) => row._id === evidenceId);
-        if (evidence) spans.push(sourceSpan(` ${evidence.title}`, evidenceId));
+        if (evidence) spans.push(sourceSpan(` ${ownerWords(evidence.title)}`, evidenceId));
       }
       paragraph(spans);
     }

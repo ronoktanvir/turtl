@@ -2,20 +2,26 @@ import { useRouter, type Href } from "expo-router";
 import { Pressable, ScrollView, View, useWindowDimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import ProfileButton from "../components/account/ProfileButton";
+import { nameSize } from "../components/project/nameSize";
 import ProjectIcon from "../components/project/ProjectIcon";
 import FirstRun from "../components/project/FirstRun";
-import { Card, HealthWord, Icon, Reveal, Screen, T, Turtle, devToolsOn } from "../components/ui";
+import { Card, Chip, HealthWord, Icon, Reveal, Screen, T, Turtle } from "../components/ui";
+import { useDevToolsOn } from "../components/ui/devTools";
 import { useDataStatus, useProjects } from "../data";
 import { approvalLabel, healthOrder, healthToken, useTheme } from "../theme";
 
 export default function Projects() {
+  const devToolsOn = useDevToolsOn();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
   const projects = useProjects();
   const { errors } = useDataStatus();
   // Below 360 wide the icon and turtle give up a little room, so a name such as "Superprediction" is not broken mid-word.
-  const narrow = useWindowDimensions().width < 360;
+  const width = useWindowDimensions().width;
+  const narrow = width < 360;
+  // The name's column: the screen less the page and card padding, the icon, the turtle and the gaps (156 at 320 wide).
+  const nameColumn = width - (narrow ? 164 : 190);
   const sorted = projects && [...projects].sort((a, b) => Number(b.needsApprovalCount > 0) - Number(a.needsApprovalCount > 0) || healthOrder.indexOf(a.health) - healthOrder.indexOf(b.health));
   return (
     <Screen testID="home">
@@ -38,8 +44,11 @@ export default function Projects() {
                   <View style={{ flexDirection: "row", alignItems: "center", gap: narrow ? 8 : 12 }}>
                     <ProjectIcon project={p} size={narrow ? 36 : 44} />
                     <View style={{ flex: 1, gap: 3 }}>
-                      <T variant="heading" numberOfLines={2}>{p.name}</T>
-                      <HealthWord health={p.health} />
+                      <T variant="heading" numberOfLines={2} style={{ fontSize: nameSize(p.name, nameColumn), lineHeight: nameSize(p.name, nameColumn) + 6 }} testID={`project-name-${p.id}`}>{p.name}</T>
+                      <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: 10, rowGap: 4 }}>
+                        <HealthWord health={p.health} practice={!!p.practice} />
+                        {p.practice && <Chip label="Practice" tone="brandDeep" testID={`project-practice-${p.id}`} />}
+                      </View>
                     </View>
                     <Turtle health={p.health} size={narrow ? 30 : 38} outlined={urgent} />
                   </View>

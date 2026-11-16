@@ -374,11 +374,16 @@ export function Logo({ health, width = 200 }: { health: Health; width?: number }
   );
 }
 
-export function HealthWord({ health, testID }: { health: Health; testID?: string }) {
+/** The health word, true for the project: a practice app has no users, so it is broken, not "Users affected". */
+export function healthWordFor(health: Health, practice = false): string {
+  return practice && health === "affected" ? "Practice app broken" : healthWord[health];
+}
+
+export function HealthWord({ health, testID, practice = false }: { health: Health; testID?: string; practice?: boolean }) {
   return (
     <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }} testID={testID}>
       <Icon name={health === "affected" || health === "needs_you" ? "TriangleAlert" : health === "working" ? "Sparkles" : "ShieldCheck"} size={15} color={healthToken[health]} />
-      <T variant="small" color={healthToken[health]}>{healthWord[health]}</T>
+      <T variant="small" color={healthToken[health]}>{healthWordFor(health, practice)}</T>
     </View>
   );
 }

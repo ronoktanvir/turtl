@@ -1,7 +1,8 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { mutation, type MutationCtx, type QueryCtx } from "./_generated/server";
+import { type MutationCtx, type QueryCtx } from "./_generated/server";
+import { mutation } from "./functions";
 import { guardRow, ownerActor } from "./access";
 import type { Actor, ParameterConstraint } from "./constants";
 import { checkParameters, freezeAndRecordAction } from "./decisions";

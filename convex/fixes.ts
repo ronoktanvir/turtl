@@ -2,14 +2,12 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import {
-  action,
   internalMutation,
   internalQuery,
-  mutation,
-  query,
   type MutationCtx,
   type QueryCtx,
 } from "./_generated/server";
+import { action, mutation, query } from "./functions";
 import { canSeeCase, guardCaseInAction, requireDevTools } from "./access";
 import { vDecisionStatus, vDelivery, vOptionKind, vSpan, type ProposalOption } from "./constants";
 import { gateFor } from "./consent/gate";
@@ -167,9 +165,11 @@ export const chatContext = internalQuery({
       .withIndex("by_case", (q) => q.eq("caseId", caseId))
       .order("desc")
       .take(HISTORY_LENGTH);
+    const app = await ctx.db.get(row.appId);
     return {
       case: row,
-      appName: (await ctx.db.get(row.appId))?.name ?? "the app",
+      appName: app?.name ?? "the app",
+      practice: app?.practice === true,
       hasJourney: !!row.journeyId,
       work: await caseWork(ctx, row, steps),
       hasPullRequestAction: !!pullRequestEntry(catalog),
@@ -252,6 +252,9 @@ export const appendChatFix = internalMutation({
       .withIndex("by_app_and_type", (q) => q.eq("appId", row.appId))
       .collect();
     const entry = pullRequestEntry(catalog);
+    if ((await ctx.db.get(row.appId))?.practice) {
+      return { ok: false, reason: "The practice app has no repository, and code changes need a connected repository, so the fix was not added." };
+    }
     if (!journey || !entry) {
       return { ok: false, reason: "This app cannot ship code changes through turtl yet, so the fix was not added." };
     }
@@ -317,7 +320,9 @@ export const investigate = action({
 
     const { proposal } = context;
     const feature = context.case.kind === "feature_request";
-    const blocked = !context.hasJourney || !context.hasPullRequestAction
+    const blocked = context.practice
+      ? "the practice app has no repository, and code changes need a connected repository"
+      : !context.hasJourney || !context.hasPullRequestAction
       ? "this app cannot ship code changes through turtl yet"
       : !proposal || proposal.decisionStatus !== "pending" || context.case.status !== "waiting_for_owner"
         ? "the case is not waiting on the owner to choose a fix"
@@ -470,7 +475,7 @@ export const devThreeFixCase = mutation({
           recommended: true,
           confidence: 0.8,
           why: [
-            { text: "Every failed booking stops at the recommendations step with RECOMMENDATIONS_TIMEOUT. " },
+            { text: "Every failed booking stops at the recommendations step, where the provider times out. " },
             { text: "With recommendations off, booking no longer waits for the slow provider, so it can save again within a minute." },
           ],
           delivery: "action",

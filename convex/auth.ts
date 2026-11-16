@@ -2,8 +2,10 @@ import GitHub from "@auth/core/providers/github";
 import { convexAuth } from "@convex-dev/auth/server";
 import { ConvexError } from "convex/values";
 import type { MutationCtx } from "./_generated/server";
+import { refuseSignInToDemo } from "./access";
 import { apple } from "./auth/apple";
-import { password } from "./auth/password";
+import { holdUntilConfirmed } from "./auth/confirmed";
+import { password, PASSWORD_PROVIDER_ID } from "./auth/password";
 import { allowedRedirect } from "./auth/rules";
 import { standInUrl } from "./auth/settings";
 import { admitNewAccount } from "./spend/ceilings";
@@ -33,10 +35,22 @@ export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
       if (!target) throw new ConvexError("That sign-in can't return to this address.");
       return target;
     },
-    // A new account, by any method, counts against the deployment's hourly and daily ceilings (convex/spend/ceilings.ts).
-    // This runs inside the mutation that makes the user, so a refusal leaves no account behind.
-    async afterUserCreatedOrUpdated(ctx, { existingUserId }) {
-      if (existingUserId === null) await admitNewAccount(ctx as unknown as MutationCtx);
+    // The demo makes no accounts (refuseSignInToDemo). With accounts on, a new account counts against the
+    // deployment's hourly and daily ceilings for its kind
+    // (convex/spend/ceilings.ts), and a password account is held until its email address is confirmed
+    // (convex/auth/confirmation.ts). This runs inside the mutation that makes the user, so a refusal leaves no account
+    // behind, and no password account exists without its hold.
+    async afterUserCreatedOrUpdated(ctx, { userId, existingUserId, provider, profile }) {
+      refuseSignInToDemo();
+      if (existingUserId !== null) return;
+      const mutationCtx = ctx as unknown as MutationCtx;
+      if (provider?.id === PASSWORD_PROVIDER_ID) {
+        // The address's email domain has its own small share of password sign-ups (convex/auth/domains.ts).
+        await admitNewAccount(mutationCtx, "password", typeof profile?.email === "string" ? profile.email : undefined);
+        await holdUntilConfirmed(mutationCtx, userId);
+      } else {
+        await admitNewAccount(mutationCtx, "provider");
+      }
     },
   },
 });

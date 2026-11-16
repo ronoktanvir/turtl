@@ -192,7 +192,8 @@ test("the code map build sends OpenAI and Supermemory the code with its secrets 
     const file = repoWithSecrets.find(({ path }) => url.endsWith("/" + path));
     return file ? new Response(file.content) : new Response("not found", { status: 404 });
   });
-  const ctx = { runQuery: async () => null, runMutation: async () => null };
+  // The demo's gate asks once whether the deployment holds accounts (convex/access.ts); here it holds none.
+  const ctx = { runQuery: async (fn) => (fn.path === "internal.consent.gate.check" ? { ok: true, account: "solo-owner" } : null), runMutation: async () => null };
   const result = await withEnv({ AUTH_REQUIRED: undefined, OPENAI_API_KEY: "stand-in", SUPERMEMORY_API_KEY: "stand-in" }, () =>
     build.build.handler(ctx, { projectId: "apps:1", repo: "octo/app" }),
   );

@@ -2,14 +2,17 @@ import { useRouter } from "expo-router";
 import { useEffect, useRef, useState, type ComponentRef, type RefObject } from "react";
 import { AccessibilityInfo, Animated, Easing, Image, Platform, Pressable, ScrollView, StyleSheet, View, type LayoutChangeEvent, type NativeScrollEvent, type NativeSyntheticEvent } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { isLiveData, useCase, useDataStatus, useWorkflow } from "../../data";
+import { isLiveData, useCase, useDataStatus, useProject, useWorkflow } from "../../data";
 import type { FixOption, Screenshot } from "../../data/types";
 import { useTheme } from "../../theme";
-import { ago, Button, Card, Chip, devToolsOn, HealthWord, Icon, Reveal, T, Turtle, useReducedMotion } from "../ui";
+import { ago, Button, Card, Chip, HealthWord, Icon, Reveal, T, Turtle, useReducedMotion } from "../ui";
+import { useDevToolsOn } from "../ui/devTools";
 import { Droplet, dropBack, fillDrop, nativeDriver, usePull, useWheelPull } from "../ui/pulse";
 import { swipeTravel } from "../ui/swipe";
 import { CaseTabs, type CaseTab } from "./CaseTabs";
 import { CouncilView } from "./CouncilView";
+import { issueState, type IssueState } from "../project/issueState";
+import { reportLine } from "./counts";
 import { CustomerReportsControl } from "./CustomerReports";
 import { CodeBox, LogRow, SpanText, Viz } from "./Evidence";
 import { ApproveSheet, DeclineSheet, FixCard } from "./FixCard";
@@ -17,6 +20,17 @@ import { PreventionCheckCard, StructuralFindingCard } from "./StructuralFinding"
 import { WorkflowGraph } from "../execution/WorkflowGraph";
 
 const phases: Record<Screenshot["phase"], string> = { failure: "When it failed", before: "Before", after: "After" };
+
+// A feature request's state on its own page, in the Features list's words ("New request", "Needs review"): never a
+// bug's "Users affected" or "New issue".
+function RequestState({ state, testID }: { state: IssueState; testID: string }) {
+  return (
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }} testID={testID}>
+      <Icon name={state.turtle === "new" ? "Plus" : state.turtle === "clear" ? "ShieldCheck" : state.turtle === "working" ? "Sparkles" : "TriangleAlert"} size={15} color={state.color} />
+      <T variant="small" color={state.color}>{state.label}</T>
+    </View>
+  );
+}
 
 // An opened issue is two pages. The first is the issue: the Overview, Logs and Code bar and what it shows. The second
 // is what to do about it: Fixes, or Options for a feature request. Pulling on past the end of the first page, or the
@@ -55,16 +69,20 @@ function focus(view: ViewNode | null) {
   else AccessibilityInfo.sendAccessibilityEvent(view, "focus");
 }
 
-export function CasePage({ caseId, current }: { caseId: string; current: boolean }) {
+/** startOn "fixes" opens the issue on its Fixes page, for a link that leads straight to a fix waiting for approval. */
+export function CasePage({ caseId, current, startOn = "case" }: { caseId: string; current: boolean; startOn?: Part }) {
+  const devToolsOn = useDevToolsOn();
   const c = useCase(caseId);
   const workflow = useWorkflow(caseId);
+  // A practice app has no repository: no code to show, and no code change to offer.
+  const practice = useProject(c?.projectId ?? "")?.practice === true;
   const { errors } = useDataStatus();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const reduced = useReducedMotion();
   const [tab, setTab] = useState<CaseTab>("Overview");
-  const [part, setPart] = useState<Part>("case");
+  const [part, setPart] = useState<Part>(startOn);
   const [box, setBox] = useState({ width: 0, height: 0 });
   const drop = useRef(new Animated.Value(0)).current; // the green spreading toward the other page
   const veil = useRef(new Animated.Value(0)).current; // the green the arriving page surfaces out of
@@ -165,18 +183,18 @@ export function CasePage({ caseId, current }: { caseId: string; current: boolean
               <Reveal>
                 <View style={{ gap: 12 }}>
                   <View style={{ flexDirection: "row", flexWrap: "wrap", columnGap: 12, alignItems: "center" }}>
-                    {c.status === "new" ? <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }} testID={id("case-health")}><Icon name="Plus" size={15} color="statusNew" /><T variant="small" color="statusNew">New issue</T></View> : <HealthWord health={c.health} testID={id("case-health")} />}
+                    {feature ? <RequestState state={issueState(c)} testID={id("case-health")} /> : c.status === "new" ? <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }} testID={id("case-health")}><Icon name="Plus" size={15} color="statusNew" /><T variant="small" color="statusNew">New issue</T></View> : <HealthWord health={c.health} practice={practice} testID={id("case-health")} />}
                     <T variant="small" color="textMuted">
                       {ago(c.happenedAt)}
                     </T>
                   </View>
                   <View style={{ flexDirection: "row", gap: 12, alignItems: "center" }}>
-                    {c.status === "new" ? <Image source={require("../../assets/turtle/new.png")} style={{ width: 44, height: 44 }} accessibilityLabel="New issue" /> : <Turtle health={c.health} size={44} />}
+                    {c.status === "new" ? <Image source={require("../../assets/turtle/new.png")} style={{ width: 44, height: 44 }} accessibilityLabel={feature ? "New request" : "New issue"} /> : <Turtle health={c.health} size={44} />}
                     <T variant="strong" style={{ flex: 1 }} testID={id("case-summary")}>{c.summary || "No summary has been recorded yet."}</T>
                   </View>
                     {!!c.reportCount && (
                       <T variant="small" color="textMuted" style={{ paddingLeft: 56 }}>
-                        {c.reportCount + (feature ? " people asked" : " people reported it")}
+                        {reportLine(c.reportCount, feature)}
                       </T>
                     )}
                 </View>
@@ -232,7 +250,7 @@ export function CasePage({ caseId, current }: { caseId: string; current: boolean
           )}
           {tab === "Code" && (
             <>
-              {c.code.length === 0 && <T color="textMuted" testID={id("code-empty")}>No code evidence has been collected yet.</T>}
+              {c.code.length === 0 && <T color="textMuted" testID={id("code-empty")}>{practice ? "The practice app has no repository, so turtl has no code to map, show or change. Code changes need a connected repository." : "No code evidence has been collected yet."}</T>}
               {c.code.map((code) => (
                 <View key={code.id}>
                   <CodeBox code={code} />
@@ -319,6 +337,7 @@ export function CasePage({ caseId, current }: { caseId: string; current: boolean
               onApprove={setApproving}
             />
           ))}
+          {practice && c.fixes.length > 0 && <T variant="small" color="textMuted" testID={id("fixes-practice")}>turtl offers only the switches it can flip on your practice app. Code changes need a connected repository, and the practice app has none.</T>}
           {c.structural?.check && <PreventionCheckCard finding={c.structural} id={id} />}
           {c.status === "declined" && <View style={{ flexDirection: "row", gap: 8 }} testID={id("fixes-declined")}><Icon name="X" size={18} color="textMuted" /><T color="textMuted" style={{ flex: 1 }}>You declined these fixes. Nothing was changed, and this case is closed.</T></View>}
           {c.fixes.length > 0 && !active && !closed && <Button label="Decline these fixes" kind="plain" onPress={() => setDeclining(true)} testID={id("fixes-decline")} />}

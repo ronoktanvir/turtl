@@ -13,6 +13,7 @@ import {
   revisionOf,
   runJourneyCheck,
 } from "../../protectedApp/client";
+import { SWITCHES, switchNamed } from "../../protectedApp/switches";
 import { checkBookingScreen } from "../../revyl/device";
 import type { HandlerResult, StepHandler } from "../contract";
 import { evidenceRow, loadJourneyContext } from "./journey";
@@ -38,6 +39,9 @@ export const handler: StepHandler = {
     }
     const payload = action.executionPayload;
     const codeChange = payload.config.kind === "capy";
+    // The switch the approved action set (protectedApp/switches.ts). A payload naming none is the recommendations
+    // switch, the only one there was before.
+    const known = switchNamed(payload.parameters.find((p) => p.name === "flag")?.value) ?? SWITCHES.recommendationsEnabled;
     const startedAt = Date.now();
     const deployedRevision = await readRevision(base, watched);
     const revision = revisionOf(deployedRevision, base);
@@ -70,15 +74,15 @@ export const handler: StepHandler = {
         });
         const flagValue =
           flags.kind === "response" && flags.status === 200
-            ? (flags.body as { recommendationsEnabled?: unknown } | null)?.recommendationsEnabled
+            ? (flags.body as Record<string, unknown> | null)?.[known.flag]
             : undefined;
         const flagTitle =
           typeof flagValue === "boolean"
-            ? `Recommendations read as ${flagValue ? "on" : "off"}.`
-            : `The recommendations flag could not be read: ${describeFailure(flags)}.`;
-        rows.push(evidenceRow(input, revision, { kind: "flags", title: flagTitle, sourceRef: "GET /flags" }));
-        results.set(CRITERIA.recommendationsOff.id, {
-          status: flagValue === false ? "passed" : "failed",
+            ? known.readAs(flagValue)
+            : `${known.unreadable}: ${describeFailure(flags)}.`;
+        rows.push(evidenceRow(input, revision, { kind: "flags", title: flagTitle, sourceRef: known.sourceRef }));
+        results.set(known.criterion.id, {
+          status: flagValue === known.value ? "passed" : "failed",
           summary: flagTitle,
           evidence: rows.length - 1,
         });
@@ -133,11 +137,13 @@ export const handler: StepHandler = {
     const covered = criterionResults.filter((r) => r.status !== "uncovered");
     const passed = covered.length > 0 && covered.every((r) => r.status === "passed") && journeyPassed;
     const uncovered = criterionResults.filter((r) => r.status === "uncovered").map((r) => r.criterionId);
-    const deviceSummary = results.get(CRITERIA.device.id)?.summary ?? "Not checked: the booking screen on a device.";
+    // A practice app has no booking screen, so its fixes leave the device check out of what done means.
+    const deviceChecked = payload.acceptanceCriteria.some((criterion) => criterion.id === CRITERIA.device.id);
+    const deviceSummary = deviceChecked ? ` ${results.get(CRITERIA.device.id)?.summary ?? "Not checked: the booking screen on a device."}` : "";
     const summary = passed
       ? codeChange
-        ? `The deployed code change at ${deployedRevision} passed the server health and booking checks. ${deviceSummary} These checks do not establish that every defect is repaired.`
-        : `Service restored: the server answers, recommendations are off, and the booking check saved a booking. ${deviceSummary} The defect that let recommendations block booking is still in the code.`
+        ? `The deployed code change at ${deployedRevision} passed the server health and booking checks.${deviceSummary} These checks do not establish that every defect is repaired.`
+        : `Service restored: the server answers, ${known.restored}, and the booking check saved a booking.${deviceSummary} ${known.leftover}`
       : `Not restored: ${covered.filter((r) => r.status === "failed").map((r) => r.summary).join(" ")}`;
 
     const verificationId: Id<"verifications"> = await ctx.runMutation(
@@ -172,7 +178,7 @@ export const handler: StepHandler = {
       summary,
       ...(!codeChange && { caseStatus: "restored" as const }),
       handoff: {
-        note: codeChange ? summary : "Service is restored, not repaired: recommendations are off and the coupling is still in the code.",
+        note: codeChange ? summary : known.handoff,
         refs: [
           { kind: "verification", id: verificationId, label: "After the fix" },
           ...ids.map((id) => ({ kind: "evidence", id })),

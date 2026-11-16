@@ -1,24 +1,25 @@
-# Assistant action and Supermemory
+# Supermemory
 
-[`convex/assistant.ts`](../convex/assistant.ts) exports a public Convex action, `api.assistant.chat`, for a chat screen to call later; no screen calls it yet (the case chat in the app is `api.fixes.investigate`). It takes `{ userId, message, caseId? }` and, in this order: searches Supermemory for memories relevant to `message` in the namespace `userId`; calls OpenAI (plain `fetch`, Responses API) with a short on-call system prompt, those memories, the case and its steps when `caseId` is given (loaded with `cases.get`), and the message; then adds the user turn and the assistant turn to Supermemory in the same namespace, with metadata recording the role and the case id. It returns `{ reply, memories }`, where `memories` is the list of memory texts it used. A namespace is 1 to 100 characters of letters, digits, `_`, `:` or `-`; `userId` must fit that. `userId` comes from the caller until sign-in exists, so anyone who can call the action can read any namespace.
+turtl keeps searchable copies of some of its text at Supermemory: recovery memories and case notes (`convex/memory/`), the owner's preferences (`convex/learning/`), customer reports (`convex/intake/`) and the code of a connected repository (`convex/codeNetwork/`). The public assistant action that used to live in `convex/assistant.ts` was deleted, because it read and wrote memory under whatever user id its caller sent and no screen used it.
 
-Set these on the Convex deployment (values are never committed):
+## The client
+
+The Supermemory client lives in [`convex/supermemory.ts`](../convex/supermemory.ts), which exports plain functions and no Convex functions, so other Convex code can reuse it. They read `SUPERMEMORY_API_KEY` when called and throw an error naming it when it is missing.
+
+Every function takes the project's permission gate first (`convex/consent/gate.ts`). In accounts mode (`AUTH_REQUIRED` set to anything but empty or `false`) nothing reaches Supermemory for an owner who has not allowed it, and the SDK's only `fetch` is the one the gate hands back; in the single-owner demo the gate says yes, unless the deployment holds accounts, when it refuses every call. A failed call throws a plain error with Supermemory's status, never its text, because its response can echo what was sent.
+
+- `searchMemories(gate, namespace, query)` and `addMemory(gate, namespace, content, metadata)`: memories, for recovery memory and case notes.
+- `addDocuments(gate, namespace, documents)` adds whole documents for retrieval, without memory extraction: the code network's source files and customer reports. It sends 20 per request and asks the gate before each one, so taking permission back stops a long upload part way.
+- `putDocument` adds or replaces one document by id; `searchWithMetadata` returns matches with their metadata.
+- `searchChunks(gate, namespace, query, options)` returns the matching chunks of those documents, best first: for code network questions, customer-report triage and earlier case notes.
+- `deleteDocuments(gate, namespace, ids)` and `deleteNamespace(gate, namespace)` send only ids or a name, so they go through without permission. Deleting one report removes its copy; account deletion deletes each of the account's namespaces whole ([`convex/account/README.md`](../convex/account/README.md)).
+
+A namespace is 1 to 100 characters of letters, digits, `_`, `:` or `-`. `SUPERMEMORY_NAMESPACE_PREFIX` is put in front of every namespace, so a local proof's writes never mix with a hosted project's. `SUPERMEMORY_BASE_URL` points the client at a stand-in in tests; with accounts on it is honoured only on a local backend.
+
+Set the key on the Convex deployment (values are never committed):
 
 ```sh
-npx convex env set ASSISTANT_ENABLED true      # the action refuses to run unless this is "true"
 npx convex env set SUPERMEMORY_API_KEY "$SUPERMEMORY_API_KEY"
-npx convex env set OPENAI_API_KEY "$OPENAI_API_KEY"
-npx convex env set OPENAI_MODEL gpt-6-luna     # optional; this is the default
 ```
-
-The action throws an error naming the variable when `ASSISTANT_ENABLED`, `SUPERMEMORY_API_KEY`, or `OPENAI_API_KEY` is missing, rejects a `message` longer than 2,000 characters, and caps the model's reply at 1,500 output tokens, because the deployment URL is public and each call spends credits.
-
-## The Supermemory client
-
-The Supermemory client lives in [`convex/supermemory.ts`](../convex/supermemory.ts), which exports plain functions and no Convex functions, so other Convex code can reuse it. They read `SUPERMEMORY_API_KEY` when called.
-
-- `searchMemories(namespace, query)` and `addMemory(namespace, content, metadata)`: memories, used by the assistant action and by recovery memory and case notes (`convex/memory/`).
-- `addDocuments(namespace, documents)` adds whole documents for retrieval, without memory extraction: the code network's source files (`convex/codeNetwork/`) and customer reports (`convex/intake/`).
-- `searchChunks(namespace, query, options)` returns the matching chunks of those documents, best first: for code network questions, customer-report triage and earlier case notes.
 
 The Expo app never imports `supermemory`. Nothing under `app/` or `components/` may reference it; the app calls actions through Convex and the API keys stay on the server. The Supermemory skill for coding agents is in [`.agents/skills/supermemory/`](../.agents/skills/supermemory/).

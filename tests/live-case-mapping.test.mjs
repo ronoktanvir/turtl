@@ -118,8 +118,8 @@ test("journey visualization uses only recorded step verdicts, not assumptions ab
   }));
   assert.deepEqual(result.overview.find((block) => block.kind === "visualization").viz, {
     type: "journey", steps: [
-      { label: "load_catalog", state: "passed" }, { label: "recommendations", state: "failed" },
-      { label: "submit_booking (skipped)", state: "not_reached" },
+      { label: "Load catalog", state: "passed" }, { label: "Recommendations", state: "failed" },
+      { label: "Submit booking (skipped)", state: "not_reached" },
     ],
   });
   const withoutSteps = map(cards({ journey: { name: "Book" }, evidence: [evidence({ body: "No structured step verdicts." })] }));
@@ -313,4 +313,98 @@ test("a missing model key reads as no model connected, and customer cases are ma
   assert.match(content(map(cards({ steps: [diagnosing] }))), /No model answered: turtl has no model connected yet/);
   assert.equal(map(cards({ case: row({ raisedBy: "customer" }) })).raisedByCustomers, true);
   assert.equal("raisedByCustomers" in map(cards()), false);
+});
+
+test("Logs say where evidence came from in plain words, with no ids, and show a gather step's copy once", () => {
+  const original = evidence({ _id: "ms76original", stepAttemptId: "r177attempt", kind: "health", title: "The booking app reports health ok is true.", sourceRef: "GET /health" });
+  const copy = evidence({ _id: "ms76copy", stepAttemptId: "gather-1", kind: "health", title: original.title, sourceRef: "Copied from an earlier step: GET /health", copyOf: "ms76original" });
+  const legacy = evidence({ _id: "ms76legacy", stepAttemptId: "gather-0", kind: "health", title: original.title, sourceRef: "Derived from evidence/ms76original; stepAttempts/r177attempt; GET /health" });
+  const detail = map(cards({ evidence: [original, copy, legacy] }));
+  const lines = detail.logs.filter((log) => log.source.startsWith("Evidence"));
+  assert.equal(lines.length, 1);
+  assert.equal(lines[0].text, "The booking app says it is healthy.\nFrom the app's health check.");
+  const all = detail.logs.map((log) => log.source + "\n" + log.text).join("\n") + content(detail);
+  for (const raw of ["ms76", "r177", "stepAttempts", "Derived from", "GET /", "health ok"]) assert.ok(!all.includes(raw), raw);
+  assert.equal(content(detail).split("\n").filter((line) => line === "The booking app says it is healthy.").length, 1);
+  // A citation of either copy opens the original's line.
+  for (const id of ["ms76copy", "ms76legacy"]) assert.deepEqual(detail.citations.find((c) => c.id === id), { id, kind: "log", logId: "ms76original" });
+});
+
+test("a copy whose original is not on the case is still shown, and unknown sources with ids are left out", () => {
+  const copy = evidence({ _id: "e-copy", sourceRef: "Copied from an earlier step: POST /journey-check (v1)", copyOf: "gone" });
+  const odd = evidence({ _id: "e-odd", title: "Something odd.", sourceRef: "widgets/k57abcdefghijklmnopq" });
+  const texts = map(cards({ evidence: [copy, odd] })).logs.map((log) => log.text);
+  assert.ok(texts.includes("The check failed.\nFrom turtl's check of the journey."));
+  assert.ok(texts.includes("Something odd."));
+});
+
+test("an error code in brackets is not shown to the owner", () => {
+  const check = evidence({ title: 'The booking check failed at the "recommendations" step (RECOMMENDATIONS_TIMEOUT), so no booking was saved.' });
+  const done = step({ currentAttempt: attempt({ summary: 'Reproduced before any change: The booking check failed at the "recommendations" step (RECOMMENDATIONS_TIMEOUT), so no booking was saved.' }) });
+  const detail = map(cards({ evidence: [check], steps: [done] }));
+  assert.ok(!JSON.stringify(detail).includes("RECOMMENDATIONS_TIMEOUT"));
+  assert.ok(content(detail).includes('failed at the "recommendations" step, so no booking was saved.'));
+});
+
+test("a journey check's log names its steps in words, and shows no error code or run id", () => {
+  const body = "load_catalog: passed. Selected a service.\nrecommendations: failed. Provider timed out.\nError RECOMMENDATIONS_TIMEOUT: Provider timed out.\nCleanup succeeded (0 test booking(s) deleted). Run 6198e797-0455-400c-891b-571e2f63275e on revision local-qa.";
+  const line = map(cards({ evidence: [evidence({ body })] })).logs.find((log) => log.source.startsWith("Evidence")).text;
+  assert.ok(line.includes("Load catalog: passed. Selected a service.\nRecommendations: failed. Provider timed out.\nError: Provider timed out.\nCleanup succeeded (0 test booking(s) deleted)."), line);
+  for (const raw of ["load_catalog", "RECOMMENDATIONS_TIMEOUT", "6198e797", "Run "]) assert.ok(!line.includes(raw), raw);
+});
+
+test("a case closed because turtl could not reach the app says what to fix and what happens next", () => {
+  const refused = "Could not read the booking app: the booking check (no control token is set for this project yet (add it in the project's Settings, under Control token)); health (no control token is set for this project yet (add it in the project's Settings, under Control token)).";
+  const gather = step({ key: "gather_context", title: "Gather context", purpose: "gather_context", status: "failed", currentAttempt: attempt({ attempt: 3, status: "failed", error: refused, summary: undefined }) });
+  const stopped = content(map(cards({ case: row({ status: "unresolved" }), steps: [gather] })));
+  assert.ok(stopped.startsWith("turtl stopped this case because it could not reach your app, so it sent nothing. The reason is under \"Gather context\" below"), stopped);
+  assert.match(stopped, /Fix it in this project's Settings\. turtl's next check opens a new case if the problem is still there/);
+  assert.ok(!content(map(cards({ case: row({ status: "investigating" }), steps: [gather] }))).includes("turtl stopped this case"), "only once it has stopped");
+  const address = step({ title: "Gather context", status: "failed", currentAttempt: attempt({ status: "failed", error: "Could not read the booking app: health (this project has no live address, so turtl sent nothing)." }) });
+  assert.match(content(map(cards({ case: row({ status: "unresolved" }), steps: [address] }))), /^turtl stopped this case because it could not reach your app/m);
+  const other = step({ status: "failed", currentAttempt: attempt({ status: "failed", error: "The model did not answer." }) });
+  assert.ok(!content(map(cards({ case: row({ status: "unresolved" }), steps: [other] }))).includes("turtl stopped this case"), "not for other failures");
+});
+
+test("a rule-based reading says \"No model answered\" once, even when the stored reason already says it", () => {
+  const diagnosing = step({ currentAttempt: attempt({ output: { diagnosis: { source: "rules", cause: "Booking waited.", noModelReason: "No model answered: OpenAI is not connected to turtl yet, so no request was sent." } } }) });
+  const text = content(map(cards({ steps: [diagnosing] })));
+  assert.ok(text.includes("No model answered: OpenAI is not connected to turtl yet, so no request was sent."), text);
+  assert.ok(!text.includes("No model answered: No model answered"));
+});
+
+test("why a remembered recovery does not apply is said in words, once per difference", () => {
+  const body = [
+    'Required condition failed: journey.errorCode equals "RECOMMENDATIONS_TIMEOUT"; observed "BOOKING_STORE_UNAVAILABLE".',
+    'Required condition failed: journey.failedStep equals "recommendations"; observed "submit_booking".',
+    'Do not use this recovery: journey.errorCode does not equal "RECOMMENDATIONS_TIMEOUT"; observed "BOOKING_STORE_UNAVAILABLE".',
+    "This recovery memory has been invalidated.",
+  ].join("\n");
+  const memory = evidence({ _id: "m1", kind: "memory_match", title: "A recovery turtl remembers does not apply.", body, sourceRef: "recoveryMemories/abc" });
+  const line = map(cards({ evidence: [memory] })).logs.find((log) => log.id === "m1").text;
+  assert.equal(line, [
+    "A recovery turtl remembers does not apply.",
+    "It was for the error being recommendations timeout; this time it is booking store unavailable.",
+    "It was for where the booking stopped being recommendations; this time it is submit booking.",
+    "This recovery memory has been invalidated.",
+    "From a recovery turtl remembers.",
+  ].join("\n"));
+  assert.doesNotMatch(line, /journey\.|_|Required condition|Do not use/);
+});
+
+test("the two journey and health checks say when each was made, so neither reads as a duplicate", () => {
+  const detect = step({ _id: "s-detect", key: "detect_or_receive", title: "Detect or receive a request", purpose: "detect_or_receive", currentAttempt: null });
+  const gather = step({ _id: "s-gather", key: "gather_context", title: "Gather context", purpose: "gather_context", currentAttempt: null });
+  const first = evidence({ _id: "e-first", stepId: "s-detect", title: "The booking check failed." });
+  const again = evidence({ _id: "e-again", stepId: "s-gather", title: "The booking check failed." });
+  const detail = map(cards({ steps: [detect, gather], evidence: [first, again] }));
+  const sources = detail.logs.filter((log) => log.source.startsWith("Evidence")).map((log) => log.source);
+  assert.deepEqual(sources.sort(), ["Evidence · Journey check · when turtl first noticed", "Evidence · Journey check · when turtl looked again"]);
+  const lines = detail.overview.filter((block) => block.kind === "paragraph").map((block) => block.spans.map((span) => span.text).join(""));
+  assert.ok(lines.includes("When turtl first noticed: The booking check failed."));
+  assert.ok(lines.includes("Looking again, to gather what it knows: The booking check failed."));
+  assert.equal(detail.logs.filter((log) => log.source.startsWith("Evidence")).length, 2, "both are kept");
+  const collect = step({ _id: "s-collect", key: "collect_app_state", title: "Read app health, flags and revision", purpose: "collect_app_state", currentAttempt: null });
+  const health = evidence({ _id: "e-health", stepId: "s-collect", kind: "health", title: "The booking app says it is healthy." });
+  assert.equal(map(cards({ steps: [collect], evidence: [health] })).logs.find((log) => log.id === "e-health").source, "Evidence · App health · when turtl looked again");
 });

@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { query } from "../_generated/server";
+import { query } from "../functions";
 import { accessEnforced, canSeeApp, visibleApps } from "../access";
 
 export type NetworkIdentity = { projectId: string; repo: string; source: "seed" | "built" };

@@ -293,7 +293,9 @@ function harness(responses = {}) {
       return typeof response === "function" ? response() : response;
     },
   };
-  const journey = load("../runner/handlers/journey.ts", { "../../_generated/api": { internal }, "../../protectedApp/client": httpClient });
+  // The demo's watched app: with accounts off watchedApp hands back DEMO_APP (convex/protectedApp/watched.ts).
+  const watched = { watchedApp: async () => client.DEMO_APP };
+  const journey = load("../runner/handlers/journey.ts", { "../../_generated/api": { internal }, "../../protectedApp/client": httpClient, "../../protectedApp/watched": watched });
   const collectors = load("./collectors.ts", { "../_generated/api": { internal }, "../protectedApp/client": httpClient, "../runner/handlers/journey": journey, "./snapshots": snapshots });
   const reader = load("./context.ts", { "../_generated/api": { internal }, "./collectors": collectors, "./snapshots": snapshots });
   const records = load("./records.ts", { "convex/values": { v: { id: () => ({}) } }, "../_generated/server": { internalMutation: (config) => config }, "./snapshots": snapshots });
@@ -397,7 +399,9 @@ test("collector-backed reader projects original provenance without replacement r
     const projection = h.rows[i];
     assert.equal(projection.stepId, h.input.step._id);
     assert.equal(projection.stepAttemptId, h.input.attempt._id);
-    assert.equal(projection.sourceRef, `Derived from evidence/${original._id}; stepAttempts/${original.stepAttemptId}; ${original.sourceRef}`);
+    assert.equal(projection.sourceRef, `Copied from an earlier step: ${original.sourceRef}`);
+    assert.equal(projection.copyOf, original._id);
+    assert.doesNotMatch(projection.sourceRef, new RegExp(`${original._id}|${original.stepAttemptId}`));
     for (const key of ["kind", "title", "body", "url", "observedAt", "environment", "revision"]) assert.deepEqual(projection[key], original[key]);
   }
   assert.deepEqual(h.context.evidence, originals);

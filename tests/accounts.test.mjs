@@ -21,8 +21,10 @@ const nodeRequire = createRequire(import.meta.url);
 const realAuth = await import("@convex-dev/auth/server");
 const VARIABLES = [
   "AUTH_REQUIRED", "AUTH_STAND_IN_URL", "AUTH_RESEND_KEY", "AUTH_EMAIL_FROM", "AUTH_APPLE_BUNDLE_ID", "AUTH_APPLE_TEAM_ID", "AUTH_APPLE_KEY_ID", "AUTH_APPLE_PRIVATE_KEY", "AUTH_GITHUB_ID", "AUTH_GITHUB_SECRET", "JWT_PRIVATE_KEY", "JWKS", "SITE_URL",
-  "CONVEX_CLOUD_URL", "NEW_ACCOUNTS_PER_HOUR", "NEW_ACCOUNTS_PER_DAY",
+  "CONVEX_CLOUD_URL", "NEW_ACCOUNTS_PER_HOUR", "NEW_ACCOUNTS_PER_DAY", "SECRETS_ENCRYPTION_KEY",
 ];
+// The key that seals Apple's refresh tokens (convex/secrets/seal.ts): 32 bytes in base64, made for these tests.
+const SEALING_KEY = Buffer.alloc(32, 7).toString("base64");
 
 const ref = (path) => new Proxy({ path }, { get: (target, key) => (key === "path" ? target.path : ref(path + "." + String(key))) });
 const registered = (kind) => (definition) => ({ kind, ...definition });
@@ -205,16 +207,29 @@ function fakeDb(indexes) {
     },
     normalizeId: (table, id) => (typeof id === "string" && id.startsWith(table + ":") ? id : null),
     query: (table) => ({
+      // The single-owner demo first checks that authAccounts is empty (convex/access.ts).
+      first: async () => structuredClone(rows(table)[0] ?? null),
+      // Only the shape convex/auth/appleTokens.ts uses: rows where a field is (eq) or is not (neq) a value.
+      filter: (build) => {
+        const holds = build({ field: (name) => name, eq: (name, value) => (row) => row[name] === value, neq: (name, value) => (row) => row[name] !== value });
+        return { take: async (count) => structuredClone(rows(table).filter(holds).slice(0, count)) };
+      },
       withIndex: (name, build) => {
-        const fields = indexes[table]?.[name];
+        // The demo's check that the deployment holds no account reads projects by their owner (convex/access.ts).
+        const fields = indexes[table]?.[name] ?? (table === "apps" && name === "by_owner" ? ["ownerId"] : undefined);
         assert.ok(fields, `${table} has no index ${name}`);
         const conditions = [];
         const tests = { eq: (a, b) => a === b, lt: (a, b) => a < b, lte: (a, b) => a <= b, gt: (a, b) => a > b, gte: (a, b) => a >= b };
         const range = Object.fromEntries(Object.entries(tests).map(([operator, holds]) => [operator, (field, value) => (conditions.push([field, value, holds]), range)]));
         build(range);
         conditions.forEach(([field], position) => assert.equal(field, fields[position], `${table}.${name} cannot be read by ${field} here`));
-        const matched = () => structuredClone(rows(table).filter((row) => conditions.every(([field, value, holds]) => holds(row[field], value))));
-        return { first: async () => matched()[0] ?? null, take: async (count) => matched().slice(0, count), unique: async () => matched()[0] ?? null };
+        let descending = false;
+        const matched = () => {
+          const found = structuredClone(rows(table).filter((row) => conditions.every(([field, value, holds]) => holds(row[field], value))));
+          return descending ? found.reverse() : found;
+        };
+        const reader = { order: (direction) => ((descending = direction === "desc"), reader), first: async () => matched()[0] ?? null, take: async (count) => matched().slice(0, count), unique: async () => matched()[0] ?? null };
+        return reader;
       },
     }),
   };
@@ -361,12 +376,16 @@ test("Sign in with Apple keeps Apple's refresh token to revoke later, only for t
   assert.ok(first.userId);
   assert.deepEqual(store.rows("authAppleTokens"), []);
   assert.match(logged.at(-1), /AUTH_APPLE_TEAM_ID, AUTH_APPLE_KEY_ID or AUTH_APPLE_PRIVATE_KEY is not set/);
-  Object.assign(process.env, { AUTH_APPLE_TEAM_ID: standIn.appleClient.teamId, AUTH_APPLE_KEY_ID: standIn.appleClient.keyId, AUTH_APPLE_PRIVATE_KEY: standIn.appleClient.privateKey.replace(/\n/g, " ") });
+  Object.assign(process.env, { AUTH_APPLE_TEAM_ID: standIn.appleClient.teamId, AUTH_APPLE_KEY_ID: standIn.appleClient.keyId, AUTH_APPLE_PRIVATE_KEY: standIn.appleClient.privateKey.replace(/\n/g, " "), SECRETS_ENCRYPTION_KEY: SEALING_KEY });
   const second = await signIn(standIn.issueAppleCode());
   assert.equal(second.userId, first.userId);
-  const [kept] = store.rows("authAppleTokens");
-  assert.equal(kept.userId, first.userId);
+  const [row] = store.rows("authAppleTokens");
+  assert.equal(row.userId, first.userId);
+  // Kept sealed (review: Apple refresh tokens were stored in the clear); opened only to revoke it.
+  const { openKept } = load("convex/auth/appleTokens.ts");
+  const kept = { ...row, refreshToken: (await openKept({ id: row._id, sealedToken: row.sealedToken, keyId: row.keyId }, first.userId, await load("convex/secrets/seal.ts").sealingKey())).refreshToken };
   assert.ok(standIn.appleRefreshTokens.has(kept.refreshToken), "the token Apple handed out for this code");
+  assert.equal(row.refreshToken, undefined);
   // A code that belongs to another Apple account is never kept under this one; a used code is refused by Apple. Both still sign in.
   assert.ok(await signIn(standIn.issueAppleCode("000999.someone-else.0001")));
   assert.match(logged.at(-1), /no Apple token was kept to revoke later \(the authorization code belongs to another Apple account\)/);
@@ -384,6 +403,70 @@ test("Sign in with Apple keeps Apple's refresh token to revoke later, only for t
   assert.deepEqual(await revokeToken(appleClient(), kept.refreshToken), { ok: false, reason: "Apple answered with an error (status 400)" });
   const secrets = [kept.refreshToken, standIn.appleClient.privateKey.split("\n")[1], used];
   assert.ok(logged.every((line) => secrets.every((secret) => !line.includes(secret))), "no token, code or key in any log line");
+});
+
+// Review, "Worth a second look": Apple refresh tokens were stored in the clear, so anyone holding a copy of the database
+// (a backup, an export, someone with dashboard access) could use every Apple user's token. Now they are sealed like an
+// owner's secrets (convex/secrets/seal.ts), bound to the user, and opened only in the action that revokes them.
+test("ATTACK (review): a copy of the database holds no usable Apple token; it opens only for its own user, and revokes at deletion", async (t) => {
+  const { load, standIn, store, actionCtx } = await world(t, { SECRETS_ENCRYPTION_KEY: SEALING_KEY });
+  const logged = [];
+  for (const level of ["log", "info", "warn", "error"]) t.mock.method(console, level, (...args) => logged.push(args.join(" ")));
+  Object.assign(process.env, { AUTH_APPLE_TEAM_ID: standIn.appleClient.teamId, AUTH_APPLE_KEY_ID: standIn.appleClient.keyId, AUTH_APPLE_PRIVATE_KEY: standIn.appleClient.privateKey.replace(/\n/g, " ") });
+  const provider = load("convex/auth/apple.ts").apple();
+  const signIn = async (code, sub) => {
+    const raw = nonce();
+    return await provider.authorize({ identityToken: await standIn.signAppleToken({ nonce: sha(raw), ...(sub && { sub }) }), nonce: raw, authorizationCode: code }, actionCtx);
+  };
+  const { userId } = await signIn(standIn.issueAppleCode());
+  const handedOut = [...standIn.appleRefreshTokens.keys()];
+  assert.equal(handedOut.length, 1);
+  const copy = JSON.stringify(store.rows("authAppleTokens"));
+  assert.ok(!copy.includes(handedOut[0]), "the database copy does not hold Apple's token");
+  const [row] = store.rows("authAppleTokens");
+  assert.match(row.sealedToken, /^v1\./);
+
+  const { openKept } = load("convex/auth/appleTokens.ts");
+  const { sealingKey } = load("convex/secrets/seal.ts");
+  const key = await sealingKey();
+  const token = { id: row._id, sealedToken: row.sealedToken, keyId: row.keyId };
+  assert.deepEqual(await openKept(token, userId, key), { ok: true, refreshToken: handedOut[0] });
+  assert.equal((await openKept(token, "users:999", key)).ok, false, "moved onto another user's row, it does not open");
+  assert.match((await openKept(token, userId, await sealingKey(Buffer.alloc(32, 9).toString("base64")))).reason, /sealed under an earlier SECRETS_ENCRYPTION_KEY/);
+  assert.match((await openKept(token, userId, null)).reason, /SECRETS_ENCRYPTION_KEY is not set/);
+
+  // Account deletion opens it in its own action and Apple revokes it: tests/account-deletion.test.mjs, end to end.
+
+  // Without the key nothing more is kept, not even in the clear, and the log says why; the sign-in still works.
+  delete process.env.SECRETS_ENCRYPTION_KEY;
+  assert.ok(await signIn(standIn.issueAppleCode()));
+  assert.equal(store.rows("authAppleTokens").length, 1);
+  assert.match(logged.at(-1), /SECRETS_ENCRYPTION_KEY is not set, or is not 32 bytes, so no Apple token was kept to revoke later/);
+  assert.ok(logged.every((line) => !handedOut.some((secret) => line.includes(secret))), "no token in any log line");
+});
+
+test("rows kept before Apple tokens were sealed are sealed in place by sealKept, and still open for their user", async (t) => {
+  const { load, store } = await world(t, { SECRETS_ENCRYPTION_KEY: SEALING_KEY });
+  const users = [await store.seed("users", { email: "a@example.com" }), await store.seed("users", { email: "b@example.com" })];
+  const plain = Array.from({ length: 60 }, (_, n) => `legacy-token-${n}`);
+  for (const [n, refreshToken] of plain.entries()) await store.seed("authAppleTokens", { userId: users[n % 2], refreshToken, storedAt: n });
+  const scheduled = [];
+  const call = async (fn, args) => {
+    const segments = fn.path.split(".").slice(1);
+    const name = segments.pop();
+    return await load("convex/" + segments.join("/") + ".ts")[name].handler(ctx, structuredClone(args));
+  };
+  const ctx = { db: store.db, runQuery: call, runMutation: call, scheduler: { runAfter: async (_delay, fn, args) => void scheduled.push([fn.path, args]) } };
+  const { sealKept, openKept } = load("convex/auth/appleTokens.ts");
+  assert.deepEqual(await sealKept.handler(ctx, {}), { sealed: 50, more: true });
+  assert.deepEqual(scheduled, [["internal.auth.appleTokens.sealKept", {}]], "it calls itself again while rows are left");
+  assert.deepEqual(await sealKept.handler(ctx, {}), { sealed: 10, more: false });
+  const rows = store.rows("authAppleTokens");
+  assert.ok(rows.every((row) => row.refreshToken === undefined && /^v1\./.test(row.sealedToken)));
+  assert.ok(!plain.some((token) => JSON.stringify(rows).includes(token)));
+  const key = await load("convex/secrets/seal.ts").sealingKey();
+  const opened = await Promise.all(rows.map(async (row) => (await openKept({ id: row._id, sealedToken: row.sealedToken, keyId: row.keyId }, row.userId, key)).refreshToken));
+  assert.deepEqual(opened.sort(), [...plain].sort());
 });
 
 test("a token for another bundle id is refused unless AUTH_APPLE_BUNDLE_ID names it", async (t) => {
@@ -420,142 +503,31 @@ test("email and password: sign up, sign in, and each refusal in plain words", as
   await assert.rejects(provider.authorize({ flow: "reset-verification", email: "owner@example.com", code: "12345678", newPassword: "a new password" }, ctx), refusal(words.resetOff));
 });
 
-test("password reset emails a one-time code, changes the password, and signs out every other device", async (t) => {
-  const { load, auth, standIn, actionCtx: ctx } = await world(t, { AUTH_RESEND_KEY: "stand-in-key", AUTH_EMAIL_FROM: "turtl <no-reply@example.com>" });
-  const { words } = load("convex/auth/rules.ts");
-  const provider = load("convex/auth/password.ts").password();
-  await provider.authorize({ flow: "signUp", email: "owner@example.com", password: "tide pools at dawn" }, ctx);
-  assert.equal(await provider.authorize({ flow: "reset", email: "nobody@example.com" }, ctx), null);
-  assert.equal(standIn.emails.length, 0, "no email for an address without an account, and the same answer");
-  assert.equal(await provider.authorize({ flow: "reset", email: "Owner@example.com" }, ctx), null);
-  assert.equal(await provider.authorize({ flow: "reset", email: "owner@example.com" }, ctx), null);
-  assert.equal(standIn.emails.length, 1, "no second email while the first code works, and the same answer");
-  const [email] = standIn.emails;
-  assert.deepEqual([email.to, email.from, email.authorization], [["owner@example.com"], "turtl <no-reply@example.com>", "Bearer stand-in-key"]);
-  const code = standIn.lastCode();
-  assert.match(code, /^\d{8}$/);
-  assert.match(email.subject, new RegExp(code));
-  await assert.rejects(provider.authorize({ flow: "reset-verification", email: "owner@example.com", code: "00000000", newPassword: "a new password" }, ctx), refusal(words.wrongCode));
-  await assert.rejects(provider.authorize({ flow: "reset-verification", email: "owner@example.com", code, newPassword: "short" }, ctx), refusal(words.weakPassword));
-  const signedIn = await provider.authorize({ flow: "reset-verification", email: "owner@example.com", code: ` ${code.slice(0, 4)} ${code.slice(4)} `, newPassword: "a new password" }, ctx);
-  assert.ok(signedIn.sessionId);
-  assert.equal(auth.accounts[0].secret, "hashed:a new password");
-  assert.deepEqual(auth.invalidated, [{ userId: signedIn.userId, except: [signedIn.sessionId] }]);
-  await assert.rejects(provider.authorize({ flow: "reset-verification", email: "owner@example.com", code, newPassword: "a third password" }, ctx), refusal(words.wrongCode), "a code works once");
-});
+// Password reset, confirming a new account's address, the limits on emails and the ceilings on new accounts:
+// tests/email-codes.test.mjs, against a stand-in for Convex Auth that shares turtl's database.
 
-test("the reset email reports a refused send without echoing the reply, and is off without a sender", async (t) => {
-  const { load } = await world(t, { AUTH_RESEND_KEY: "stand-in-key" });
-  const email = load("convex/auth/email.ts");
-  assert.equal(email.resetProvider(), undefined, "a key without a sender leaves reset off");
-  process.env.AUTH_EMAIL_FROM = "turtl <no-reply@example.com>";
-  const errors = t.mock.method(console, "error", () => {});
-  await assert.rejects(email.sendResetCode("owner@example.com", "12345678", async () => new Response("owner@example.com is not allowed", { status: 403 })), /couldn't send the email/);
-  assert.deepEqual(errors.mock.calls.map((call) => call.arguments.join(" ")), ["The reset email was not accepted (HTTP 403)."]);
-  const codes = await Promise.all(Array.from({ length: 50 }, () => email.resetProvider().generateVerificationToken()));
-  assert.ok(codes.every((code) => /^\d{8}$/.test(code)));
-  assert.ok(new Set(codes).size > 45, "codes vary");
-  // A new code goes out only when none still works and none went out in the last minute.
-  const { accountTables } = load("convex/auth/schema.ts");
-  const store = fakeDb(indexesOf(accountTables));
-  const ctx = { db: store.db };
-  const reserve = () => email.reserveReset.handler(ctx, { accountId: "authAccounts:1" });
-  t.mock.timers.enable({ apis: ["Date"], now: Date.parse("2026-11-15T12:00:00Z") });
-  assert.equal(await reserve(), true);
-  assert.equal(await reserve(), false, "within a minute of the last one");
-  await store.seed("authVerificationCodes", { accountId: "authAccounts:1", provider: "password-reset", code: "hash", expirationTime: Date.now() + 15 * 60_000 });
-  t.mock.timers.setTime(Date.parse("2026-11-15T12:05:00Z"));
-  assert.equal(await reserve(), false, "the code sent five minutes ago still works, so it is not replaced");
-  t.mock.timers.setTime(Date.parse("2026-11-15T12:16:00Z"));
-  assert.equal(await reserve(), true, "an expired code may be replaced");
-});
-
-// Review finding 6: someone who knows only the owner's address must not be able to keep the owner out. Convex Auth
-// refuses an account's right password after 10 wrong ones an hour; the reset is the way back, so a stranger must not be
-// able to replace the code the owner was sent, or use up tries the owner's own code needs.
-test("after ten wrong passwords from a stranger, the reset lets the owner back in, and a second reset leaves the first code valid", async (t) => {
-  const { load, standIn, store, actionCtx: ctx } = await world(t, { AUTH_RESEND_KEY: "stand-in-key", AUTH_EMAIL_FROM: "turtl <no-reply@example.com>" });
-  t.mock.timers.enable({ apis: ["Date"], now: Date.parse("2026-11-15T12:00:00Z") });
-  const { words } = load("convex/auth/rules.ts");
-  const provider = load("convex/auth/password.ts").password();
-  const as = (params) => provider.authorize({ email: "owner@example.com", ...params }, ctx);
-  await as({ flow: "signUp", password: "tide pools at dawn" });
-  // The stranger: ten wrong passwords, then the owner's right one is refused, as Convex Auth does.
-  for (let n = 0; n < 10; n++) await assert.rejects(as({ flow: "signIn", password: `wrong guess ${n}` }), refusal(words.wrongPassword));
-  await assert.rejects(as({ flow: "signIn", password: "tide pools at dawn" }), refusal(words.tooManyTries));
-  // The stranger asks for a reset (the code goes to the owner), and asks again later while it still works.
-  await as({ flow: "reset" });
-  const first = standIn.lastCode();
-  t.mock.timers.setTime(Date.parse("2026-11-15T12:02:00Z"));
-  await as({ flow: "reset" });
-  assert.equal(standIn.emails.length, 1, "no new code replaced the first");
-  // A few wrong codes from the stranger leave the code working.
-  for (const guess of ["11111111", "22222222"]) await assert.rejects(as({ flow: "reset-verification", code: guess, newPassword: "stranger's password" }), refusal(words.wrongCode));
-  const back = await as({ flow: "reset-verification", code: first, newPassword: "a new password" });
-  assert.ok(back.sessionId, "the owner is signed in");
-  assert.ok(await as({ flow: "signIn", password: "a new password" }), "and the new password works at once on another device");
-  assert.deepEqual(store.rows("authRateLimits"), [], "no count of wrong tries is left against the account or the address");
-  assert.deepEqual(store.rows("authPasswordResets"), []);
-});
-
-test("a stranger's wrong codes use up only that code: the owner asks for another and gets back in", async (t) => {
-  const { load, standIn, store, actionCtx: ctx } = await world(t, { AUTH_RESEND_KEY: "stand-in-key", AUTH_EMAIL_FROM: "turtl <no-reply@example.com>" });
-  t.mock.timers.enable({ apis: ["Date"], now: Date.parse("2026-11-15T12:00:00Z") });
-  const { words } = load("convex/auth/rules.ts");
-  const { MAX_CODE_TRIES } = load("convex/auth/email.ts");
-  const provider = load("convex/auth/password.ts").password();
-  const as = (params) => provider.authorize({ email: "owner@example.com", ...params }, ctx);
-  await as({ flow: "signUp", password: "tide pools at dawn" });
-  await as({ flow: "reset" });
-  const burned = standIn.lastCode();
-  for (let n = 0; n < MAX_CODE_TRIES; n++) await assert.rejects(as({ flow: "reset-verification", code: String(30000000 + n), newPassword: "stranger's password" }), refusal(words.wrongCode));
-  await assert.rejects(as({ flow: "reset-verification", code: burned, newPassword: "a new password" }), refusal(words.wrongCode), "that code is used up");
-  assert.deepEqual(store.rows("authVerificationCodes"), [], "and dropped");
-  assert.deepEqual(store.rows("authRateLimits"), [], "the address is never locked");
-  t.mock.timers.setTime(Date.parse("2026-11-15T12:01:01Z"));
-  await as({ flow: "reset" });
-  assert.equal(standIn.emails.length, 2);
-  assert.ok((await as({ flow: "reset-verification", code: standIn.lastCode(), newPassword: "a new password" })).sessionId);
-});
-
-// Review finding 7: every limit is per account, so a script that makes accounts multiplies them. With accounts on, the
-// deployment makes at most so many new accounts an hour and a day, by any method, counted where Convex Auth makes the user.
-test("with the deployment's ceiling on new accounts reached, a fresh sign-up is refused in plain words and makes nothing", async (t) => {
-  const { load, auth, store } = await world(t, { AUTH_REQUIRED: "true", NEW_ACCOUNTS_PER_HOUR: "2", NEW_ACCOUNTS_PER_DAY: "3" });
-  t.mock.timers.enable({ apis: ["Date"], now: Date.parse("2026-11-15T12:10:00Z") });
-  const { ceilingRefusal } = load("convex/spend/limits.ts");
-  load("convex/auth.ts");
-  const provider = load("convex/auth/password.ts").password();
-  const signUp = (email) => provider.authorize({ flow: "signUp", email, password: "tide pools at dawn" }, {});
-  await signUp("one@example.com");
-  await signUp("two@example.com");
-  await assert.rejects(signUp("three@example.com"), refusal(ceilingRefusal.accountsThisHour));
-  assert.equal(ceilingRefusal.accountsThisHour, "turtl is making a lot of new accounts right now, so it isn't making more this hour. Try again in an hour.");
-  assert.deepEqual(auth.users.map((user) => user.email), ["one@example.com", "two@example.com"], "the refused sign-up left no account");
-  // Signing in to an account that exists is not a new account.
-  assert.ok(await provider.authorize({ flow: "signIn", email: "one@example.com", password: "tide pools at dawn" }, {}));
-  // The next hour opens again, up to the day's ceiling.
-  t.mock.timers.setTime(Date.parse("2026-11-15T13:10:00Z"));
-  await signUp("three@example.com");
-  await assert.rejects(signUp("four@example.com"), refusal(ceilingRefusal.accountsToday));
-  assert.deepEqual(store.rows("deploymentTotals").map(({ name, value }) => [name, value]).sort(), [["accounts_day", 3], ["accounts_hour", 1]], "the earlier hour's count was dropped");
-});
-
-test("the demo has no ceiling on new accounts", async (t) => {
+// Review finding 13: the single-owner demo refuses to serve a deployment that holds any account, so it must make none,
+// or anyone could close it with one sign-up. The library runs the callback inside the mutation that makes the user.
+test("the demo makes no accounts, so a stranger cannot close it by signing up", async (t) => {
   const { load, auth } = await world(t, { NEW_ACCOUNTS_PER_HOUR: "1" });
   load("convex/auth.ts");
+  const { NO_SIGN_IN } = load("convex/access.ts");
   const provider = load("convex/auth/password.ts").password();
-  for (const email of ["one@example.com", "two@example.com"]) await provider.authorize({ flow: "signUp", email, password: "tide pools at dawn" }, {});
-  assert.equal(auth.users.length, 2);
+  for (const email of ["one@example.com", "two@example.com"]) {
+    await assert.rejects(provider.authorize({ flow: "signUp", email, password: "tide pools at dawn" }, {}), refusal(NO_SIGN_IN));
+  }
+  assert.equal(auth.users.length, 0);
+  assert.equal(auth.accounts.length, 0, "no row in authAccounts");
 });
 
 test("users.mode answers before sign-in; users.viewer returns the signed-in person or null", async (t) => {
   const { load } = await world(t, { AUTH_GITHUB_ID: "id", AUTH_GITHUB_SECRET: "secret" });
   const users = load("convex/users.ts");
-  assert.deepEqual(await users.mode.handler({}, {}), { accounts: false, github: true, passwordReset: false });
+  // accountTables spreads Convex Auth's own tables, so the demo's check finds authAccounts here too.
+  const store = fakeDb(indexesOf(load("convex/auth/schema.ts").accountTables));
+  assert.deepEqual(await users.mode.handler({ db: store.db }, {}), { accounts: false, github: true, passwordReset: false });
   process.env.AUTH_REQUIRED = "true";
-  assert.deepEqual(await users.mode.handler({}, {}), { accounts: true, github: true, passwordReset: false });
-  const store = fakeDb(indexesOf(realAuth.authTables));
+  assert.deepEqual(await users.mode.handler({ db: store.db }, {}), { accounts: true, github: true, passwordReset: false });
   const ada = await store.seed("users", { name: "Ada", email: "ada@example.com", image: "https://avatars.example.com/ada.png" });
   await store.seed("authAccounts", { userId: ada, provider: "github", providerAccountId: "4242" });
   await store.seed("authAccounts", { userId: ada, provider: "password", providerAccountId: "ada@example.com", secret: "x" });
@@ -564,8 +536,8 @@ test("users.mode answers before sign-in; users.viewer returns the signed-in pers
   const plainSession = await store.seed("authSessions", { userId: plain, expirationTime: Date.now() + 60_000 });
   const ended = await store.seed("authSessions", { userId: ada, expirationTime: 0 });
   const as = (subject) => ({ db: store.db, auth: { getUserIdentity: async () => (subject ? { subject } : null) } });
-  assert.deepEqual(await users.viewer.handler(as(`${ada}|${adaSession}`), {}), { id: ada, name: "Ada", email: "ada@example.com", picture: "https://avatars.example.com/ada.png", methods: ["password", "github"] });
-  assert.deepEqual(await users.viewer.handler(as(`${plain}|${plainSession}`), {}), { id: plain, name: null, email: "plain@example.com", picture: null, methods: [] }, "only an https picture is passed on");
+  assert.deepEqual(await users.viewer.handler(as(`${ada}|${adaSession}`), {}), { id: ada, name: "Ada", email: "ada@example.com", picture: "https://avatars.example.com/ada.png", methods: ["password", "github"], confirmed: true });
+  assert.deepEqual(await users.viewer.handler(as(`${plain}|${plainSession}`), {}), { id: plain, name: null, email: "plain@example.com", picture: null, methods: [], confirmed: true }, "only an https picture is passed on");
   assert.equal(await users.viewer.handler(as(`${ada}|${ended}`), {}), null, "a session that has ended (signed out elsewhere, or the account is being deleted)");
   assert.equal(await users.viewer.handler(as(null), {}), null);
   assert.equal(await users.viewer.handler(as("users:999|authSessions:3"), {}), null, "a deleted user");
@@ -581,8 +553,13 @@ test("users.account goes through internal.access.account: the account id signed 
     return {
       auth,
       runQuery: async (fn, args) => {
-        assert.equal(fn.path, "internal.access.account");
-        return await access.account.handler({ auth }, args);
+        // In the demo, an action first asks that the deployment holds no account (convex/functions.ts).
+        assert.ok(["internal.access.account", "internal.access.demoOpen"].includes(fn.path), fn.path);
+        // A query's context: a live session, no account rows (the demo's own check reads that table), and no hold on
+        // the account (with accounts on, signedInAccount asks whether its email address is still unconfirmed).
+        const none = { withIndex: () => none, order: () => none, first: async () => null, unique: async () => null };
+        const db = { normalizeId: (table, id) => (id.startsWith(table + ":") ? id : null), get: async (id) => ({ _id: id, expirationTime: Date.now() + 60_000 }), query: () => none };
+        return await access[fn.path.split(".").pop()].handler({ auth, db }, args);
       },
     };
   };
@@ -590,21 +567,6 @@ test("users.account goes through internal.access.account: the account id signed 
   process.env.AUTH_REQUIRED = "true";
   assert.equal(await users.account.handler(ctx("users:7|authSessions:9"), {}), "users:7", "the part of the subject before |");
   await assert.rejects(users.account.handler(ctx(null), {}), refusal("Sign in to continue."));
-});
-
-test("the review account is made, or given a new password, without logging the password", async (t) => {
-  const { load, auth } = await world(t);
-  const { ensureAccount } = load("convex/auth/review.ts");
-  const logged = [];
-  for (const level of ["log", "info", "warn", "error", "debug"]) t.mock.method(console, level, (...args) => logged.push(args.join(" ")));
-  assert.deepEqual(await ensureAccount.handler({}, { email: "Review@Example.com", password: "review pass one" }), { email: "review@example.com", created: true });
-  assert.deepEqual(await ensureAccount.handler({}, { email: "review@example.com", password: "review pass two" }), { email: "review@example.com", created: false });
-  assert.equal(auth.accounts.length, 1);
-  assert.equal(auth.accounts[0].secret, "hashed:review pass two");
-  assert.deepEqual(auth.invalidated, [], "a reviewer already signed in stays signed in");
-  await assert.rejects(ensureAccount.handler({}, { email: "review@example.com", password: "short" }), /Choose a password/);
-  await assert.rejects(ensureAccount.handler({}, { email: "review", password: "review pass three" }), /Enter your email/);
-  assert.ok(logged.every((line) => !line.includes("review pass")), "no password in any log line");
 });
 
 test("sign-in settings are read by name and reported without values", async (t) => {
@@ -618,7 +580,7 @@ test("sign-in settings are read by name and reported without values", async (t) 
   assert.ok(!JSON.stringify(report).includes("secret"), "no value leaves the module");
   delete process.env.AUTH_STAND_IN_URL;
   assert.equal(settings.appleKeysUrl(), "https://appleid.apple.com/auth/keys");
-  assert.equal(settings.resetEmail().endpoint, "https://api.resend.com/emails");
+  assert.equal(settings.emailService().endpoint, "https://api.resend.com/emails");
 });
 
 test("the app's sign-in gate: who sees what, and where they are sent", async (t) => {
@@ -636,7 +598,8 @@ test("the app's sign-in gate: who sees what, and where they are sent", async (t)
   assert.equal(accountStatus({ live: true, storeBuild: true, mode: undefined, auth: out }), "checking");
   assert.equal(accountStatus({ live: true, storeBuild: false, mode: on, auth: loading }), "checking");
   assert.equal(accountStatus({ live: true, storeBuild: false, mode: on, auth: out }), "signedOut");
-  assert.equal(accountStatus({ live: true, storeBuild: true, mode: on, auth: inside }), "signedIn");
+  assert.equal(accountStatus({ live: true, storeBuild: true, mode: on, auth: inside, confirmed: true }), "signedIn");
+  assert.equal(accountStatus({ live: true, storeBuild: true, mode: on, auth: inside, confirmed: undefined }), "checking", "until users.viewer says whether the address is confirmed");
   for (const route of ["projects", "project", "case", "live", "review", "add-project", "+not-found"]) assert.equal(gateTarget("signedOut", route), "/", route);
   for (const route of [undefined, "", "sign-in", "sign-up", "reset-password"]) {
     assert.equal(gateTarget("signedOut", route), null);
@@ -672,11 +635,13 @@ test("the Login screen keeps the demo's controls, adds Apple beside GitHub, and 
 
 test("every variable sign-in reads has a row, and production refuses the test-only ones", () => {
   const rows = Object.fromEntries(variables.map((row) => [row.name, row]));
-  for (const name of ["JWT_PRIVATE_KEY", "JWKS", "SITE_URL", "AUTH_GITHUB_ID", "AUTH_GITHUB_SECRET"]) {
+  // The email service is required: with accounts on, a password sign-up confirms its address by an emailed code.
+  for (const name of ["JWT_PRIVATE_KEY", "JWKS", "SITE_URL", "AUTH_GITHUB_ID", "AUTH_GITHUB_SECRET", "AUTH_RESEND_KEY", "AUTH_EMAIL_FROM"]) {
     assert.equal(rows[name]?.production, "required", name);
     assert.equal(rows[name].arrives, undefined, name + " has arrived");
   }
-  for (const name of ["AUTH_RESEND_KEY", "AUTH_EMAIL_FROM", "AUTH_APPLE_BUNDLE_ID", "AUTH_SESSION_TOTAL_DURATION_MS", "AUTH_SESSION_INACTIVE_DURATION_MS", "AUTH_LOG_LEVEL", "CUSTOM_AUTH_SITE_URL"]) assert.equal(rows[name]?.production, "optional", name);
+  for (const name of ["PASSWORD_SIGNUPS_PER_HOUR", "PASSWORD_SIGNUPS_PER_DAY", "CONFIRMED_SIGNUPS_PER_HOUR", "CONFIRMED_SIGNUPS_PER_DAY"]) assert.equal(rows[name]?.production, "optional", name);
+  for (const name of ["AUTH_APPLE_BUNDLE_ID", "AUTH_SESSION_TOTAL_DURATION_MS", "AUTH_SESSION_INACTIVE_DURATION_MS", "AUTH_LOG_LEVEL", "CUSTOM_AUTH_SITE_URL"]) assert.equal(rows[name]?.production, "optional", name);
   for (const name of ["AUTH_STAND_IN_URL", "AUTH_LOG_SECRETS"]) assert.equal(rows[name]?.production, "never", name);
   for (const name of ["JWT_PRIVATE_KEY", "AUTH_GITHUB_SECRET", "AUTH_RESEND_KEY"]) assert.equal(rows[name].secret, true, name);
   const mine = /AUTH_(GITHUB|RESEND|EMAIL|APPLE|STAND|SESSION|LOG)|JWT_PRIVATE_KEY|JWKS|SITE_URL|convex\/auth|convex\/users/;

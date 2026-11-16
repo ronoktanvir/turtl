@@ -1,7 +1,8 @@
 import { v } from "convex/values";
 import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
-import { action, internalMutation, query, type ActionCtx } from "../_generated/server";
+import { internalMutation, type ActionCtx } from "../_generated/server";
+import { action, query } from "../functions";
 import { canSeeCase, guardCaseInAction } from "../access";
 import { gateFor } from "../consent/gate";
 import { speak, speechModelId, transcribe, transcribeModelId } from "./openai";
@@ -116,10 +117,11 @@ export const talk = action({
       return { ok: false, reason: `That recording is longer than turtl takes (${MAX_CLIP_MS / 1000} seconds). Ask a shorter question.`, retry: true };
     }
     if (!audio.byteLength) return { ok: false, reason: "turtl didn't hear a question. Ask again, or end the conversation.", retry: true };
-    // The recording goes to OpenAI only with the owner's permission; without it nothing is sent and typing still works.
+    // The recording goes to OpenAI only with the owner's permission and within the account's limits. A typed question
+    // goes through the same gate (fixes.investigate), so whatever refuses listening refuses typing too: it is not offered.
     const gate = gateFor(ctx, { caseId });
     const refused = await gate.blocked("openai");
-    if (refused) return { ok: false, reason: `turtl can't listen: ${refused}. You can still type your question.`, retry: false };
+    if (refused) return { ok: false, reason: `turtl can't listen: ${refused}.`, retry: false };
 
     const turn = await ctx.runMutation(internal.voice.turn.begin, { caseId });
     if (!turn.ok) return { ok: false, reason: turn.reason, retry: false };

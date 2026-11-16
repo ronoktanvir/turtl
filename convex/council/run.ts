@@ -62,10 +62,18 @@ const strings = (value: unknown, limit = 8) =>
   Array.isArray(value) ? value.filter((item): item is string => typeof item === "string" && !!item.trim()).map((item) => item.trim()).slice(0, limit) : [];
 const label = (index: number) => `Reviewer ${String.fromCharCode(65 + index)}`;
 
+const RECENT_REVIEWS_READ = 500;
+
 export const recent = internalQuery({
   args: { appId: v.id("apps"), caseId: v.id("cases"), since: v.number() },
   handler: async (ctx, { appId, caseId, since }) => {
-    const reviews = await ctx.db.query("councilReviews").withIndex("by_app", (q) => q.eq("appId", appId).gte("startedAt", since)).collect();
+    // The project's newest reviews in the window. Every case that would call the council records one, run or skipped,
+    // so the monitor and customers can grow them; past RECENT_REVIEWS_READ, an older one in the window is not seen.
+    const reviews = await ctx.db
+      .query("councilReviews")
+      .withIndex("by_app", (q) => q.eq("appId", appId).gte("startedAt", since))
+      .order("desc")
+      .take(RECENT_REVIEWS_READ);
     const counted = reviews.filter((review) => review.status === "completed" || review.status === "running");
     return {
       counted: counted.length,
@@ -165,7 +173,8 @@ export async function examineWithCouncil(ctx: ActionCtx, request: CouncilRequest
   const where = { caseId: request.caseId, stepId: request.stepId, stepAttemptId: request.stepAttemptId };
   const row = await ctx.runQuery(internal.protectedApp.records.caseContext, { caseId: request.caseId });
   const appId = row.case.appId;
-  const gate = gateFor(ctx, { appId });
+  // A council on a diagnosis is part of finding an outage's cause; one on a structural hypothesis is not.
+  const gate = gateFor(ctx, { caseId: request.caseId }, request.purpose === "diagnosis" ? "outage" : "account");
   const refusals = new Map<string, string | null>();
   const refusalFor = async (member: CouncilMember) => {
     if (!refusals.has(member.provider)) refusals.set(member.provider, await gate.blocked(member.provider));

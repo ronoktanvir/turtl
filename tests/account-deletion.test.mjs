@@ -28,13 +28,17 @@ const esModules = { "@convex-dev/auth/server": await import("@convex-dev/auth/se
 // Tables that deleting an account leaves alone, and why. Adding one here needs a reason a reviewer would accept.
 const EXEMPT = {
   ownerPasscodeConfig: "The single-owner demo's passcode digest. It belongs to no account, and accounts mode never reads it.",
+  closedDemoNotices: "When the backend log last said the demo is closed because the deployment holds accounts: one deployment-wide time, naming no account.",
   bookingDemoSettings: "The booking demo's own switches. The demo app is turtl's test patient, not an account's data.",
   bookingDemoBookings: "Bookings the booking demo's test journeys made in the demo app. No account's data.",
   bookingDemoAttempts: "The booking demo's own log of booking attempts. No account's data.",
   githubWebhookDeliveries: "GitHub's delivery ids and body digests, kept so a replayed webhook changes nothing. They name an installation number, never a person or an account.",
   authAppleNonces: "SHA-256 hashes of Apple sign-in nonces already used. They name nobody, and each is deleted minutes after its token expires.",
+  authCounts: "Running counts of sign-ups, confirmations and emails per hour and day, for the whole deployment or under a SHA-256 hash of an email domain. They name no account and no address, and the hourly sweep deletes every day before today.",
+  authEmailCodes: "One row per code emailed in the last day, filed under a SHA-256 hash of the address and holding only the code's hash. It names no account, and must outlive one: it is what stops deleting an account and signing up again from mailing an address more than five times a day. The hourly sweep deletes each row a day after it was sent.",
   deploymentTotals: "Deployment-wide running totals (new accounts per hour and day, every account's model spend per day). They count everyone and name no account.",
-  monitorCursor: "The monitor's place in its round of projects: one deployment-wide row holding a point in time. It names no account and no project.",
+  deploymentModelDays: "The deployment's hard stop on model spend: per day, what every account's floor cost and what every call still out is held at, together, and when the log was told. It counts everyone and names no account; older days are deleted as a new one starts.",
+  monitorCursor: "How far the monitor has looked through the checks added to every project: one deployment-wide row holding points in time. It names no account and no project.",
   accountDeletions: "The record that a deletion happened. Once the job is done it holds a hash of the account id, the times and counts, and nothing else.",
 };
 
@@ -362,7 +366,7 @@ function clockFor(t) {
   return { skip: (ms) => (skew += ms) };
 }
 
-const VARIABLES = ["AUTH_REQUIRED", "CONVEX_CLOUD_URL", "AUTH_STAND_IN_URL", "AUTH_APPLE_TEAM_ID", "AUTH_APPLE_KEY_ID", "AUTH_APPLE_PRIVATE_KEY", "AUTH_APPLE_BUNDLE_ID", "SUPERMEMORY_API_KEY", "SUPERMEMORY_BASE_URL", "SUPERMEMORY_NAMESPACE_PREFIX", "INTAKE_NAMESPACE_PREFIX"];
+const VARIABLES = ["AUTH_REQUIRED", "CONVEX_CLOUD_URL", "AUTH_STAND_IN_URL", "AUTH_APPLE_TEAM_ID", "AUTH_APPLE_KEY_ID", "AUTH_APPLE_PRIVATE_KEY", "AUTH_APPLE_BUNDLE_ID", "SUPERMEMORY_API_KEY", "SUPERMEMORY_BASE_URL", "SUPERMEMORY_NAMESPACE_PREFIX", "INTAKE_NAMESPACE_PREFIX", "SECRETS_ENCRYPTION_KEY"];
 
 async function world(t, { env = {}, overrides, failDelete, mocks } = {}) {
   const saved = Object.fromEntries(VARIABLES.map((name) => [name, process.env[name]]));
@@ -385,6 +389,8 @@ async function world(t, { env = {}, overrides, failDelete, mocks } = {}) {
     AUTH_APPLE_PRIVATE_KEY: apple.appleClient.privateKey.replace(/\n/g, " "),
     SUPERMEMORY_API_KEY: memory.apiKey,
     SUPERMEMORY_BASE_URL: memory.url,
+    // Seals the Apple tokens kept for each account (convex/auth/appleTokens.ts).
+    SECRETS_ENCRYPTION_KEY: Buffer.alloc(32, 5).toString("base64"),
     // Stand-in addresses are honoured with accounts on only on a local backend (convex/demoSettings.ts).
     CONVEX_CLOUD_URL: "http://127.0.0.1:3210",
     ...env,
@@ -410,19 +416,26 @@ async function seedAccount({ backend, registry, apple, memory }, label, installa
   const user = await add("users", { email, name: label });
   const method = await add("authAccounts", { userId: user, provider: "password", providerAccountId: email, secret: "scrypt-hash" });
   await add("authVerificationCodes", { accountId: method, provider: "password-reset", code: "hashed-code", expirationTime: Date.now() + 60_000 });
-  await add("authPasswordResets", { accountId: method, requestedAt: Date.now(), tries: 1 });
   await add("authRateLimits", { identifier: method, lastAttemptTime: Date.now(), attemptsLeft: 9 });
   await add("authRateLimits", { identifier: email, lastAttemptTime: Date.now(), attemptsLeft: 9 });
   const session = await add("authSessions", { userId: user, expirationTime: Date.now() + 86_400_000 });
   const parent = await add("authRefreshTokens", { sessionId: session, expirationTime: Date.now() + 86_400_000 });
   await add("authRefreshTokens", { sessionId: session, expirationTime: Date.now() + 86_400_000, parentRefreshTokenId: parent });
   await add("authVerifiers", { sessionId: session, signature: `verifier-${label}` });
-  // Signed in with Apple too: the refresh token comes from the stand-in, as from a real sign-in.
+  // Signed in with Apple too, twice: the refresh tokens come from the stand-in, as from a real sign-in. One is kept
+  // sealed, as a sign-in keeps it now; the other in the clear, as one kept before tokens were sealed.
   const appleUser = `001234.${label}.0001`;
-  const code = apple.issueAppleCode(appleUser);
-  const response = await fetch(`${apple.url}/apple/auth/token`, { method: "POST", body: new URLSearchParams({ client_id: "com.turtl.oncall", client_secret: await clientSecretFor(apple), code, grant_type: "authorization_code" }) });
-  const refreshToken = (await response.json()).refresh_token;
-  await add("authAppleTokens", { userId: user, refreshToken, storedAt: Date.now() });
+  const appleToken = async () => {
+    const code = apple.issueAppleCode(appleUser);
+    const response = await fetch(`${apple.url}/apple/auth/token`, { method: "POST", body: new URLSearchParams({ client_id: "com.turtl.oncall", client_secret: await clientSecretFor(apple), code, grant_type: "authorization_code" }) });
+    return (await response.json()).refresh_token;
+  };
+  const refreshToken = await appleToken();
+  const { seal, sealingKey } = createLoader()("convex/secrets/seal.ts");
+  const { sealed, keyId } = await seal(refreshToken, `turtl-secret:apple_refresh_token:${user}`, await sealingKey());
+  await add("authAppleTokens", { userId: user, sealedToken: sealed, keyId, storedAt: Date.now() });
+  const keptInTheClear = await appleToken();
+  await add("authAppleTokens", { userId: user, refreshToken: keptInTheClear, storedAt: Date.now() });
 
   const appId = await add("apps", { name: `${label}'s shop`, ownerId: user, repoUrl: `https://github.com/${label}/shop`, productionUrl: `https://${label}.example.com` });
   const caseId = await add("cases", { appId, title: "Checkout is down", impact: "Nobody can pay.", kind: "outage", raisedBy: "monitor", status: "waiting_for_owner" });
@@ -447,7 +460,11 @@ async function seedAccount({ backend, registry, apple, memory }, label, installa
     await seed("case", entry, closedCase);
   }
   for (const entry of registry.projectErasers.filter((row) => row.kind === "rows")) await seed("project", entry, value.project);
-  for (const entry of registry.accountErasers.filter((row) => row.kind === "rows")) await seed("account", entry, user);
+  // A password account still waiting to confirm its address reads as signed out, so it cannot ask to be deleted the way
+  // these tests do; the sweep and "start over" delete one (tests/email-codes.test.mjs). Its hold is added by hold(),
+  // once the request is in, so the job is seen to remove it too.
+  for (const entry of registry.accountErasers.filter((row) => row.kind === "rows" && row.table !== "authUnconfirmed")) await seed("account", entry, user);
+  const hold = async () => await add("authUnconfirmed", { account: user, since: Date.now() });
   // The report form's key and its rate-limit windows, per key and per sender.
   const key = await add("intakeKeys", { appId, key: `key-${label}`, createdAt: Date.now() });
   await add("intakeRateWindows", { bucket: `key-minute:${key}`, windowStart: 1, count: 3 });
@@ -464,7 +481,7 @@ async function seedAccount({ backend, registry, apple, memory }, label, installa
   await db.patch(made.find((id) => id.startsWith("aiConsents:") && backendRow(backend, id)?.account === user), { answer: "allowed", services: [], listVersion: "v", answeredAt: 1 });
   const names = [...registry.namespaces.map((name) => name(appId))];
   for (const name of names) memory.hold(name, 3);
-  return { user, email, session, method, appId, caseId, closedCase, refreshToken, made, names, installationId, identity: { subject: `${user}|${session}` } };
+  return { user, email, session, method, appId, caseId, closedCase, refreshToken, keptInTheClear, made, names, installationId, hold, identity: { subject: `${user}|${session}` } };
 }
 
 const backendRow = (backend, id) => backend.rows(id.split(":")[0]).find((row) => row._id === id);
@@ -518,6 +535,7 @@ test("deleting an account removes every row of it in every table, its files, and
   const accepted = await backend.call("api.account.deletion.request", {}, alice.identity);
   assert.equal(typeof accepted.requestedAt, "number");
   void request;
+  await alice.hold();
 
   // From the moment it is accepted: the session has ended, nobody can sign in to it, and the AI permission is back.
   await assert.rejects(access.requireAccount(as(alice)), (error) => message(error) === "Sign in to continue.");
@@ -533,7 +551,7 @@ test("deleting an account removes every row of it in every table, its files, and
   assert.deepEqual(backend.failures, []);
 
   // Nothing anywhere names anything of Alice's: not her ids, her email, her session, her token, her files.
-  const markers = [...alice.made, alice.email, alice.refreshToken, ...alice.names];
+  const markers = [...alice.made, alice.email, alice.refreshToken, alice.keptInTheClear, ...alice.names];
   const after = backend.all();
   for (const [table, rows] of Object.entries(after)) {
     for (const row of rows) {
@@ -557,7 +575,8 @@ test("deleting an account removes every row of it in every table, its files, and
   // Supermemory deleted Alice's namespaces and only hers; Apple revoked her token and only hers; GitHub was asked again after failing.
   assert.deepEqual(memory.deleted.sort(), [...new Set(alice.names)].sort());
   assert.ok(bob.names.every((name) => memory.held.has(name)));
-  assert.deepEqual(apple.appleRevoked, [{ token: alice.refreshToken, hint: "refresh_token" }]);
+  // Both of hers: the sealed one, opened in the action that sends it, and the one kept before tokens were sealed.
+  assert.deepEqual(apple.appleRevoked, [alice.refreshToken, alice.keptInTheClear].map((token) => ({ token, hint: "refresh_token" })));
   assert.deepEqual(github.seen, [alice.user, alice.user], "the GitHub disconnect failed once and was retried");
   assert.deepEqual(errors, [`Account deletion ${backend.rows("accountDeletions")[0]._id}: github did not confirm (try 1); it is tried again later.`]);
 
@@ -690,10 +709,12 @@ test("the single-owner demo has no account to delete, and a signed-out caller is
   await assert.rejects(w.backend.call("api.account.deletion.request", {}, null), (error) => message(error) === "Sign in to continue.");
 });
 
-test("an ended session signs nobody in, though its token has not expired; demo and actions are unchanged", async () => {
+test("an ended session signs nobody in, though its token has not expired; an action's context, with no database, is refused", async () => {
   const access = createLoader()("convex/access.ts");
   const sessions = { "authSessions:1": { _id: "authSessions:1", expirationTime: Date.now() + 60_000 }, "authSessions:2": { _id: "authSessions:2", expirationTime: 0 } };
-  const db = { normalizeId: (table, id) => (id.startsWith(table + ":") ? id : null), get: async (id) => sessions[id] ?? null };
+  // No account here waits to confirm its email address (authUnconfirmed is empty; tests/email-codes.test.mjs covers that).
+  const noHold = { withIndex: () => ({ first: async () => null }) };
+  const db = { normalizeId: (table, id) => (id.startsWith(table + ":") ? id : null), get: async (id) => sessions[id] ?? null, query: (table) => (assert.equal(table, "authUnconfirmed"), noHold) };
   const as = (subject, withDb = true) => ({ ...(withDb && { db }), auth: { getUserIdentity: async () => ({ subject }) } });
   const saved = process.env.AUTH_REQUIRED;
   process.env.AUTH_REQUIRED = "true";
@@ -701,7 +722,10 @@ test("an ended session signs nobody in, though its token has not expired; demo a
     assert.equal(await access.signedInAccount(as("users:7|authSessions:1")), "users:7");
     assert.equal(await access.signedInAccount(as("users:7|authSessions:2")), null, "an expired session");
     assert.equal(await access.signedInAccount(as("users:7|authSessions:3")), null, "a deleted session");
-    assert.equal(await access.signedInAccount(as("users:7|authSessions:3", false)), "users:7", "an action has no database and asks through internal.access");
+    // An action has no database, so it cannot check the session here; it asks through internal.access (review finding 17).
+    for (const helper of ["signedInAccount", "requireAccount", "currentAccount"]) {
+      await assert.rejects(access[helper](as("users:7|authSessions:3", false)), /needs the database to check the session/, helper);
+    }
     assert.equal(await access.signedInAccount(as("alice|session-1")), "alice", "a subject that names no session is read as before");
   } finally {
     if (saved === undefined) delete process.env.AUTH_REQUIRED;
@@ -734,6 +758,8 @@ test("Delete account sits under Sign out for a signed-in account only, says what
   const { faceFor } = createLoader()("components/ui/typeface.ts");
   for (const item of DELETED) assert.equal(faceFor(item), "title", item);
   const sentences = ["Deleting your account removes all of this from turtl, and from the services turtl uses to keep it.", "This can't be undone.", "Delete your account and everything in it now? You won't be able to get any of it back."];
+  // What deleting does not do, which the privacy policy also says: an organization's installation is unlinked, not removed.
+  sentences.push("If turtl's GitHub app is installed on an organization, it stays installed there until one of that organization's owners removes it on GitHub. turtl stops using it for you.");
   for (const sentence of sentences) {
     assert.ok(screen.includes(sentence), sentence);
     assert.equal(faceFor(sentence), "text", sentence);

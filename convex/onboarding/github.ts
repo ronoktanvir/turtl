@@ -21,8 +21,13 @@ export type RepoRead =
 
 const rejectedNote = "GitHub turned down turtl's access to this repository, so turtl read it the way anyone can read a public one.";
 
-// Plain words for an owner: what turtl could not do, and what they can do about it. No setting names.
-function unreadable(repo: string, read: Extract<GithubResult<unknown>, { ok: false }>, token: string | undefined, rejected: boolean): string {
+// Plain words for an owner: what turtl could not do, and what they can do about it. No setting names, and GitHub's own
+// error text goes to the log, not the screen. connected: the project reaches its repository through Connect GitHub, so
+// what went wrong is that connection, never a missing token.
+export function unreadable(repo: string, read: Extract<GithubResult<unknown>, { ok: false }>, token: string | undefined, rejected: boolean, connected = false): string {
+  if (connected && (rejected || read.status === 401 || read.status === 403 || read.status === 404)) {
+    return `turtl reaches ${repo} through your GitHub connection, but GitHub turned that connection down just now. In this project's Settings, under GitHub, check that it is still connected and still includes ${repo}, then read the repository again.`;
+  }
   if (read.status === 403 && /rate limit/i.test(read.message)) {
     return `GitHub limits how often turtl may read repositories it has no access to, and that limit is used up for now, so turtl could not read ${repo}. Try again within the hour, or connect the repository to turtl through GitHub (Add project, Connect GitHub), which lifts the limit.`;
   }
@@ -30,7 +35,8 @@ function unreadable(repo: string, read: Extract<GithubResult<unknown>, { ok: fal
     if (token && !rejected) return `GitHub did not let turtl read ${repo}. Check that it is one of the repositories you connected to turtl through GitHub, then read it again.`;
     return `GitHub shows no public repository ${repo}. If it is private, connect it to turtl through GitHub (Add project, Connect GitHub) so turtl can read it${rejected ? "; the access turtl had was turned down" : ""}.`;
   }
-  return `turtl could not read ${repo}: ${read.message}.`;
+  console.error(`onboarding: reading ${repo} failed with ${read.status}: ${read.message}`);
+  return `GitHub did not answer when turtl tried to read ${repo}. Try again in a few minutes.`;
 }
 
 // A request with the token, or without it when GitHub rejects the token, so a public repository stays readable.
@@ -57,17 +63,17 @@ export async function readRaw(repo: string, sha: string, path: string, token: st
 
 // Three GitHub API reads (repository, commit, file tree) and the file contents from raw.githubusercontent.com,
 // which does not count against GitHub's API limit. The credential comes from repositoryAccess (convex/github/access.ts).
-export async function readRepository(repo: string, credential: string | undefined): Promise<RepoRead> {
+export async function readRepository(repo: string, credential: string | undefined, connected = false): Promise<RepoRead> {
   const meta = await readWithFallback<{ default_branch: string }>(`/repos/${repo}`, credential);
-  if (!meta.read.ok) return { ok: false, reason: unreadable(repo, meta.read, credential, meta.rejected) };
+  if (!meta.read.ok) return { ok: false, reason: unreadable(repo, meta.read, credential, meta.rejected, connected) };
   const { token } = meta;
   const note = meta.rejected ? rejectedNote : undefined;
   const branch = meta.read.body.default_branch;
   const commit = await github<{ sha: string }>(token, `/repos/${repo}/commits/${encodeURIComponent(branch)}`);
-  if (!commit.ok) return { ok: false, reason: unreadable(repo, commit, token, meta.rejected) };
+  if (!commit.ok) return { ok: false, reason: unreadable(repo, commit, token, meta.rejected, connected) };
   const sha = commit.body.sha;
   const tree = await github<{ tree: { path: string; type: string; size?: number }[]; truncated: boolean }>(token, `/repos/${repo}/git/trees/${sha}?recursive=1`);
-  if (!tree.ok) return { ok: false, reason: unreadable(repo, tree, token, meta.rejected) };
+  if (!tree.ok) return { ok: false, reason: unreadable(repo, tree, token, meta.rejected, connected) };
   const entries = tree.body.tree.filter((entry) => entry.type === "blob" && readable(entry.path, entry.size)).slice(0, MAX_FILES);
   const files: RepoFile[] = [];
   for (let start = 0; start < entries.length; start += FETCH_CONCURRENCY) {

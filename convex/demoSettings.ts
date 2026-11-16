@@ -10,20 +10,30 @@ declare const process: { env: Record<string, string | undefined> };
 //   texted to one number), REVYL_BOOKING_WORKFLOW_ID (every account's verify step running the demo's device
 //   workflow on the operator's credits). With accounts on they read as not set.
 // - standInOnly: AUTH_STAND_IN_URL (that server would decide who is signed in), EXPO_PUSH_API_URL (every phone's
-//   token sent to that server) and SUPERMEMORY_BASE_URL (every owner's memory, reports and code sent to that server).
-//   Tests and local proofs run with accounts on against stand-ins, so with accounts on
-//   they are honoured only when this backend runs on this machine, and never otherwise.
+//   token sent to that server), SUPERMEMORY_BASE_URL (every owner's memory, reports and code sent to that server),
+//   and KEIKI_BASE_URL and REVYL_BASE_URL (the operator's Keiki and Revyl keys sent to that server).
+//   Tests and local proofs run with accounts on against stand-ins on this machine, so with accounts on they are
+//   honoured only when this backend runs on this machine and the stand-in does too, and never otherwise.
+//
+// "This backend runs on this machine" is read from its own address, CONVEX_CLOUD_URL, which Convex sets. On Convex's
+// hosted service it is https://<deployment>.convex.cloud, never localhost. A self-hosted Convex backend left on its
+// default address (http://127.0.0.1:3210) would read as local, so a stand-in must also be on this machine: a
+// deployment mistaken for a local one can then be pointed only at a service on its own host, never at another server.
 
-/** True when this deployment is a local backend (npx convex dev --local), decided by its own address the way
- * convex/evidence/localProof.ts decides it. A hosted deployment's address is never localhost. */
-export function localBackend(): boolean {
-  let host: string;
+const LOOPBACK = ["localhost", "127.0.0.1", "[::1]"];
+
+function onThisMachine(address: string | undefined): boolean {
   try {
-    host = new URL(process.env.CONVEX_CLOUD_URL ?? "https://invalid.example").hostname;
+    return LOOPBACK.includes(new URL(address ?? "https://invalid.example").hostname);
   } catch {
     return false;
   }
-  return ["localhost", "127.0.0.1", "[::1]"].includes(host);
+}
+
+/** True when this deployment is a local backend (npx convex dev --local), decided by its own address the way
+ * convex/evidence/localProof.ts decides it. A deployment on Convex's hosted service is never localhost. */
+export function localBackend(): boolean {
+  return onThisMachine(process.env.CONVEX_CLOUD_URL);
 }
 
 /** The value of a demo-only variable: as set in the single-owner demo, not set with accounts on. */
@@ -31,7 +41,8 @@ export function demoOnly(value: string | undefined): string | undefined {
   return accessEnforced() ? undefined : value;
 }
 
-/** The value of a stand-in address: as set in the demo, and with accounts on only on a local backend. */
+/** The value of a stand-in address: as set in the demo, and with accounts on only on a local backend, for a stand-in
+ * on this machine. */
 export function standInOnly(value: string | undefined): string | undefined {
-  return accessEnforced() && !localBackend() ? undefined : value;
+  return accessEnforced() && !(localBackend() && onThisMachine(value)) ? undefined : value;
 }

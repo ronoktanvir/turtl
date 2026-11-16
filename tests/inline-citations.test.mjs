@@ -60,9 +60,9 @@ test("Fix and Features scope approvals while Home totals them", async () => {
     const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
     await page.goto((process.env.UI_BASE_URL ?? "http://localhost:8081") + "/project/listener-ladder");
     await page.getByTestId("project-fix-approval-count").waitFor();
-    assert.equal(await page.getByTestId("project-fix-approval-count").innerText(), "2 need approval.");
-    await page.waitForFunction(() => document.querySelector('[data-testid="project-feature-approval-count"]')?.textContent === "2 need approval.", null, { timeout: 20_000 });
-    assert.equal(await page.getByTestId("project-fix-approval-count").innerText(), "2 need approval.");
+    assert.equal(await page.getByTestId("project-fix-approval-count").innerText(), "2 need approval");
+    await page.waitForFunction(() => document.querySelector('[data-testid="project-feature-approval-count"]')?.textContent === "2 need approval", null, { timeout: 20_000 });
+    assert.equal(await page.getByTestId("project-fix-approval-count").innerText(), "2 need approval");
     await page.getByTestId("header-back").click();
     await page.getByTestId("project-approvals-listener-ladder").waitFor();
     assert.equal(await page.getByTestId("project-approvals-listener-ladder").innerText(), "4 need approval");

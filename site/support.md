@@ -17,7 +17,7 @@ If you think you have found a security problem, write to the same address and pu
 
 ### What does turtl need from me?
 
-A GitHub repository and a live app to watch. turtl reads the repository, checks the app about once a minute, and opens a case when a check fails.
+An account (email and password, Sign in with Apple, or GitHub; with an email address, you confirm it with a code turtl emails you), a GitHub repository, and a live app to watch. turtl reads the repositories you choose, checks the app regularly, and opens a case when a check fails or a customer reports a problem. To have turtl write code changes, add your own Capy key in Settings, under Coding agent. To see how it works first, tap Try a practice app on Projects before you add a project, or in Add project: turtl runs a small booking app for you to break on purpose and watch it fix.
 
 ### Why does turtl ask for my microphone?
 
@@ -25,11 +25,19 @@ Only so you can ask about a case out loud. It listens after you tap Talk, for up
 
 ### Which AI services see my code?
 
-OpenAI, Supermemory, and Capy. The [privacy policy](../privacy/) lists what each one receives and why.
+OpenAI, Supermemory, and Capy, and only after you allow it on the screen turtl shows before it uses AI. The [privacy policy](../privacy/) lists what each one receives and why.
 
 ### How do I stop turtl sending my data to AI services?
 
-Open a project, tap the gear, and turn off AI services. turtl will still show your cases and the results of its checks, but it cannot diagnose, propose fixes, or answer questions.
+Open a project, tap the gear, then under AI services tap Take back. turtl still watches your app, runs its checks, and offers the recovery steps you set up, but it cannot diagnose with AI, propose AI fixes, answer questions, or write code changes until you allow it again.
+
+### Does turtl notice when my app is down?
+
+turtl opens a case when one of your app's checks runs and fails, or when a customer reports a problem. If your app does not answer at all, no case opens and no notification is sent, so look at the project if you have not heard from turtl for a while.
+
+### How do I reset my password?
+
+On Log in, tap Forgot your password? and enter your address. turtl emails you a link and a code; the first reset email of the day is always sent, even on a busy day. Tap the link on the phone where you asked, or paste the code; some mail apps do not open turtl's link, and pasting always works.
 
 ### Can turtl change my app without asking?
 
@@ -41,10 +49,12 @@ Through a report form you add to your own app. Reports about the same problem ar
 
 ### How do I delete my account?
 
-Open a project, tap the gear, then Account, then Delete account. This deletes your projects, cases, and messages, and cannot be undone. If you cannot sign in, write to us and we will delete it for you.
+On Projects, tap your picture at the top, then Delete account. It is also at the bottom of a project's settings (the gear), under Account. turtl shows what will be deleted and asks once more. This deletes your projects, cases, messages, customers' reports, the copies our search provider holds, and turtl's access to GitHub, and cannot be undone. The [privacy policy](../privacy/) lists everything it removes. If you cannot sign in, write to us and we will delete it for you.
 
 ### How do I disconnect GitHub?
 
-In the app, open a project, tap the gear, then Account. You can also remove turtl from your GitHub account's settings under Applications.
+In the app, open a project, tap the gear, then Disconnect GitHub. turtl says what will stop and asks once more. turtl removes its app from your own GitHub account; from an organization it removes only your connection, and an owner of that organization removes the app on GitHub. You can also remove turtl from your GitHub account's settings under Applications.
 
-{% include review.html note="Four answers describe controls that are not in the app yet: turning off AI services (checklist RC-26), deleting an account (RC-23), and disconnecting GitHub in two places. Change each answer to match the build you submit." %}
+### How do I turn notifications on or off?
+
+Open a project and tap the gear. Under Notifications, tap Turn on notifications, or Turn off on this phone. iOS Settings can also turn them off. A notification says only your project's name and that a case needs you, or that a fix you allowed has run.

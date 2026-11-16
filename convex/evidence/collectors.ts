@@ -7,6 +7,14 @@ import type { HandlerInput, StepHandler } from "../runner/contract";
 import { evidenceRow, loadJourneyContext, type Facts } from "../runner/handlers/journey";
 import { validateErrors, validateFlags, validateHealth, validateRevisionResponse, validateSnapshot, type Collector, type EvidenceSnapshot, type ObservedWindow } from "./snapshots";
 
+// The error window in words: its length, not two raw timestamps, and the most common failure without its code's
+// underscores. The exact window stays in the snapshot this row is projected from.
+export function windowWords(window: { since: number; until: number; truncated: boolean }, errorRate: number, topCode: string): string {
+  const minutes = Math.max(1, Math.round((window.until - window.since) / 60_000));
+  const top = topCode && topCode !== "none" ? ` The most common failure was ${topCode.toLowerCase().replace(/_+/g, " ")}.` : " No failure stood out.";
+  return `${Math.round(errorRate * 100)}% of booking attempts failed in the ${minutes} ${minutes === 1 ? "minute" : "minutes"} before this check.${top}${window.truncated ? " Only a sample of the bookings in that time was read." : ""}`;
+}
+
 type ReadResult = {
   facts: Facts;
   missing: string[];
@@ -51,7 +59,7 @@ export async function readAppState(input: HandlerInput, base: string, app: Watch
   if (revision.ok) facts["app.revision"] = revision.value.revision;
   else missing.push(`the app's revision (${revision.reason})`);
   const observations = [
-    { read: health, kind: "health", sourceRef: "GET /health", title: health.ok ? `The booking app reports health ok is ${health.value.ok}.` : `Could not read health: ${health.reason}.` },
+    { read: health, kind: "health", sourceRef: "GET /health", title: health.ok ? `The booking app says it is ${health.value.ok ? "healthy" : "not healthy"}.` : `Could not read health: ${health.reason}.` },
     { read: flags, kind: "flags", sourceRef: "GET /flags", title: flags.ok ? `Recommendations are turned ${flags.value.recommendationsEnabled ? "on" : "off"}.` : `Could not read the recommendations flag: ${flags.reason}.` },
     { read: revision, kind: "revision", sourceRef: "GET /revision", title: revision.ok ? `The booking app reports revision ${revision.value.revision}.` : `Could not read the app's revision: ${revision.reason}.` },
   ];
@@ -60,7 +68,7 @@ export async function readAppState(input: HandlerInput, base: string, app: Watch
     missing,
     revision: revision.revision,
     rows: observations.map(({ read, kind, sourceRef, title }) => ({
-      ...evidenceRow(input, read.revision, { kind, sourceRef, title, ...(kind === "health" && { body: "A health response does not prove that customer booking works." }) }),
+      ...evidenceRow(input, read.revision, { kind, sourceRef, title, ...(kind === "health" && { body: "A health response does not prove that booking works." }) }),
       observedAt: read.observedAt,
       environment: read.environment,
     })),
@@ -78,7 +86,9 @@ export async function readErrorWindow(input: HandlerInput, base: string, app: Wa
     facts["errors.topCode"] = topErrorCode(errors.value);
   }
   const title = errors.ok
-    ? `${errors.value.counts.failedBookings} of ${errors.value.counts.totalBookings} customer booking attempts failed in the observed window.`
+    ? errors.value.counts.totalBookings === 0
+      ? "No bookings were attempted in the observed window."
+      : `${errors.value.counts.failedBookings} of ${errors.value.counts.totalBookings} booking attempts failed in the observed window.`
     : `Could not read failed bookings: ${errors.reason}.`;
   return {
     facts,
@@ -89,7 +99,7 @@ export async function readErrorWindow(input: HandlerInput, base: string, app: Wa
         kind: "errors",
         sourceRef: "GET /errors",
         title,
-        ...(errors.ok && { body: `Window ${errors.value.window.since}–${errors.value.window.until}. Error rate ${Math.round(errors.value.counts.errorRate * 100)}%. Most common sampled error: ${facts["errors.topCode"]}.${errors.value.window.truncated ? " The window's booking sample was capped." : ""}` }),
+        ...(errors.ok && { body: windowWords(errors.value.window, errors.value.counts.errorRate, String(facts["errors.topCode"] ?? "none")) }),
       }),
       observedAt: errors.observedAt,
       environment: errors.environment,
@@ -126,7 +136,7 @@ async function collect(ctx: ActionCtx, input: HandlerInput, collector: Collector
   validateSnapshot(output, collector);
   return {
     status: "done" as const,
-    summary: collector === "collect_app_state" ? "Collected health, recommendations flag and app revision." : "Collected the customer booking error window.",
+    summary: collector === "collect_app_state" ? "Collected health, recommendations flag and app revision." : "Collected the booking app's recent failed bookings.",
     handoff: { note: "The read-only collector snapshot is in this attempt's output.", refs: output.evidence.map(({ id, kind }) => ({ kind: "evidence", id, label: kind })) },
     output,
   };

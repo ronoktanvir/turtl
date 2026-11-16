@@ -1,8 +1,9 @@
+import { NO_MODEL_REASON } from "../constants";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import type { ActionCtx } from "../_generated/server";
 import { gateFor, type Gate } from "../consent/gate";
-import { modelCost } from "../spend/limits";
+import { ASSUMED_OUTPUT_TOKENS, callEstimate, modelCost } from "../spend/limits";
 import type { HandlerInput, HandlerResult } from "../runner/contract";
 import { readFinding, type KnownRecord, type ScenarioId } from "./rules";
 
@@ -38,10 +39,10 @@ type Answer = { ok: true; json: Record<string, unknown> } | { ok: false; reason:
 
 async function ask(gate: Gate, prompt: unknown): Promise<Answer> {
   const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) return { ok: false, reason: "OPENAI_API_KEY is not set on this deployment, so no model was asked" };
-  const opened = await gate.open("openai");
-  if (!opened.ok) return { ok: false, reason: opened.reason };
+  if (!apiKey) return { ok: false, reason: NO_MODEL_REASON };
   const model = structuralModelId();
+  const opened = await gate.open("openai", "send", callEstimate(model, [SYSTEM_PROMPT, JSON.stringify(prompt)]));
+  if (!opened.ok) return { ok: false, reason: opened.reason };
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), MODEL_TIMEOUT_MS);
   try {
@@ -51,6 +52,7 @@ async function ask(gate: Gate, prompt: unknown): Promise<Answer> {
       body: JSON.stringify({
         model,
         response_format: { type: "json_object" },
+        max_completion_tokens: ASSUMED_OUTPUT_TOKENS,
         messages: [
           { role: "system", content: SYSTEM_PROMPT },
           { role: "user", content: JSON.stringify(prompt) },
@@ -105,7 +107,9 @@ export async function examineBroaderCauses(ctx: ActionCtx, input: HandlerInput):
       hasCodeMap: !!prompt.codeMap,
       reason: context.reason === "recurrence" ? "the failure came back after a verified recovery" : `the case has ${related} related cases`,
     });
-    const answer = await ask(gateFor(ctx, { appId: input.case.appId }), prompt);
+    // A case customers raised is examined on the project's customer-report allowance, like the rest of its reading
+    // (convex/intake/workflow.ts), so what customers post cannot spend the owner's own allowance.
+    const answer = await ask(gateFor(ctx, { appId: input.case.appId }, input.case.raisedBy === "customer" ? "intake" : "account"), prompt);
     const runRef = { kind: "agentRun", id: agentRunId };
     const examined = `Examined ${related} related case${related === 1 ? "" : "s"} (${context.triggerSummary.replace(/\.$/, "")}).`;
     if (!answer.ok) {
@@ -159,8 +163,9 @@ export async function examineBroaderCauses(ctx: ActionCtx, input: HandlerInput):
       [runRef, { kind: "structuralFinding", id: findingId }],
     );
   } catch (error) {
+    console.error("examine_broader_causes failed", error);
     return done(
-      `Broader causes could not be examined (${error instanceof Error ? error.message : "unknown error"}). No finding was recorded; the case continues.`,
+      "Broader causes could not be examined, because something went wrong while turtl looked. No finding was recorded; the case continues.",
       { examined: false, error: true },
     );
   }

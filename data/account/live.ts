@@ -9,10 +9,10 @@ import { Platform } from "react-native";
 import { api } from "../../convex/_generated/api";
 import { words } from "../../convex/auth/rules";
 import { liveClient } from "../live/client";
-import { setSignedOutNotice, words as notices } from "./notice";
+import { setSignedOutNotice, setSignedOutRoute, words as notices } from "./notice";
 import { isStoreBuild } from "../source";
 import { accountStatus, signInMessage } from "./status";
-import type { Account, AccountActions, AccountMode } from "./types";
+import type { Account, AccountActions, AccountMode, Confirmation } from "./types";
 
 // Sign-in against the live backend, through Convex Auth's provider on the app's one client (liveClient). The
 // provider stores the session (see ./storage.ts) and attaches it to every query and mutation that client makes.
@@ -54,9 +54,19 @@ const useMode = () => useSyncExternalStore(subscribeMode, readMode, readMode);
 export function useAccount(): Account {
   const current = useMode();
   const auth = useConvexAuth();
-  const status = accountStatus({ live: true, storeBuild: isStoreBuild, mode: current, auth });
-  const viewer = useQuery(api.users.viewer, status === "signedIn" ? {} : "skip");
-  return { status, mode: current, viewer: status === "signedIn" ? viewer : null };
+  const authenticated = current?.accounts === true && !auth.isLoading && auth.isAuthenticated;
+  const viewer = useQuery(api.users.viewer, authenticated ? {} : "skip");
+  // A viewer of null is a session that has ended, and an older backend sends no `confirmed`: neither holds anyone at
+  // Check your email. Only a password account the backend says is unconfirmed is held there.
+  const confirmed = viewer === undefined ? undefined : viewer?.confirmed !== false;
+  const status = accountStatus({ live: true, storeBuild: isStoreBuild, mode: current, auth, confirmed });
+  return { status, mode: current, viewer: status === "signedIn" || status === "unconfirmed" ? viewer : null };
+}
+
+/** What Check your email shows, while the signed-in password account has not confirmed its address. */
+export function useConfirmation(): Confirmation | null | undefined {
+  const { status } = useAccount();
+  return useQuery(api.auth.confirmation.status, status === "unconfirmed" ? {} : "skip");
 }
 
 // Other parts of the app register here to clear what they keep for the signed-in person (a push token, a draft).
@@ -181,6 +191,35 @@ export function useAccountActions(): AccountActions {
       signOut: async () => {
         // Ending the session on the server needs the connection; signing out offline would leave it open there.
         if (browserOffline() || !(await connected())) return words.offline;
+        // What this phone keeps for the account goes first, while the session can still say whose it is: its
+        // notifications (data/push). If that cannot reach the backend, nothing is ended and the person can try again;
+        // a call already sent still finishes when the connection returns, under the session it belongs to.
+        const stopped = await attempt(async () => {
+          await Promise.allSettled([...signOutListeners].map(async (listener) => await listener()));
+        });
+        if (stopped) return stopped;
+        await signOut();
+        return null;
+      },
+      confirmEmail: (code) =>
+        attempt(async () => {
+          await liveClient?.mutation(api.auth.confirmation.confirm, { code: code.trim() });
+        }),
+      resendConfirmation: async () => {
+        let answer: { sent: boolean; message: string } = { sent: false, message: words.unknown };
+        const refused = await attempt(async () => {
+          if (liveClient) answer = await liveClient.action(api.auth.confirmation.resend, {});
+        });
+        return refused ? { sent: false, message: refused } : answer;
+      },
+      startOver: async () => {
+        // The backend throws the unconfirmed account away and ends its session; then this phone forgets it, and the
+        // gate opens Sign up.
+        const refused = await attempt(async () => {
+          await liveClient?.mutation(api.auth.confirmation.startOver, {});
+        });
+        if (refused) return refused;
+        setSignedOutRoute("/sign-up");
         await Promise.allSettled([...signOutListeners].map(async (listener) => await listener()));
         await signOut();
         return null;
@@ -192,7 +231,10 @@ export function useAccountActions(): AccountActions {
         });
         if (refused) return refused === words.unknown ? notices.deleteFailed : refused;
         setSignedOutNotice(notices.deleting);
-        await Promise.allSettled([...signOutListeners].map(async (listener) => await listener()));
+        // The backend has already removed the account's phones; this only tidies this one, and never holds deletion up.
+        await attempt(async () => {
+          await Promise.allSettled([...signOutListeners].map(async (listener) => await listener()));
+        }, { timeoutMs: 5_000 });
         await signOut();
         return null;
       },

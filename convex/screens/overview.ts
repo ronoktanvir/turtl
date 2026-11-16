@@ -1,6 +1,7 @@
 import { v, type Infer } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
-import { query, type QueryCtx } from "../_generated/server";
+import { type QueryCtx } from "../_generated/server";
+import { query } from "../functions";
 import { accessEnforced, visibleApp, visibleApps } from "../access";
 import { CLOSED_CASE_STATUSES } from "../constants";
 import { latestInspection, preparationFor } from "../onboarding/records";
@@ -23,10 +24,13 @@ const vWatchedCheck = v.object({
   name: v.string(),
   state: vCheckState,
   lastPassedAt: v.optional(v.number()),
+  // A failing check with no issue open: how its last issue ended, so the empty Fix list can say why none is open.
+  closedAs: v.optional(v.union(v.literal("declined"), v.literal("unresolved"))),
 });
 export const vOverview = v.object({
   checks: v.array(vWatchedCheck),
-  preparation: v.union(v.literal("none"), v.literal("in_progress"), v.literal("done")),
+  // unreadable: turtl could not read the repository, so nothing is being prepared until the owner tries again.
+  preparation: v.union(v.literal("none"), v.literal("in_progress"), v.literal("done"), v.literal("unreadable")),
   map: v.union(v.null(), v.object({ parts: v.number(), groups: v.number() })),
 });
 
@@ -54,13 +58,19 @@ async function codeMap(ctx: QueryCtx, app: Doc<"apps">) {
 const mapOf = (network: Doc<"codeNetworks"> | null | undefined) =>
   network && network.nodes.length ? { parts: network.nodes.length, groups: network.clusters.length } : null;
 
-async function journeyFailing(ctx: QueryCtx, appId: Id<"apps">, journeyId: Id<"journeys">) {
+async function journeyFailing(ctx: QueryCtx, appId: Id<"apps">, journey: Pick<Doc<"journeys">, "_id" | "lastPassedAt">) {
   const latest = await ctx.db
     .query("cases")
-    .withIndex("by_app_and_signature", (q) => q.eq("appId", appId).eq("signature", `journey_failed:${journeyId}`))
+    .withIndex("by_app_and_signature", (q) => q.eq("appId", appId).eq("signature", `journey_failed:${journey._id}`))
     .order("desc")
     .first();
-  return Boolean(latest && !NOT_OPEN.includes(latest.status));
+  if (!latest) return { failing: false } as const;
+  if (!NOT_OPEN.includes(latest.status)) return { failing: true } as const;
+  // A case declined or left unresolved fixed nothing: the check is still failing until it passes again after it.
+  if ((latest.status === "declined" || latest.status === "unresolved") && (journey.lastPassedAt ?? 0) < latest._creationTime) {
+    return { failing: true, closedAs: latest.status } as const;
+  }
+  return { failing: false } as const;
 }
 
 export const forProject = query({
@@ -72,16 +82,20 @@ export const forProject = query({
     if (!app || app.isSample) return null;
 
     const journeys = await ctx.db.query("journeys").withIndex("by_app", (q) => q.eq("appId", app._id)).take(MAX_CHECKS);
-    const checks: Infer<typeof vWatchedCheck>[] = await Promise.all(journeys.map(async (journey) => ({
-      id: journey._id as string,
-      kind: "journey" as const,
-      name: journey.name,
-      state: (await journeyFailing(ctx, app._id, journey._id)) ? "failing" as const : journey.lastPassedAt === undefined ? "waiting" as const : "passing" as const,
-      ...(journey.lastPassedAt !== undefined && { lastPassedAt: journey.lastPassedAt }),
-    })));
+    const checks: Infer<typeof vWatchedCheck>[] = await Promise.all(journeys.map(async (journey) => {
+      const failing = await journeyFailing(ctx, app._id, journey);
+      return {
+        id: journey._id as string,
+        kind: "journey" as const,
+        name: journey.name,
+        state: failing.failing ? "failing" as const : journey.lastPassedAt === undefined ? "waiting" as const : "passing" as const,
+        ...(journey.lastPassedAt !== undefined && { lastPassedAt: journey.lastPassedAt }),
+        ...("closedAs" in failing && { closedAs: failing.closedAs }),
+      };
+    }));
 
     const preparation = await preparationFor(ctx, app._id);
-    let stage: "none" | "in_progress" | "done" = "none";
+    let stage: "none" | "in_progress" | "done" | "unreadable" = "none";
     if (preparation) {
       // The endpoints the preparation registered that are not journeys (those are listed above): health, readiness, flags.
       for (const check of preparation.registration?.checks ?? []) {
@@ -95,7 +109,8 @@ export const forProject = query({
         });
       }
       const current = stageOf(await latestInspection(ctx, app._id), preparation);
-      stage = current === "registered" || current === "nothing_to_add" || current === "unsupported" ? "done" : "in_progress";
+      stage = current === "inspection_failed" ? "unreadable"
+        : current === "registered" || current === "nothing_to_add" || current === "unsupported" ? "done" : "in_progress";
     }
 
     return { checks, preparation: stage, map: await codeMap(ctx, app) };

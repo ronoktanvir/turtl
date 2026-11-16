@@ -55,6 +55,8 @@ export default function Prepare() {
         <Header title={title} fallback={back} />
         {onboarding === undefined
           ? errors.length === 0 && <T color="textMuted" style={{ padding: 20 }}>Loading…</T>
+          : project?.practice
+            ? <Empty testID="prepare-practice" message="The practice app has nothing to prepare." hint="Preparation reads a project's repository, and the practice app has none. turtl runs it and already watches it." action={{ label: "Back to project", onPress: () => (router.canGoBack() ? router.back() : router.replace(back)), testID: "prepare-practice-back" }} />
           : <Empty testID="prepare-empty" message="turtl has not read this project yet." hint="When it has, what it found and what it will watch for you show here." action={{ label: "Back to project", onPress: () => (router.canGoBack() ? router.back() : router.replace(back)), testID: "prepare-empty-back" }} />}
       </Screen>
     );

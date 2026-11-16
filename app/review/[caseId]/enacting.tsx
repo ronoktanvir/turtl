@@ -4,6 +4,7 @@ import { KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, View } 
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AskBar } from "../../../components/execution/AskBar";
 import { PlanGraph } from "../../../components/execution/PlanGraph";
+import { enactmentControls } from "../../../components/execution/controls";
 import { formatDuration, remainingDuration } from "../../../components/execution/timing";
 import { ApproveSheet, FixCard, kindLabel } from "../../../components/fix/FixCard";
 import { Button, Card, caseTitle, Header, Icon, Reveal, Screen, T, Turtle } from "../../../components/ui";
@@ -69,17 +70,10 @@ export default function Enacting() {
   const fix = c.fixes[number - 1];
   const pr = e.pullRequest;
   const state = states[e.state];
-  const passed = pr?.checkRuns.filter((r) => r.status === "passed").length ?? 0;
-  const ci = !pr
-    ? !fix ? "Pull request details not available yet" : fix.delivery === "pull_request" ? "No pull request yet" : "This fix has nothing to merge"
-    : pr.state === "merged" ? "Merged"
-      : pr.state === "closed" ? "Pull request closed"
-        : pr.checks === "passing" ? "Checks passed"
-          : pr.checks === "failing" ? "Checks failed"
-            : pr.checks === "none" ? "No checks reported"
-              : "Checks running: " + passed + " of " + pr.checkRuns.length + " passed";
-  const canStop = e.state === "running" || e.state === "needs_you" || e.state === "waiting_for_merge";
-  const canMerge = fix?.delivery === "pull_request" && e.state === "waiting_for_merge" && pr?.state === "open" && pr.checks === "passing" && pr.mergeable;
+  // Which of Stop and Merge to show, and the pull request's state beside them (components/execution/controls.ts).
+  const controls = enactmentControls(e, fix);
+  const canStop = controls.stop;
+  const canMerge = controls.merge === "enabled";
   const completed = e.steps.filter((step) => step.status === "done").length;
   const remaining = remainingDuration(e.steps, now);
   const remainingLabel = e.state === "done" ? "Complete"
@@ -184,11 +178,12 @@ export default function Enacting() {
                 ))}
               </View>
             )}
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-              <Button label={control === "stop" ? "Stopping…" : "Stop"} icon="X" kind="danger" disabled={!canStop || control !== null} onPress={() => void stop()} testID="enacting-stop" />
-              <Button label={control === "merge" ? "Merging…" : "Merge"} icon="GitMerge" disabled={!canMerge || control !== null} onPress={() => void merge()} testID="enacting-merge" />
-              <T variant="small" color={pr?.checks === "passing" ? "statusClear" : "textMuted"} style={{ flex: 1 }} testID="enacting-ci">{ci}</T>
-            </View>
+            {/* The status wraps under the buttons when the row is too narrow for it (320 wide), not into a sliver beside them. */}
+            {(controls.stop || controls.merge || controls.status) && <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: 12, rowGap: 10 }}>
+              {controls.stop && <Button label={control === "stop" ? "Stopping…" : "Stop"} icon="X" kind="danger" disabled={control !== null} onPress={() => void stop()} testID="enacting-stop" />}
+              {controls.merge && <Button label={control === "merge" ? "Merging…" : "Merge"} icon="GitMerge" disabled={!canMerge || control !== null} onPress={() => void merge()} testID="enacting-merge" />}
+              {controls.status && <T variant="small" color={pr?.checks === "passing" ? "statusClear" : "textMuted"} style={{ flexGrow: 1, flexShrink: 1, flexBasis: 120, minWidth: 0 }} testID="enacting-ci">{controls.status}</T>}
+            </View>}
             {stopError && <T font="text" color="statusAffected" accessibilityRole="alert" testID="enacting-stop-error">{stopError}</T>}
             {refused && (
               <View style={{ flexDirection: "row", gap: 10, padding: 16, backgroundColor: colors.surface, borderRadius: 16 }}>

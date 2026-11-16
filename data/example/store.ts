@@ -108,6 +108,13 @@ export function addProjectSeed(seed: ProjectSeed) {
   commit();
 }
 
+/** A case that arrives while the app runs, as a check that fails opens one (the practice app, data/practice/example.ts). */
+export function addCase(item: CaseDetail) {
+  cases.set(item.id, item);
+  seedHealth.set(item.id, item.health);
+  commit();
+}
+
 export function getProject(projectId: string): Project | null {
   const seed = projects.get(projectId);
   return seed ? projectOf(seed) : null;

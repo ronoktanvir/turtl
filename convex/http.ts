@@ -7,6 +7,7 @@ import { readScenario } from "./bookingDemo/journeyCore";
 import { STAGED_TIMEOUT_MS } from "./bookingDemo/provider";
 import { registerGithubRoutes } from "./github/http";
 import { registerIntakeRoutes } from "./intake/http";
+import { registerPracticeRoutes } from "./practice/http";
 
 declare const process: { env: Record<string, string | undefined> };
 
@@ -71,6 +72,7 @@ http.route({ path: "/booking-demo/errors", method: "GET", handler: httpAction(as
 
 registerIntakeRoutes(http);
 registerGithubRoutes(http);
+registerPracticeRoutes(http);
 auth.addHttpRoutes(http);
 
 export default http;

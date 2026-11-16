@@ -2,13 +2,11 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import {
-  action,
   internalMutation,
-  mutation,
-  query,
   type MutationCtx,
   type QueryCtx,
 } from "./_generated/server";
+import { action, mutation, query } from "./functions";
 import { devToolsEnabled, requireDevTools } from "./access";
 import { CASE_KINDS, CLOSED_CASE_STATUSES, STAGES } from "./constants";
 import type { CaseKind, CaseStatus, RaisedBy } from "./constants";

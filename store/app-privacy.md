@@ -2,7 +2,7 @@
 
 The answers to the App Privacy questions in App Store Connect, in Apple's own categories, taken from [the audit](data-practices.md). Apple shows them on the product page as the privacy label.
 
-Someone has to type these into App Store Connect by hand: `eas metadata:push` does not send them. They describe the build that is submitted, so the table says which answers wait for work that has not landed. Run the audit again on the submitted commit before typing them in (RC-12 in [the checklist](review-checklist.md)).
+Someone has to type these into App Store Connect by hand: `eas metadata:push` does not send them. They describe the build that is submitted, which runs in accounts mode (a store build refuses a backend without accounts). Run the audit again on the submitted commit before typing them in (RC-12 in [the checklist](review-checklist.md)).
 
 Apple's definitions used here were read on 15 November 2026 from [App privacy details on the App Store](https://developer.apple.com/app-store/app-privacy-details/).
 
@@ -16,18 +16,18 @@ Apple's definitions used here were read on 15 November 2026 from [App privacy de
 
 Apple asks three things about each type that is collected: what it is used for, whether it is linked to the person's identity, and whether it is used to track them. Every type turtl collects has the same three answers: **App Functionality**, **linked**, **not used to track**.
 
-| Apple's category | Apple's data type | Collected | What it is in turtl | Depends on |
+| Apple's category | Apple's data type | Collected | What it is in turtl | Where in the audit |
 | --- | --- | --- | --- | --- |
-| Contact Info | Email Address | **Yes** | The address the owner signs in with | Accounts (TUR-57). Not collected at the audited commit |
-| Contact Info | Name | **Yes**, if turtl stores it | The name Apple or GitHub passes on at sign-in | Accounts (TUR-57). Answer "no" if the accounts work stores no name |
-| Identifiers | User ID | **Yes** | The account's id, and the id Apple or GitHub gives turtl for it | Accounts (TUR-57) |
-| User Content | Audio Data | **Yes** | The recording made after the owner taps Talk. See "Judgment calls" | In the code today, behind `VOICE_ENABLED` |
-| User Content | Other User Content | **Yes** | What the owner types to turtl, the text of what they say, their decisions, and the code in the repository they connect | In the code today |
-| Identifiers | Device ID | No, **then yes** | The token Apple issues so a notification can reach the phone | Push notifications (TUR-64) |
-| Diagnostics | Crash Data | No, **then yes** | Crash reports | Crash reporting (TUR-65) |
-| Diagnostics | Performance Data | No, **then yes** | Launch time and hangs, if the crash reporter gathers them | Crash reporting (TUR-65) |
+| Contact Info | Email Address | **Yes** | The address the owner signs in with, confirmed with an emailed code for a password account, or the one Apple or GitHub passes on | [D1](data-practices.md#d1-account) |
+| Contact Info | Name | **Yes** | The name Apple or GitHub passes on at sign-in. turtl stores it on the account and shows it in Settings | [D1](data-practices.md#d1-account) |
+| Identifiers | User ID | **Yes** | The account's id, and the id Apple or GitHub gives turtl for the person | [D1](data-practices.md#d1-account) |
+| Identifiers | Device ID | **Yes** | The phone's push token, collected only after the owner taps Turn on notifications | [D13](data-practices.md#d13-push-token-and-device-identifiers) |
+| User Content | Audio Data | **Yes** | The recording made after the owner taps Talk. See "Judgment calls" | [D7](data-practices.md#d7-voice), behind `VOICE_ENABLED` |
+| User Content | Other User Content | **Yes** | What the owner types to turtl, the text of what they say, their notes, preferences and decisions, and the code in the repositories they connect | [D3](data-practices.md#d3-source-code) to [D6](data-practices.md#d6-chat-notes-and-preferences) |
+| Diagnostics | Crash Data | No | turtl has no crash reporter. **This becomes yes** if one is added | [D14](data-practices.md#d14-usage-diagnostics-and-logs) |
+| Diagnostics | Performance Data | No | Nothing measures launch time or hangs. **This becomes yes** with a crash reporter that gathers them | [D14](data-practices.md#d14-usage-diagnostics-and-logs) |
 
-What Apple will show at launch, if accounts have landed and push and crash reporting have not:
+What Apple will show at launch:
 
 > **Data Linked to You:** Contact Info, User Content, Identifiers
 >
@@ -37,21 +37,21 @@ What Apple will show at launch, if accounts have landed and push and crash repor
 
 | Apple's data type | Why the answer is no |
 | --- | --- |
-| Phone Number | The app never asks for one. The number alerts go to is a setting of the backend today ([D12](data-practices.md#d12-the-alert-phone-number)). **This becomes yes** if the app starts asking each owner for a number |
+| Phone Number | The app never asks for one. The number Keiki texts is a setting of the single-owner demo, which a store build does not use ([D12](data-practices.md#d12-keiki-and-the-alert-phone-number)). **This becomes yes** if the app starts asking each owner for a number |
 | Physical Address, Other User Contact Info | Never asked for |
 | Health, Fitness, Payment Info, Credit Info, Other Financial Info | Nothing of the kind exists in the app |
 | Precise Location, Coarse Location | The app has no location permission and the backend does not read the caller's address |
-| Sensitive Info, Contacts, Photos or Videos | Never asked for and never read |
-| Emails or Text Messages | Owners cannot message each other. The alert turtl sends an owner is turtl's own words |
+| Sensitive Info, Contacts, Photos or Videos | Never asked for and never read. The profile picture GitHub passes on at sign-in is shown, not taken from the phone |
+| Emails or Text Messages | Owners cannot message each other. The emails and notifications turtl sends an owner are turtl's own words |
 | Gameplay Content | Not a game |
 | Customer Support | Support is by email, outside the app |
-| Browsing History | The app has no browser |
+| Browsing History | The app opens GitHub's pages in a browser sheet to sign in or connect repositories, and reads nothing back but the result |
 | Search History | See "Judgment calls" |
 | Purchase History | Nothing is sold |
 | Product Interaction, Advertising Data, Other Usage Data | No analytics. See "Judgment calls" |
 | Other Diagnostic Data | None collected from the app |
 | Environment Scanning, Hands, Head | Not used |
-| Other Data Types | None |
+| Other Data Types | None. See "Judgment calls" for the control token and the coding agent key |
 
 ## Judgment calls
 
@@ -60,71 +60,24 @@ Each of these could be answered the other way. The recommendation is the answer 
 1. **Audio Data: declare it.** Apple counts data as collected when it is kept "for a period longer than what is necessary to service the transmitted request in real time". turtl keeps no audio, and OpenAI's published policy lists no retention for transcription, so a strict reading says the recording is not collected. Declare it anyway. The app asks for the microphone, a reviewer will look for the matching line, and the answer stays right if the transcription service or its retention ever changes.
 2. **Source code: counted under Other User Content.** The code is not typed into the app. turtl's backend reads it from GitHub after the owner connects a repository. It is still the owner's content, collected because of what they did in the app, and copies go to OpenAI and Supermemory. Since typed messages already make Other User Content a yes, this changes nothing on the label, but it belongs in the reasoning.
 3. **Questions about the code: Other User Content, not Search History.** A question is sent to Supermemory as a search and kept as a chat message. It is a conversation with turtl, not a search box, so it sits with the other messages. If turtl ever adds a search field, declare Search History.
-4. **Usage Data: no.** The backend keeps one row for each AI call and each voice turn: which model, how long it took, whether it failed. These describe turtl's own work on a request, are not used to study how people use the app, and nothing in the app reports taps or screens. If those rows are ever used to measure behaviour, or an analytics library is added, the answer becomes Product Interaction with the purpose Analytics.
-5. **Name: only if it is stored.** Sign in with Apple and GitHub can both pass a name. If the accounts work discards it, answer no.
+4. **Usage Data: no.** The backend keeps one row for each AI call and each voice turn (which model, how long it took, whether it failed), each account's estimated AI spend and code changes, and whether each push was delivered. These describe turtl's own work and enforce the account's limits; they are not used to study how people use the app, and nothing in the app reports taps or screens. If those rows are ever used to measure behaviour, or an analytics library is added, the answer becomes Product Interaction with the purpose Analytics.
+5. **Device ID: declare the push token.** Expo's push token identifies one phone while notifications stay on and that phone stays signed in, and the push library sends Expo an installation id to get it. Neither is an advertising identifier, but both are device-level ids, so Device ID is the honest answer.
+6. **The control token and the coding agent key: not a type of their own.** They are the owner's credentials for their own app and their own Capy account, kept encrypted and used only to act for them ([D16](data-practices.md#d16-what-an-owner-entrusts-to-turtl)). They are content the owner enters, so they sit under Other User Content, which is already a yes.
+7. **What stays on the phone is not collected.** The app keeps the theme a person chooses, and for 24 hours the address it last asked to reset, in the iOS Keychain ([D15](data-practices.md#d15-things-that-stay-on-the-device)). Apple counts data as collected when it leaves the device: the theme never does, and the address goes only with the reset request, under the Email Address already declared.
 
 ## Not verified
 
 - Whether Convex, as the host, keeps the internet address of each request, and for how long. turtl's own code does not read it. Convex's policy pages need a browser to render and could not be read by this audit.
-- Which switches are on in the hosted backend. It is off limits to this crew.
+- Which switches are on in the production backend. It does not exist yet.
 
 ## What is not on turtl's label: customers' reports
 
-A customer's report and contact ([D8](data-practices.md#d8-customers-reports)) are collected by the **owner's** app, not by turtl's app on the App Store, so they do not appear on turtl's label. They are covered by turtl's privacy policy and terms instead.
+A customer's report ([D8](data-practices.md#d8-customers-reports)) is collected by the **owner's** app, not by turtl's app on the App Store, so it does not appear on turtl's label. It is covered by turtl's privacy policy and terms instead. turtl's report form asks for no contact; a contact another form sends is turned into a reference and not kept.
 
-An owner whose own app is on the App Store has to declare them on that app's label: **Other User Content** for the report, and **Email Address** or **Other User Contact Info** for the contact, both for App Functionality. The instructions that come with the report form should say so (RC-25).
+An owner whose own app is on the App Store has to declare the report on that app's label: **Other User Content**, for App Functionality, and **Email Address** or **Other User Contact Info** if their own form asks for a contact. The instructions that come with the report form should say so (RC-25).
 
-## For the store build: the privacy manifest
+## The privacy manifest
 
-This is the store build thread's file, not this pull request's. The values are here so they can be copied.
+`app.json` declares no tracking, the reasons for the four "required reason" APIs (RC-34), and the collected data types: the six types answered **Yes** above, each linked, not used to track, and for App Functionality. `collectedDataProblems` in `release/store-checks.mjs` compares the manifest with the answers table on every test run and in the release preflight, so a type added to one without the other fails.
 
-A build has to declare why its libraries call four of Apple's "required reason" APIs. Expo's guide says Apple does not always read the declarations inside the libraries themselves, so they should be repeated in the app's own configuration. These reasons were read from the `PrivacyInfo.xcprivacy` files of the libraries installed at the audited commit (`expo-constants`, `expo-file-system`, and `react-native`). Read them again after any dependency change.
-
-The manifest should also repeat the label: no tracking, and the same data types. Add the three account types when accounts land.
-
-```json
-{
-  "expo": {
-    "ios": {
-      "privacyManifests": {
-        "NSPrivacyTracking": false,
-        "NSPrivacyTrackingDomains": [],
-        "NSPrivacyCollectedDataTypes": [
-          {
-            "NSPrivacyCollectedDataType": "NSPrivacyCollectedDataTypeAudioData",
-            "NSPrivacyCollectedDataTypeLinked": true,
-            "NSPrivacyCollectedDataTypeTracking": false,
-            "NSPrivacyCollectedDataTypePurposes": ["NSPrivacyCollectedDataTypePurposeAppFunctionality"]
-          },
-          {
-            "NSPrivacyCollectedDataType": "NSPrivacyCollectedDataTypeOtherUserContent",
-            "NSPrivacyCollectedDataTypeLinked": true,
-            "NSPrivacyCollectedDataTypeTracking": false,
-            "NSPrivacyCollectedDataTypePurposes": ["NSPrivacyCollectedDataTypePurposeAppFunctionality"]
-          }
-        ],
-        "NSPrivacyAccessedAPITypes": [
-          {
-            "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategoryUserDefaults",
-            "NSPrivacyAccessedAPITypeReasons": ["CA92.1"]
-          },
-          {
-            "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategoryFileTimestamp",
-            "NSPrivacyAccessedAPITypeReasons": ["0A2A.1", "3B52.1", "C617.1"]
-          },
-          {
-            "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategoryDiskSpace",
-            "NSPrivacyAccessedAPITypeReasons": ["85F4.1", "E174.1"]
-          },
-          {
-            "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategorySystemBootTime",
-            "NSPrivacyAccessedAPITypeReasons": ["35F9.1"]
-          }
-        ]
-      }
-    }
-  }
-}
-```
-
-The account types to add are `NSPrivacyCollectedDataTypeEmailAddress`, `NSPrivacyCollectedDataTypeName`, and `NSPrivacyCollectedDataTypeUserID`. Push adds `NSPrivacyCollectedDataTypeDeviceID`. Crash reporting adds `NSPrivacyCollectedDataTypeCrashData` and `NSPrivacyCollectedDataTypePerformanceData`.
+A crash reporter would add `NSPrivacyCollectedDataTypeCrashData` and `NSPrivacyCollectedDataTypePerformanceData`. Read the libraries' `PrivacyInfo.xcprivacy` files again after any dependency change.

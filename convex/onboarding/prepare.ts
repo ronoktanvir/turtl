@@ -1,12 +1,13 @@
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
-import type { Doc } from "../_generated/dataModel";
+import type { Doc, Id } from "../_generated/dataModel";
 import { internalAction, type ActionCtx } from "../_generated/server";
-import { accessEnforced } from "../access";
+import { accessEnforced, demoHoldsAccountsInAction } from "../access";
 import { gateFor } from "../consent/gate";
 import { repositoryAccess } from "../github/access";
 import { findPullRequestNumber, startCapyThread } from "../prTracking/capy";
 import { capyConfigFor, codingAgentFor } from "../prTracking/codingAgent";
+import { FOLLOW_CLAIMS } from "../prTracking/follow";
 import { readPullRequest } from "../prTracking/github";
 import { call, describeFailure, runJourneyCheck, type WatchedApp } from "../protectedApp/client";
 import { watchedApp } from "../protectedApp/watched";
@@ -121,13 +122,33 @@ export async function syncPreparation(ctx: ActionCtx, row: Doc<"onboardingPrepar
 
 // Every minute: preparations whose pull request is being opened or is still open. Without a working GitHub
 // token an open pull request is read every five minutes, to stay inside GitHub's limit for anonymous reads.
+// Each preparation whose next read has come gets its own action, claimed a batch at a time (convex/prTracking/
+// follow.ts), so no account's preparations hold up another's, and a newer one is never left behind older ones.
 export const refreshActive = internalAction({
   args: {},
-  handler: async (ctx) => {
-    const rows: Doc<"onboardingPreparations">[] = await ctx.runQuery(internal.onboarding.records.active, {});
-    const outcomes: string[] = [];
-    for (const row of rows) outcomes.push(await syncPreparation(ctx, row, false));
-    return outcomes;
+  handler: async (ctx): Promise<number> => {
+    // The single-owner demo on a deployment that holds accounts follows nothing (convex/access.ts).
+    if (await demoHoldsAccountsInAction(ctx)) return 0;
+    let started = 0;
+    for (let claims = 0; claims < FOLLOW_CLAIMS; claims++) {
+      const { ids, more }: { ids: Id<"onboardingPreparations">[]; more: boolean } = await ctx.runMutation(internal.onboarding.records.claimDue, {});
+      started += ids.length;
+      if (!more) break;
+    }
+    return started;
+  },
+});
+
+// One preparation's read, which then says when the next one is due.
+export const syncDue = internalAction({
+  args: { id: v.id("onboardingPreparations") },
+  handler: async (ctx, { id }): Promise<string> => {
+    try {
+      const row: Doc<"onboardingPreparations"> | null = await ctx.runQuery(internal.onboarding.records.get, { id });
+      return row ? await syncPreparation(ctx, row, false) : "missing";
+    } finally {
+      await ctx.runMutation(internal.onboarding.records.followNext, { id });
+    }
   },
 });
 

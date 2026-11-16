@@ -1,13 +1,13 @@
 import { ConvexError, v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
-import { action, mutation, query } from "../_generated/server";
+import { action, mutation, query } from "../functions";
 import { accessEnforced, canSeeApp, guardApp, guardAppInAction } from "../access";
 import { liveOrigin } from "../protectedApp/address";
-import { watchNotice } from "../protectedApp/watching";
+import { WATCH_WORDS, watchNotice } from "../protectedApp/watching";
 import { seal, sealingKey } from "./seal";
 import { clearSlot, contextOf, projectSecret } from "./store";
-import { DEMO_KEEPS_CONTROL_TOKEN, NO_SEALING_KEY, NOT_A_CONTROL_TOKEN, sendable } from "./words";
+import { DEMO_KEEPS_CONTROL_TOKEN, MANAGED_TOKEN, NO_SEALING_KEY, NOT_A_CONTROL_TOKEN, sendable } from "./words";
 
 // A project's control token: the bearer token its app's protected routes (journey checks, flags, recovery hooks)
 // answer to. With accounts on (AUTH_REQUIRED=true) each project has its own, entered by its owner in the app, and
@@ -22,6 +22,8 @@ const vStatus = v.object({
   sendsTo: v.optional(v.string()),
   /** Why the monitor is not running this project's checks, or runs only some of them. */
   notWatched: v.optional(v.string()),
+  /** A practice app's token: turtl made it and keeps it (managed.ts), and the owner cannot replace or remove it. */
+  managed: v.optional(v.boolean()),
 });
 
 // Whether the project has a token and when it was set. Never the token.
@@ -35,14 +37,18 @@ export const controlToken = query({
     if (!app || app.isSample) return null;
     if (!accessEnforced()) return { accounts: false, set: false };
     const row = await projectSecret(ctx, app._id, "control_token");
-    const origin = app.productionUrl ? liveOrigin(app.productionUrl) : null;
-    const notice = await watchNotice(ctx, app._id);
+    const origin = app.productionUrl ? liveOrigin(app.productionUrl, undefined, app.practice ? app._id : undefined) : null;
+    // The monitor writes its notice on its own turn. A notice that the token is missing is out of date the moment one
+    // is saved, so it is not shown beside "Saved just now" while the next turn is still to come.
+    const recorded = await watchNotice(ctx, app._id);
+    const notice = row !== null && (recorded === WATCH_WORDS.noToken || recorded === WATCH_WORDS.someNeedToken) ? null : recorded;
     return {
       accounts: true,
       set: row !== null,
       ...(row && { setAt: row.setAt }),
       ...(origin && { sendsTo: origin }),
       ...(notice && { notWatched: notice }),
+      ...(app.practice && { managed: true }),
     };
   },
 });
@@ -59,7 +65,10 @@ export const setControlToken = action({
     const key = await sealingKey();
     if (!key) throw new ConvexError(NO_SEALING_KEY);
     const box = await seal(value, contextOf("control_token", projectId), key);
-    return await ctx.runMutation(internal.secrets.store.put, { kind: "control_token", account, appId: projectId as Id<"apps">, ...box });
+    const stored = await ctx.runMutation(internal.secrets.store.put, { kind: "control_token", account, appId: projectId as Id<"apps">, ...box });
+    // Checks waiting for the token start at the monitor's next tick, not when it next reads why it skipped them.
+    await ctx.runMutation(internal.protectedApp.watching.watchSoon, { appId: projectId as Id<"apps"> });
+    return stored;
   },
 });
 
@@ -71,6 +80,7 @@ export const removeControlToken = mutation({
     await guardApp(ctx, projectId);
     if (!accessEnforced()) throw new ConvexError(DEMO_KEEPS_CONTROL_TOKEN);
     const appId = ctx.db.normalizeId("apps", projectId);
+    if (appId && (await ctx.db.get(appId))?.practice) throw new ConvexError(MANAGED_TOKEN);
     if (appId) await clearSlot(ctx, "control_token", { appId });
     return null;
   },

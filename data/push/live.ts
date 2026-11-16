@@ -28,8 +28,8 @@ function useStatus(token: string | undefined, ready: boolean): PushStatus | null
 export const liveBackend: PushBackend = {
   useStatus,
   register: async (token, platform) => { await readable(() => requireLiveClient().mutation(api.push.devices.register, { token, platform })); },
-  refresh: async (token, platform, previousToken) => {
-    await readable(() => requireLiveClient().mutation(api.push.devices.refresh, { token, platform, ...(previousToken ? { previousToken } : {}) }));
-  },
+  refresh: async (token, platform, previousToken) =>
+    // An older backend answered null; it had filed the phone, so that reads as true.
+    (await readable(() => requireLiveClient().mutation(api.push.devices.refresh, { token, platform, ...(previousToken ? { previousToken } : {}) }))) !== false,
   remove: async (token) => { await readable(() => requireLiveClient().mutation(api.push.devices.remove, { token })); },
 };

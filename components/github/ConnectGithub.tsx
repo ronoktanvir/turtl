@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Pressable, View } from "react-native";
-import { beginGithubConnect, finishGithubConnect, refreshGithubRepositories, useGithubRepositories, useGithubStatus, type GithubRepository, type GithubReturn } from "../../data/github";
+import { beginGithubConnect, finishGithubConnect, refreshGithubRepositories, useGithubRepositories, useGithubStatus, type GithubLeftOut, type GithubRepository, type GithubReturn } from "../../data/github";
 import { useTheme } from "../../theme";
 import { BrandIcon, Card, Icon, T } from "../ui";
 import { openForConnect, openOnGithub } from "./open";
@@ -11,6 +11,14 @@ const RETURNS: Record<Exclude<GithubReturn, "connected">, string> = {
   none: "GitHub shows no installation of turtl that you can reach, so nothing was connected. Install it on your account or organization, then try again.",
   requested: "GitHub asked your organization's owner to approve turtl. When they have, tap Connect GitHub again.",
 };
+
+// The empty picker. turtl lists only repositories the person may change; when some were left out, the reason for
+// each is below, so the sentence points there instead of sending a reader-only member to GitHub to choose more.
+export function emptyPicker(leftOut: number): string {
+  return leftOut > 0
+    ? "turtl can't add any of your repositories yet. Below is why for each one, and what would change it."
+    : "turtl cannot reach any of your repositories yet. If you can change their settings on GitHub, choose some there, then come back. If not, ask whoever can.";
+}
 
 const reason = (error: unknown) => (error instanceof Error ? error.message : "turtl could not reach GitHub. Try again.");
 const repoUrlOf = (fullName: string) => `https://github.com/${fullName}`;
@@ -91,6 +99,8 @@ export default function ConnectGithub({
   const repositories = useGithubRepositories(connected);
   const [phase, setPhase] = useState<"idle" | "opening" | "finishing" | "refreshing">("idle");
   const [note, setNote] = useState<{ text: string; problem: boolean } | null>(null);
+  // Repositories GitHub listed that turtl left out (one the person can only read, say), with the backend's reason.
+  const [leftOut, setLeftOut] = useState<GithubLeftOut[]>([]);
   const handled = useRef<string | null>(null);
   const refreshed = useRef(false);
 
@@ -99,6 +109,7 @@ export default function ConnectGithub({
     setPhase((current) => (current === "idle" ? "refreshing" : current));
     try {
       const result = await refreshGithubRepositories();
+      setLeftOut(result.leftOut ?? []);
       if (!result.ok) setNote({ text: "turtl could not read every repository from GitHub just now, so this list may be out of date.", problem: true });
     } catch (error) {
       setNote({ text: reason(error), problem: true });
@@ -188,11 +199,21 @@ export default function ConnectGithub({
         {repositories === undefined || (repositories.length === 0 && phase === "refreshing") ? (
           <T color="textMuted" testID="github-repos-loading">Reading your repositories from GitHub…</T>
         ) : repositories.length === 0 ? (
-          <T color="textMuted" testID="github-repos-empty">turtl cannot reach any of your repositories yet. Choose some on GitHub, then come back.</T>
+          <T color="textMuted" testID="github-repos-empty">{emptyPicker(leftOut.length)}</T>
         ) : (
           <View accessibilityRole="radiogroup" accessibilityLabel="Your repositories" style={{ gap: 8 }}>
             {repositories.map((repository) => (
               <RepositoryRow key={repository.fullName} repository={repository} selected={selected === repoUrlOf(repository.fullName).toLowerCase()} disabled={disabled} onPress={() => onPick(repoUrlOf(repository.fullName))} />
+            ))}
+          </View>
+        )}
+        {leftOut.length > 0 && (
+          <View style={{ gap: 8 }} testID="github-left-out">
+            {leftOut.map((entry) => (
+              <View key={entry.fullName} style={{ gap: 2 }} testID={`github-left-out-${entry.fullName}`}>
+                <T variant="strong">{entry.fullName}</T>
+                <T variant="small" color="textMuted">{entry.message}</T>
+              </View>
             ))}
           </View>
         )}

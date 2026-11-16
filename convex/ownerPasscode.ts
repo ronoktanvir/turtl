@@ -1,5 +1,6 @@
 import { ConvexError, v } from "convex/values";
-import { internalMutation, internalQuery, mutation, query, type QueryCtx } from "./_generated/server";
+import { internalMutation, internalQuery, type QueryCtx } from "./_generated/server";
+import { mutation, query } from "./functions";
 import { accessEnforced, requireAccount } from "./access";
 
 // The single-owner demo's shared owner passcode. With accounts on (AUTH_REQUIRED=true, convex/access.ts) the account

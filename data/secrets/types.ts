@@ -10,6 +10,8 @@ export type ControlTokenStatus = {
   sendsTo?: string;
   /** Why the monitor is not running this project's checks, or runs only some of them. */
   notWatched?: string;
+  /** A practice app's token: turtl made it and keeps it, and it cannot be replaced or removed. */
+  managed?: boolean;
 };
 
 export type CodingAgentStatus = {

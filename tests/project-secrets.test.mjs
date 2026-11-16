@@ -321,7 +321,7 @@ test("with accounts on, a live address must be https on a public name, and every
   assert.equal(address.requestRefusal("https://shop.example.com/journey-check", "https://shop.example.com", false), null);
   assert.match(address.requestRefusal("https://other.example.com/journey-check", "https://shop.example.com", false), /only to its own address, https:\/\/shop\.example\.com, and this one is on https:\/\/other\.example\.com/);
   assert.match(address.requestRefusal("http://shop.example.com/x", "https://shop.example.com", false), /only over https/);
-  assert.match(address.requestRefusal("https://shop.example.com:8443/x", "https://shop.example.com", false), /only to its own address/, "another port is another origin");
+  assert.match(address.requestRefusal("https://shop.example.com:8443/x", "https://shop.example.com", false), /only to the standard https port/, "another port is refused (tests/shared-turns.test.mjs)");
 });
 
 test("loopback is allowed only for stand-ins on a backend that itself runs on this machine", async (t) => {
@@ -488,16 +488,20 @@ test("a project whose token is missing, or whose owner deleted their account, is
   assert.deepEqual(sent.map((request) => [request.url, request.authorization]), [["https://bob.example/health/journey-check", null]]);
   assert.match((await w.run("api.secrets.project.controlToken", { projectId: b.appId }, bob)).notWatched, /runs only the others until you add it/);
 
-  // Adding the token clears the notice on the next turn.
+  // Adding the token clears the notice at once, before the monitor's next turn, and that turn keeps it cleared.
   await w.run("api.secrets.project.setControlToken", { projectId: b.appId, token: TOKENS.bob }, bob);
+  assert.equal((await w.run("api.secrets.project.controlToken", { projectId: b.appId }, bob)).notWatched, undefined, "no stale notice beside the saved token");
   await w.run("internal.monitor.tick", {});
   await w.drain(["internal.monitor.checkProject"]);
   assert.equal((await w.run("api.secrets.project.controlToken", { projectId: b.appId }, bob)).notWatched, undefined);
 });
 
-test("the monitor takes projects in turns of 25, so every project is reached however many there are", async (t) => {
+// Every due project is started at each tick, however many there are (the second review's finding 15; its attack at
+// the review's scale is tests/shared-turns.test.mjs).
+test("the monitor starts every due project each minute, and none twice while its check runs", async (t) => {
   const w = world(t, ACCOUNTS);
   network(t);
+  t.mock.timers.enable({ apis: ["Date"], now: 1_900_000_000_000 });
   const owner = await w.db.insert("users", { email: "many@example.com" });
   const apps = [];
   for (let i = 0; i < 30; i++) {
@@ -505,18 +509,13 @@ test("the monitor takes projects in turns of 25, so every project is reached how
     await w.db.insert("journeys", { appId, name: "Open", description: ".", checkVersion: "v1", check: { kind: "http", config: { url: `https://p${i}.example/journey-check`, method: "POST", expectedStatus: 200 } } });
     apps.push(appId);
   }
-  const first = await w.run("internal.monitor.tick", {});
-  const second = await w.run("internal.monitor.tick", {});
-  assert.deepEqual(first.started, apps.slice(0, 25));
-  assert.deepEqual(second.started, apps.slice(25));
-  // The sweep starts over, but the first 25 are still running from their turn: none is started twice.
-  const third = await w.run("internal.monitor.tick", {});
-  assert.deepEqual(third.started, []);
+  assert.deepEqual((await w.run("internal.monitor.tick", {})).started, apps);
+  // Still running from that turn: none is started twice.
+  assert.deepEqual((await w.run("internal.monitor.tick", {})).started, []);
   await w.drain(["internal.monitor.checkProject"]);
-  const fourth = await w.run("internal.monitor.tick", {});
-  assert.deepEqual(fourth.started, apps.slice(25), "the last five, finished, get their next turn");
-  const fifth = await w.run("internal.monitor.tick", {});
-  assert.deepEqual(fifth.started, apps.slice(0, 25), "and so do the first 25");
+  assert.deepEqual((await w.run("internal.monitor.tick", {})).started, [], "finished, but not due until the next minute");
+  t.mock.timers.tick(60_000);
+  assert.deepEqual((await w.run("internal.monitor.tick", {})).started, apps, "a minute later, every one again");
 });
 
 test("a request is refused off the project's origin, over http, to an IP literal, and a redirect is never followed", async (t) => {
@@ -687,17 +686,18 @@ test("with accounts off, the demo stores nothing and sends the deployment's own 
   assert.deepEqual(await w.run("api.secrets.account.codingAgent", {}), { accounts: false, signedIn: true, set: false });
 
   const reads = [];
-  const ctx = { runQuery: async (fn) => (reads.push(fn.path), null) };
+  const ctx = { runQuery: async (fn) => (reads.push(fn.path), false) };
   const watched = w.load("convex/protectedApp/watched.ts");
   const client = w.load("convex/protectedApp/client.ts");
   const app = await watched.watchedApp(ctx, { appId });
   assert.equal(app, client.DEMO_APP);
-  assert.deepEqual(reads, [], "the demo reads nothing to send a request");
+  // Its one question is whether the deployment holds accounts, and then it would send nothing (review finding 20).
+  assert.deepEqual(reads, ["internal.access.demoClosed"], "the demo reads nothing else to send a request");
   await client.call("http://127.0.0.1:3321/booking-demo/flags", { app, credentialRef: client.CREDENTIAL_REF });
   assert.deepEqual(sent.map((request) => [request.url, request.authorization, request.redirect]), [["http://127.0.0.1:3321/booking-demo/flags", "Bearer " + DEPLOYMENT_SECRET, "follow"]]);
   const capy = await w.load("convex/prTracking/codingAgent.ts").capyConfigFor(ctx, { appId });
   assert.deepEqual(capy, { ok: true, apiKey: DEPLOYMENT_CAPY });
-  assert.deepEqual(reads, []);
+  assert.deepEqual(reads, ["internal.access.demoClosed"], "the coding agent's key needs nothing more");
   const monitor = await w.run("internal.monitor.tick", {});
   assert.deepEqual(monitor, { skipped: "PROTECTED_APP_URL is not set on this deployment, so no journey was checked." }, "the demo's monitor is unchanged");
 });

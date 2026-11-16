@@ -7,10 +7,12 @@ export type WatchedCheck = {
   name: string;
   state: "passing" | "failing" | "waiting"; // waiting: registered, not checked yet
   lastPassedAt?: number;
+  closedAs?: "declined" | "unresolved"; // failing with no issue open: how its last issue ended
 };
 
 export type Overview = {
   checks: WatchedCheck[];
-  preparation: "none" | "in_progress" | "done"; // in_progress: the checks arrive once the preparation is merged
+  // in_progress: the checks arrive once the preparation is merged. unreadable: turtl could not read the repository.
+  preparation: "none" | "in_progress" | "done" | "unreadable";
   map: { parts: number; groups: number } | null; // the map of the code the Investigate screen shows
 };

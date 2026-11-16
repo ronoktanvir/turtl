@@ -1,4 +1,4 @@
-import { demoOnly } from "../demoSettings";
+import { demoOnly, standInOnly } from "../demoSettings";
 
 declare const process: { env: Record<string, string | undefined> };
 
@@ -33,7 +33,8 @@ export function revylConfig(check?: {
   if (!apiKey || !workflowId) {
     return { ok: false, missing: [...(apiKey ? [] : [keyVar]), ...(workflowId ? [] : [BOOKING_WORKFLOW_VAR])] };
   }
-  const baseUrl = (process.env.REVYL_BASE_URL || DEFAULT_BASE_URL).replace(/\/+$/, "");
+  // A stand-in address for tests; with accounts on it is honoured only on a local backend, so the key goes to Revyl.
+  const baseUrl = (standInOnly(process.env.REVYL_BASE_URL) || DEFAULT_BASE_URL).replace(/\/+$/, "");
   return { ok: true, config: { baseUrl, apiKey, workflowId } };
 }
 

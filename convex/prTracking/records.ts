@@ -6,7 +6,11 @@ import { CLOSED_CASE_STATUSES, vActor } from "../constants";
 import type { Actor } from "../constants";
 import type { HandlerResult } from "../runner/contract";
 import { cancelJobs } from "../runner/jobs";
+import { FOLLOW_BATCH, FOLLOW_LEASE_MS, nextFollowAt } from "./follow";
 import { pullRequestOf, vGithubSnapshot, type PullRequest } from "./validators";
+
+/** The pull-request cron's interval (convex/crons.ts). */
+export const PULL_REQUEST_EVERY_MS = 30_000;
 import { BOOKING_APP_NAME } from "../protectedApp/registry";
 import { waitOnAttempt } from "../workflow";
 
@@ -50,14 +54,45 @@ export const deploymentTarget = internalQuery({
   },
 });
 
-// Pull requests still being opened or still open: the ones the cron keeps fresh.
-export const active = internalQuery({
+export const get = internalQuery({
+  args: { id: v.id("pullRequests") },
+  handler: async (ctx, { id }) => ctx.db.get(id),
+});
+
+// The pull requests still being opened or still open whose next read has come, oldest due first: rows from before
+// next-sync times were kept, then the rest. Each is leased while its read runs (pullRequests.ts, syncDue).
+export const claimDue = internalMutation({
   args: {},
-  handler: async (ctx) =>
-    ctx.db
+  returns: v.object({ ids: v.array(v.id("pullRequests")), more: v.boolean() }),
+  handler: async (ctx) => {
+    const now = Date.now();
+    const legacy = await ctx.db
       .query("pullRequests")
-      .withIndex("by_settled", (q) => q.eq("settledAt", undefined))
-      .collect(),
+      .withIndex("by_settled_and_next_sync", (q) => q.eq("settledAt", undefined).eq("nextSyncAt", undefined))
+      .take(FOLLOW_BATCH);
+    // Rows with a time have their own budget, so rows from before cannot hold them up.
+    const due = await ctx.db
+      .query("pullRequests")
+      .withIndex("by_settled_and_next_sync", (q) => q.eq("settledAt", undefined).gte("nextSyncAt", 0).lte("nextSyncAt", now))
+      .take(FOLLOW_BATCH);
+    const ids = [...legacy, ...due].map((row) => row._id);
+    for (const id of ids) {
+      await ctx.db.patch(id, { nextSyncAt: now + FOLLOW_LEASE_MS });
+      await ctx.scheduler.runAfter(0, internal.pullRequests.syncDue, { id });
+    }
+    return { ids, more: legacy.length === FOLLOW_BATCH || due.length === FOLLOW_BATCH };
+  },
+});
+
+// After a read, when the next one is due: less often the longer turtl has followed it (convex/prTracking/follow.ts).
+export const followNext = internalMutation({
+  args: { id: v.id("pullRequests") },
+  returns: v.null(),
+  handler: async (ctx, { id }) => {
+    const row = await ctx.db.get(id);
+    if (row && row.settledAt === undefined) await ctx.db.patch(id, { nextSyncAt: nextFollowAt(row.requestedAt, Date.now(), PULL_REQUEST_EVERY_MS) });
+    return null;
+  },
 });
 
 // The runner fails any attempt still running or waiting when its step's time limit passes. A pull

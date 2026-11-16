@@ -34,6 +34,7 @@ const refs = {
   pullRequests: { merge: "pullRequests:merge" },
   screens: { projects: { approvalSettings: "screens/projects:approvalSettings" } },
   permissions: { grant: "permissions:grant", revoke: "permissions:revoke" },
+  cases: { setStarred: "cases:setStarred" },
 };
 
 function actions() {
@@ -128,7 +129,8 @@ test("Merge forwards exactly the head shown to the owner for every backend outco
   for (const [result, expected] of [
     [{ outcome: "merged", pullRequest: { headSha: "backend-head" } }, { ok: true }],
     [{ outcome: "refused", reason: "New commits arrived. Look again before merging." }, { ok: false, reason: "New commits arrived. Look again before merging." }],
-    [{ outcome: "not_configured", missing: ["GITHUB_TOKEN", "MERGE_ENABLED"] }, { ok: false, reason: "Merging is not configured on the backend: GITHUB_TOKEN, MERGE_ENABLED." }],
+    [{ outcome: "not_configured", missing: ["GITHUB_TOKEN", "MERGE_ENABLED"] }, { ok: false, reason: "Merging from turtl is not set up yet. You can still merge it on GitHub." }],
+    [{ outcome: "not_configured", missing: ["your coding agent's key (Settings, Coding agent)"] }, { ok: false, reason: "turtl needs your coding agent's key (Settings, Coding agent) before it can merge this. You can still merge it on GitHub." }],
     [{ outcome: "failed", message: "GitHub could not complete the merge." }, { ok: false, reason: "GitHub could not complete the merge." }],
   ]) {
     const a = actions();
@@ -215,13 +217,26 @@ test("permission query, grant, and revoke failures keep their readable backend r
   await assert.rejects(a.setApprovals("app-1", "you"), { message: "This permission has already ended." });
 });
 
-test("disconnected actions and unsupported stars never fabricate a successful change", async () => {
+test("a star is stored on the case through the backend, and a refusal reads in plain words", async () => {
+  const a = actions();
+  a.returns(refs.cases.setStarred, null);
+  await a.setStarred("case-1", true);
+  await a.setStarred("case-1", false);
+  assert.deepEqual(a.calls, [
+    { kind: "mutation", ref: refs.cases.setStarred, args: { caseId: "case-1", starred: true } },
+    { kind: "mutation", ref: refs.cases.setStarred, args: { caseId: "case-1", starred: false } },
+  ]);
+  a.on(refs.cases.setStarred, () => { throw Object.assign(new Error("ConvexError"), { data: "That project is not available on this account." }); });
+  await assert.rejects(a.setStarred("case-2", true), { message: "That project is not available on this account." });
+});
+
+test("disconnected actions never fabricate a successful change", async () => {
   const a = actions();
   a.disconnect();
   await assert.rejects(a.approveFix("case-1", "repair"), /backend URL is not configured/);
   await assert.rejects(a.stopEnactment("case-1"), /backend URL is not configured/);
   await assert.rejects(a.setApprovals("app-1", "auto"), /backend URL is not configured/);
   assert.deepEqual(await a.mergePullRequest("case-1", "shown-head"), { ok: false, reason: "The backend URL is not configured." });
-  await assert.rejects(a.setStarred("case-1", true), /Stars are not stored.*Nothing was changed/);
+  await assert.rejects(a.setStarred("case-1", true), /backend URL is not configured/);
   assert.deepEqual(a.calls, []);
 });

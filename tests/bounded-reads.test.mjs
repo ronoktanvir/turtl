@@ -115,12 +115,14 @@ function demoOnly(node, boundNames) {
   return false;
 }
 
-// The public functions a file exports: the builder call of each.
+// The public functions a file exports: the builder call of each, from convex/functions.ts (which every public function
+// uses) or from convex/_generated/server.
 function publicDefinitions(file, source) {
   const builders = new Set();
   for (const statement of source.statements) {
     if (!ts.isImportDeclaration(statement) || !statement.importClause?.namedBindings || !ts.isNamedImports(statement.importClause.namedBindings)) continue;
-    if (!resolve(dirname(file), statement.moduleSpecifier.text).endsWith(join("convex", "_generated", "server"))) continue;
+    const from = resolve(dirname(file), statement.moduleSpecifier.text);
+    if (!from.endsWith(join("convex", "_generated", "server")) && from !== join(convexDir, "functions")) continue;
     for (const element of statement.importClause.namedBindings.elements) {
       if (BUILDERS.has((element.propertyName ?? element.name).text)) builders.add(element.name.text);
     }
@@ -167,6 +169,210 @@ export function problemsIn(file, text = readFileSync(file, "utf8")) {
   return [...new Set(problems)];
 }
 
+// 3. (Second review, finding 15.) The same holds for every function a cron reaches: the internal functions convex/crons.ts
+//    names, everything they call or schedule through `internal.*`, and the helpers they call in their own module or
+//    import from another. A cron runs for every account at once, so a read there that grows with the deployment fails
+//    for everyone, and one that takes the whole set in a fixed order makes later rows wait on earlier ones.
+
+// "convex/<file>.ts:<function>:<table>" -> why a cron may collect it.
+const CRON_ALLOWED = {
+  "convex/github/installations.ts:repositoryRows:githubInstallationRepositories":
+    "one repository's rows, by its full name: one per GitHub installation that holds a repository of that name, which no account can grow for another",
+};
+
+const parsedFiles = new Map();
+const parsed = (file) => {
+  if (!parsedFiles.has(file)) parsedFiles.set(file, ts.createSourceFile(file, readFileSync(file, "utf8"), ts.ScriptTarget.Latest, true, ts.ScriptKind.TS));
+  return parsedFiles.get(file);
+};
+const moduleFile = (base) => [`${base}.ts`, join(base, "index.ts")].find((candidate) => { try { readFileSync(candidate); return true; } catch { return false; } });
+
+/** A module's top-level functions and definitions by name. */
+function declarationsOf(file) {
+  const found = new Map();
+  for (const statement of parsed(file).statements) {
+    if (ts.isFunctionDeclaration(statement) && statement.name) found.set(statement.name.text, statement);
+    if (ts.isVariableStatement(statement)) for (const declaration of statement.declarationList.declarations) if (ts.isIdentifier(declaration.name) && declaration.initializer) found.set(declaration.name.text, declaration.initializer);
+  }
+  return found;
+}
+
+/** What a module imports by name from relative paths: local name -> the module and the name there. */
+function importsOf(file) {
+  const found = new Map();
+  for (const statement of parsed(file).statements) {
+    if (!ts.isImportDeclaration(statement) || !statement.moduleSpecifier.text.startsWith(".") || !statement.importClause?.namedBindings || !ts.isNamedImports(statement.importClause.namedBindings)) continue;
+    const target = moduleFile(resolve(dirname(file), statement.moduleSpecifier.text));
+    if (!target) continue;
+    for (const element of statement.importClause.namedBindings.elements) found.set(element.name.text, { file: target, name: (element.propertyName ?? element.name).text });
+  }
+  return found;
+}
+
+/** The functions a node refers to: `internal.a.b.c` (convex/a/b.ts, c), and top-level names of its own module or imported
+ * ones. With `scheduled: false`, only the helpers it calls, not the functions it runs or schedules through `internal`. */
+function referencesIn(file, node, { scheduled = true } = {}) {
+  const declarations = declarationsOf(file);
+  const imported = importsOf(file);
+  const found = [];
+  const visit = (child) => {
+    if (scheduled && ts.isPropertyAccessExpression(child) && !ts.isPropertyAccessExpression(child.parent)) {
+      const path = textOf(child).replace(/\s+/g, "").split(".");
+      if (path[0] === "internal" && path.length >= 3) {
+        const target = moduleFile(join(convexDir, ...path.slice(1, -1)));
+        if (target) found.push({ file: target, name: path[path.length - 1] });
+      }
+    }
+    if (ts.isIdentifier(child) && !(ts.isPropertyAccessExpression(child.parent) && child.parent.name === child)) {
+      if (declarations.has(child.text) && declarations.get(child.text) !== node) found.push({ file, name: child.text });
+      else if (imported.has(child.text)) found.push(imported.get(child.text));
+    }
+    ts.forEachChild(child, visit);
+  };
+  visit(node);
+  return found;
+}
+
+/** Every module function a cron reaches, as file -> names. */
+export function cronReached() {
+  const crons = join(convexDir, "crons.ts");
+  return reachedFrom(referencesIn(crons, parsed(crons)));
+}
+
+/** Every module function reached from these, as file -> names. */
+export function reachedFrom(start, options) {
+  const reached = new Map();
+  const queue = [...start];
+  while (queue.length) {
+    const { file, name } = queue.shift();
+    if (reached.get(file)?.has(name)) continue;
+    const node = declarationsOf(file).get(name);
+    if (!node) continue;
+    reached.set(file, (reached.get(file) ?? new Set()).add(name));
+    queue.push(...referencesIn(file, node, options));
+  }
+  return reached;
+}
+
+export function cronProblems(reached = cronReached()) {
+  const problems = [];
+  for (const [file, names] of reached) {
+    const id = relative(root, file).split("\\").join("/");
+    const chains = readChains(parsed(file));
+    for (const name of names) {
+      const node = declarationsOf(file).get(name);
+      const boundNames = new Set();
+      const collectNames = (child) => {
+        if (ts.isVariableDeclaration(child) && child.initializer && ts.isIdentifier(child.name) && /^accessEnforced\(\)$/.test(textOf(child.initializer))) boundNames.add(child.name.text);
+        ts.forEachChild(child, collectNames);
+      };
+      collectNames(node);
+      for (const chain of chains) {
+        if (!within(chain.node, node) || !has(chain, "collect")) continue;
+        const range = index(chain);
+        // Scoped means the first eq() names one project, case, account or row (a field ending in Id, or account): an
+        // eq() on a state such as settledAt still picks out every account's rows.
+        const first = range && range.args[1] ? /\.eq\(\s*"(\w+)"/.exec(textOf(range.args[1]))?.[1] : undefined;
+        const scoped = first !== undefined && (/Id$/.test(first) || first === "account");
+        if (scoped || demoOnly(chain.node, boundNames) || `${id}:${name}:${chain.table}` in CRON_ALLOWED) continue;
+        problems.push(`${id}:${name}:${chain.table}: collect() over ${chain.table} ${range ? "through an index that picks no one project, case or account" : "with no index"} in a function a cron reaches`);
+      }
+    }
+  }
+  return [...new Set(problems)];
+}
+
+test("no function a cron reaches collects a whole shared table", () => {
+  const reached = cronReached();
+  // The crons' own entry points, and what they hand work to, are all followed.
+  const names = (file) => [...(reached.get(join(convexDir, file)) ?? [])];
+  for (const [file, name] of [
+    ["monitor.ts", "tick"], ["monitor.ts", "checkProject"], ["protectedApp/watching.ts", "claim"], ["protectedApp/watching.ts", "takeTurn"],
+    ["pullRequests.ts", "refreshActive"], ["pullRequests.ts", "syncDue"], ["prTracking/records.ts", "claimDue"],
+    ["onboarding/prepare.ts", "refreshActive"], ["onboarding/prepare.ts", "syncDue"], ["onboarding/records.ts", "claimDue"],
+    ["routing/log.ts", "settlePending"], ["account/deletion.ts", "resumeStalled"],
+  ]) assert.ok(names(file).includes(name), `${file}:${name} is reached from convex/crons.ts`);
+  assert.deepEqual(cronProblems(reached), [], "Read a cron's rows through an index range (a due time, an eq() on one project) with take(n), and give each row its own action.");
+  for (const [key, reason] of Object.entries(CRON_ALLOWED)) {
+    const [file, name] = key.split(":");
+    assert.ok(reached.get(join(root, file))?.has(name), `${key} is allowed but no cron reaches it. Remove it from CRON_ALLOWED.`);
+    assert.ok(reason.length >= 30, `${key} needs a written reason`);
+  }
+});
+
+// 4. Some scheduled functions read rows that others can grow on one project or one case (the monitor's cases, customers'
+//    reports, chat turns), so even a read scoped to that project or case must be bounded: every read they reach ends in
+//    take(n), first(), unique() or paginate(). A collect() that cannot grow is named in STRICT_ALLOWED with why.
+const STRICT = [
+  ["structural/records.ts", "examineContext"], // the examine_broader_causes step: a project's cases and their evidence
+  ["routing/log.ts", "settlePending"], // the settling cron: every account's agent runs
+  ["intake/records.ts", "claim"], ["intake/records.ts", "triageInput"], ["intake/records.ts", "land"], // triage of one report
+  // A case's investigate and learn steps: the project's past cases, a signature's cases, councils, context sources.
+  ["memory/service.ts", "pastCaseNotes"], ["memory/records.ts", "write"], ["memory/records.ts", "candidates"],
+  ["council/run.ts", "recent"], ["learning/context.ts", "sources"],
+];
+const STRICT_ALLOWED = {
+  "convex/workflow.ts:loadSteps:steps": "a case's steps: as many as its workflow template has, which only turtl's runner adds to",
+  "convex/memory/service.ts:pastCaseNotes:steps": "a past case's steps, to find its learn step: as many as its workflow template has, which only turtl's runner adds to",
+};
+
+export function strictProblems(reached) {
+  const problems = [];
+  for (const [file, names] of reached) {
+    const id = relative(root, file).split("\\").join("/");
+    const chains = readChains(parsed(file));
+    for (const name of names) {
+      const node = declarationsOf(file).get(name);
+      for (const chain of chains) {
+        if (!within(chain.node, node) || !has(chain, "collect") || `${id}:${name}:${chain.table}` in STRICT_ALLOWED) continue;
+        problems.push(`${id}:${name}:${chain.table}: collect() in a function a scheduled read reaches, where a project's or case's rows can be grown by others`);
+      }
+    }
+  }
+  return [...new Set(problems)];
+}
+
+test("the structural step, the settling cron and triage read only a bounded number of rows, however a project grows", () => {
+  const reached = reachedFrom(STRICT.map(([file, name]) => ({ file: join(convexDir, file), name })), { scheduled: false });
+  for (const [file, name] of STRICT) assert.ok(reached.get(join(convexDir, file))?.has(name), `${file}:${name} exists`);
+  assert.ok(reached.get(join(convexDir, "workflow.ts"))?.has("loadSteps"), "the helpers they call are followed");
+  assert.deepEqual(strictProblems(reached), [], "Bound the read with take(n) (the newest or the first so many), and say in the code what is lost past it.");
+  for (const [key, reason] of Object.entries(STRICT_ALLOWED)) {
+    const [file, name] = key.split(":");
+    assert.ok(reached.get(join(root, file))?.has(name), `${key} is allowed but nothing listed reaches it. Remove it from STRICT_ALLOWED.`);
+    assert.ok(reason.length >= 30, `${key} needs a written reason`);
+  }
+  // The shape it was written for: the structural step read every case on the project.
+  const file = join(convexDir, "example", "history.ts");
+  parsedFiles.set(file, ts.createSourceFile(file, 'import { internalQuery } from "../_generated/server";\nexport const context = internalQuery({ args: {}, handler: async (ctx, { appId }) => ctx.db.query("cases").withIndex("by_app_and_signature", (q) => q.eq("appId", appId)).collect() });', ts.ScriptTarget.Latest, true, ts.ScriptKind.TS));
+  try {
+    assert.equal(strictProblems(new Map([[file, new Set(["context"])]])).length, 1);
+  } finally {
+    parsedFiles.delete(file);
+  }
+});
+
+test("the cron tripwire catches the pull-request sweep it was written for", () => {
+  // The shape finding 15 found in prTracking/records.ts: every unsettled pull request, read whole for the 30-second cron.
+  const file = join(convexDir, "example", "sweep.ts");
+  const text = [
+    'import { internalQuery } from "../_generated/server";',
+    'export const active = internalQuery({ args: {}, handler: async (ctx) => ctx.db.query("pullRequests").withIndex("by_settled", (q) => q.eq("settledAt", undefined)).collect() });',
+    'export const everything = internalQuery({ args: {}, handler: async (ctx) => ctx.db.query("apps").collect() });',
+    'export const oneProject = internalQuery({ args: {}, handler: async (ctx, { appId }) => ctx.db.query("journeys").withIndex("by_app", (q) => q.eq("appId", appId)).collect() });',
+    'export const due = internalQuery({ args: {}, handler: async (ctx) => ctx.db.query("pullRequests").withIndex("by_settled_and_next_sync", (q) => q.eq("settledAt", undefined).lte("nextSyncAt", 1)).take(100) });',
+  ].join("\n");
+  parsedFiles.set(file, ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS));
+  try {
+    assert.deepEqual(cronProblems(new Map([[file, new Set(["active", "everything", "oneProject", "due"])]])), [
+      "convex/example/sweep.ts:active:pullRequests: collect() over pullRequests through an index that picks no one project, case or account in a function a cron reaches",
+      "convex/example/sweep.ts:everything:apps: collect() over apps with no index in a function a cron reaches",
+    ]);
+  } finally {
+    parsedFiles.delete(file);
+  }
+});
+
 test("no read of the scheduled jobs or of a whole shared table can be made to fail by another account's activity", () => {
   const problems = sourceFiles(convexDir).flatMap((file) => problemsIn(file));
   assert.deepEqual(
@@ -176,6 +382,15 @@ test("no read of the scheduled jobs or of a whole shared table can be made to fa
       "through an index that picks one project, case or account (withIndex(..., q => q.eq(...))) with take(n). " +
       "If a read truly needs neither, add it to ALLOWED in this file with the reason.",
   );
+});
+
+test("the scan sees every public function, whichever module its builder comes from", () => {
+  const pattern = /^export const (\w+) = (query|mutation|action)\(/gm;
+  for (const file of sourceFiles(convexDir)) {
+    const text = readFileSync(file, "utf8");
+    const seen = publicDefinitions(file, ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)).map((definition) => definition.name);
+    for (const [, name] of text.matchAll(pattern)) assert.ok(seen.includes(name), `${relative(root, file)}:${name} is not seen`);
+  }
 });
 
 test("every allowance still names a read that exists, and says why", () => {

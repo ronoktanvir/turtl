@@ -33,12 +33,14 @@ export async function capyConfigFor(ctx: Pick<ActionCtx, "runQuery">, scope: Sco
 /**
  * The coding agent for starting a thread in `repo` for a project. With accounts on it also needs the repository to be
  * covered by a GitHub installation linked to the project's owner (repositoryAccess), so no account can point its agent,
- * or anyone's, at a repository it has not connected to turtl; turtl could not follow or merge the result anyway.
+ * or anyone's, at a repository it has not connected to turtl; turtl could not follow or merge the result anyway. The
+ * work changes the repository, so GitHub is also asked now whether the owner can change it themself: turtl does not
+ * rely on the coding agent to refuse someone who can only read it.
  */
 export async function codingAgentFor(ctx: ActionCtx, scope: { appId: string }, repo: string): Promise<CapyConfig> {
   const capy = await capyConfigFor(ctx, scope);
   if (!capy.ok || !accessEnforced()) return capy;
-  const access = await repositoryAccess(ctx, repo, scope);
+  const access = await repositoryAccess(ctx, repo, scope, "change");
   if (access.ok && access.source === "installation") return capy;
   return { ok: false, missing: ["a GitHub connection that covers " + repo], reason: access.ok ? NO_GITHUB_CONNECTION(repo) : access.message };
 }

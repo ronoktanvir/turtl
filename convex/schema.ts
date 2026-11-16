@@ -7,6 +7,7 @@ import { codeNetworkTables } from "./codeNetwork/schema";
 import { consentTables } from "./consent/schema";
 import { councilTables } from "./council/schema";
 import { onboardingTables } from "./onboarding/schema";
+import { practiceTables } from "./practice/schema";
 import { vPullRequestRow } from "./prTracking/validators";
 import {
   vAttemptStatus,
@@ -44,6 +45,9 @@ import { structuralTables } from "./structural/schema";
 
 export default defineSchema({
   ownerPasscodeConfig: defineTable({ passcodeDigest: v.string() }),
+  // When the backend log last said the single-owner demo is closed because the deployment holds accounts
+  // (convex/access.ts, noteClosedDemo). One row, deployment-wide, naming no account.
+  closedDemoNotices: defineTable({ loggedAt: v.number() }),
   // Mutations must enforce ownerId access; isSample and optional ownership do not grant production access.
   apps: defineTable({
     name: v.string(),
@@ -52,6 +56,8 @@ export default defineSchema({
     revision: v.optional(v.string()),
     ownerId: v.optional(v.string()),
     isSample: v.optional(v.boolean()),
+    // A practice project: its live app is a practice app turtl runs for its owner (convex/practice), and it has no repository.
+    practice: v.optional(v.boolean()),
   })
     .index("by_owner", ["ownerId"])
     .index("by_name", ["name"])
@@ -72,6 +78,11 @@ export default defineSchema({
     distinctRequesterCount: v.optional(v.number()),
     resolvedAt: v.optional(v.number()),
     isSample: v.optional(v.boolean()),
+    // For a case the monitor opened: how long its check had been passing before this failure. Only a case on a project
+    // that had been working for a while may use the part of the day's AI kept for outages (convex/consent/gate.ts).
+    passingForMs: v.optional(v.number()),
+    // The owner's star: "look at this later". Only the owner sets it; nothing in turtl acts on it.
+    starred: v.optional(v.boolean()),
   })
     .index("by_app_and_signature", ["appId", "signature"])
     .index("by_app", ["appId"])
@@ -138,7 +149,9 @@ export default defineSchema({
       "provider",
       "providerEventId",
     ])
-    .index("by_case_and_requester", ["caseId", "fromRef"]),
+    .index("by_case_and_requester", ["caseId", "fromRef"])
+    // A case's reports by when they came, so a read takes the first or the newest few, however many there are.
+    .index("by_case_and_received", ["caseId", "receivedAt"]),
   // Mutations must check case/step/attempt ownership and preserve the observation's original environment and revision.
   evidence: defineTable(vEvidence)
     .index("by_case", ["caseId"])
@@ -174,7 +187,7 @@ export default defineSchema({
     // A run for a project and no case (reading the repository at onboarding, triaging a report): account deletion finds it here.
     .index("by_app", ["appId"])
     .index("by_task_and_settled", ["taskType", "outcomeAt"])
-    .index("by_settled", ["outcomeAt"]),
+    .index("by_settled_and_next", ["outcomeAt", "nextSettleAt"]),
   // Mutations must enforce app ownership and source/revision freshness; retrieved context never authorizes execution.
   contextSources: defineTable(vContextSource)
     .index("by_app", ["appId"])
@@ -192,7 +205,7 @@ export default defineSchema({
   pullRequests: defineTable(vPullRequestRow)
     .index("by_case", ["caseId"])
     .index("by_action", ["actionId"])
-    .index("by_settled", ["settledAt"]),
+    .index("by_settled_and_next_sync", ["settledAt", "nextSyncAt"]),
   bookingDemoSettings: defineTable({
     key: v.literal("demo"),
     recommendationsEnabled: v.boolean(),
@@ -232,4 +245,5 @@ export default defineSchema({
   ...accountDeletionTables,
   ...secretTables,
   ...watchingTables,
+  ...practiceTables,
 });

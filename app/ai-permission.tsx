@@ -3,7 +3,7 @@ import { useRef, useState } from "react";
 import { ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import ServiceCard from "../components/consent/ServiceCard";
-import { day, listNames, whatItDoes } from "../components/consent/words";
+import { day, listNames, showsDeclined, whatItDoes } from "../components/consent/words";
 import LegalLinks from "../components/legal/LegalLinks";
 import { Button, Header, Screen, T } from "../components/ui";
 import { allowAi, declineAi, useAiPermission, withdrawAi } from "../data/consent";
@@ -53,7 +53,7 @@ export default function AiPermission() {
     }
 
     // After a no: what turtl still does, and what it cannot do without these services.
-    if (declined) {
+    if (showsDeclined(declined, atStart, status)) {
       return (
         <View style={{ gap: 16 }} testID="ai-permission-declined">
           <T variant="title" accessibilityRole="header">turtl will work without AI</T>
@@ -91,7 +91,7 @@ export default function AiPermission() {
         {status.services.map((service) => <ServiceCard key={service.id} service={service} />)}
         {status.alsoUsed.length > 0 && (
           <T variant="small" color="textMuted" testID="ai-permission-also-used">
-            turtl also needs {listNames(status.alsoUsed.map((service) => service.name))} to run at all, so it does not ask about them. The privacy policy says what each one receives.
+            This screen asks only about AI services. turtl also uses {listNames(status.alsoUsed.map((service) => service.name))}, each for one job, such as hosting turtl, reading your code, testing your app on a phone, signing you in, or sending you emails and notifications. The privacy policy says what each one receives.
           </T>
         )}
         {error && <T font="text" color="statusAffected" accessibilityRole="alert">{error}</T>}

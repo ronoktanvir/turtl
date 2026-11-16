@@ -4,10 +4,11 @@ import { Linking, Pressable, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Svg, { Circle, Path } from "react-native-svg";
 import AiNotice from "../../../components/consent/AiNotice";
+import PracticeTile from "../../../components/practice/PracticeTile";
 import ProjectIcon from "../../../components/project/ProjectIcon";
 import SettingsSheet from "../../../components/project/SettingsSheet";
 import Watching from "../../../components/project/Watching";
-import { BrandIcon, Button, HealthWord, Header, Icon, Reveal, Screen, T, Turtle, ZoomPressable } from "../../../components/ui";
+import { BrandIcon, Button, Chip, HealthWord, Header, Icon, Reveal, Screen, T, Turtle, ZoomPressable } from "../../../components/ui";
 import { Glyph } from "../../../components/onboarding/Glyph";
 import { ownerStages, preparationStatus } from "../../../components/onboarding/stage";
 import { useCases, useDataStatus, useOnboarding, useProject, useStructuralFindings } from "../../../data";
@@ -37,6 +38,11 @@ export default function ProjectHome() {
 
   // Nothing open yet (or any more): show what turtl is watching, so a new project is not an empty page.
   const quiet = project ? project.bugCount === 0 && project.featureCount === 0 : false;
+  // A repository turtl could not read is not "All clear": nothing is watched until the owner reads it again.
+  const unreadable = onboarding?.stage === "inspection_failed";
+  // A check still failing with no case open (its fixes were declined) is not "All clear" either.
+  const failing = !!overview?.checks.some((check) => check.state === "failing");
+  const shown = (unreadable || failing) && project?.health === "clear" ? "needs_you" : project?.health ?? "clear";
   if (project === undefined) return <Screen testID="project-home">{errors.length === 0 && <T style={{ padding: 20 }}>Loading…</T>}</Screen>;
   if (project === null) return <Screen testID="project-home"><Header title="Project not found" fallback="/projects" /><View style={{ padding: 20, gap: 16 }}><T>This project is no longer available.</T><Button label="Back to Projects" onPress={() => router.replace("/projects")} testID="project-not-found-back" /></View></Screen>;
 
@@ -51,20 +57,20 @@ export default function ProjectHome() {
       <View testID="project-home-scroll" style={{ flex: 1, minHeight: 0, paddingHorizontal: 20, paddingTop: compact ? 8 : 16, paddingBottom: insets.bottom + 12, gap: compact ? 12 : 20 }}>
         <View style={{ gap: compact ? 0 : 4 }}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-            <Turtle health={project.health} size={compact ? 36 : 48} />
-            <View style={{ flex: 1, gap: 4 }}><HealthWord health={project.health} />{project.summary && <T color="textMuted" numberOfLines={short ? 1 : 2}>{project.summary}</T>}</View>
+            <Turtle health={shown} size={compact ? 36 : 48} />
+            <View style={{ flex: 1, gap: 4 }}><View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: 10, rowGap: 4 }}><HealthWord health={shown} practice={!!project.practice} testID="project-health" />{project.practice && <Chip label="Practice" tone="brandDeep" testID="project-practice-chip" />}</View>{project.summary && <T color="textMuted" numberOfLines={short ? 1 : 2}>{project.summary}</T>}</View>
           </View>
           {(project.repoUrl || project.productionUrl) && <View style={{ flexDirection: "row", gap: 20, paddingLeft: compact ? 48 : 60 }}>
             {([{ label: "GitHub", id: "project-github", url: project.repoUrl }, { label: "Live app", id: "project-live-app", url: project.productionUrl }] as const).map((link) => link.url && <Pressable key={link.id} testID={link.id} accessibilityRole="link" onPress={() => Linking.openURL(link.url!)} style={{ minHeight: 44, flexDirection: "row", alignItems: "center", gap: 6 }}>{link.id === "project-github" ? <BrandIcon name="github" size={20} /> : <Icon name="ExternalLink" size={15} color="textMuted" />}<T variant="small" color="textMuted">{link.label}</T></Pressable>)}
           </View>}
-          {onboarding && (project.health === "clear" || ownerStages.includes(onboarding.stage)) && <Pressable testID="project-preparation" accessibilityRole="link" onPress={() => router.push(`/project/${project.id}/prepare` as Href)} style={{ minHeight: 44, flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: compact ? 48 : 60 }}>
-            <Glyph name="ClipboardCheck" size={17} color={ownerStages.includes(onboarding.stage) ? "statusNeedsYou" : "brandDeep"} />
+          {onboarding && (project.health === "clear" || unreadable || ownerStages.includes(onboarding.stage)) && <Pressable testID="project-preparation" accessibilityRole="link" onPress={() => router.push(`/project/${project.id}/prepare` as Href)} style={{ minHeight: 44, flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: compact ? 48 : 60 }}>
+            <Glyph name="ClipboardCheck" size={17} color={unreadable || ownerStages.includes(onboarding.stage) ? "statusNeedsYou" : "brandDeep"} />
             <T variant="small">Preparation</T>
-            <T variant="small" color={ownerStages.includes(onboarding.stage) ? "statusNeedsYou" : "textMuted"} numberOfLines={1} style={{ flex: 1 }} testID="project-preparation-status">{preparationStatus(onboarding)}</T>
+            <T variant="small" color={unreadable || ownerStages.includes(onboarding.stage) ? "statusNeedsYou" : "textMuted"} numberOfLines={1} style={{ flex: 1 }} testID="project-preparation-status">{preparationStatus(onboarding)}</T>
             <Icon name="ChevronRight" size={16} color="textMuted" />
           </Pressable>}
         </View>
-        <AiNotice uses={["openai", "capy"]} cannot="use AI to diagnose problems or write fixes" />
+        <AiNotice uses={project.practice ? ["openai"] : ["openai", "capy"]} cannot={project.practice ? "use AI to diagnose problems" : "use AI to diagnose problems or write fixes"} />
         {finding && <Pressable testID="project-structural" accessibilityRole="button" onPress={() => router.push(("/review/" + finding.caseId) as Href)} style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 12, minHeight: 48, paddingHorizontal: 14, paddingVertical: 6, borderRadius: 14, borderWidth: 1, borderColor: colors.border, backgroundColor: pressed ? colors.surfaceRaised : colors.surface })}>
           <Icon name="Layers" size={18} color="brandDeep" />
           <View style={{ flex: 1, minWidth: 0 }}><T variant="small">turtl found a deeper cause</T><T variant="small" color="textMuted" numberOfLines={1}>{finding.hypothesis}</T></View>
@@ -81,7 +87,7 @@ export default function ProjectHome() {
               </> : <>
                 {!compact && <View style={{ flexDirection: "row", gap: 8, alignItems: "center", marginBottom: 12 }}><Icon name="Wrench" size={18} color="brandDeep" /><T variant="small" color="textMuted">OPEN BUGS</T></View>}
                 <View style={{ flexDirection: "row", alignItems: "baseline", gap: 12 }}><T variant="display">Fix</T><T variant="title" color="statusClear">{project.bugCount}</T></View>
-                <T testID="project-fix-approval-count" color="textMuted" numberOfLines={short ? 1 : 2} style={{ marginTop: 4, maxWidth: "90%" }}>{project.bugCount === 0 ? "No open bugs." : fixApprovals > 0 ? approvalLabel(fixApprovals) + "." : "Review open bugs and proposed fixes."}</T>
+                <T testID="project-fix-approval-count" color="textMuted" numberOfLines={short ? 1 : 2} style={{ marginTop: 4, maxWidth: "90%" }}>{project.bugCount === 0 ? "No open bugs." : fixApprovals > 0 ? approvalLabel(fixApprovals) : "Review open bugs and proposed fixes."}</T>
                 <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: compact ? 8 : 16 }}><T variant="strong" color="statusClear">{project.bugCount === 0 ? "View fixes" : "Review fixes"}</T><Icon name="ArrowRight" color="statusClear" /></View>
               </>}
             </ZoomPressable>
@@ -90,15 +96,15 @@ export default function ProjectHome() {
             <ZoomPressable containerStyle={{ flex: 1 }} testID="project-features" accessibilityRole="button" onPress={() => router.push(`/project/${project.id}/features` as Href)} style={({ pressed }) => ({ flex: 1, minHeight: 0, justifyContent: "center", borderRadius: 20, borderWidth: 1, borderColor: colors.border, backgroundColor: pressed ? colors.surfaceRaised : colors.surface, padding: tilePadding, overflow: "hidden" })}>
               <View pointerEvents="none" style={{ position: "absolute", right: 22, top: 12, opacity: 0.14, transform: [{ rotate: "-16deg" }] }}><Icon name="Layers" size={105} color="brandDeep" strokeWidth={1} /></View>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}><Icon name="Sparkles" size={20} color="brandDeep" /><T variant="title">{labels.features}</T><T variant="heading" color="textMuted">{project.featureCount}</T>{short && <View style={{ flex: 1, alignItems: "flex-end" }}><Icon name="ArrowRight" size={18} color="textMuted" /></View>}</View>
-              {!short && <View style={{ flexDirection: "row", alignItems: "center", gap: 16, marginTop: 12 }}><T testID="project-feature-approval-count" color="textMuted" style={{ flex: 1 }}>{project.featureCount === 0 ? "No open requests." : featureApprovals > 0 ? approvalLabel(featureApprovals) + "." : "Review feature requests."}</T><Icon name="ArrowRight" size={18} color="textMuted" /></View>}
+              {!short && <View style={{ flexDirection: "row", alignItems: "center", gap: 16, marginTop: 12 }}><T testID="project-feature-approval-count" color="textMuted" style={{ flex: 1 }}>{project.featureCount === 0 ? "No open requests." : featureApprovals > 0 ? approvalLabel(featureApprovals) : "Review feature requests."}</T><Icon name="ArrowRight" size={18} color="textMuted" /></View>}
             </ZoomPressable>
           </Reveal>
           <Reveal delay={120} style={{ flex: 1, minHeight: 0 }}>
-            <ZoomPressable containerStyle={{ flex: 1 }} testID="project-investigate" accessibilityRole="button" onPress={() => router.push(`/project/${project.id}/investigate` as Href)} style={({ pressed }) => ({ flex: 1, minHeight: 0, justifyContent: "center", borderRadius: 20, borderWidth: 1, borderColor: colors.border, backgroundColor: pressed ? colors.surfaceRaised : colors.bg, padding: tilePadding, overflow: "hidden" })}>
+            {project.practice ? <PracticeTile projectId={project.id} short={short} padding={tilePadding} /> : <ZoomPressable containerStyle={{ flex: 1 }} testID="project-investigate" accessibilityRole="button" onPress={() => router.push(`/project/${project.id}/investigate` as Href)} style={({ pressed }) => ({ flex: 1, minHeight: 0, justifyContent: "center", borderRadius: 20, borderWidth: 1, borderColor: colors.border, backgroundColor: pressed ? colors.surfaceRaised : colors.bg, padding: tilePadding, overflow: "hidden" })}>
               <View pointerEvents="none" style={{ position: "absolute", right: -8, top: 0, opacity: 0.3 }}><Svg width={130} height={140} viewBox="0 0 130 140"><Path d="M24 14 78 40 41 84 111 113M78 40l39-24M41 84l-24 43M78 40l33 73" stroke={colors.brandDeep} fill="none" />{[[24, 14], [78, 40], [41, 84], [111, 113], [117, 16], [17, 127]].map(([cx, cy], i) => <Circle key={i} cx={cx} cy={cy} r={i === 1 ? 7 : 4} fill={colors.bg} stroke={colors.brandDeep} strokeWidth="1.5" />)}</Svg></View>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}><Icon name="Network" size={20} color="brandDeep" /><T variant="title">Investigate</T>{short && <View style={{ flex: 1, alignItems: "flex-end" }}><Icon name="ArrowRight" size={18} color="textMuted" /></View>}</View>
               {!short && <View style={{ flexDirection: "row", alignItems: "center", gap: 16, marginTop: 12 }}><T color="textMuted" style={{ flex: 1 }} testID="project-investigate-note">{quiet && overview?.map ? overview.map.parts + " parts mapped. See how they connect." : "See how the code connects."}</T><Icon name="ArrowRight" size={18} color="textMuted" /></View>}
-            </ZoomPressable>
+            </ZoomPressable>}
           </Reveal>
         </View>
       </View>

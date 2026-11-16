@@ -1,4 +1,5 @@
 import type { FunctionReference, IndexNames, NamedTableInfo } from "convex/server";
+import { internal } from "../_generated/api";
 import type { DataModel, Id, TableNames } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { codeNamespace } from "../codeNetwork/schema";
@@ -125,17 +126,25 @@ export const projectErasers: Eraser[] = [
   // The project's own control token, sealed (convex/secrets), and the monitor's note of why it last skipped the project.
   projectRows("secrets", "by_app_and_kind"),
   projectRows("watchedProjects", "by_app"),
+  // A practice project's practice app: its switches, its token's hash, and any test booking its check left behind.
+  projectRows("practiceApps", "by_app"),
+  projectRows("practiceBookings", "by_app_and_fixture"),
 ];
 
 /** The account's own rows, removed after its projects. The sign-in records go last. */
 export const accountErasers: Eraser[] = [
   accountRows("pushTokens", "by_account_and_disabled"),
   accountRows("aiConsents", "by_account"),
+  // Its model calls still out, counted at their holds in the deployment's day before its own totals go (convex/spend).
+  call("account", "spend.holds", ["modelCallHolds"], internal.spend.ledger.eraseHolds),
   accountRows("modelSpend", "by_account_and_month"),
+  accountRows("accountSpendDays", "by_account_and_day"),
   accountRows("codingThreads", "by_account_day_and_request"),
   // The account's coding agent key, sealed (convex/secrets). A project's control token went with the project above.
   accountRows("secrets", "by_account_and_kind"),
-  inline("auth.signIn", ["authSessions", "authRefreshTokens", "authVerifiers", "authAccounts", "authVerificationCodes", "authPasswordResets", "authRateLimits", "users"], eraseSignIn),
+  // A password account's hold until it confirms its email address (convex/auth/confirmation.ts).
+  accountRows("authUnconfirmed", "by_account"),
+  inline("auth.signIn", ["authSessions", "authRefreshTokens", "authVerifiers", "authAccounts", "authVerificationCodes", "authRateLimits", "users"], eraseSignIn),
 ];
 
 /** Supermemory namespaces a project's data is written to, by the name the writer passes (convex/supermemory.ts adds
@@ -152,9 +161,10 @@ export const namespaces: ((appId: Id<"apps">) => string)[] = [
 /** Tables whose rows go through a deletion at a vendor (convex/account/vendors.ts), not through a list above. Their
  * rows stay until the vendor confirms, so the job still knows what to ask the vendor to delete. */
 export const vendorTables: Record<"github" | "apple", TableNames[]> = {
-  // Connect GitHub: internal.github.connect.disconnectAccount uninstalls every installation only this account uses
-  // and removes its token, repositories and links, unlinks the account from installations others still use, and
-  // forgets the account's connect attempts. A deleted installation keeps its row (so a replayed webhook cannot
+  // Connect GitHub: internal.github.connect.disconnectAccount uninstalls every installation on the person's own GitHub
+  // account that only this account uses and removes its token, repositories and links; from any other installation
+  // (an organization's, or one others still use) it removes the account's links, with what they remember (the GitHub
+  // user, the repositories, what was left out and why) and the cached token; and it forgets the connect attempts. A deleted installation keeps its row (so a replayed webhook cannot
   // revive it) with the GitHub login blanked.
   github: ["githubConnectAttempts", "githubInstallationLinks", "githubInstallations", "githubInstallationRepositories", "githubInstallationTokens"],
   // Sign in with Apple: each kept refresh token is revoked at Apple, then forgotten.
