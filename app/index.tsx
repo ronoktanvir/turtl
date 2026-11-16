@@ -54,7 +54,7 @@ export default function Login() {
               </Pressable>
             ))}
           </View>
-          {error && <T color="statusAffected" accessibilityRole="alert" testID="login-error" style={{ textAlign: "center" }}>{error}</T>}
+          {error && <T font="text" color="statusAffected" accessibilityRole="alert" testID="login-error" style={{ textAlign: "center" }}>{error}</T>}
           <Button label="Sign up" kind="plain" testID="login-signup" onPress={() => open("/sign-up")} style={{ minHeight: 50, borderRadius: 16, backgroundColor: colors.bg, borderColor: colors.bg }} />
           <LegalLinks />
         </Reveal>

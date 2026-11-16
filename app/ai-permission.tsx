@@ -94,7 +94,7 @@ export default function AiPermission() {
             turtl also needs {listNames(status.alsoUsed.map((service) => service.name))} to run at all, so it does not ask about them. The privacy policy says what each one receives.
           </T>
         )}
-        {error && <T color="statusAffected" accessibilityRole="alert">{error}</T>}
+        {error && <T font="text" color="statusAffected" accessibilityRole="alert">{error}</T>}
         {current ? (
           <View style={{ gap: 10 }}>
             <Button label="Done" onPress={leave} testID="ai-permission-done" />
