@@ -1,6 +1,15 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 import { bookingError } from "./bookingDemo/validators";
+import {
+  vAgentMessage,
+  vAgentThread,
+  vBrowserScreenshot,
+  vExternalApp,
+  vProbeRun,
+  vPullRequestChanges,
+  vRepairProof,
+} from "./externalApp/validators";
 import { vPullRequestRow } from "./prTracking/validators";
 import {
   vAttemptStatus,
@@ -153,6 +162,29 @@ export default defineSchema({
     proposalId: v.optional(v.id("proposals")),
     optionKey: v.optional(v.string()),
   }).index("by_case", ["caseId"]),
+  // Mutations must store credential names only (never values) and keep an external app's repository, deployment and evidence apart from turtl's own.
+  externalApps: defineTable(vExternalApp).index("by_app", ["appId"]),
+  // Mutations must record what was dispatched and what was read back; an unreadable run is inconclusive, and a page that only loads never passes.
+  probeRuns: defineTable(vProbeRun)
+    .index("by_completed", ["completedAt"])
+    .index("by_case", ["caseId"])
+    .index("by_app", ["appId"]),
+  // Mutations must keep the commit, environment, fixture, viewport and capture time of every screenshot; these are browser evidence, not device tests.
+  browserScreenshots: defineTable(vBrowserScreenshot)
+    .index("by_case", ["caseId"])
+    .index("by_probe_run", ["probeRunId"]),
+  agentThreads: defineTable(vAgentThread)
+    .index("by_pull_request", ["pullRequestId"])
+    .index("by_done", ["done"]),
+  // Mutations must store the agent's text as its API returned it and never mix it with turtl's own summaries.
+  agentMessages: defineTable(vAgentMessage)
+    .index("by_case", ["caseId", "createdAt"])
+    .index("by_thread_and_message", ["threadId", "messageId"]),
+  pullRequestChanges: defineTable(vPullRequestChanges).index("by_pull_request", ["pullRequestId"]),
+  // Mutations must keep candidate tested, deployed and verified after deploy as separate facts; none may be inferred from another, a timer, or an agent's word.
+  repairProofs: defineTable(vRepairProof)
+    .index("by_case", ["caseId"])
+    .index("by_deployment_status", ["deployment.status"]),
   bookingDemoSettings: defineTable({
     key: v.literal("demo"),
     recommendationsEnabled: v.boolean(),

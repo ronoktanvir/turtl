@@ -23,6 +23,7 @@ import type * as crons from "../crons.js";
 import type * as decisions from "../decisions.js";
 import type * as dev from "../dev.js";
 import type * as diagnosis from "../diagnosis.js";
+import type * as externalApp_validators from "../externalApp/validators.js";
 import type * as fixOptions from "../fixOptions.js";
 import type * as fixes from "../fixes.js";
 import type * as http from "../http.js";
@@ -82,6 +83,7 @@ declare const fullApi: ApiFromModules<{
   decisions: typeof decisions;
   dev: typeof dev;
   diagnosis: typeof diagnosis;
+  "externalApp/validators": typeof externalApp_validators;
   fixOptions: typeof fixOptions;
   fixes: typeof fixes;
   http: typeof http;
