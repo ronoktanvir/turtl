@@ -10,7 +10,8 @@ declare const process: { env: Record<string, string | undefined> };
 //   texted to one number), REVYL_BOOKING_WORKFLOW_ID (every account's verify step running the demo's device
 //   workflow on the operator's credits). With accounts on they read as not set.
 // - standInOnly: AUTH_STAND_IN_URL (that server would decide who is signed in), EXPO_PUSH_API_URL (every phone's
-//   token sent to that server) and SUPERMEMORY_BASE_URL (every owner's memory, reports and code sent to that server).
+//   token sent to that server), SUPERMEMORY_BASE_URL (every owner's memory, reports and code sent to that server),
+//   and KEIKI_BASE_URL and REVYL_BASE_URL (the operator's Keiki and Revyl keys sent to that server).
 //   Tests and local proofs run with accounts on against stand-ins, so with accounts on
 //   they are honoured only when this backend runs on this machine, and never otherwise.
 

@@ -560,6 +560,40 @@ test("EXPO_PUSH_API_URL: with accounts on, phones' tokens go to Expo unless this
   }
 });
 
+// Review, "Worth a second look": REVYL_BASE_URL and KEIKI_BASE_URL moved the operator's own keys to whatever host they
+// named, on any deployment. They are stand-in addresses now, like EXPO_PUSH_API_URL above.
+test("ATTACK (review): REVYL_BASE_URL and KEIKI_BASE_URL: with accounts on, the operator's keys go to Revyl and Keiki unless this backend is a local one", async (t) => {
+  const sent = [];
+  t.mock.method(globalThis, "fetch", async (input, init) => (sent.push({ host: new URL(String(input)).host, key: init?.headers?.Authorization }), new Response(JSON.stringify({ task_id: "task-1" }), { status: 200 })));
+  const revyl = { REVYL_API_KEY: "operator-revyl-key", REVYL_BASE_URL: "https://stand-in.example" };
+  {
+    const w = world(t, { ...HOSTED, ...revyl });
+    // An account's verify step names its own workflow; the key is the operator's.
+    const started = await w.load("convex/revyl/runs.ts").startRun(w.ctxFor(null).actionCtx, { phase: "after", workflowId: "wf-account" });
+    assert.equal(started.outcome, "started");
+    assert.deepEqual(sent, [{ host: "backend.revyl.ai", key: "Bearer operator-revyl-key" }], "the key went to Revyl, not to the address the variable names");
+  }
+  for (const env of [{ ...LOCAL }, {}]) {
+    const w = world(t, { ...env, ...revyl, REVYL_BASE_URL: "http://127.0.0.1:8215" });
+    assert.equal(w.load("convex/revyl/api.ts").revylConfig({ workflowId: "wf" }).config.baseUrl, "http://127.0.0.1:8215", "a local backend and the demo keep it");
+  }
+
+  const keikiSent = [];
+  const gate = { open: async () => ({ ok: true, fetch: async (input) => (keikiSent.push(new URL(String(input)).host), new Response(JSON.stringify({ results: [{ outcome: "ran" }] }))) }) };
+  const keiki = { KEIKI_API_KEY: "operator-keiki-key", KEIKI_AGENT_ID: "agent-1", KEIKI_OWNER_CONTACT: "+15550000000", KEIKI_BASE_URL: "http://127.0.0.1:8216" };
+  {
+    const w = world(t, keiki);
+    assert.equal((await w.load("convex/keiki.ts").sendOwnerNotice(gate, "The shop needs a decision.")).outcome, "ran");
+    assert.deepEqual(keikiSent, ["127.0.0.1:8216"], "the demo keeps its stand-in");
+  }
+  {
+    // With accounts on Keiki texts nobody today (KEIKI_OWNER_CONTACT is the demo's), and its address is Keiki's own.
+    const w = world(t, { ...HOSTED, ...keiki, KEIKI_BASE_URL: "https://stand-in.example" });
+    assert.deepEqual(await w.load("convex/keiki.ts").sendOwnerNotice(gate, "Alice's shop needs a decision."), { outcome: "not_configured" });
+    assert.deepEqual(keikiSent, ["127.0.0.1:8216"], "nothing more was sent");
+  }
+});
+
 test("AUTH_STAND_IN_URL: with accounts on, sign-in trusts no stand-in server unless this backend is a local one", async (t) => {
   const reset = { AUTH_RESEND_KEY: "re_stand_in", AUTH_EMAIL_FROM: "turtl <no-reply@example.com>", AUTH_STAND_IN_URL: "https://stand-in.example" };
   {
