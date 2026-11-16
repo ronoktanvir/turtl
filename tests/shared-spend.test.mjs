@@ -36,17 +36,28 @@ const consent = (account, n) => ({
   answeredAt: 1,
 });
 
-/** Accounts, each with `projects` projects (and a practice project), every one of them allowing AI. */
-function world(accounts) {
+const DAY = 86_400_000;
+
+/**
+ * Accounts (users:<name>), each with `projects` projects and a practice project (the last), every one of them allowing
+ * AI, and a case the monitor raised on each. By default each account is a month old and each case's check had been
+ * passing for two days before it failed; `newAccounts` were made an hour ago.
+ */
+function world(accounts, { newAccounts = [] } = {}) {
   const apps = [];
   const cases = [];
-  for (const [account, projects] of Object.entries(accounts)) {
+  const users = [];
+  for (const [name, projects] of Object.entries(accounts)) {
+    users.push({ _id: `users:${name}`, _creationTime: NOV_16 - (newAccounts.includes(name) ? 3_600_000 : 30 * DAY) });
     for (let n = 0; n <= projects; n++) {
-      apps.push({ _id: `apps:${account}-${n}`, ownerId: account, ...(n === projects && { practice: true }) });
-      cases.push({ _id: `cases:${account}-${n}`, appId: `apps:${account}-${n}`, raisedBy: "monitor", kind: "outage", status: "investigating" });
+      apps.push({ _id: `apps:${name}-${n}`, ownerId: `users:${name}`, ...(n === projects && { practice: true }) });
+      cases.push({ _id: `cases:${name}-${n}`, appId: `apps:${name}-${n}`, raisedBy: "monitor", kind: "outage", status: "investigating", passingForMs: 2 * DAY });
     }
   }
-  return memoryDb({ ...consentTables, ...spendTables, apps: null, cases: null }, { apps, cases, aiConsents: Object.keys(accounts).map(consent) });
+  return memoryDb(
+    { ...consentTables, ...spendTables, apps: null, cases: null, users: null },
+    { apps, cases, users, aiConsents: users.map((user, n) => consent(user._id, n)) },
+  );
 }
 
 const FUNCTIONS = {
@@ -105,25 +116,39 @@ const TRIAGE = { estimate: limits.callEstimate("gpt-5.4-mini", 8_000), cost: lim
 const DIAGNOSIS = { estimate: limits.callEstimate("gpt-6.1-sol", 20_000, 4_000), cost: limits.callEstimate("gpt-6.1-sol", 20_000, 4_000) * 0.7, allowance: "outage" };
 
 /**
- * Accounts acting together, each doing everything it may in a day: diagnosis of cases the monitor raised on its own
- * projects (its practice app breaks at will), in bursts, then its customers' reports on every project. Returns how
- * many accounts it took before the gate refused Alice's diagnosis of an outage on her app.
+ * Accounts acting together, each doing everything it may in a day, in the order that takes the most: diagnosis of an
+ * outage the monitor raised on one of its real projects (the cases the reserve is for), then of its practice app, which
+ * it breaks at will, in bursts, then its customers' reports on every project. Returns how many accounts it took before
+ * the gate refused Alice's diagnosis of an outage on her app, day by day, or null for a day they could not.
+ * `newAccounts`: the attackers were made today. `steady: false`: their real projects' checks had only just started
+ * passing before they failed.
  */
-async function accountsToStopAlice(t, env) {
+async function accountsToStopAlice(t, env, { days = 1, newAccounts = false, steady = true, count = 60 } = {}) {
   t.mock.timers.reset();
   t.mock.timers.enable({ apis: ["Date"], now: NOV_16 });
   return await withEnv({ ...ACCOUNTS, ...env }, async () => {
-    const attackers = Array.from({ length: 60 }, (_, n) => `mallory${n}`);
-    const db = world({ alice: 1, ...Object.fromEntries(attackers.map((name) => [name, 10])) });
+    const attackers = Array.from({ length: count }, (_, n) => `mallory${n}`);
+    const db = world({ alice: 1, ...Object.fromEntries(attackers.map((name) => [name, 10])) }, { newAccounts: newAccounts ? attackers : [] });
+    if (!steady) for (const name of attackers) await db.patch(`cases:${name}-0`, { passingForMs: 60_000 });
     const ctx = actions(db);
     const alice = () => gates.check.handler({ db }, { scope: { caseId: "cases:alice-0" }, service: "openai", purpose: "send", allowance: "outage" });
-    for (const [n, name] of attackers.entries()) {
-      await spendAll(ctx, { caseId: `cases:${name}-10` }, DIAGNOSIS, 20);
-      for (let p = 0; p <= 10; p++) await spendAll(ctx, { appId: `apps:${name}-${p}` }, TRIAGE, 20);
-      const answer = await alice();
-      if (!answer.ok) return { accounts: n + 1, refusal: answer.reason, total: await ceilings.deploymentSpendToday({ db }, Date.now()) };
+    const results = [];
+    for (let day = 0; day < days; day++) {
+      t.mock.timers.setTime(NOV_16 + day * DAY);
+      let stopped = null;
+      for (const [n, name] of attackers.entries()) {
+        await spendAll(ctx, { caseId: `cases:${name}-0` }, DIAGNOSIS, 20);
+        await spendAll(ctx, { caseId: `cases:${name}-10` }, DIAGNOSIS, 20);
+        for (let p = 0; p <= 10; p++) await spendAll(ctx, { appId: `apps:${name}-${p}` }, TRIAGE, 20);
+        const answer = await alice();
+        if (!answer.ok) {
+          stopped = { accounts: n + 1, refusal: answer.reason, total: await ceilings.deploymentSpendToday({ db }, Date.now()) };
+          break;
+        }
+      }
+      results.push(stopped);
     }
-    assert.fail("60 accounts did not stop Alice's diagnosis");
+    return days === 1 ? results[0] : results;
   });
 }
 
@@ -148,7 +173,7 @@ test("ATTACK (finding 12): one account spends everything it may in a day, in bur
     assert.ok(intake.every(({ refusal }) => refusal === limits.spendRefusal.accountIntakeSpent(1) || refusal === limits.spendRefusal.intakeSpent(0.5)));
 
     // What she managed: her day share and her customers' day share, each passed by at most the last call let through.
-    const day = await ledger.accountDay({ db }, "mallory", Date.now());
+    const day = await ledger.accountDay({ db }, "users:mallory", Date.now());
     const own = chat.total + readings.total + voice.total;
     assert.ok(Math.abs(day.ownUsd - own) < 1e-6);
     assert.ok(day.ownUsd <= 2.5 + READING.estimate, `her own calls cost $${day.ownUsd.toFixed(2)}`);
@@ -172,7 +197,7 @@ test("a burst of calls started together is counted as each is let through, so it
     const gatesOpen = await Promise.all(Array.from({ length: 500 }, () => gates.gateFor(ctx, { caseId: "cases:mallory-0" }).open("openai", "send", 0.05)));
     const through = gatesOpen.filter((opened) => opened.ok).length;
     assert.equal(through, 50, "$2.50 at $0.05 a call");
-    assert.equal((await ledger.accountDay({ db }, "mallory", Date.now())).ownHeldUsd, 2.5);
+    assert.equal((await ledger.accountDay({ db }, "users:mallory", Date.now())).ownHeldUsd, 2.5);
     // A caller that gives no estimate is held at the flat amount.
     assert.equal(limits.MODEL_CALL_HOLD_USD, 0.1);
   });
@@ -207,6 +232,47 @@ test("ATTACK (finding 12): accounts acting together; the part of the day kept fo
   console.log(`accounts it takes to stop another owner's diagnosis: no reserve ${none.accounts}, plain reserve ${plain.accounts}, the reserve as built ${kept.accounts}`);
 });
 
+// Third review, finding 19: about 24 accounts, made once, drained the reserve every day through practice-app cases,
+// which anyone makes at will. The reserve is now for real outages on established projects of established accounts.
+test("ATTACK (finding 19): 40 fresh accounts breaking practice apps and spending their shares leave Alice's diagnosis passing, two days running", async (t) => {
+  const days = await accountsToStopAlice(t, {}, { days: 2, newAccounts: true, count: 40 });
+  assert.deepEqual(days, [null, null], "neither day did they stop it");
+});
+
+test("ATTACK (finding 19): accounts a month old whose projects' checks had only just started passing cannot drain the reserve either", async (t) => {
+  assert.equal(await accountsToStopAlice(t, {}, { steady: false, count: 40 }), null);
+});
+
+test("the reserve admits only an outage the monitor raised on a real project whose check had passed for a day, of an account over 14 days old", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: NOV_16 });
+  await withEnv(ACCOUNTS, async () => {
+    const db = world({ alice: 1, newcomer: 1 }, { newAccounts: ["newcomer"] });
+    // Only the part kept for outages is left.
+    await db.insert("deploymentTotals", { name: "model_usd_day", window: "2026-11-16", value: 15.2, updatedAt: 1 });
+    const ask = (caseId) => gates.check.handler({ db }, { scope: { caseId }, service: "openai", purpose: "send", allowance: "outage" });
+    assert.equal((await ask("cases:alice-0")).ok, true, "a real outage on an established project");
+    assert.equal((await ask("cases:alice-1")).reason, limits.spendRefusal.reserveKept(), "her practice app: never");
+    await db.patch("cases:alice-0", { passingForMs: 23 * 3_600_000 });
+    assert.equal((await ask("cases:alice-0")).reason, limits.spendRefusal.reserveNotSteady(24), "a check that had passed for less than a day");
+    await db.patch("cases:alice-0", { passingForMs: undefined });
+    assert.equal((await ask("cases:alice-0")).reason, limits.spendRefusal.reserveNotSteady(24), "a case from before the time was kept");
+    assert.equal((await ask("cases:newcomer-0")).reason, limits.spendRefusal.reserveNewAccount(14), "an account made this hour");
+    await db.patch("users:newcomer", { _creationTime: NOV_16 - 15 * DAY });
+    assert.equal((await ask("cases:newcomer-0")).ok, true, "fifteen days later it qualifies");
+    for (const reason of [limits.spendRefusal.reserveNotSteady(24), limits.spendRefusal.reserveNewAccount(14)]) assert.doesNotMatch(reason, /[A-Z]{2,}_|users:|cases:/);
+    assert.equal(
+      limits.spendRefusal.reserveNotSteady(24),
+      "turtl is keeping the rest of today's AI for outages on apps whose checks had been passing for a day before they failed, and this one's had not, so no model was asked; it starts again tomorrow",
+    );
+  });
+  await withEnv({ OUTAGE_RESERVE_STEADY_HOURS: undefined, OUTAGE_RESERVE_ACCOUNT_AGE_DAYS: undefined }, () => {
+    assert.deepEqual([limits.outageReserveSteadyMs(), limits.outageReserveAccountAgeMs()], [24 * 3_600_000, 14 * DAY]);
+  });
+  await withEnv({ OUTAGE_RESERVE_STEADY_HOURS: "72", OUTAGE_RESERVE_ACCOUNT_AGE_DAYS: "30" }, () => {
+    assert.deepEqual([limits.outageReserveSteadyMs(), limits.outageReserveAccountAgeMs()], [72 * 3_600_000, 30 * DAY]);
+  });
+});
+
 test("once only the reserve is left, the case chat and customer reports wait, and an outage on an account that used little is still diagnosed", async (t) => {
   t.mock.timers.enable({ apis: ["Date"], now: NOV_16 });
   await withEnv(ACCOUNTS, async () => {
@@ -221,9 +287,9 @@ test("once only the reserve is left, the case chat and customer reports wait, an
     assert.equal((await modelCall(ctx, { caseId: "cases:alice-1" }, DIAGNOSIS)).reason, limits.spendRefusal.reserveKept(), "a customer's case does not");
     assert.equal((await modelCall(ctx, { caseId: "cases:alice-0" }, DIAGNOSIS)).ok, true, "her outage is diagnosed");
     // Mallory used her share earlier today: the reserve is not hers to draw on.
-    await db.insert("accountSpendDays", { account: "mallory", day: "2026-11-16", ownUsd: 2.5, ownHeldUsd: 0, intakeUsd: 0, intakeHeldUsd: 0, calls: 50, updatedAt: 1 });
+    await db.insert("accountSpendDays", { account: "users:mallory", day: "2026-11-16", ownUsd: 2.5, ownHeldUsd: 0, intakeUsd: 0, intakeHeldUsd: 0, calls: 50, updatedAt: 1 });
     assert.equal((await modelCall(ctx, { caseId: "cases:mallory-0" }, DIAGNOSIS)).reason, limits.spendRefusal.accountDaySpent(2.5));
-    await db.patch(db.rows("accountSpendDays").find((row) => row.account === "mallory")._id, { ownUsd: 0.6 });
+    await db.patch(db.rows("accountSpendDays").find((row) => row.account === "users:mallory")._id, { ownUsd: 0.6 });
     assert.equal((await modelCall(ctx, { caseId: "cases:mallory-0" }, DIAGNOSIS)).reason, limits.spendRefusal.reserveUsed(0.5));
     assert.equal(
       limits.spendRefusal.reserveUsed(0.5),
@@ -277,15 +343,15 @@ test("ATTACK: a case a customer raised examines broader causes on the project's 
     const cost = limits.modelCost("gpt-5.4", { inputTokens: 20_000, outputTokens: 1_500 });
 
     assert.match((await run({ _id: "cases:alice-0", appId: "apps:alice-0", raisedBy: "customer", kind: "bug_report" })).summary, /found no structural cause/);
-    let day = await ledger.accountDay({ db }, "alice", Date.now());
+    let day = await ledger.accountDay({ db }, "users:alice", Date.now());
     assert.equal(day.ownUsd, 0, "the owner's own day is untouched");
-    assert.equal(await ledger.monthSpend({ db }, "alice", Date.now()), 0, "and so is her month");
+    assert.equal(await ledger.monthSpend({ db }, "users:alice", Date.now()), 0, "and so is her month");
     assert.ok(Math.abs(day.intakeUsd - cost) < 1e-6);
     assert.ok(Math.abs((await ledger.intakeSpendToday({ db }, "apps:alice-0", Date.now())) - cost) < 1e-6, "the project's customer-report day paid");
 
     // An outage the monitor found is still examined on the owner's allowance.
     await run({ _id: "cases:alice-1", appId: "apps:alice-1", raisedBy: "monitor", kind: "outage" });
-    day = await ledger.accountDay({ db }, "alice", Date.now());
+    day = await ledger.accountDay({ db }, "users:alice", Date.now());
     assert.ok(Math.abs(day.ownUsd - cost) < 1e-6);
   });
 });
@@ -294,14 +360,14 @@ test("ATTACK: a case a customer raised examines broader causes on the project's 
 // (no setting names, no ids), every helper hands it back instead of failing, and the case screen says it once.
 const CEILINGS = [
   ["the deployment's day", async (db) => db.insert("deploymentTotals", { name: "model_usd_day", window: "2026-11-16", value: 25, updatedAt: 1 }), { own: limits.spendRefusal.deploymentSpent(), outage: limits.spendRefusal.deploymentSpent(), intake: limits.spendRefusal.deploymentSpent() }],
-  ["the account's month", async (db) => db.insert("modelSpend", { account: "ada", month: "2026-11", costUsd: 20, calls: 1, updatedAt: 1 }), { own: limits.spendRefusal.overLimit(20, NOV_16), outage: limits.spendRefusal.overLimit(20, NOV_16) }],
-  ["the account's own share of the day", async (db) => db.insert("accountSpendDays", { account: "ada", day: "2026-11-16", ownUsd: 2.5, ownHeldUsd: 0, intakeUsd: 0, intakeHeldUsd: 0, calls: 1, updatedAt: 1 }), { own: limits.spendRefusal.accountDaySpent(2.5), outage: limits.spendRefusal.accountDaySpent(2.5) }],
-  ["its customers' share of the day", async (db) => db.insert("accountSpendDays", { account: "ada", day: "2026-11-16", ownUsd: 0, ownHeldUsd: 0, intakeUsd: 1, intakeHeldUsd: 0, calls: 1, updatedAt: 1 }), { intake: limits.spendRefusal.accountIntakeSpent(1) }],
+  ["the account's month", async (db) => db.insert("modelSpend", { account: "users:ada", month: "2026-11", costUsd: 20, calls: 1, updatedAt: 1 }), { own: limits.spendRefusal.overLimit(20, NOV_16), outage: limits.spendRefusal.overLimit(20, NOV_16) }],
+  ["the account's own share of the day", async (db) => db.insert("accountSpendDays", { account: "users:ada", day: "2026-11-16", ownUsd: 2.5, ownHeldUsd: 0, intakeUsd: 0, intakeHeldUsd: 0, calls: 1, updatedAt: 1 }), { own: limits.spendRefusal.accountDaySpent(2.5), outage: limits.spendRefusal.accountDaySpent(2.5) }],
+  ["its customers' share of the day", async (db) => db.insert("accountSpendDays", { account: "users:ada", day: "2026-11-16", ownUsd: 0, ownHeldUsd: 0, intakeUsd: 1, intakeHeldUsd: 0, calls: 1, updatedAt: 1 }), { intake: limits.spendRefusal.accountIntakeSpent(1) }],
   ["the project's customer-report day", async (db) => db.insert("intakeDays", { appId: "apps:ada-0", day: "2026-11-16", costUsd: 0.5, calls: 1, casesOpened: 0, updatedAt: 1 }), { intake: limits.spendRefusal.intakeSpent(0.5) }],
   ["all but the part kept for outages", async (db) => db.insert("deploymentTotals", { name: "model_usd_day", window: "2026-11-16", value: 15, updatedAt: 1 }), { own: limits.spendRefusal.reserveKept(), intake: limits.spendRefusal.reserveKept() }],
   ["the outage part, for an account past $0.50 today", async (db) => {
     await db.insert("deploymentTotals", { name: "model_usd_day", window: "2026-11-16", value: 15, updatedAt: 1 });
-    await db.insert("accountSpendDays", { account: "ada", day: "2026-11-16", ownUsd: 0.6, ownHeldUsd: 0, intakeUsd: 0, intakeHeldUsd: 0, calls: 1, updatedAt: 1 });
+    await db.insert("accountSpendDays", { account: "users:ada", day: "2026-11-16", ownUsd: 0.6, ownHeldUsd: 0, intakeUsd: 0, intakeHeldUsd: 0, calls: 1, updatedAt: 1 });
   }, { outage: limits.spendRefusal.reserveUsed(0.5), own: limits.spendRefusal.reserveKept(), intake: limits.spendRefusal.reserveKept() }],
 ];
 const CALL_KINDS = [

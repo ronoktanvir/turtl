@@ -67,12 +67,26 @@ function describeImpact(
   };
 }
 
-// A passing check of the journey, from the monitor or from verify, re-arms its signature.
+// A passing check of the journey, from the monitor or from verify, re-arms its signature, and starts its run of passes
+// if it was not passing.
 export const recordPass = internalMutation({
   args: { journeyId: v.id("journeys"), observedAt: v.number() },
   handler: async (ctx, { journeyId, observedAt }) => {
     const journey = await ctx.db.get(journeyId);
-    if (journey && observedAt > (journey.lastPassedAt ?? 0)) await ctx.db.patch(journeyId, { lastPassedAt: observedAt });
+    if (journey && observedAt > (journey.lastPassedAt ?? 0)) {
+      await ctx.db.patch(journeyId, { lastPassedAt: observedAt, ...(journey.passingSince === undefined && { passingSince: observedAt }) });
+    }
+  },
+});
+
+// A check of the journey that got no answer ends its run of passes, as a failure does (openCase).
+export const recordMiss = internalMutation({
+  args: { journeyId: v.id("journeys") },
+  returns: v.null(),
+  handler: async (ctx, { journeyId }) => {
+    const journey = await ctx.db.get(journeyId);
+    if (journey?.passingSince !== undefined) await ctx.db.patch(journeyId, { passingSince: undefined });
+    return null;
   },
 });
 
@@ -90,6 +104,9 @@ export const openCase = internalMutation({
     const journey = await ctx.db.get(journeyId);
     if (!journey) throw new Error("Journey not found.");
     if (journey.lastPassedAt !== undefined && observedAt < journey.lastPassedAt) return { opened: false as const, reason: "this observation is older than the journey's latest passing check" };
+    // How long it had been passing before this failure, which the failure ends (convex/consent/gate.ts, the reserve).
+    const passingForMs = journey.passingSince !== undefined ? Math.max(0, observedAt - journey.passingSince) : 0;
+    if (journey.passingSince !== undefined) await ctx.db.patch(journeyId, { passingSince: undefined });
     const signature = signatureFor(journeyId);
     const previous = await ctx.db
       .query("cases")
@@ -125,6 +142,7 @@ export const openCase = internalMutation({
       raisedByRef: `journey check: ${journey.name}`,
       signature,
     });
+    await ctx.db.patch(caseId, { passingForMs });
     const app = await ctx.db.get(journey.appId);
     await ctx.scheduler.runAfter(0, internal.notices.notifyOwner, {
       caseId,
@@ -152,7 +170,10 @@ export type MonitorResult = { skipped: string } | { checked: Checked[] } | Swept
 async function checkJourney(ctx: ActionCtx, journey: Runnable, base: string, app: WatchedApp): Promise<Checked> {
   const observedAt = Date.now();
   const outcome = await runJourneyCheck(journey, app);
-  if (!outcome.ok) return { journeyId: journey.journeyId, outcome: "check_error", detail: outcome.reason };
+  if (!outcome.ok) {
+    await ctx.runMutation(internal.monitor.recordMiss, { journeyId: journey.journeyId });
+    return { journeyId: journey.journeyId, outcome: "check_error", detail: outcome.reason };
+  }
   const { result } = outcome;
   if (result.verdict === "passed") {
     await ctx.runMutation(internal.monitor.recordPass, { journeyId: journey.journeyId, observedAt });

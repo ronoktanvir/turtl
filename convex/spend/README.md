@@ -33,7 +33,15 @@ With the defaults one account can put at most about $3.50 (plus one call each si
 
 The last `OUTAGE_RESERVE_PERCENT` of the day (default 40%, $10 of the default $25) is kept for finding the cause of outages the monitor found: investigate and plan on a case the monitor raised (the case's own gate, `gateFor(ctx, { caseId }, "outage")`, which the gate checks against the case), and the council that investigate may call. Once the day's total passes the ceiling less the reserve, every other model call waits until the next day with the reason "turtl is keeping the rest of today's AI for finding the cause of outages", and an outage's diagnosis passes only for an account whose own calls cost less than `OUTAGE_RESERVE_ACCOUNT_USD` today (default $0.50).
 
-That second rule is what makes the reserve worth having. Any account can make the monitor raise cases at will (its own app, or its practice app, which it may break ten times a day), so a reserve every account could draw on up to its whole share would empty as fast as the rest: it takes eight accounts to stop another owner's diagnosis with no reserve, and nine with that one. With each account drawing at most about $0.50 (plus one call), the $15 before the reserve takes five accounts and the $10 reserve about twenty more: `tests/shared-spend.test.mjs` counts 24. Accounts are capped at 20 new an hour and 100 a day, and an account that has not confirmed its email cannot spend, so that is at least 24 confirmed addresses, and the honest owner who has used little that day still gets their outage diagnosed until all of them have.
+That second rule is what makes the reserve worth having. Any account can make the monitor raise cases at will (its own app, or its practice app, which it may break ten times a day), so a reserve every account could draw on up to its whole share would empty as fast as the rest: it takes eight accounts to stop another owner's diagnosis with no reserve, and nine with that one. With each account drawing at most about $0.50 (plus one call), the $15 before the reserve takes five accounts and the $10 reserve about twenty more: `tests/shared-spend.test.mjs` counts 24.
+
+And the reserve is only for real outages on established projects (third review, finding 19, where the same 24 accounts drained it every day by breaking their practice apps). A case qualifies only when:
+
+- the monitor raised it on a project that is not a practice app;
+- its check had been passing for `OUTAGE_RESERVE_STEADY_HOURS` (default 24) before this failure. The monitor keeps, on each check, since when it has passed every time (`journeys.passingSince`; a failure or a check that got no answer clears it), and the case records how long that was (`cases.passingForMs`). A check from before this was kept starts counting at its next pass;
+- its account is at least `OUTAGE_RESERVE_ACCOUNT_AGE_DAYS` old (default 14).
+
+Each refusal says which rule in plain words. Accounts made for an attack cannot reach the reserve for two weeks, and then only through real projects whose live apps pass turtl's checks for a day before each failure, one such failure per project per day.
 
 In the single-owner demo there is no limit and nothing is recorded.
 

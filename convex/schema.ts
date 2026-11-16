@@ -75,6 +75,9 @@ export default defineSchema({
     distinctRequesterCount: v.optional(v.number()),
     resolvedAt: v.optional(v.number()),
     isSample: v.optional(v.boolean()),
+    // For a case the monitor opened: how long its check had been passing before this failure. Only a case on a project
+    // that had been working for a while may use the part of the day's AI kept for outages (convex/consent/gate.ts).
+    passingForMs: v.optional(v.number()),
     // The owner's star: "look at this later". Only the owner sets it; nothing in turtl acts on it.
     starred: v.optional(v.boolean()),
   })

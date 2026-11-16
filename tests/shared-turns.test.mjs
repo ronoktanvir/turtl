@@ -465,6 +465,38 @@ test("ATTACK: 2,000 earlier cases on a project and thousands of evidence rows on
   assert.deepEqual(read.result.prompt.current.evidence, []);
 });
 
+// ---- Finding 19: a case records how long its check had been passing, for the outage reserve ----
+
+test("a case the monitor opens records how long its check had been passing; a failure or no answer starts the count again", async (t) => {
+  const w = world(t);
+  let answer = () => json(passed);
+  const sent = network(t, { "shop.example": (...args) => answer(...args) });
+  const ada = await w.db.insert("users", { email: "ada@example.com" });
+  const appId = await project(w, ada, "shop.example");
+  // A day and an hour of passing checks, then a failure.
+  await minutesAsked(t, w, sent, "shop.example", 0, 25 * 60);
+  answer = () => json(failed);
+  await minutesAsked(t, w, sent, "shop.example", 25 * 60, 25 * 60 + 1);
+  const first = w.rows("cases").at(-1);
+  assert.ok(first.passingForMs >= 24 * 60 * MINUTE && first.passingForMs <= 25 * 60 * MINUTE, String(first.passingForMs));
+  // The owner closes it; the app passes for an hour, then fails again: that case had passed for only an hour.
+  // (This harness stamps rows with a fixed creation time; the case was opened at the 25th hour.)
+  await w.db.patch(first._id, { status: "resolved", _creationTime: START + 25 * 60 * MINUTE });
+  answer = () => json(passed);
+  await minutesAsked(t, w, sent, "shop.example", 25 * 60 + 20, 26 * 60 + 20);
+  // No answer at all in between also ends the run of passes.
+  answer = () => new Response("down", { status: 502 });
+  await minutesAsked(t, w, sent, "shop.example", 26 * 60 + 20, 26 * 60 + 21);
+  answer = () => json(passed);
+  await minutesAsked(t, w, sent, "shop.example", 26 * 60 + 21, 26 * 60 + 31);
+  answer = () => json(failed);
+  await minutesAsked(t, w, sent, "shop.example", 26 * 60 + 31, 26 * 60 + 32);
+  const second = w.rows("cases").at(-1);
+  assert.notEqual(second._id, first._id);
+  assert.ok(second.passingForMs <= 11 * MINUTE, `counted from after the check that got no answer: ${second.passingForMs}`);
+  assert.equal(w.rows("journeys").find((row) => row.appId === appId).passingSince, undefined, "the failure ended the run");
+});
+
 // ---- Statement 9: the live address's port ----
 
 test("ATTACK: an account cannot point its live app at another port of someone else's host, so turtl probes no port but the web's", async (t) => {

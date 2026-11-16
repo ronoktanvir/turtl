@@ -15,7 +15,9 @@ import {
   MODEL_CALL_HOLD_USD,
   modelSpendLimitUsd,
   outageReserveAccountUsd,
+  outageReserveAccountAgeMs,
   outageReservePercent,
+  outageReserveSteadyMs,
   spendRefusal,
 } from "../spend/limits";
 import { sendTo } from "./outbound";
@@ -66,21 +68,36 @@ const vScope = v.union(v.object({ appId: v.string() }), v.object({ caseId: v.str
 const vPurpose = v.union(v.literal("send"), v.literal("start_thread"), v.literal("erase"));
 const vAllowance = v.union(v.literal("account"), v.literal("intake"), v.literal("outage"));
 
-async function ownerOf(
-  ctx: Pick<QueryCtx, "db">,
-  scope: Scope,
-): Promise<{ account: string | null; appId: Id<"apps"> | null; raisedByMonitor: boolean }> {
-  if ("account" in scope) return { account: scope.account || null, appId: null, raisedByMonitor: false };
+type Owner = {
+  account: string | null;
+  appId: Id<"apps"> | null;
+  raisedByMonitor: boolean;
+  /** The project is a practice app (convex/practice): it has no customers, and its cases are made at will. */
+  practice: boolean;
+  /** For a case the monitor raised: how long its check had been passing before it failed. */
+  passingForMs: number;
+};
+
+async function ownerOf(ctx: Pick<QueryCtx, "db">, scope: Scope): Promise<Owner> {
+  if ("account" in scope) return { account: scope.account || null, appId: null, raisedByMonitor: false, practice: false, passingForMs: 0 };
   let appId = "appId" in scope ? ctx.db.normalizeId("apps", scope.appId) : null;
   let raisedByMonitor = false;
+  let passingForMs = 0;
   if ("caseId" in scope) {
     const caseId = ctx.db.normalizeId("cases", scope.caseId);
     const row = caseId ? await ctx.db.get(caseId) : null;
     appId = row?.appId ?? null;
     raisedByMonitor = row?.raisedBy === "monitor";
+    passingForMs = row?.passingForMs ?? 0;
   }
   const app = appId ? await ctx.db.get(appId) : null;
-  return { account: app?.ownerId ?? null, appId: app ? app._id : null, raisedByMonitor };
+  return { account: app?.ownerId ?? null, appId: app ? app._id : null, raisedByMonitor, practice: app?.practice === true, passingForMs };
+}
+
+/** When the account was made, or null when it is not an account turtl knows. */
+async function accountMadeAt(ctx: Pick<QueryCtx, "db">, account: string): Promise<number | null> {
+  const id = ctx.db.normalizeId("users", account);
+  return id ? ((await ctx.db.get(id))?._creationTime ?? null) : null;
 }
 
 type Args = { scope: Scope; service: string; purpose: Purpose; allowance?: Allowance; estimateUsd?: number };
@@ -93,7 +110,7 @@ const isModelCall = (service: string, purpose: Purpose) => purpose === "send" &&
 async function decide(ctx: Pick<QueryCtx, "db">, { scope, service, purpose, allowance = "account" }: Args): Promise<Decision> {
   const no = (reason: string): Decision => ({ answer: { ok: false, reason }, hold: null });
   if (!accessEnforced()) return { answer: { ok: true, account: SOLO_ACCOUNT }, hold: null };
-  const { account, appId, raisedByMonitor } = await ownerOf(ctx, scope);
+  const { account, appId, raisedByMonitor, practice, passingForMs } = await ownerOf(ctx, scope);
   if (purpose === "erase") return { answer: { ok: true, account: account ?? "" }, hold: null };
   if (!account) return no(refusal.noOwner(serviceName(service)));
   // A customer-report call is billed to its project, so it must name one.
@@ -126,9 +143,16 @@ async function decide(ctx: Pick<QueryCtx, "db">, { scope, service, purpose, allo
     }
     // The last part of the day is kept for finding the cause of outages the monitor found, on accounts that have used
     // little of the day: a few accounts that used their whole shares cannot reach it, and each other account draws on
-    // it only until its own day passes outageReserveAccountUsd().
+    // it only until its own day passes outageReserveAccountUsd(). Only real outages on established projects qualify
+    // (finding 19): never a practice app, whose cases anyone makes at will; only a check that had been passing for
+    // outageReserveSteadyMs() before it failed; only an account older than outageReserveAccountAgeMs().
     if (total >= ceiling * (1 - outageReservePercent() / 100)) {
-      if (allowance !== "outage" || !raisedByMonitor) return no(spendRefusal.reserveKept());
+      if (allowance !== "outage" || !raisedByMonitor || practice) return no(spendRefusal.reserveKept());
+      const steady = outageReserveSteadyMs();
+      if (passingForMs < steady) return no(spendRefusal.reserveNotSteady(Math.round(steady / 3_600_000)));
+      const age = outageReserveAccountAgeMs();
+      const madeAt = await accountMadeAt(ctx, account);
+      if (madeAt === null || now - madeAt < age) return no(spendRefusal.reserveNewAccount(Math.round(age / 86_400_000)));
       const under = outageReserveAccountUsd();
       if (own >= under) return no(spendRefusal.reserveUsed(under));
     }
