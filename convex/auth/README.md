@@ -52,11 +52,13 @@ session of the account, and signs in this device with a new session.
 ### The wrong-password lock
 
 Convex Auth refuses an account's right password after 10 wrong ones in an hour (its `signIn.maxFailedAttempsPerHour`
-setting), checked before the password. Anyone who knows an owner's address can keep that count spent. turtl leaves the
-setting at 10: the reset above is now always open to the owner, and finishing one clears the count, so the lock costs
-an owner one email, never their account. Raising the number would let a script guess more passwords an hour and would
-not stop the lock (the script would send more); lowering it would lock out owners who mistype. What is left: someone
-who keeps the count spent makes the owner use a reset to sign in on a new device. Sessions already open stay open.
+setting), checked before the password. Anyone who knows an owner's address can keep that count spent. The reset is the
+owner's way past it, and it is always open: each confirmed address gets a reset email every UTC day whatever else has
+been sent (below), the newest code works for 24 hours, and finishing a reset clears the count and signs that device in.
+So a stranger who keeps the password locked can make the owner use a reset on each new device, and can hold a second
+new device on the same day until the next UTC day; never longer, and sessions already open stay open. turtl leaves the
+setting at 10: raising it would let a script guess more passwords an hour and would not stop the lock (the script would
+send more); lowering it would lock out owners who mistype.
 
 ## Confirming a password account's address
 
@@ -107,16 +109,31 @@ fill the third.
 
 ## The day's emails
 
-`EMAILS_PER_DAY` (default 300) bounds every email turtl sends in a UTC day; set it to fit the email plan. Emails a
-sign-up can cause (each confirmation, and a reset of an account that has not confirmed its address) may use two thirds
-of it (200), and one email domain a tenth of those (20; a large provider half, 100). A reset for a confirmed account
-may use the rest, so a sign-up flood never takes the room an owner's reset needs. A sign-up is refused before any
-account is made once no email could reach it today. When the day runs out, turtl says so in plain words to anyone who
-asks for a reset, account or not, and codes already sent keep working.
+`EMAILS_PER_DAY` (default 300) is the day's pool of emails, UTC; set it to fit the email plan. Emails a sign-up can
+cause (each confirmation, and a reset of an account that has not confirmed its address) may use two thirds of it (200),
+resets for confirmed accounts the rest, and one email domain a tenth of either (20 sign-up and 30 reset emails; a large
+provider half). A sign-up is refused before any account is made when its email cannot go today, and if the email
+service then refuses the email, the new account is deleted at once and the address is free. When the pool runs out,
+codes already sent keep working; a person waiting to confirm is told so in plain words, and a reset request gets the
+same answer as ever.
 
-Unsolicited email therefore adds up to at most 5 confirmation and 5 reset emails to one address in any 24 hours, 20
-sign-up emails a day to one ordinary domain (100 to a large provider), and `EMAILS_PER_DAY` in all. Someone who knows
-many owners' addresses can still send each of them 5 reset emails a day and use up the day's resets.
+Each confirmed address's first reset email of the UTC day is sent outside the pool and the domain shares (security
+review, finding 24). However the pool was used up, an owner who needs a reset gets one: if a stranger asked first, that
+email went to the owner, and its code works for 24 hours, past the end of the day. So at every moment the owner holds a
+working code or can be sent one.
+
+What this adds up to:
+- One address: at most 5 confirmation and 5 reset emails in any 24 hours, as before.
+- One domain: 20 sign-up emails and 30 resets from the pool a day (a large provider 100 and 150), plus one first reset
+  a day per confirmed address there.
+- The operator's worst day: `EMAILS_PER_DAY`, plus one email for each confirmed password account someone asks a reset
+  for that day (counted as `first_resets_day` in `authCounts`). Only someone who knows that many owners' addresses
+  can cause it, and each owner gets one email.
+
+Password sign-ups need no mailbox, so a script that invents domain names can still use up the day's password sign-ups
+or the sign-ups' emails, and real password sign-ups wait for the next day. turtl cannot tell a real person from a script
+before the address answers; Sign in with Apple and GitHub keep working, and every refusal says so. A proof of a real
+device, such as Apple's App Attest, would be the way to keep room for real people; it is not built.
 
 ## What is stored
 
