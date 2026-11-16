@@ -6,6 +6,7 @@ import type { ApprovalMode } from "../../data/types";
 import { useTheme, type ThemeMode } from "../../theme";
 import { Button, Icon, Sheet, T } from "../ui";
 import LegalLinks from "../legal/LegalLinks";
+import AiSettings from "../consent/AiSettings";
 import OwnerPasscodeSettings from "./OwnerPasscodeSettings";
 import PreferencesSettings from "./PreferencesSettings";
 
@@ -52,6 +53,7 @@ export default function SettingsSheet({ visible, onClose, projectId }: { visible
       {error && <T color="statusAffected" accessibilityRole="alert">{error}</T>}
     </View>
     <PreferencesSettings projectId={projectId} />
+    <AiSettings onClose={onClose} />
     {isLiveData && visible && <OwnerPasscodeSettings />}
     <View style={{ gap: 12, marginTop: 8 }}>
       <T variant="heading">Theme</T>

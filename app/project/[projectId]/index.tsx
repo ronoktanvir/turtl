@@ -3,6 +3,7 @@ import { useState } from "react";
 import { Linking, Pressable, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Svg, { Circle, Path } from "react-native-svg";
+import AiNotice from "../../../components/consent/AiNotice";
 import ProjectIcon from "../../../components/project/ProjectIcon";
 import SettingsSheet from "../../../components/project/SettingsSheet";
 import { BrandIcon, Button, HealthWord, Header, Icon, Reveal, Screen, T, Turtle, ZoomPressable } from "../../../components/ui";
@@ -58,6 +59,7 @@ export default function ProjectHome() {
             <Icon name="ChevronRight" size={16} color="textMuted" />
           </Pressable>}
         </View>
+        <AiNotice uses={["openai", "capy"]} cannot="use AI to diagnose problems or write fixes" />
         {finding && <Pressable testID="project-structural" accessibilityRole="button" onPress={() => router.push(("/review/" + finding.caseId) as Href)} style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 12, minHeight: 48, paddingHorizontal: 14, paddingVertical: 6, borderRadius: 14, borderWidth: 1, borderColor: colors.border, backgroundColor: pressed ? colors.surfaceRaised : colors.surface })}>
           <Icon name="Layers" size={18} color="brandDeep" />
           <View style={{ flex: 1, minWidth: 0 }}><T variant="small">turtl found a deeper cause</T><T variant="small" color="textMuted" numberOfLines={1}>{finding.hypothesis}</T></View>
