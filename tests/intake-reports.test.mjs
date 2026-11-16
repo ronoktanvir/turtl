@@ -70,6 +70,8 @@ const INDEXES = {
   "stepAttempts.by_case": ["caseId"],
   "intakeKeys.by_key": ["key"],
   "intakeRateWindows.by_bucket_and_window": ["bucket", "windowStart"],
+  // convex/access.ts asks whether a signed-in password account has confirmed its email address (none waits here).
+  "authUnconfirmed.by_account": ["account"],
 };
 
 function backend({ identity = null } = {}) {

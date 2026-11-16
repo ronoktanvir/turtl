@@ -86,26 +86,33 @@ export const request = mutation({
   handler: async (ctx) => {
     if (!accessEnforced()) throw new ConvexError(NO_ACCOUNTS);
     const account = await requireAccount(ctx);
-    const running = await ctx.db.query("accountDeletions").withIndex("by_account", (q) => q.eq("account", account)).first();
-    if (running) return { requestedAt: running.requestedAt };
-    const now = Date.now();
-    const deletionId = await ctx.db.insert("accountDeletions", {
-      account,
-      accountHash: await sha256Hex(account),
-      status: "running",
-      stage: "stop",
-      requestedAt: now,
-      updatedAt: now,
-      wakeAt: now,
-      vendors: [],
-      removed: EMPTY_REMOVED,
-    });
-    await stopAccount(ctx, account, now);
-    await ctx.scheduler.runAfter(0, internal.push.devices.removeAccount, { account });
-    await ctx.scheduler.runAfter(0, internal.account.deletion.run, { deletionId });
-    return { requestedAt: now };
+    return await beginDeletion(ctx, account);
   },
 });
+
+/** Starts deleting an account, or finds the deletion already under way. Besides `request`, two callers in
+ * convex/auth/confirmation.ts delete a password account that never confirmed its address: its owner starting over
+ * with another address, and the sweep of accounts left unconfirmed. */
+export async function beginDeletion(ctx: MutationCtx, account: string): Promise<{ requestedAt: number }> {
+  const running = await ctx.db.query("accountDeletions").withIndex("by_account", (q) => q.eq("account", account)).first();
+  if (running) return { requestedAt: running.requestedAt };
+  const now = Date.now();
+  const deletionId = await ctx.db.insert("accountDeletions", {
+    account,
+    accountHash: await sha256Hex(account),
+    status: "running",
+    stage: "stop",
+    requestedAt: now,
+    updatedAt: now,
+    wakeAt: now,
+    vendors: [],
+    removed: EMPTY_REMOVED,
+  });
+  await stopAccount(ctx, account, now);
+  await ctx.scheduler.runAfter(0, internal.push.devices.removeAccount, { account });
+  await ctx.scheduler.runAfter(0, internal.account.deletion.run, { deletionId });
+  return { requestedAt: now };
+}
 
 /** What happens the moment a deletion is accepted: sessions end, nobody can sign in again, the AI permission is taken back. */
 async function stopAccount(ctx: MutationCtx, account: string, now: number) {

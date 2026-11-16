@@ -80,6 +80,7 @@ const { resolve } = load("../convex/screens/network.ts", {
     "convex/values": await import("convex/values"),
     "./_generated/api": { internal: {} },
     "./_generated/server": { internalQuery: (definition) => definition },
+    "./auth/confirmed": load("../convex/auth/confirmed.ts", {}),
   }),
 });
 

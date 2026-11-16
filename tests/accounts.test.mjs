@@ -497,126 +497,8 @@ test("email and password: sign up, sign in, and each refusal in plain words", as
   await assert.rejects(provider.authorize({ flow: "reset-verification", email: "owner@example.com", code: "12345678", newPassword: "a new password" }, ctx), refusal(words.resetOff));
 });
 
-test("password reset emails a one-time code, changes the password, and signs out every other device", async (t) => {
-  const { load, auth, standIn, actionCtx: ctx } = await world(t, { AUTH_RESEND_KEY: "stand-in-key", AUTH_EMAIL_FROM: "turtl <no-reply@example.com>" });
-  const { words } = load("convex/auth/rules.ts");
-  const provider = load("convex/auth/password.ts").password();
-  await provider.authorize({ flow: "signUp", email: "owner@example.com", password: "tide pools at dawn" }, ctx);
-  assert.equal(await provider.authorize({ flow: "reset", email: "nobody@example.com" }, ctx), null);
-  assert.equal(standIn.emails.length, 0, "no email for an address without an account, and the same answer");
-  assert.equal(await provider.authorize({ flow: "reset", email: "Owner@example.com" }, ctx), null);
-  assert.equal(await provider.authorize({ flow: "reset", email: "owner@example.com" }, ctx), null);
-  assert.equal(standIn.emails.length, 1, "no second email while the first code works, and the same answer");
-  const [email] = standIn.emails;
-  assert.deepEqual([email.to, email.from, email.authorization], [["owner@example.com"], "turtl <no-reply@example.com>", "Bearer stand-in-key"]);
-  const code = standIn.lastCode();
-  assert.match(code, /^\d{8}$/);
-  assert.match(email.subject, new RegExp(code));
-  await assert.rejects(provider.authorize({ flow: "reset-verification", email: "owner@example.com", code: "00000000", newPassword: "a new password" }, ctx), refusal(words.wrongCode));
-  await assert.rejects(provider.authorize({ flow: "reset-verification", email: "owner@example.com", code, newPassword: "short" }, ctx), refusal(words.weakPassword));
-  const signedIn = await provider.authorize({ flow: "reset-verification", email: "owner@example.com", code: ` ${code.slice(0, 4)} ${code.slice(4)} `, newPassword: "a new password" }, ctx);
-  assert.ok(signedIn.sessionId);
-  assert.equal(auth.accounts[0].secret, "hashed:a new password");
-  assert.deepEqual(auth.invalidated, [{ userId: signedIn.userId, except: [signedIn.sessionId] }]);
-  await assert.rejects(provider.authorize({ flow: "reset-verification", email: "owner@example.com", code, newPassword: "a third password" }, ctx), refusal(words.wrongCode), "a code works once");
-});
-
-test("the reset email reports a refused send without echoing the reply, and is off without a sender", async (t) => {
-  const { load } = await world(t, { AUTH_RESEND_KEY: "stand-in-key" });
-  const email = load("convex/auth/email.ts");
-  assert.equal(email.resetProvider(), undefined, "a key without a sender leaves reset off");
-  process.env.AUTH_EMAIL_FROM = "turtl <no-reply@example.com>";
-  const errors = t.mock.method(console, "error", () => {});
-  await assert.rejects(email.sendResetCode("owner@example.com", "12345678", async () => new Response("owner@example.com is not allowed", { status: 403 })), /couldn't send the email/);
-  assert.deepEqual(errors.mock.calls.map((call) => call.arguments.join(" ")), ["The reset email was not accepted (HTTP 403)."]);
-  const codes = await Promise.all(Array.from({ length: 50 }, () => email.resetProvider().generateVerificationToken()));
-  assert.ok(codes.every((code) => /^\d{8}$/.test(code)));
-  assert.ok(new Set(codes).size > 45, "codes vary");
-  // A new code goes out only when none still works and none went out in the last minute.
-  const { accountTables } = load("convex/auth/schema.ts");
-  const store = fakeDb(indexesOf(accountTables));
-  const ctx = { db: store.db };
-  const reserve = () => email.reserveReset.handler(ctx, { accountId: "authAccounts:1" });
-  t.mock.timers.enable({ apis: ["Date"], now: Date.parse("2026-11-15T12:00:00Z") });
-  assert.equal(await reserve(), true);
-  assert.equal(await reserve(), false, "within a minute of the last one");
-  await store.seed("authVerificationCodes", { accountId: "authAccounts:1", provider: "password-reset", code: "hash", expirationTime: Date.now() + 15 * 60_000 });
-  t.mock.timers.setTime(Date.parse("2026-11-15T12:05:00Z"));
-  assert.equal(await reserve(), false, "the code sent five minutes ago still works, so it is not replaced");
-  t.mock.timers.setTime(Date.parse("2026-11-15T12:16:00Z"));
-  assert.equal(await reserve(), true, "an expired code may be replaced");
-});
-
-// Review finding 6: someone who knows only the owner's address must not be able to keep the owner out. Convex Auth
-// refuses an account's right password after 10 wrong ones an hour; the reset is the way back, so a stranger must not be
-// able to replace the code the owner was sent, or use up tries the owner's own code needs.
-test("after ten wrong passwords from a stranger, the reset lets the owner back in, and a second reset leaves the first code valid", async (t) => {
-  const { load, standIn, store, actionCtx: ctx } = await world(t, { AUTH_RESEND_KEY: "stand-in-key", AUTH_EMAIL_FROM: "turtl <no-reply@example.com>" });
-  t.mock.timers.enable({ apis: ["Date"], now: Date.parse("2026-11-15T12:00:00Z") });
-  const { words } = load("convex/auth/rules.ts");
-  const provider = load("convex/auth/password.ts").password();
-  const as = (params) => provider.authorize({ email: "owner@example.com", ...params }, ctx);
-  await as({ flow: "signUp", password: "tide pools at dawn" });
-  // The stranger: ten wrong passwords, then the owner's right one is refused, as Convex Auth does.
-  for (let n = 0; n < 10; n++) await assert.rejects(as({ flow: "signIn", password: `wrong guess ${n}` }), refusal(words.wrongPassword));
-  await assert.rejects(as({ flow: "signIn", password: "tide pools at dawn" }), refusal(words.tooManyTries));
-  // The stranger asks for a reset (the code goes to the owner), and asks again later while it still works.
-  await as({ flow: "reset" });
-  const first = standIn.lastCode();
-  t.mock.timers.setTime(Date.parse("2026-11-15T12:02:00Z"));
-  await as({ flow: "reset" });
-  assert.equal(standIn.emails.length, 1, "no new code replaced the first");
-  // A few wrong codes from the stranger leave the code working.
-  for (const guess of ["11111111", "22222222"]) await assert.rejects(as({ flow: "reset-verification", code: guess, newPassword: "stranger's password" }), refusal(words.wrongCode));
-  const back = await as({ flow: "reset-verification", code: first, newPassword: "a new password" });
-  assert.ok(back.sessionId, "the owner is signed in");
-  assert.ok(await as({ flow: "signIn", password: "a new password" }), "and the new password works at once on another device");
-  assert.deepEqual(store.rows("authRateLimits"), [], "no count of wrong tries is left against the account or the address");
-  assert.deepEqual(store.rows("authPasswordResets"), []);
-});
-
-test("a stranger's wrong codes use up only that code: the owner asks for another and gets back in", async (t) => {
-  const { load, standIn, store, actionCtx: ctx } = await world(t, { AUTH_RESEND_KEY: "stand-in-key", AUTH_EMAIL_FROM: "turtl <no-reply@example.com>" });
-  t.mock.timers.enable({ apis: ["Date"], now: Date.parse("2026-11-15T12:00:00Z") });
-  const { words } = load("convex/auth/rules.ts");
-  const { MAX_CODE_TRIES } = load("convex/auth/email.ts");
-  const provider = load("convex/auth/password.ts").password();
-  const as = (params) => provider.authorize({ email: "owner@example.com", ...params }, ctx);
-  await as({ flow: "signUp", password: "tide pools at dawn" });
-  await as({ flow: "reset" });
-  const burned = standIn.lastCode();
-  for (let n = 0; n < MAX_CODE_TRIES; n++) await assert.rejects(as({ flow: "reset-verification", code: String(30000000 + n), newPassword: "stranger's password" }), refusal(words.wrongCode));
-  await assert.rejects(as({ flow: "reset-verification", code: burned, newPassword: "a new password" }), refusal(words.wrongCode), "that code is used up");
-  assert.deepEqual(store.rows("authVerificationCodes"), [], "and dropped");
-  assert.deepEqual(store.rows("authRateLimits"), [], "the address is never locked");
-  t.mock.timers.setTime(Date.parse("2026-11-15T12:01:01Z"));
-  await as({ flow: "reset" });
-  assert.equal(standIn.emails.length, 2);
-  assert.ok((await as({ flow: "reset-verification", code: standIn.lastCode(), newPassword: "a new password" })).sessionId);
-});
-
-// Review finding 7: every limit is per account, so a script that makes accounts multiplies them. With accounts on, the
-// deployment makes at most so many new accounts an hour and a day, by any method, counted where Convex Auth makes the user.
-test("with the deployment's ceiling on new accounts reached, a fresh sign-up is refused in plain words and makes nothing", async (t) => {
-  const { load, auth, store } = await world(t, { AUTH_REQUIRED: "true", NEW_ACCOUNTS_PER_HOUR: "2", NEW_ACCOUNTS_PER_DAY: "3" });
-  t.mock.timers.enable({ apis: ["Date"], now: Date.parse("2026-11-15T12:10:00Z") });
-  const { ceilingRefusal } = load("convex/spend/limits.ts");
-  load("convex/auth.ts");
-  const provider = load("convex/auth/password.ts").password();
-  const signUp = (email) => provider.authorize({ flow: "signUp", email, password: "tide pools at dawn" }, {});
-  await signUp("one@example.com");
-  await signUp("two@example.com");
-  await assert.rejects(signUp("three@example.com"), refusal(ceilingRefusal.accountsThisHour));
-  assert.equal(ceilingRefusal.accountsThisHour, "turtl is making a lot of new accounts right now, so it isn't making more this hour. Try again in an hour.");
-  assert.deepEqual(auth.users.map((user) => user.email), ["one@example.com", "two@example.com"], "the refused sign-up left no account");
-  // Signing in to an account that exists is not a new account.
-  assert.ok(await provider.authorize({ flow: "signIn", email: "one@example.com", password: "tide pools at dawn" }, {}));
-  // The next hour opens again, up to the day's ceiling.
-  t.mock.timers.setTime(Date.parse("2026-11-15T13:10:00Z"));
-  await signUp("three@example.com");
-  await assert.rejects(signUp("four@example.com"), refusal(ceilingRefusal.accountsToday));
-  assert.deepEqual(store.rows("deploymentTotals").map(({ name, value }) => [name, value]).sort(), [["accounts_day", 3], ["accounts_hour", 1]], "the earlier hour's count was dropped");
-});
+// Password reset, confirming a new account's address, the limits on emails and the ceilings on new accounts:
+// tests/email-codes.test.mjs, against a stand-in for Convex Auth that shares turtl's database.
 
 // Review finding 13: the single-owner demo refuses to serve a deployment that holds any account, so it must make none,
 // or anyone could close it with one sign-up. The library runs the callback inside the mutation that makes the user.
@@ -635,7 +517,8 @@ test("the demo makes no accounts, so a stranger cannot close it by signing up", 
 test("users.mode answers before sign-in; users.viewer returns the signed-in person or null", async (t) => {
   const { load } = await world(t, { AUTH_GITHUB_ID: "id", AUTH_GITHUB_SECRET: "secret" });
   const users = load("convex/users.ts");
-  const store = fakeDb(indexesOf(realAuth.authTables));
+  // accountTables spreads Convex Auth's own tables, so the demo's check finds authAccounts here too.
+  const store = fakeDb(indexesOf(load("convex/auth/schema.ts").accountTables));
   assert.deepEqual(await users.mode.handler({ db: store.db }, {}), { accounts: false, github: true, passwordReset: false });
   process.env.AUTH_REQUIRED = "true";
   assert.deepEqual(await users.mode.handler({ db: store.db }, {}), { accounts: true, github: true, passwordReset: false });
@@ -647,8 +530,8 @@ test("users.mode answers before sign-in; users.viewer returns the signed-in pers
   const plainSession = await store.seed("authSessions", { userId: plain, expirationTime: Date.now() + 60_000 });
   const ended = await store.seed("authSessions", { userId: ada, expirationTime: 0 });
   const as = (subject) => ({ db: store.db, auth: { getUserIdentity: async () => (subject ? { subject } : null) } });
-  assert.deepEqual(await users.viewer.handler(as(`${ada}|${adaSession}`), {}), { id: ada, name: "Ada", email: "ada@example.com", picture: "https://avatars.example.com/ada.png", methods: ["password", "github"] });
-  assert.deepEqual(await users.viewer.handler(as(`${plain}|${plainSession}`), {}), { id: plain, name: null, email: "plain@example.com", picture: null, methods: [] }, "only an https picture is passed on");
+  assert.deepEqual(await users.viewer.handler(as(`${ada}|${adaSession}`), {}), { id: ada, name: "Ada", email: "ada@example.com", picture: "https://avatars.example.com/ada.png", methods: ["password", "github"], confirmed: true });
+  assert.deepEqual(await users.viewer.handler(as(`${plain}|${plainSession}`), {}), { id: plain, name: null, email: "plain@example.com", picture: null, methods: [], confirmed: true }, "only an https picture is passed on");
   assert.equal(await users.viewer.handler(as(`${ada}|${ended}`), {}), null, "a session that has ended (signed out elsewhere, or the account is being deleted)");
   assert.equal(await users.viewer.handler(as(null), {}), null);
   assert.equal(await users.viewer.handler(as("users:999|authSessions:3"), {}), null, "a deleted user");
@@ -666,8 +549,10 @@ test("users.account goes through internal.access.account: the account id signed 
       runQuery: async (fn, args) => {
         // In the demo, an action first asks that the deployment holds no account (convex/functions.ts).
         assert.ok(["internal.access.account", "internal.access.demoOpen"].includes(fn.path), fn.path);
-        // A query's context: a live session, and no account rows (the demo's own check reads that table).
-        const db = { normalizeId: (table, id) => (id.startsWith(table + ":") ? id : null), get: async (id) => ({ _id: id, expirationTime: Date.now() + 60_000 }), query: () => ({ first: async () => null }) };
+        // A query's context: a live session, no account rows (the demo's own check reads that table), and no hold on
+        // the account (with accounts on, signedInAccount asks whether its email address is still unconfirmed).
+        const none = { withIndex: () => none, first: async () => null, unique: async () => null };
+        const db = { normalizeId: (table, id) => (id.startsWith(table + ":") ? id : null), get: async (id) => ({ _id: id, expirationTime: Date.now() + 60_000 }), query: () => none };
         return await access[fn.path.split(".").pop()].handler({ auth, db }, args);
       },
     };
@@ -676,21 +561,6 @@ test("users.account goes through internal.access.account: the account id signed 
   process.env.AUTH_REQUIRED = "true";
   assert.equal(await users.account.handler(ctx("users:7|authSessions:9"), {}), "users:7", "the part of the subject before |");
   await assert.rejects(users.account.handler(ctx(null), {}), refusal("Sign in to continue."));
-});
-
-test("the review account is made, or given a new password, without logging the password", async (t) => {
-  const { load, auth } = await world(t);
-  const { ensureAccount } = load("convex/auth/review.ts");
-  const logged = [];
-  for (const level of ["log", "info", "warn", "error", "debug"]) t.mock.method(console, level, (...args) => logged.push(args.join(" ")));
-  assert.deepEqual(await ensureAccount.handler({}, { email: "Review@Example.com", password: "review pass one" }), { email: "review@example.com", created: true });
-  assert.deepEqual(await ensureAccount.handler({}, { email: "review@example.com", password: "review pass two" }), { email: "review@example.com", created: false });
-  assert.equal(auth.accounts.length, 1);
-  assert.equal(auth.accounts[0].secret, "hashed:review pass two");
-  assert.deepEqual(auth.invalidated, [], "a reviewer already signed in stays signed in");
-  await assert.rejects(ensureAccount.handler({}, { email: "review@example.com", password: "short" }), /Choose a password/);
-  await assert.rejects(ensureAccount.handler({}, { email: "review", password: "review pass three" }), /Enter your email/);
-  assert.ok(logged.every((line) => !line.includes("review pass")), "no password in any log line");
 });
 
 test("sign-in settings are read by name and reported without values", async (t) => {
@@ -704,7 +574,7 @@ test("sign-in settings are read by name and reported without values", async (t) 
   assert.ok(!JSON.stringify(report).includes("secret"), "no value leaves the module");
   delete process.env.AUTH_STAND_IN_URL;
   assert.equal(settings.appleKeysUrl(), "https://appleid.apple.com/auth/keys");
-  assert.equal(settings.resetEmail().endpoint, "https://api.resend.com/emails");
+  assert.equal(settings.emailService().endpoint, "https://api.resend.com/emails");
 });
 
 test("the app's sign-in gate: who sees what, and where they are sent", async (t) => {
@@ -722,7 +592,8 @@ test("the app's sign-in gate: who sees what, and where they are sent", async (t)
   assert.equal(accountStatus({ live: true, storeBuild: true, mode: undefined, auth: out }), "checking");
   assert.equal(accountStatus({ live: true, storeBuild: false, mode: on, auth: loading }), "checking");
   assert.equal(accountStatus({ live: true, storeBuild: false, mode: on, auth: out }), "signedOut");
-  assert.equal(accountStatus({ live: true, storeBuild: true, mode: on, auth: inside }), "signedIn");
+  assert.equal(accountStatus({ live: true, storeBuild: true, mode: on, auth: inside, confirmed: true }), "signedIn");
+  assert.equal(accountStatus({ live: true, storeBuild: true, mode: on, auth: inside, confirmed: undefined }), "checking", "until users.viewer says whether the address is confirmed");
   for (const route of ["projects", "project", "case", "live", "review", "add-project", "+not-found"]) assert.equal(gateTarget("signedOut", route), "/", route);
   for (const route of [undefined, "", "sign-in", "sign-up", "reset-password"]) {
     assert.equal(gateTarget("signedOut", route), null);
@@ -758,11 +629,13 @@ test("the Login screen keeps the demo's controls, adds Apple beside GitHub, and 
 
 test("every variable sign-in reads has a row, and production refuses the test-only ones", () => {
   const rows = Object.fromEntries(variables.map((row) => [row.name, row]));
-  for (const name of ["JWT_PRIVATE_KEY", "JWKS", "SITE_URL", "AUTH_GITHUB_ID", "AUTH_GITHUB_SECRET"]) {
+  // The email service is required: with accounts on, a password sign-up confirms its address by an emailed code.
+  for (const name of ["JWT_PRIVATE_KEY", "JWKS", "SITE_URL", "AUTH_GITHUB_ID", "AUTH_GITHUB_SECRET", "AUTH_RESEND_KEY", "AUTH_EMAIL_FROM"]) {
     assert.equal(rows[name]?.production, "required", name);
     assert.equal(rows[name].arrives, undefined, name + " has arrived");
   }
-  for (const name of ["AUTH_RESEND_KEY", "AUTH_EMAIL_FROM", "AUTH_APPLE_BUNDLE_ID", "AUTH_SESSION_TOTAL_DURATION_MS", "AUTH_SESSION_INACTIVE_DURATION_MS", "AUTH_LOG_LEVEL", "CUSTOM_AUTH_SITE_URL"]) assert.equal(rows[name]?.production, "optional", name);
+  for (const name of ["PASSWORD_SIGNUPS_PER_HOUR", "PASSWORD_SIGNUPS_PER_DAY", "CONFIRMED_SIGNUPS_PER_HOUR", "CONFIRMED_SIGNUPS_PER_DAY"]) assert.equal(rows[name]?.production, "optional", name);
+  for (const name of ["AUTH_APPLE_BUNDLE_ID", "AUTH_SESSION_TOTAL_DURATION_MS", "AUTH_SESSION_INACTIVE_DURATION_MS", "AUTH_LOG_LEVEL", "CUSTOM_AUTH_SITE_URL"]) assert.equal(rows[name]?.production, "optional", name);
   for (const name of ["AUTH_STAND_IN_URL", "AUTH_LOG_SECRETS"]) assert.equal(rows[name]?.production, "never", name);
   for (const name of ["JWT_PRIVATE_KEY", "AUTH_GITHUB_SECRET", "AUTH_RESEND_KEY"]) assert.equal(rows[name].secret, true, name);
   const mine = /AUTH_(GITHUB|RESEND|EMAIL|APPLE|STAND|SESSION|LOG)|JWT_PRIVATE_KEY|JWKS|SITE_URL|convex\/auth|convex\/users/;

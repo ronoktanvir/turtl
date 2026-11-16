@@ -37,6 +37,7 @@ const access = load("../convex/access.ts", {
   "convex/values": values,
   "./_generated/api": { internal: anything },
   "./_generated/server": server,
+  "./auth/confirmed": load("../convex/auth/confirmed.ts", {}),
 });
 const demoSettings = load("../convex/demoSettings.ts", { "./access": access });
 const capy = load("../convex/prTracking/capy.ts", { "../demoSettings": demoSettings });

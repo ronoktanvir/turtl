@@ -25,16 +25,19 @@ const CHECKS = new Set([
   "guardApp", "guardCase", "guardRow", "canSeeApp", "canSeeCase", "guardAppInAction", "guardCaseInAction",
   // Not identity, but it refuses whenever accounts are on, so the function can reach no account's records.
   "requireDevTools",
+  // Who is calling, for the "check your email" screen only: the signed-in account while its address is unconfirmed, and
+  // null for everyone else (signed out, confirmed, or the demo). signedInAccount reads that account as signed out.
+  "pendingAccount",
 ]);
 // The internal.access queries an action calls instead, each of which runs one of the checks above.
-const CHECKING_QUERIES = new Set(["account", "app", "caseAccess", "appGuard", "caseGuard"]);
+const CHECKING_QUERIES = new Set(["account", "app", "caseAccess", "appGuard", "caseGuard", "pending"]);
 // Every other export of convex/access.ts, which checks nobody: a switch, a constant, a predicate on a row already
 // loaded, or the demo's own gate (convex/functions.ts runs that for every function). A new export must join one list.
 const NOT_CHECKS = new Set([
   "SOLO_ACCOUNT", "SIGN_IN_REQUIRED", "NOT_AVAILABLE", "DEV_TOOLS_DISABLED", "BOOKING_DEMO_CLOSED", "UNAVAILABLE", "NO_SIGN_IN",
   "MAX_PROJECTS", "MAX_CASES_PER_PROJECT", "accessEnforced", "ownsApp", "ownerActor", "projectCases", "devToolsEnabled",
   "hostsBookingDemo", "requireBookingDemo", "refuseDemoWithAccounts", "refuseDemoWithAccountsInAction", "refuseSignInToDemo",
-  "account", "app", "caseAccess", "appGuard", "caseGuard", "demoOpen",
+  "account", "app", "caseAccess", "appGuard", "caseGuard", "demoOpen", "pending",
 ]);
 
 // "convex/<file>.ts:<export>" -> why it needs no check: the public functions that are open by design.

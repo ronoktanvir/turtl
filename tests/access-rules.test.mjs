@@ -601,7 +601,7 @@ test("AUTH_STAND_IN_URL: with accounts on, sign-in trusts no stand-in server unl
     const settings = w.load("convex/auth/settings.ts");
     assert.equal(settings.standInUrl(), undefined);
     assert.equal(settings.appleKeysUrl(), "https://appleid.apple.com/auth/keys", "Apple's own keys decide an Apple sign-in");
-    assert.equal(settings.resetEmail().endpoint, "https://api.resend.com/emails");
+    assert.equal(settings.emailService().endpoint, "https://api.resend.com/emails");
     assert.equal((await settings.check.handler({}, {})).standIn, false);
   }
   {

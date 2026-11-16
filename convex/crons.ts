@@ -19,4 +19,9 @@ crons.interval("refresh onboarding pull requests", { minutes: 1 }, internal.onbo
 // Starts again an account deletion whose run stopped (convex/account); it does nothing while none has.
 crons.interval("resume account deletions", { minutes: 15 }, internal.account.deletion.resumeStalled, {});
 
+// Forgets emailed codes a day after they were sent, and starts deleting password accounts that never confirmed their
+// email address (convex/auth/codes.ts, convex/auth/confirmation.ts). Both do nothing while there are none.
+crons.interval("forget old emailed codes", { hours: 1 }, internal.auth.codes.prune, {});
+crons.interval("remove unconfirmed accounts", { hours: 1 }, internal.auth.confirmation.sweep, {});
+
 export default crons;

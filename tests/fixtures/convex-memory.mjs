@@ -89,6 +89,11 @@ export function memoryDb(tables, seed = {}) {
   const db = {
     reads,
     rows: (table) => structuredClone(rowsOf(table)),
+    /** Every table as it is now, for restore(): Convex undoes every write of a mutation that throws, and a test can too. */
+    snapshot: () => new Map([...rows].map(([name, list]) => [name, structuredClone(list)])),
+    restore: (saved) => {
+      for (const [name, list] of saved) rows.set(name, structuredClone(list));
+    },
     normalizeId: (table, id) => (typeof id === "string" && id.startsWith(table + ":") ? id : null),
     get: async (id) => {
       reads.push(["get", id]);

@@ -138,7 +138,9 @@ export const accountErasers: Eraser[] = [
   accountRows("codingThreads", "by_account_day_and_request"),
   // The account's coding agent key, sealed (convex/secrets). A project's control token went with the project above.
   accountRows("secrets", "by_account_and_kind"),
-  inline("auth.signIn", ["authSessions", "authRefreshTokens", "authVerifiers", "authAccounts", "authVerificationCodes", "authPasswordResets", "authRateLimits", "users"], eraseSignIn),
+  // A password account's hold until it confirms its email address (convex/auth/confirmation.ts).
+  accountRows("authUnconfirmed", "by_account"),
+  inline("auth.signIn", ["authSessions", "authRefreshTokens", "authVerifiers", "authAccounts", "authVerificationCodes", "authRateLimits", "users"], eraseSignIn),
 ];
 
 /** Supermemory namespaces a project's data is written to, by the name the writer passes (convex/supermemory.ts adds
