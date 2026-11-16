@@ -8,7 +8,7 @@ Everything Apple reads or asks for when turtl is submitted, other than the build
 | [`data-practices.json`](data-practices.json) | The same outside services as data: each one's name, what it receives, why, its settings, and its policy. The AI permission screen is built from it: `convex/consent/services.ts` imports it, and asks permission for every service marked `needsPermission` |
 | [`app-privacy.md`](app-privacy.md) | The answers to App Store Connect's App Privacy questions, in Apple's categories, and the privacy manifest values for the build |
 | [`review-checklist.md`](review-checklist.md) | Apple's guidelines, line by line: what is true today, what is missing, and which piece of work closes it |
-| [`review-notes.txt`](review-notes.txt) | The notes the reviewer reads |
+| [`review-notes.txt`](review-notes.txt) | The notes the reviewer reads, at most 4,000 bytes. The review account they describe, and its practice project, are made with the commands in [`../release/backend-runbook.md`](../release/backend-runbook.md) |
 | [`screenshots.md`](screenshots.md) | The sizes Apple requires, the ten shots and their captions, and how to capture them |
 | [`check.mjs`](check.mjs) | Checks all of the above against the repository |
 | [`../store.config.json`](../store.config.json) | The listing: name, subtitle, description, keywords, categories, age rating answers, and the three addresses |
@@ -57,7 +57,7 @@ A new outside address, setting, or library under "Since the audit" means data ma
 
 To move the whole audit to a newer commit, replace the commit id in `data-practices.json` and in every link, then run the check. It names each link whose line no longer holds its text, and the line the text has moved to.
 
-## What Ronok fills in
+## What the owner fills in
 
 | Where | What |
 | --- | --- |
@@ -65,7 +65,7 @@ To move the whole audit to a newer commit, replace the commit id in `data-practi
 | `site/_data/operator.json` | `show_review_notes`: set to `false` once every note on the pages is settled |
 | Repository settings | Settings → Pages → Source: GitHub Actions, so the pages are published |
 | The shell that runs `eas metadata:push` | `APP_REVIEW_FIRST_NAME`, `APP_REVIEW_LAST_NAME`, `APP_REVIEW_EMAIL`, `APP_REVIEW_PHONE` (with country code, such as +1 555 010 0000), `APP_REVIEW_DEMO_USERNAME`, `APP_REVIEW_DEMO_PASSWORD`. Never commit them |
-| The checklist | Every line marked **Ronok** |
+| The checklist | Every line marked **Ronok** (the owner's tag) |
 
 ## Sending the listing to App Store Connect
 
@@ -82,14 +82,14 @@ npx eas-cli metadata:push   # sends it
 
 ## Choices made in the listing
 
-Each of these is Ronok's to change.
+Each of these is the owner's to change.
 
 - **Name: "turtl".** An app called "Turtl: Private File Sharing" is already on the App Store, so Apple may refuse the bare name. "turtl: on-call for your app" is 27 characters and would fit. See RC-13.
 - **Subtitle: "On-call for your live app".** 25 of 30 characters, and no claim that cannot be checked.
 - **Categories: Developer Tools, then Productivity.** The people turtl is for run software, even when they cannot read code. Business is the alternative if turtl is aimed at owners who would not look under Developer Tools.
 - **Keywords.** Eleven, 99 of 100 bytes. No brand names and nothing that repeats the name, the subtitle, or a category, since Apple indexes those already.
 - **No price anywhere.** turtl is free at launch, and the store shows that itself.
-- **Released by hand.** `automaticRelease` is `false`, so an approved build waits for Ronok.
+- **Released by hand.** `automaticRelease` is `false`, so an approved build waits for the owner.
 
 ## The age rating answers
 

@@ -2,8 +2,8 @@
 
 turtl tells the owner about a case in two ways:
 
-- **A push notification** on the owner's own phones, through Expo's push service. It is how alerts arrive with accounts on (`AUTH_REQUIRED=true`). See [`convex/push/README.md`](../convex/push/README.md).
-- **A text through Keiki**, which puts an agent on messaging channels. It goes to one phone number set for the whole deployment, so it works only in the single-owner demo: with accounts on that number reads as not set, and no account's alerts are texted to someone else.
+- **A push notification** on the owner's own phones, through Expo's push service. It is how alerts arrive with accounts on (`AUTH_REQUIRED` set to anything but empty or `false`). With accounts on, a phone receives only while the sign-in session that registered it is alive: signing out removes its registration, a password reset removes the account's ended phones at once, and an hourly cron ("forget phones whose sign-in ended") removes the rest. See [`convex/push/README.md`](../convex/push/README.md).
+- **A text through Keiki**, which puts an agent on messaging channels. It goes to one phone number set for the whole deployment, so it is used only in the single-owner demo: with accounts on that number reads as not set, the AI permission refuses Keiki because it is not on the list an owner is asked about, and no account's alerts are texted to someone else.
 
 ## Case events
 
@@ -18,7 +18,7 @@ The workflow sends its alerts through [`convex/notices.ts`](../convex/notices.ts
 
 [`convex/keiki.ts`](../convex/keiki.ts) exports `sendOwnerNotice(gate, text)`, a plain function for actions, and `internal.keiki.notifyOwner`, an internal action with args `{ appId, text }` that calls it with that project's permission gate. Both return `{ outcome, status? }`, where `outcome` is `ran`, `queued`, `unavailable`, `not_configured` or `failed`. Alerts are best effort: the helper never throws, so a failed alert cannot break the workflow that sends it. It logs one line with the status (never the key) on a failure. The text is cut to 600 characters and sent with the phone number.
 
-Keiki is one of the AI services on the permission screen (`convex/consent`). In accounts mode an owner who has not allowed it gets no text, reported as `not_configured`; in the demo the gate always says yes.
+Keiki is not on the AI permission screen (`convex/consent`): like the council's Anthropic and Google models it is demo only, so with accounts on the gate refuses it and the helper reports `not_configured`. In the demo the gate always says yes.
 
 ```ts
 // From an action: call it directly with the project's gate.
@@ -32,13 +32,14 @@ await ctx.scheduler.runAfter(0, internal.keiki.notifyOwner, { appId, text: "Case
 
 ### Configuration
 
-Set these on the Convex deployment (values are never committed). With any of the first three missing, or with `AUTH_REQUIRED=true`, the helper returns `not_configured` and makes no request:
+Set these on the Convex deployment (values are never committed). With any of the first three missing, or with accounts on, the helper returns `not_configured` and makes no request:
 
 ```sh
 npx convex env set KEIKI_API_KEY "$KEIKI_API_KEY"
 npx convex env set KEIKI_AGENT_ID <the turtl alerts agent id>
 npx convex env set KEIKI_OWNER_CONTACT <the owner's conversation identity, a phone number>
-npx convex env set KEIKI_BASE_URL https://onkeiki.com   # optional; this is the default
 ```
+
+`KEIKI_BASE_URL` points the helper at a stand-in in tests; leave it unset otherwise (the default is `https://onkeiki.com`). With accounts on, the backend honours it only when it runs on this machine.
 
 The owner must have messaged the agent once first: a notice goes to an existing conversation, and Keiki answers 404 (reported as `failed`) for a contact with none. The text is written for the agent and is not delivered word for word; the agent decides whether and how to tell the owner.

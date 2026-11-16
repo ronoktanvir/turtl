@@ -64,16 +64,20 @@ export const ASKED: AskedService[] = services
 /** One version for the whole list: a new service, a removed one, or a change in what one receives asks again. */
 export const LIST_VERSION = fingerprint(ASKED.map((service) => `${service.id}:${service.version}`).join("|"));
 
-/** Services turtl uses without asking, because it cannot run without them. Named on the screen for completeness. */
+/** Services turtl uses without asking, because they are not AI services: each does one job, such as hosting turtl,
+ * reading the code, running a check on a phone, signing the owner in, or sending an email or a notification. Named on
+ * the screen for completeness, and app/ai-permission.tsx says that is why they are not asked about. */
 export const ALSO_USED = services
   .filter((service) => !service.needsPermission && service.inPrivacyPolicy)
   .map((service) => ({ id: service.id, name: service.name, does: service.does }));
 
-// Model providers the council can call that the list does not name. Nobody was asked about them, so in accounts mode
-// nothing reaches them until data-practices.json lists them (and then the owner is asked again).
+// Services only the single-owner demo uses, which the list does not name: the model providers the council can call,
+// and Keiki, which texts the demo's one phone number. Nobody was asked about them, so in accounts mode nothing reaches
+// them until data-practices.json lists them (and then the owner is asked again).
 const UNLISTED: Record<string, { name: string; hosts: string[] }> = {
   anthropic: { name: "Anthropic", hosts: ["api.anthropic.com"] },
   google: { name: "Google", hosts: ["generativelanguage.googleapis.com"] },
+  keiki: { name: "Keiki", hosts: ["onkeiki.com"] },
 };
 
 /** Calls that spend model money, counted against the account's monthly limit. */

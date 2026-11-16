@@ -6,7 +6,7 @@ turtl keeps searchable copies of some of its text at Supermemory: recovery memor
 
 The Supermemory client lives in [`convex/supermemory.ts`](../convex/supermemory.ts), which exports plain functions and no Convex functions, so other Convex code can reuse it. They read `SUPERMEMORY_API_KEY` when called and throw an error naming it when it is missing.
 
-Every function takes the project's permission gate first (`convex/consent/gate.ts`). In accounts mode (`AUTH_REQUIRED=true`) nothing reaches Supermemory for an owner who has not allowed it, and the SDK's only `fetch` is the one the gate hands back; in the single-owner demo the gate always says yes. A failed call throws a plain error with Supermemory's status, never its text, because its response can echo what was sent.
+Every function takes the project's permission gate first (`convex/consent/gate.ts`). In accounts mode (`AUTH_REQUIRED` set to anything but empty or `false`) nothing reaches Supermemory for an owner who has not allowed it, and the SDK's only `fetch` is the one the gate hands back; in the single-owner demo the gate always says yes. A failed call throws a plain error with Supermemory's status, never its text, because its response can echo what was sent.
 
 - `searchMemories(gate, namespace, query)` and `addMemory(gate, namespace, content, metadata)`: memories, for recovery memory and case notes.
 - `addDocuments(gate, namespace, documents)` adds whole documents for retrieval, without memory extraction: the code network's source files and customer reports. It sends 20 per request and asks the gate before each one, so taking permission back stops a long upload part way.

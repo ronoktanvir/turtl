@@ -91,7 +91,7 @@ export default function AiPermission() {
         {status.services.map((service) => <ServiceCard key={service.id} service={service} />)}
         {status.alsoUsed.length > 0 && (
           <T variant="small" color="textMuted" testID="ai-permission-also-used">
-            turtl also needs {listNames(status.alsoUsed.map((service) => service.name))} to run at all, so it does not ask about them. The privacy policy says what each one receives.
+            This screen asks only about AI services. turtl also uses {listNames(status.alsoUsed.map((service) => service.name))}, each for one job, such as hosting turtl, reading your code, testing your app on a phone, signing you in, or sending you emails and notifications. The privacy policy says what each one receives.
           </T>
         )}
         {error && <T font="text" color="statusAffected" accessibilityRole="alert">{error}</T>}

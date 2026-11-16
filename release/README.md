@@ -1,14 +1,14 @@
 # Releasing turtl for iOS
 
-This folder holds everything between this repository and a build Apple accepts: the build profiles' rules, the checks that run before a release, the production backend runbook, and the list of what Ronok must create. The workflows live in `.github/workflows/`.
+This folder holds everything between this repository and a build Apple accepts: the build profiles' rules, the checks that run before a release, the production backend runbook, and the list of what the owner must create. The workflows live in `.github/workflows/`.
 
 | File | What it is |
 | --- | --- |
 | `../eas.json` | The three EAS build profiles. |
 | `build-env.js` | The rules `app.config.ts` applies to a build's environment. A build that breaks one stops with a plain message. |
-| `store-checks.mjs` | Checks of `app.json`, the icon, the privacy manifest, `eas.json`, and the generated iOS project. |
+| `store-checks.mjs` | Checks of `app.json`, the icon, the privacy manifest (including that its collected data types match the **Yes** rows of `store/app-privacy.md`), `eas.json`, and the generated iOS project. |
 | `backend-env.mjs` | The table of every environment variable the backend reads. |
-| `check-backend-env.mjs` | Compares a Convex deployment's variable names with that table. It never reads a value. |
+| `check-backend-env.mjs` | Compares a Convex deployment's variable names with that table, and reads one value, `AUTH_REQUIRED`'s (not a secret), which must be exactly `true`. It never reads a secret's value or prints a value. |
 | `preflight.mjs` | Runs every check that needs no credential. The release workflow runs it first. |
 | `backend-runbook.md` | How to create the production backend and deploy to it. |
 
@@ -46,7 +46,7 @@ A `development` build is a Release build for the simulator, like the one Revyl m
 - **Purpose strings:** the microphone, for voice on a case, set on the `expo-audio` plugin in `app.config.ts`. It is the only purpose string. The app also asks iOS for permission to show notifications, after the owner taps to turn them on; that prompt needs no purpose string. `expo-secure-store` would add a Face ID string by default; the app never asks for Face ID, so `app.config.ts` switches it off.
 - **Push:** the `expo-notifications` plugin in `app.config.ts` uses Apple's development push service for `development` builds and the production service for `preview` and `production`, with background pushes off. Delivery to a phone needs Apple's push key in EAS's credentials, which do not exist yet.
 - **Sign in with Apple:** `expo-apple-authentication` is installed, and Expo's prebuild applies its plugin, which adds the Sign in with Apple entitlement.
-- **Privacy manifest:** `ios.privacyManifests` in `app.json` declares no tracking and repeats every required-reason API its libraries declare (user defaults, file timestamps, boot time, disk space), because Apple reads only the app's own manifest reliably. At `pod install`, React Native also merges every pod's reasons into the app's manifest, which covers a pod that ships outside `node_modules`, such as SocketRocket. `NSPrivacyCollectedDataTypes` is still empty, although the App Privacy answers in `store/app-privacy.md` now list data turtl collects (with accounts, an email address, a name and a user id; with push, a device id). Filling it in `app.json` is a change still to make.
+- **Privacy manifest:** `ios.privacyManifests` in `app.json` declares no tracking and repeats every required-reason API its libraries declare (user defaults, file timestamps, boot time, disk space), because Apple reads only the app's own manifest reliably. At `pod install`, React Native also merges every pod's reasons into the app's manifest, which covers a pod that ships outside `node_modules`, such as SocketRocket. `NSPrivacyCollectedDataTypes` lists the six types the App Privacy answers in `store/app-privacy.md` mark collected (email address, name, user id, device id, audio, other user content), all linked, not used to track, for app functionality; `collectedDataProblems` in `store-checks.mjs` fails when the two disagree.
 - **iPhone only:** `ios.supportsTablet: false`.
 - **Scheme:** `turtl://` stays.
 
@@ -75,13 +75,13 @@ When you add a native module or a config plugin:
 
 Nothing in the repository holds a credential. The workflow reads `EXPO_TOKEN` and `CONVEX_DEPLOY_KEY` from the GitHub environment; the signing certificate, provisioning profile, and App Store Connect API key stay on Expo's servers.
 
-## What Ronok must create, in order
+## What the owner must create, in order
 
 1. **Apple Developer Program membership.** Steps 6 to 8 wait for it; steps 2 to 5 do not.
 2. **An Expo account and the EAS project.** In a terminal in this repository: `npx eas-cli login`, then `npx eas-cli init`. It prints a project id and writes it to `app.json` under `expo.extra.eas.projectId`. The id is not a secret. Send it to the Captain, who gets it committed.
 3. **The GitHub environment.** Repository Settings, Environments, New environment, name it `production`. Add yourself as a required reviewer if you want every release to wait for your approval.
 4. **An Expo access token.** expo.dev, Account settings, Access tokens, Create token. Save it as the secret `EXPO_TOKEN` in the `production` environment.
-5. **The production backend and its deploy key.** Follow `backend-runbook.md`: create the Convex project, save its production deploy key as the secret `CONVEX_DEPLOY_KEY` in the `production` environment, and set the backend's required variables. Never set `GITHUB_TOKEN` or `DEV_TOOLS_ENABLED` there.
+5. **The production backend and its deploy key.** Follow `backend-runbook.md`: create the Convex project, save its production deploy key as the secret `CONVEX_DEPLOY_KEY` in the `production` environment, and set the backend's required variables. Set `AUTH_REQUIRED` to exactly `true`: unset, empty or `false` would make it the single-owner demo, which refuses to serve a deployment that holds accounts. Never set `GITHUB_TOKEN` or `DEV_TOOLS_ENABLED` there.
 6. **Signing and the App Store Connect API key.** In a terminal in this repository: `npx eas-cli credentials --platform ios`. Choose the `production` profile and sign in with your Apple ID. When it asks for a team, choose yours: this is the one place your Apple team id is used. Then:
    - "Build Credentials", then "All: Set up all the required credentials". EAS registers `com.turtl.oncall`, creates the distribution certificate and the provisioning profile, and keeps them.
    - "App Store Connect: Manage your API Key", then "Set up your project to use an API Key for EAS Submit". Let EAS create the key, or upload one you made in App Store Connect under Users and Access, Integrations. EAS keeps it.
@@ -96,7 +96,7 @@ Nothing in the repository holds a credential. The workflow reads `EXPO_TOKEN` an
 | Production Convex deploy key | Convex dashboard, the production deployment's settings | GitHub environment secret `CONVEX_DEPLOY_KEY` |
 | App Store Connect app id | App Store Connect, App Information, Apple ID | GitHub environment variable `ASC_APP_ID` |
 | EAS project id | Printed by `eas init` | `app.json`, committed |
-| Backend variables | `AUTH_REQUIRED=true`; the sign-in keys (`JWT_PRIVATE_KEY`, `JWKS`, `SITE_URL`, see `convex/auth/README.md`); `OPENAI_API_KEY` and `SUPERMEMORY_API_KEY` from their providers; the GitHub App's values from its settings page (`convex/github/README.md`); the Sign in with Apple key (`AUTH_APPLE_KEY_ID`, `AUTH_APPLE_PRIVATE_KEY`); `SECRETS_ENCRYPTION_KEY` and `INTAKE_CONTACT_KEY`, made once at random | The Convex production deployment (every name, and whether production needs it, is in `backend-runbook.md`) |
+| Backend variables | `AUTH_REQUIRED=true`; the sign-in keys (`JWT_PRIVATE_KEY`, `JWKS`, `SITE_URL`, see `convex/auth/README.md`); the Resend key and sender for the confirmation and reset emails (`AUTH_RESEND_KEY`, `AUTH_EMAIL_FROM`); `OPENAI_API_KEY` and `SUPERMEMORY_API_KEY` from their providers; the GitHub App's values from its settings page (`convex/github/README.md`); the Sign in with Apple key (`AUTH_APPLE_KEY_ID`, `AUTH_APPLE_PRIVATE_KEY`); `SECRETS_ENCRYPTION_KEY` and `INTAKE_CONTACT_KEY`, made once at random | The Convex production deployment (every name, and whether production needs it, is in `backend-runbook.md`) |
 
 If Apple says `com.turtl.oncall` is taken by another developer, stop and tell the Captain: the bundle identifier is in `app.json` and in Revyl's app.
 
@@ -109,3 +109,4 @@ None of this has run against Apple or Expo, because no credential for them exist
 - That App Store Connect accepts the upload: its checks of the icon, the privacy manifest, the purpose strings, and the export compliance answer run only on a signed archive.
 - How the app behaves on a real iPhone: the microphone and notification prompts, the "Can't reach turtl" screen on a real network drop, Sign in with Apple, and a push reaching the phone (it needs the push key in EAS).
 - That Apple accepts turtl's token revocation when an account is deleted: it has run only against a stand-in.
+- That Resend delivers the confirmation and reset emails, and that a `turtl://` link in them opens the app: only a stand-in for Resend has received them.

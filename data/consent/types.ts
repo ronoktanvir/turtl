@@ -1,7 +1,7 @@
 // What the app knows about the owner's AI permission and spend. The backend's answer, in the shape the screens use.
 // See convex/consent/README.md and convex/spend/README.md.
 
-export type AiServiceId = "openai" | "supermemory" | "capy" | "keiki";
+export type AiServiceId = "openai" | "supermemory" | "capy";
 
 export type AiService = {
   id: string;
