@@ -1,7 +1,8 @@
 import { ConvexError, v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
-import { action, internalAction, internalMutation, internalQuery, mutation, query, type ActionCtx, type MutationCtx, type QueryCtx } from "../_generated/server";
+import { internalAction, internalMutation, internalQuery, type ActionCtx, type MutationCtx, type QueryCtx } from "../_generated/server";
+import { action, mutation, query } from "../functions";
 import { accessEnforced, currentAccount, requireAccount } from "../access";
 import { requireOwnerPasscode } from "../ownerPasscode";
 import { deleteInstallation } from "./api";
@@ -157,7 +158,7 @@ export const begin = action({
   args: { returnTo: v.string(), start: v.optional(v.union(v.literal("install"), v.literal("authorize"))) },
   returns: v.object({ url: v.string() }),
   handler: async (ctx, { returnTo, start }) => {
-    const account = await requireAccount(ctx);
+    const account: string = await ctx.runQuery(internal.access.account, {});
     const connect = connectConfig();
     if (!connect.ok) throw new ConvexError(NOT_SET_UP);
     const target = returnAddress(returnTo);
@@ -205,7 +206,7 @@ export const refresh = action({
   args: {},
   returns: v.object({ ok: v.boolean(), problems: v.array(v.string()), leftOut: v.optional(v.array(v.object({ fullName: v.string(), message: v.string() }))) }),
   handler: async (ctx) => {
-    const account = await requireAccount(ctx);
+    const account: string = await ctx.runQuery(internal.access.account, {});
     if (!connectConfig().ok) return { ok: false, problems: [NOT_SET_UP] };
     const installationIds: number[] = await ctx.runQuery(internal.github.connect.linkedInstallations, { account });
     const problems: string[] = [];
@@ -225,7 +226,7 @@ export const disconnect = action({
   returns: vDisconnected,
   handler: async (ctx, { passcode }) => {
     await ctx.runQuery(internal.github.connect.ownerDecision, { passcode });
-    const account = await requireAccount(ctx);
+    const account: string = await ctx.runQuery(internal.access.account, {});
     return await disconnectAll(ctx, account);
   },
 });

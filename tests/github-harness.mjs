@@ -32,6 +32,8 @@ const otherTables = {
   apps: defineTable({ name: v.string(), ownerId: v.optional(v.string()) }).index("by_owner", ["ownerId"]),
   cases: defineTable({ appId: v.string() }),
   ownerPasscodeConfig: defineTable({ passcodeDigest: v.string() }),
+  // Convex Auth's accounts, empty here: the single-owner demo first checks there are none (convex/access.ts).
+  authAccounts: defineTable({ userId: v.string(), provider: v.string(), providerAccountId: v.string() }),
 };
 
 const keys = generateKeyPairSync("rsa", { modulusLength: 2048 });
@@ -131,6 +133,7 @@ function createBackend(load, overrides = {}) {
     },
     normalizeId: (table, id) => (typeof id === "string" && id.startsWith(table + ":") ? id : null),
     query: (table) => ({
+      first: async () => structuredClone(rowsOf(table)[0] ?? null),
       take: async (count) => structuredClone(rowsOf(table).slice(0, count)),
       unique: async () => {
         assert.ok(rowsOf(table).length <= 1, table + ": unique() matched " + rowsOf(table).length + " rows");

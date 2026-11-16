@@ -16,9 +16,11 @@ export const accountTables = {
   /** Nonces of Apple identity tokens already used, kept until the token expires, so each token signs in once. */
   authAppleNonces: defineTable({ nonceHash: v.string(), expiresAt: v.number() }).index("nonceHash", ["nonceHash"]),
   /** Apple's refresh token for an account that signed in with Apple, kept only to revoke it when the account is
-   * deleted, as Apple requires. Only convex/auth/appleTokens.ts and convex/account touch this table; no public
-   * function may return a row (tests/account-deletion.test.mjs holds that). */
-  authAppleTokens: defineTable({ userId: v.id("users"), refreshToken: v.string(), storedAt: v.number() }).index("userId", ["userId"]),
+   * deleted, as Apple requires. Sealed (sealedToken, under the key keyId names; convex/auth/appleTokens.ts); a row
+   * kept before tokens were sealed holds refreshToken in the clear until sealKept seals it. Only
+   * convex/auth/appleTokens.ts and convex/account touch this table; no public function may return a row
+   * (tests/account-deletion.test.mjs holds that). */
+  authAppleTokens: defineTable({ userId: v.id("users"), refreshToken: v.optional(v.string()), sealedToken: v.optional(v.string()), keyId: v.optional(v.string()), storedAt: v.number() }).index("userId", ["userId"]),
   /** A password reset under way, one row per account: when its code was asked for, and how many times someone tried a
    * code against it. Wrong codes count against the code (it is dropped after a few), never against the address, so
    * nobody can keep the owner's own code from working. Deleted when the reset succeeds; goes with the account. */

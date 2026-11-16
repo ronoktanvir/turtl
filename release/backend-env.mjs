@@ -3,9 +3,11 @@ import { join, relative } from "node:path";
 
 // Every environment variable the Convex backend reads, and what production does with it.
 // production: "required" (the release stops without it), "optional", or "never" (the release stops if it is set).
+// exactly: the one value production must have. The check reads that variable's value (never a secret's) and stops on
+// any other; it never prints the value.
 // arrives: the pull request that brings the variable, for a row written before its code merged. Delete the field once it has.
 export const variables = [
-  { name: "AUTH_REQUIRED", production: "required", what: "Set it to \"true\". Every backend function then needs a signed-in account and reaches only that account's projects, owner decisions are authorised by the account instead of the shared owner passcode, and the dev tools stay closed. Unset, the backend is the single-owner demo, where anyone with its address acts as the one owner. The release check sees only the name, so check the value is \"true\"." },
+  { name: "AUTH_REQUIRED", production: "required", exactly: "true", what: "Set it to exactly \"true\". Every backend function then needs a signed-in account and reaches only that account's projects, owner decisions are authorised by the account instead of the shared owner passcode, and the dev tools stay closed. Unset, empty or \"false\": the single-owner demo, where anyone with the backend's address acts as the one owner and nobody can sign up; a deployment that already holds accounts then refuses every call instead of opening them to anyone, and its log says why. Any other value (\"TRUE\", \"1\", \" true\") also turns accounts on, but the release check reads this value, which is not a secret, and stops on anything but \"true\"." },
   { name: "OPENAI_API_KEY", production: "required", secret: true, what: "Model calls: diagnosis, fix options, customer report triage, the case chat, the code map's labels and chat, and voice. Without it turtl falls back to rule-based text or refuses the feature." },
   { name: "SUPERMEMORY_API_KEY", production: "required", secret: true, what: "Memory of past incidents, matching of customer reports, and the code map. Without it turtl reads only its recent notes in Convex and cannot build a code map. Use a key that is not the demo's, so production memory is separate." },
   { name: "DIAGNOSIS_MODEL", production: "optional", what: "Model for diagnosis. Default gpt-5.4-mini." },
@@ -59,10 +61,10 @@ export const variables = [
   { name: "INTAKE_CASES_PER_DAY", production: "optional", what: "With accounts on, how many new cases customer reports may open on one project in a calendar day (UTC). A report past it is kept on no case and says why; one that matches an open case still joins it. Default 5. No limit in the single-owner demo." },
   { name: "PRACTICE_BREAKS_PER_DAY", production: "optional", what: "With accounts on, how many times one account may break its practice app on purpose in a calendar day (UTC). Each break starts one check and, through the case it opens, the ordinary model calls, which the account's spend limit still bounds. Default 10. The operator's setup of the review account (practice/review:prepare) does not count." },
   { name: "REVYL_API_KEY", production: "optional", secret: true, what: "Runs a fix's device check on a Revyl cloud phone. Without it a device check reports that it is not set up." },
-  { name: "REVYL_BASE_URL", production: "optional", what: "Revyl API address. Default https://backend.revyl.ai." },
+  { name: "REVYL_BASE_URL", production: "never", what: "Points Revyl calls at a stand-in server in tests. Default https://backend.revyl.ai. In production it would send the operator's Revyl key to another server, so with AUTH_REQUIRED=true the backend honours it only when it runs locally (convex/demoSettings.ts)." },
   { name: "KEIKI_API_KEY", production: "optional", secret: true, what: "Keiki key for owner alerts by text. Does nothing without KEIKI_AGENT_ID and KEIKI_OWNER_CONTACT." },
   { name: "KEIKI_AGENT_ID", production: "optional", what: "The Keiki agent that words owner alerts." },
-  { name: "KEIKI_BASE_URL", production: "optional", what: "Keiki API address. Default https://onkeiki.com." },
+  { name: "KEIKI_BASE_URL", production: "never", what: "Points Keiki calls at a stand-in server in tests. Default https://onkeiki.com. In production it would send the operator's Keiki key to another server, so with AUTH_REQUIRED=true the backend honours it only when it runs locally (convex/demoSettings.ts)." },
   { name: "EXPO_ACCESS_TOKEN", production: "optional", secret: true, what: "Expo access token for push notifications, needed only once enhanced push security is turned on for the project in Expo. Without it pushes still send while that setting is off." },
   { name: "KEIKI_OWNER_CONTACT", production: "never", what: "One phone number that receives every alert in the deployment. In production that would text one person about every account's incidents. Never set it until alerts go to each account's own owner. With AUTH_REQUIRED=true the backend treats it as not set." },
   { name: "GITHUB_TOKEN", production: "never", secret: true, what: "One GitHub token for the whole deployment, which is how the demo reaches GitHub. Every account would act through it. Production reaches GitHub only through the GitHub App, and with this unset there is nothing to fall back to when the app's variables go missing, so access fails closed. With AUTH_REQUIRED=true the backend treats it as not set." },
@@ -137,11 +139,15 @@ export function tableProblems(root) {
   ];
 }
 
-// Compares the variable names set on a deployment with the table. It never sees a value.
-export function deploymentProblems(names) {
+// Compares the variable names set on a deployment with the table, and the values it was given (only those of rows that
+// name an exact value) with that value. It never puts a value in what it returns.
+export function deploymentProblems(names, values = {}) {
   const set = new Set(names);
   return [
     ...variables.filter((row) => row.production === "required" && !set.has(row.name)).map((row) => `${row.name} is required and is not set.`),
+    ...variables
+      .filter((row) => row.exactly !== undefined && set.has(row.name) && values[row.name] !== undefined && values[row.name] !== row.exactly)
+      .map((row) => `${row.name} must be exactly "${row.exactly}" in production, and it is set to something else.`),
     ...variables.filter((row) => row.production === "never" && set.has(row.name)).map((row) => `${row.name} is set and must never be set in production. Remove it.`),
     ...[...set].filter((name) => !variables.some((row) => row.name === name) && !builtIn.includes(name)).sort().map((name) => `${name} is set but has no row in release/backend-env.mjs. Add a row for it or remove it from the deployment.`),
   ];

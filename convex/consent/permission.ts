@@ -1,6 +1,7 @@
 import { ConvexError, v } from "convex/values";
 import type { Doc } from "../_generated/dataModel";
-import { mutation, query, type QueryCtx } from "../_generated/server";
+import { type QueryCtx } from "../_generated/server";
+import { mutation, query } from "../functions";
 import { accessEnforced, currentAccount, requireAccount } from "../access";
 import { ALSO_USED, ASKED, LIST_VERSION, standingOf, type Agreement } from "./services";
 

@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { mutation } from "../_generated/server";
+import { mutation } from "../functions";
 import { requireDevTools } from "../access";
 import { BOOKING_APP_NAME } from "../protectedApp/registry";
 import { replaceNetwork } from "./network";

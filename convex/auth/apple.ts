@@ -6,7 +6,7 @@ import { createRemoteJWKSet, jwtVerify, type JWTPayload, type JWTVerifyGetKey } 
 import { internal } from "../_generated/api";
 import type { DataModel, Id } from "../_generated/dataModel";
 import { internalMutation } from "../_generated/server";
-import { exchangeCode } from "./appleTokens";
+import { exchangeCode, keepSealed } from "./appleTokens";
 import { words } from "./rules";
 import { appleAudience, appleClient, appleKeysUrl } from "./settings";
 
@@ -90,7 +90,7 @@ async function keepAppleToken(ctx: GenericActionCtx<DataModel>, userId: Id<"user
     console.error(`Sign in with Apple: no Apple token was kept to revoke later (${exchanged.reason}).`);
     return;
   }
-  await ctx.runMutation(internal.auth.appleTokens.keep, { userId, refreshToken: exchanged.refreshToken });
+  await keepSealed(ctx, userId, exchanged.refreshToken);
 }
 
 export function apple() {

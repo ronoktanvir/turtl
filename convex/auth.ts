@@ -6,6 +6,7 @@ import { apple } from "./auth/apple";
 import { password } from "./auth/password";
 import { allowedRedirect } from "./auth/rules";
 import { standInUrl } from "./auth/settings";
+import { refuseSignInToDemo } from "./access";
 import { admitNewAccount } from "./spend/ceilings";
 
 declare const process: { env: Record<string, string | undefined> };
@@ -36,6 +37,7 @@ export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
     // A new account, by any method, counts against the deployment's hourly and daily ceilings (convex/spend/ceilings.ts).
     // This runs inside the mutation that makes the user, so a refusal leaves no account behind.
     async afterUserCreatedOrUpdated(ctx, { existingUserId }) {
+      refuseSignInToDemo();
       if (existingUserId === null) await admitNewAccount(ctx as unknown as MutationCtx);
     },
   },

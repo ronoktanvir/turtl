@@ -1,12 +1,16 @@
 #!/usr/bin/env node
-// Checks the names of the environment variables set on a Convex deployment against release/backend-env.mjs.
-// It asks Convex for names only and never reads, prints, or stores a value.
+// Checks the environment variables set on a Convex deployment against release/backend-env.mjs. It asks Convex for the
+// names, and for the value of only the variables whose row names the exact value production needs (AUTH_REQUIRED,
+// which is not a secret). It never reads a secret's value, and never prints or stores a value.
 //
 //   CONVEX_DEPLOY_KEY=... node release/check-backend-env.mjs      the deployment that key belongs to
 //   node release/check-backend-env.mjs --prod                     this project's production deployment, with your Convex login
 //   node release/check-backend-env.mjs --deployment <name>        any deployment you can reach
 //   npx convex env list --names-only | node release/check-backend-env.mjs --stdin
 //   node release/check-backend-env.mjs --write-table              rewrite the table in backend-runbook.md from backend-env.mjs
+//
+// With --stdin the check sees what it is given: names only, or NAME=value lines, of which it keeps only the values of
+// rows that name an exact value.
 import { spawnSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { deploymentProblems, markdownTable, variables } from "./backend-env.mjs";
@@ -18,8 +22,9 @@ if (args.includes("--write-table")) {
   console.log("Rewrote the table in release/backend-runbook.md.");
   process.exit(0);
 }
+const fromStdin = args.includes("--stdin");
 let listing;
-if (args.includes("--stdin")) {
+if (fromStdin) {
   listing = readFileSync(0, "utf8");
 } else {
   const result = spawnSync("npx", ["convex", "env", "list", "--names-only", ...args], { encoding: "utf8" });
@@ -31,18 +36,35 @@ if (args.includes("--stdin")) {
   listing = result.stdout;
 }
 
-const names = [...new Set(listing.split("\n").map((line) => line.split("=")[0].trim()).filter((name) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(name)))];
-const problems = deploymentProblems(names);
+const lines = listing.split("\n");
+const names = [...new Set(lines.map((line) => line.split("=")[0].trim()).filter((name) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(name)))];
 
-console.log(`Variable names set on this deployment: ${names.length}. Values were not read.`);
+// The values production pins, read one by one. Only rows that name an exact value, and never a secret's.
+const pinned = variables.filter((row) => row.exactly !== undefined && !row.secret && names.includes(row.name));
+const values = {};
+for (const row of pinned) {
+  if (fromStdin) {
+    const line = lines.find((candidate) => candidate.startsWith(row.name + "="));
+    if (line !== undefined) values[row.name] = line.slice(row.name.length + 1).replace(/\r$/, "");
+    continue;
+  }
+  const result = spawnSync("npx", ["convex", "env", "get", row.name, ...args], { encoding: "utf8" });
+  // The value is printed with one line break after it; anything else around it is part of the value.
+  if (result.status === 0 && result.stdout.endsWith("\n")) values[row.name] = result.stdout.slice(0, -1);
+}
+
+const problems = deploymentProblems(names, values);
+
+console.log(`Variable names set on this deployment: ${names.length}. Values read: ${Object.keys(values).join(", ") || "none"} (never printed).`);
 for (const row of variables) {
   const set = names.includes(row.name);
   if (!set && row.production === "optional") continue;
   const verdict = row.production === "never" ? (set ? "REMOVE " : "unset  ") : set ? "set    " : row.production === "required" ? "MISSING" : "unset  ";
-  console.log(`  ${verdict}  ${row.name} (${row.production === "never" ? "never set" : row.production})`);
+  const exact = row.exactly === undefined || !set ? "" : row.name in values ? (values[row.name] === row.exactly ? `, exactly "${row.exactly}"` : `, NOT exactly "${row.exactly}"`) : `, value not read: check it is exactly "${row.exactly}"`;
+  console.log(`  ${verdict}  ${row.name} (${row.production === "never" ? "never set" : row.production}${exact})`);
 }
 if (problems.length) {
   console.error(`\nThis deployment is not ready for production:\n- ${problems.join("\n- ")}`);
   process.exit(1);
 }
-console.log("\nThe variable names match the table.");
+console.log("\nThe variables match the table.");

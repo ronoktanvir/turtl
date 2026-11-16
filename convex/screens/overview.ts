@@ -1,6 +1,7 @@
 import { v, type Infer } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
-import { query, type QueryCtx } from "../_generated/server";
+import { type QueryCtx } from "../_generated/server";
+import { query } from "../functions";
 import { accessEnforced, visibleApp, visibleApps } from "../access";
 import { CLOSED_CASE_STATUSES } from "../constants";
 import { latestInspection, preparationFor } from "../onboarding/records";

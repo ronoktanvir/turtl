@@ -1,7 +1,8 @@
 import { v } from "convex/values";
 import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
-import { action, internalMutation, query, type ActionCtx } from "../_generated/server";
+import { internalMutation, type ActionCtx } from "../_generated/server";
+import { action, query } from "../functions";
 import { canSeeCase, guardCaseInAction } from "../access";
 import { gateFor } from "../consent/gate";
 import { speak, speechModelId, transcribe, transcribeModelId } from "./openai";

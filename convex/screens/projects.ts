@@ -1,4 +1,4 @@
-import { query } from "../_generated/server";
+import { query } from "../functions";
 import { v } from "convex/values";
 import { accessEnforced, canSeeApp, projectCases, visibleApps } from "../access";
 import { currentPermission, MIN_VERIFIED_RECOVERIES, sourceAction, usesOf } from "../permissions";

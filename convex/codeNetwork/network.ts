@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import type { WithoutSystemFields } from "convex/server";
-import { internalMutation, internalQuery, query, type MutationCtx, type QueryCtx } from "../_generated/server";
+import { internalMutation, internalQuery, type MutationCtx, type QueryCtx } from "../_generated/server";
+import { query } from "../functions";
 import type { Doc } from "../_generated/dataModel";
 import { canSeeApp } from "../access";
 import {

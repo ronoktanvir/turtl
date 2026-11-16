@@ -1,7 +1,8 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
-import { internalAction, internalMutation, query } from "./_generated/server";
+import { internalAction, internalMutation } from "./_generated/server";
+import { query } from "./functions";
 import { canSeeCase } from "./access";
 import { gateFor } from "./consent/gate";
 import { vNoticeEvent, vNoticeOutcome } from "./constants";

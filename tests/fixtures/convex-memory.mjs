@@ -68,7 +68,9 @@ export function createLoader(mocks = {}) {
  * for a table read only by id. Rows are checked against nothing else; reads must name a declared index, in order.
  */
 export function memoryDb(tables, seed = {}) {
-  const rows = new Map(Object.keys(tables).map((name) => [name, structuredClone(seed[name] ?? [])]));
+  // Convex Auth's accounts table is always there, empty unless seeded: in the single-owner demo every public function
+  // first checks that it is (convex/access.ts, refuseDemoWithAccounts).
+  const rows = new Map(Object.keys({ authAccounts: null, ...tables }).map((name) => [name, structuredClone(seed[name] ?? [])]));
   let counter = 1000;
   let clock = 0;
   for (const list of rows.values()) for (const row of list) row._creationTime ??= ++clock;
@@ -109,6 +111,11 @@ export function memoryDb(tables, seed = {}) {
       found.list.splice(found.index, 1);
     },
     query: (table) => ({
+      // A read of at most one row in creation order, as ctx.db.query(table).first() is in Convex.
+      first: async () => {
+        reads.push(["first", table]);
+        return structuredClone(rowsOf(table).toSorted((a, b) => a._creationTime - b._creationTime)[0] ?? null);
+      },
       withIndex: (name, build) => {
         reads.push(["index", table, name]);
         const fields = tables[table]?.export().indexes.find((index) => index.indexDescriptor === name)?.fields;

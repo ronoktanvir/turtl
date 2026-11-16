@@ -1,6 +1,7 @@
 import { ConvexError, v } from "convex/values";
 import { internal } from "../_generated/api";
-import { internalAction, internalMutation, internalQuery, mutation } from "../_generated/server";
+import { internalAction, internalMutation, internalQuery } from "../_generated/server";
+import { mutation } from "../functions";
 import { guardRow } from "../access";
 import { requireOwnerPasscode } from "../ownerPasscode";
 import { call, CHECK_VERSION, describeFailure } from "../protectedApp/client";

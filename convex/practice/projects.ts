@@ -1,7 +1,8 @@
 import { ConvexError, v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
-import { action, internalMutation, internalQuery, mutation, query, type ActionCtx, type MutationCtx, type QueryCtx } from "../_generated/server";
+import { internalMutation, internalQuery, type ActionCtx, type MutationCtx, type QueryCtx } from "../_generated/server";
+import { action, mutation, query } from "../functions";
 import { accessEnforced, currentAccount, requireApp } from "../access";
 import { CLOSED_CASE_STATUSES } from "../constants";
 import { liveAddressProblem } from "../protectedApp/address";

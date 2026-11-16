@@ -44,6 +44,8 @@ const githubConfig = load("../convex/github/config.ts", { "../demoSettings": dem
 const decisions = load("../convex/decisions.ts", {
   "convex/values": values,
   "./_generated/server": server,
+  // The public builders, without their demo check (convex/functions.ts), which tests/access-rules.test.mjs covers.
+  "./functions": server,
   "./access": access,
   "./constants": { CLOSED_CASE_STATUSES: ["resolved", "unresolved", "declined"] },
   "./learning/feedback": { recordDecision: async () => {} },
@@ -111,6 +113,7 @@ function backend(options, version = 3) {
     "convex/values": values,
     "./_generated/api": { internal: anything },
     "./_generated/server": server,
+    "./functions": server,
     "./access": access,
     "./consent/gate": consentGate,
     "./constants": { vDecisionStatus: values.v.any(), vDelivery: values.v.any(), vOptionKind: values.v.any(), vSpan: values.v.any() },

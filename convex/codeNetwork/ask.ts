@@ -1,6 +1,6 @@
 import { ConvexError, v } from "convex/values";
 import { internal } from "../_generated/api";
-import { action } from "../_generated/server";
+import { action } from "../functions";
 import type { Doc } from "../_generated/dataModel";
 import { guardAppInAction } from "../access";
 import { gateFor } from "../consent/gate";

@@ -58,6 +58,7 @@ import type * as evidence_records from "../evidence/records.js";
 import type * as evidence_snapshots from "../evidence/snapshots.js";
 import type * as fixOptions from "../fixOptions.js";
 import type * as fixes from "../fixes.js";
+import type * as functions from "../functions.js";
 import type * as github_access from "../github/access.js";
 import type * as github_api from "../github/api.js";
 import type * as github_config from "../github/config.js";
@@ -241,6 +242,7 @@ declare const fullApi: ApiFromModules<{
   "evidence/snapshots": typeof evidence_snapshots;
   fixOptions: typeof fixOptions;
   fixes: typeof fixes;
+  functions: typeof functions;
   "github/access": typeof github_access;
   "github/api": typeof github_api;
   "github/config": typeof github_config;
