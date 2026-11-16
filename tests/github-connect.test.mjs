@@ -4,42 +4,13 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { runInThisContext } from "node:vm";
 import ts from "typescript";
-import { APP_ID, LEGACY_TOKEN, lifecycle, MINUTE, PKCS1, SITE, SOLO, START, WEBHOOK_SECRET, world } from "./github-harness.mjs";
+import { APP_ID, connectWorld, LEGACY_TOKEN, lifecycle, MINUTE, PKCS1, SITE, SOLO, START, WEBHOOK_SECRET, world } from "./github-harness.mjs";
 
 // Connect GitHub (convex/github/connect.ts and the two pages in convex/github/http.ts) against the stand-in GitHub in
 // scripts/github-app/stub.mjs. The person's browser is played by browse(): GitHub's install and authorize pages come
 // from the stub, turtl's /github/setup and /github/callback from the real HTTP actions. The app's calls go through
 // backend.call as a signed-in account (accounts on) or as nobody (the single-owner demo, where everyone is
 // "solo-owner"). Nothing here talks to GitHub.
-
-async function connectWorld(t, options = {}) {
-  const w = await world(t, { connect: true, ...options });
-  const project = async (ownerId) => {
-    const appId = await w.backend.insert("apps", { name: "app", ...(ownerId && { ownerId }) });
-    return { appId, caseId: await w.backend.insert("cases", { appId }) };
-  };
-  // `account` taps Connect GitHub in the app; `login` is who is signed in to github.com; `choice` is what they do there.
-  const begin = async (account, login, choice, returnTo = "app") => {
-    w.stub.signIn(login);
-    if (choice !== undefined) w.stub.willInstall(choice);
-    const { url } = await w.backend.call("github.connect.begin", { returnTo }, account);
-    return url;
-  };
-  const connectAs = async (account, login, choice, returnTo) => {
-    const url = await begin(account, login, choice, returnTo);
-    const landed = await w.open(url);
-    const back = new URL(landed.url);
-    return { url, landed, back, result: back.searchParams.get("github"), ticket: back.searchParams.get("ticket") };
-  };
-  const connected = async (account, login, choice) => {
-    const { ticket, result } = await connectAs(account, login, choice);
-    assert.equal(result, "connected");
-    return await w.backend.call("github.connect.finish", { ticket }, account);
-  };
-  const status = (account) => w.backend.call("github.connect.status", {}, account);
-  const pickable = async (account) => (await w.backend.call("github.connect.repositories", {}, account)).map((repository) => repository.fullName);
-  return { ...w, project, begin, connectAs, connected, status, pickable };
-}
 
 const EXPIRED = /expired or was started on another sign-in/;
 
