@@ -7,7 +7,7 @@ import { accessEnforced, MAX_PROJECTS } from "./access";
 const CLOSED_DEMO_SKIPPED = "This deployment holds accounts but runs as the single-owner demo, so the monitor checked nothing (the backend log says why).";
 import { CLOSED_CASE_STATUSES } from "./constants";
 import { controlBase, readErrors, runJourneyCheck, type JourneyOutcome, type WatchedApp } from "./protectedApp/client";
-import { counts, passedOutsideRound, settleRound, type Try } from "./protectedApp/notAnswering";
+import { counts, passedOutsideRound, PRACTICE_QUIET, settleRound, type Try } from "./protectedApp/notAnswering";
 import { watchedApp } from "./protectedApp/watched";
 import { MAX_JOURNEYS, WATCH_WORDS, type Runnable } from "./protectedApp/watching";
 import { startCaseRun } from "./runner/run";
@@ -234,6 +234,12 @@ const toSettle = (unanswered: boolean, tries: Try[]) => unanswered || tries.some
 // follows the same rules as with accounts on, each project's checks being one round.
 export async function checkJourneys(ctx: ActionCtx): Promise<MonitorResult> {
   if (!controlBase()) {
+    // Nothing is checked, so a project whose checks have counts is no longer watched: its counts go, and an open
+    // not-answering case closes with why. This reads what a tick with PROTECTED_APP_URL set reads, and no more.
+    const rows = await ctx.runQuery(internal.monitor.journeys, {});
+    for (const appId of new Set(rows.filter(({ journey }) => journey.unanswered !== undefined).map(({ app }) => app._id))) {
+      await ctx.runMutation(internal.protectedApp.notAnswering.stopped, { appId, reason: WATCH_WORDS.checksOff });
+    }
     return { skipped: "PROTECTED_APP_URL is not set on this deployment, so no journey was checked." };
   }
   const rows = await ctx.runQuery(internal.monitor.journeys, {});
@@ -291,8 +297,9 @@ export const checkProject = internalAction({
   returns: v.object({ checked: v.array(vChecked) }),
   handler: async (ctx, { appId }): Promise<{ checked: Checked[] }> => {
     let failure: string | null | undefined;
+    let answered = false;
     try {
-      const plan: { base: string; journeys: Runnable[]; unanswered: boolean } | null = await ctx.runQuery(internal.protectedApp.watching.plan, { appId });
+      const plan: { base: string; journeys: Runnable[]; unanswered: boolean; practice: boolean } | null = await ctx.runQuery(internal.protectedApp.watching.plan, { appId });
       if (!plan) return { checked: [] };
       const app = await watchedApp(ctx, { appId });
       const checked: Checked[] = [];
@@ -305,10 +312,15 @@ export const checkProject = internalAction({
         }
       }
       failure = failureOf(checked);
-      if (toSettle(plan.unanswered, tries)) await settleRound(ctx, appId, tries);
+      answered = checked.some((check) => check.outcome !== "check_error");
+      // A practice project's app is turtl's own: a check of it with no usable reply is turtl's trouble, for the
+      // operator's log, once a round. Its tries count for nothing (only counts left from before are settled away).
+      const counted = plan.practice ? [] : tries;
+      if (plan.practice && tries.some((tried) => counts(tried.got))) console.warn(PRACTICE_QUIET);
+      if (toSettle(plan.unanswered, counted)) await settleRound(ctx, appId, counted);
       return { checked };
     } finally {
-      await ctx.runMutation(internal.protectedApp.watching.finish, { appId, checkedAt: Date.now(), ...(failure !== undefined && { failure }) });
+      await ctx.runMutation(internal.protectedApp.watching.finish, { appId, checkedAt: Date.now(), ...(failure !== undefined && { failure }), ...(answered && { answered }) });
     }
   },
 });
