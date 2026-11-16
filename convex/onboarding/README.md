@@ -15,7 +15,7 @@ The owner adds a project from Home with a GitHub repository URL, optionally the 
 
 ## turtl.json
 
-Written by the preparation pull request in the app's first folder (or the repository root). Paths are relative to the live app URL. `credentialRef` names an environment variable on turtl's deployment that holds the bearer token for authenticated paths; never the secret.
+Written by the preparation pull request in the app's first folder (or the repository root). Paths are relative to the live app URL. `credentialRef` must be `PROTECTED_APP_CONTROL_SECRET`, the one setting on turtl's deployment that it will send as the bearer token for authenticated paths; it is never the secret itself. Any other name is refused when the file is read and again when a request is made (`convex/protectedApp/client.ts`), so a project's file cannot choose which of the deployment's secrets is sent to that project's server.
 
 ```json
 {
