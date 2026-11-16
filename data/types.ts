@@ -182,3 +182,18 @@ export type CodeNetwork = {
   nodes: NetNode[];
   edges: NetEdge[];
 };
+
+// Talking with turtl about a case (brief 5.11). A spoken turn joins the same case chat as typed questions.
+export type VoiceStatus = { available: boolean; reason: string | null; maxClipMs: number };
+export type VoiceClip = { audio: ArrayBuffer; mimeType: string; durationMs: number };
+export type VoiceReply =
+  | { ok: false; reason: string; retry: boolean }
+  | {
+      ok: true;
+      transcript: string;
+      reply: string;
+      command: "approve" | "decline" | "merge" | "stop" | null; // a spoken decision, answered with where its button is
+      ended: boolean;
+      audio: ArrayBuffer | null;
+      speechError: string | null;
+    };

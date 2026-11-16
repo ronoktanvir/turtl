@@ -1,5 +1,7 @@
 import * as example from "./example/hooks";
+import { useVoice as useExampleVoice } from "./example/voice";
 import * as live from "./live";
+import { useVoice as useLiveVoice } from "./live/voice";
 import { isLiveData } from "./source";
 
 export { isLiveData } from "./source";
@@ -10,6 +12,7 @@ export const useProject = isLiveData ? live.useProject : example.useProject;
 export const useCases = isLiveData ? live.useCases : example.useCases;
 export const useCase = isLiveData ? live.useCase : example.useCase;
 export const useChat = isLiveData ? live.useChat : example.useChat;
+export const useVoice = isLiveData ? useLiveVoice : useExampleVoice;
 export const useCodeNetwork = isLiveData ? live.useCodeNetwork : example.useCodeNetwork;
 export const useEnactmentNow = isLiveData ? live.useEnactmentNow : example.useEnactmentNow;
 export const approveFix = isLiveData ? live.approveFix : example.approveFix;

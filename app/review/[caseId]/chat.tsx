@@ -4,6 +4,7 @@ import { KeyboardAvoidingView, Platform, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AskBar } from "../../../components/execution/AskBar";
 import { ApproveSheet, FixCard } from "../../../components/fix/FixCard";
+import { useTalkSession } from "../../../components/voice/useTalkSession";
 import { Button, devToolsOn, Header, Reveal, Screen, T, Turtle, useReducedMotion } from "../../../components/ui";
 import { useCase, useChat } from "../../../data";
 import type { FixOption } from "../../../data/types";
@@ -13,6 +14,7 @@ export default function InvestigateFurther() {
   const { caseId } = useLocalSearchParams<{ caseId: string }>();
   const c = useCase(caseId);
   const chat = useChat({ kind: "case", caseId });
+  const talk = useTalkSession(caseId);
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const reducedMotion = useReducedMotion();
@@ -101,7 +103,7 @@ export default function InvestigateFurther() {
         </ScrollView>
         <View style={{ paddingHorizontal: 20, paddingTop: 12, paddingBottom: insets.bottom + (devToolsOn ? 76 : 16), borderTopWidth: 1, borderTopColor: colors.border, backgroundColor: colors.bg }}>
           {error && <T color="statusAffected" accessibilityRole="alert" testID="chat-error" style={{ marginBottom: 8 }}>{error}</T>}
-          <AskBar value={text} onChangeText={setText} onSend={() => void send()} busy={busy} placeholder="Ask about this case…" inputID="chat-input" sendID="chat-send" />
+          <AskBar value={text} onChangeText={setText} onSend={() => void send()} busy={busy} placeholder="Ask about this case…" inputID="chat-input" sendID="chat-send" talk={talk} talkID="chat-talk" />
         </View>
       </KeyboardAvoidingView>
       {c && <ApproveSheet caseId={c.id} fix={approving} onClose={() => setApproving(null)} />}

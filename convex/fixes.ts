@@ -14,6 +14,7 @@ import { vOptionKind, type ProposalOption } from "./constants";
 import {
   askJson,
   FIX_FIELDS,
+  fixesModelId,
   keyFor,
   MAX_FIXES,
   orderFixes,
@@ -28,6 +29,7 @@ import { usesOf } from "./permissions";
 import { latestAction, latestProposal } from "./protectedApp/records";
 import { registerBookingApp } from "./protectedApp/registry";
 import type { Facts } from "./runner/handlers/journey";
+import { caseWork } from "./voice/progress";
 import { createCaseFromTemplate, finishAttempt, loadSteps, setCaseStatus, startAttempt, waitOnAttempt } from "./workflow";
 
 declare const process: { env: Record<string, string | undefined> };
@@ -117,6 +119,7 @@ export const chatContext = internalQuery({
       case: row,
       appName: (await ctx.db.get(row.appId))?.name ?? "the app",
       hasJourney: !!row.journeyId,
+      work: await caseWork(ctx, row, steps),
       hasPullRequestAction: !!pullRequestEntry(catalog),
       facts: (output("gather_context")?.facts as Facts | undefined) ?? null,
       cause: (output("investigate")?.diagnosis?.cause as string | undefined) ?? null,
@@ -234,6 +237,8 @@ const CHAT_PROMPT = [
   "The gathered facts, diagnosis and before-phase checks describe the incident before an action; they are history, not proof that the app is still broken. Use case.status for the recorded present state and the latest after_fix or after_deploy verification for latestAction.id, by completedAt, to explain the outcome. Never treat an uncovered criterion as passed or a before-phase failure as a failure after recovery.",
   "For a restored or resolved case with a passing after-action check, say service was restored and explain what restored it from latestAction.result. Do not say it is still broken or awaiting the same completed fix. Distinguish temporary recovery from a permanent repair, and do not claim a device check passed if it was uncovered.",
   "For a declined proposal or owner-cancelled action, explain that it was declined or stopped and no live change was applied, unless the recorded completed action or after-action verification shows otherwise. Stopping does not undo an earlier applied change. For waiting_for_owner, explain that the case is waiting for the owner's decision; do not claim a pending fix ran. Unknown, running or failed actions are not confirmed recoveries.",
+  "work is the live workflow: the steps running or waiting now, what each waits for, the steps that cannot start yet, and the last error. When the owner asks what turtl is doing, waiting for or stuck on, answer from work, starting from work.now: name the step, how long it has run, what it waits for, and the last error with its step and attempt; if nothing is running, say so. Use plain words, not field names or status ids.",
+  "This chat never approves, declines, merges or stops anything. If the owner asks it to, say so and point to the button: Approve on a fix (on the Fixes screen or a fix in this chat) behind the passcode, Stop and Merge on the Fix enacting screen.",
   'Reply with a JSON object: {"reply": string, "fix": object | null}. reply: at most four plain sentences.',
   `Set fix only to propose a new fix that differs in substance from every current fix; never restate a current fix in other words. If no different sensible fix exists, set fix to null and say so. A new fix is a code change that ships as a pull request. ${FIX_FIELDS}`,
 ].join("\n");
@@ -260,11 +265,13 @@ export const investigate = action({
         : proposal.options.length >= MAX_FIXES
           ? `the list already has ${MAX_FIXES} fixes`
           : null;
+    const askedAt = Date.now();
     const answer = await askJson(
       blocked ? `${CHAT_PROMPT}\nYou cannot add a fix now (${blocked}): set fix to null and say so if the owner asks for one.` : CHAT_PROMPT,
       {
         app: context.appName,
         case: { title: context.case.title, impact: context.case.impact, status: context.case.status },
+        work: context.work,
         historicalFindings: { facts: context.facts, diagnosis: context.cause },
         latestAction: context.latestAction,
         verifications: context.verifications,
@@ -284,6 +291,11 @@ export const investigate = action({
         }),
       },
     );
+    await ctx.runMutation(internal.voice.runs.record, {
+      caseId, taskType: "case_chat_answer", modelId: fixesModelId(), promptVersion: "case-chat-1",
+      routingReason: "Case chat answer: the fixes model, no routing.", ok: answer.ok,
+      ...(!answer.ok && { error: answer.reason }), durationMs: Date.now() - askedAt,
+    });
 
     let reply = answer.ok
       ? typeof answer.json.reply === "string" && answer.json.reply.trim()

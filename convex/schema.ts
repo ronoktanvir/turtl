@@ -27,6 +27,7 @@ import {
   vOwnerNotice,
 } from "./constants";
 import { revylTables } from "./revyl/schema";
+import { voiceTables } from "./voice/schema";
 
 export default defineSchema({
   ownerPasscodeConfig: defineTable({ passcodeDigest: v.string() }),
@@ -183,4 +184,5 @@ export default defineSchema({
   }).index("by_timestamp", ["timestamp"]),
   ...revylTables,
   ...codeNetworkTables,
+  ...voiceTables,
 });
