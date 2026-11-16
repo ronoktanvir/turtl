@@ -58,3 +58,12 @@ export const checkStateWord: Record<LiveCheck["state"], { word: string; color: T
   failing: { word: "Failing", color: "statusAffected" },
   no_response: { word: "No response", color: "statusNeedsYou" },
 };
+
+const RULES_NOTE = "No model answered, so turtl judged this with its built-in rules.";
+
+/** The note above a report judged by rules. The backend's reason already begins "No model answered", so it is not said twice. */
+export function rulesNote(fallbackReason: string | undefined): string {
+  const reason = fallbackReason?.trim().replace(/^No model answered\s*[:.]?\s*/i, "");
+  if (!reason) return RULES_NOTE;
+  return RULES_NOTE + " " + reason.charAt(0).toUpperCase() + reason.slice(1);
+}

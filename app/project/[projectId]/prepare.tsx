@@ -6,7 +6,7 @@ import { NeverBreakEditor } from "../../../components/onboarding/NeverBreakEdito
 import { PullRequestPanel } from "../../../components/onboarding/PullRequestPanel";
 import { ReadinessReport } from "../../../components/onboarding/ReadinessReport";
 import { WorksNow } from "../../../components/onboarding/WorksNow";
-import { editableStages, inspectableStages, stageLine } from "../../../components/onboarding/stage";
+import { editableStages, inspectableStages, rulesNote, stageLine } from "../../../components/onboarding/stage";
 import { Button, Header, Icon, Reveal, Screen, Sheet, T, Turtle } from "../../../components/ui";
 import { approvePreparation, checkLiveAgain, inspectAgain, mergePreparation, refreshPreparation, saveNeverBreak, useDataStatus, useOnboarding, useProject } from "../../../data";
 import type { NeverBreakAnswer } from "../../../data/onboarding/types";
@@ -103,7 +103,7 @@ export default function Prepare() {
 
   const notes = [
     inspection?.readNote,
-    inspection?.judgedBy === "rules" ? "No model answered, so turtl judged this with its built-in rules." + (inspection.fallbackReason ? " " + inspection.fallbackReason : "") : undefined,
+    inspection?.judgedBy === "rules" ? rulesNote(inspection.fallbackReason) : undefined,
     inspection?.error,
     o.problem,
   ].filter((note): note is string => !!note);
