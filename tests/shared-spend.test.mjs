@@ -525,6 +525,40 @@ test("ATTACK (finding 23): the floor is only for an outage turtl's checks found 
   });
 });
 
+// Not-answering cases (convex/protectedApp/notAnswering.ts): the monitor raises them, but anyone can take an app
+// offline at will, and turtl cannot diagnose an app it cannot reach. Such a case is not an outage turtl's checks found
+// for the floor and the reserve: a call scoped to it counts on the account's own share, as any other call does.
+test("ATTACK: a case for an app that stopped answering never reaches the outage floor or the reserve; a call for it counts on the account's own share", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: NOV_16 });
+  await withEnv(ACCOUNTS, async () => {
+    const db = world({ alice: 1 });
+    // The same project's real outage, beside a case opened because its app stopped answering.
+    const quiet = await db.insert("cases", { appId: "apps:alice-0", raisedBy: "monitor", kind: "outage", status: "waiting_for_app", signature: "not_answering:apps:alice-0" });
+    const ctx = actions(db);
+    const day = () => ledger.accountDay({ db }, "users:alice", Date.now());
+
+    // With room in the day: let through, and counted on her own share, not her floor.
+    assert.equal((await modelCall(ctx, { caseId: quiet }, DIAGNOSIS)).ok, true);
+    const first = await day();
+    assert.ok(Math.abs(first.ownUsd - DIAGNOSIS.cost) < 1e-6, JSON.stringify(first));
+    assert.equal(floorOf(first), 0);
+
+    // In the part of the day kept for outages: refused, while the real outage on the same project still reaches it.
+    const ceiling = limits.deploymentModelSpendPerDayUsd();
+    const [{ _id: totals }] = db.rows("deploymentTotals").filter((row) => row.name === "model_usd_day");
+    await db.patch(totals, { value: ceiling * (1 - limits.outageReservePercent() / 100) });
+    assert.equal((await modelCall(ctx, { caseId: quiet }, DIAGNOSIS)).reason, limits.spendRefusal.reserveKept());
+    assert.equal((await modelCall(ctx, { caseId: "cases:alice-0" }, DIAGNOSIS)).ok, true, "a real outage turtl's checks found reaches the reserve");
+
+    // With the shared day used up: refused, and her floor is untouched; the real outage is diagnosed on that floor.
+    await db.patch(totals, { value: ceiling });
+    assert.equal((await modelCall(ctx, { caseId: quiet }, DIAGNOSIS)).reason, limits.spendRefusal.deploymentSpent());
+    assert.equal(floorOf(await day()), 0, "the not-answering case took nothing from her floor");
+    assert.equal((await modelCall(ctx, { caseId: "cases:alice-0" }, DIAGNOSIS)).ok, true);
+    assert.ok(floorOf(await day()) > 0);
+  });
+});
+
 // What the guarantee costs the operator. Floor spend is outside the shared day but inside the hard stop, so the worst
 // day is the hard stop; each account's month (MODEL_SPEND_LIMIT_USD) counts its floor spend too.
 test("the operator's worst day is the hard stop and the worst month the hard stop times its days; no account's floor passes its month", async (t) => {
