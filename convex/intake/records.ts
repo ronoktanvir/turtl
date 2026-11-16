@@ -12,7 +12,7 @@ import { vReportHint, vTriageVerdict } from "./schema";
 import { ConvexError } from "convex/values";
 import { internalAction } from "../_generated/server";
 import { mutation } from "../functions";
-import { accessEnforced, requireCase } from "../access";
+import { accessEnforced, demoHoldsAccounts, requireCase, UNAVAILABLE } from "../access";
 import { requireOwnerPasscode } from "../ownerPasscode";
 import { gateFor } from "../consent/gate";
 import { deleteDocuments } from "../supermemory";
@@ -89,6 +89,8 @@ export const receive = internalMutation({
     reportId: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<{ ok: true; duplicate: boolean } | { ok: false; status: number; code: string; message: string; retryAfterSeconds?: number }> => {
+    // The single-owner demo on a deployment that holds accounts keeps no report (convex/access.ts).
+    if (await demoHoldsAccounts(ctx)) return { ok: false, status: 503, code: "UNAVAILABLE", message: UNAVAILABLE };
     const key = await ctx.db.query("intakeKeys").withIndex("by_key", (q) => q.eq("key", args.key)).unique();
     if (!key || key.revokedAt !== undefined || !(await ctx.db.get(key.appId))) {
       return { ok: false, status: 403, code: "UNKNOWN_KEY", message: "This report key is not recognised." };

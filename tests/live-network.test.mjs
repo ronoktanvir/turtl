@@ -79,7 +79,7 @@ const { resolve } = load("../convex/screens/network.ts", {
   "../access": load("../convex/access.ts", {
     "convex/values": await import("convex/values"),
     "./_generated/api": { internal: {} },
-    "./_generated/server": { internalQuery: (definition) => definition },
+    "./_generated/server": { internalQuery: (definition) => definition, internalMutation: (definition) => definition },
     "./auth/confirmed": load("../convex/auth/confirmed.ts", {}),
   }),
 });

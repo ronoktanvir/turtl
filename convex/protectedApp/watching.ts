@@ -70,7 +70,7 @@ export async function planFor(ctx: Read, app: Doc<"apps">): Promise<Plan> {
   const owner = ctx.db.normalizeId("users", app.ownerId);
   if (!owner || !(await ctx.db.get(owner))) return skip(WATCH_WORDS.ownerGone);
   if (!app.productionUrl) return skip(WATCH_WORDS.noAddress);
-  const problem = liveAddressProblem(app.productionUrl);
+  const problem = liveAddressProblem(app.productionUrl, undefined, app.practice ? app._id : undefined);
   if (problem) return skip(problem);
   const hasToken = (await projectSecret(ctx, app._id, "control_token")) !== null;
   const runnable = journeys.filter((journey) => hasToken || !journey.credentialRef);

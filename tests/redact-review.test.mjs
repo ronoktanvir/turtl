@@ -167,7 +167,8 @@ test("5. the code map leaves out a secret file whole, including its place in the
     return file ? new Response(file.content) : new Response("not found", { status: 404 });
   });
   const stored = [];
-  const ctx = { runQuery: async () => null, runMutation: async (_fn, args) => void stored.push(args) };
+  // In the demo the gate asks once whether the deployment holds accounts (it is closed if so) before it says yes.
+  const ctx = { runQuery: async (fn) => (fn.path === "internal.consent.gate.check" ? { ok: true, account: "solo-owner" } : null), runMutation: async (_fn, args) => void stored.push(args) };
   const result = await withEnv({ AUTH_REQUIRED: undefined, OPENAI_API_KEY: "stand-in", SUPERMEMORY_API_KEY: "stand-in" }, () => build.build.handler(ctx, { projectId: "apps:1", repo: "octo/app" }));
   assert.equal(result.outcome, "built", JSON.stringify(result));
   const out = [sent.model, JSON.stringify(sent.documents), JSON.stringify(stored)].join("\n");

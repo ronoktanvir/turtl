@@ -61,7 +61,8 @@ function createLoader(mocks = {}) {
 }
 
 // The one index outside convex/push that these functions read, as convex/schema.ts declares it.
-const OTHER_INDEXES = { ownerNotices: { by_case_and_event: ["caseId", "event"] } };
+// The single-owner demo first checks the deployment holds no account, which reads apps by their owner (convex/access.ts).
+const OTHER_INDEXES = { ownerNotices: { by_case_and_event: ["caseId", "event"] }, apps: { by_owner: ["ownerId"] } };
 
 // An in-memory database. Push tables are checked against convex/push/schema.ts: only named fields, only declared
 // indexes, read by their fields in order. A patch with an undefined field removes it, as Convex does.
@@ -122,12 +123,13 @@ function createBackend(load, identity) {
         const range = {
           eq: (field, value) => (conditions.push(["eq", field, value]), range),
           gt: (field, value) => (conditions.push(["gt", field, value]), range),
+          lt: (field, value) => (conditions.push(["lt", field, value]), range),
         };
         build(range);
         conditions.forEach(([, field], position) => assert.equal(field, fields[position], `${table}.${name} cannot be read by ${field} here`));
         let descending = false;
         const matched = () => {
-          const rows = rowsOf(table).filter((row) => conditions.every(([op, field, value]) => (op === "eq" ? row[field] === value : row[field] !== undefined && row[field] > value)));
+          const rows = rowsOf(table).filter((row) => conditions.every(([op, field, value]) => (op === "eq" ? row[field] === value : op === "lt" ? row[field] === undefined || row[field] < value : row[field] !== undefined && row[field] > value)));
           const key = fields.find((field) => !conditions.some(([, f]) => f === field));
           const sorted = key ? [...rows].sort((a, b) => (a[key] ?? -Infinity) - (b[key] ?? -Infinity)) : rows;
           return structuredClone(descending ? sorted.reverse() : sorted);

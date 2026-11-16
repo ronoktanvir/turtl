@@ -44,7 +44,6 @@ const admin = client();
 const message = (error) => String(error?.data ?? error?.message ?? error);
 // The single-owner demo refuses to serve a deployment that holds any account (convex/access.ts).
 const UNAVAILABLE = "turtl is unavailable right now. Please try again later.";
-const LOGGED = /Refused a call: AUTH_REQUIRED is unset, empty or "false", which makes this deployment the single-owner demo, but it holds accounts \(rows in authAccounts\)/;
 const refused = (error) => message(error).includes(UNAVAILABLE);
 const onAFreshBackend = async (call) => {
   try {
@@ -276,9 +275,15 @@ test("per-project secrets on a local Convex backend", { timeout: 300_000 }, asyn
     await assert.rejects(admin.action(ref("secrets/project:setControlToken"), { projectId: alice.appId, token: TOKENS.alice }), refused, "nobody is the single owner of these accounts' projects");
     await assert.rejects(asAlice.query(ref("secrets/project:controlToken"), { projectId: alice.appId }), refused, "nor is an owner served as the demo");
     await assert.rejects(admin.query(ref("screens/projects:list"), {}), refused);
-    // What the operator sees: `npx convex run` prints the function's log line with its error.
-    const answer = await convex("run", "screens/projects:list", "{}").then(() => null, (error) => `${error.stdout}\n${error.stderr}`);
-    assert.ok(answer?.includes(UNAVAILABLE), answer);
-    assert.match(answer, LOGGED);
+    // What the operator sees: the monitor's cron writes one line to the backend log when it first finds the demo
+    // closed, and checks nothing (convex/access.ts, noteClosedDemo; review finding 20).
+    const first = await admin.mutation(ref("access:noteClosedDemo"), {});
+    const again = await admin.mutation(ref("access:noteClosedDemo"), {});
+    assert.ok(first.closed && first.loggedAt !== null && again.loggedAt === first.loggedAt, "the line was written once, not once a call");
+    const tick = await admin.action(ref("monitor:tick"), {});
+    assert.match(tick.skipped ?? "", /holds accounts but runs as the single-owner demo, so the monitor checked nothing/);
+    const sentBefore = requests.length;
+    await delay(1500);
+    assert.equal(requests.length, sentBefore, "nothing more reached the owners' apps");
   });
 });

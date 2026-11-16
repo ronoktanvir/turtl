@@ -40,7 +40,7 @@ const siteUrl = () => process.env.CONVEX_SITE_URL?.replace(/\/+$/, "") ?? "";
 export function practiceProblem(): string | null {
   if (!accessEnforced()) return PRACTICE_WORDS.demo;
   const site = siteUrl();
-  return site && liveAddressProblem(practiceBase(site, "probe")) === null ? null : PRACTICE_WORDS.noSite;
+  return site && liveAddressProblem(practiceBase(site, "probe"), undefined, "probe") === null ? null : PRACTICE_WORDS.noSite;
 }
 
 const switchesOf = (row: Doc<"practiceApps">): Switches => ({

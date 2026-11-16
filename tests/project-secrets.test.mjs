@@ -686,17 +686,18 @@ test("with accounts off, the demo stores nothing and sends the deployment's own 
   assert.deepEqual(await w.run("api.secrets.account.codingAgent", {}), { accounts: false, signedIn: true, set: false });
 
   const reads = [];
-  const ctx = { runQuery: async (fn) => (reads.push(fn.path), null) };
+  const ctx = { runQuery: async (fn) => (reads.push(fn.path), false) };
   const watched = w.load("convex/protectedApp/watched.ts");
   const client = w.load("convex/protectedApp/client.ts");
   const app = await watched.watchedApp(ctx, { appId });
   assert.equal(app, client.DEMO_APP);
-  assert.deepEqual(reads, [], "the demo reads nothing to send a request");
+  // Its one question is whether the deployment holds accounts, and then it would send nothing (review finding 20).
+  assert.deepEqual(reads, ["internal.access.demoClosed"], "the demo reads nothing else to send a request");
   await client.call("http://127.0.0.1:3321/booking-demo/flags", { app, credentialRef: client.CREDENTIAL_REF });
   assert.deepEqual(sent.map((request) => [request.url, request.authorization, request.redirect]), [["http://127.0.0.1:3321/booking-demo/flags", "Bearer " + DEPLOYMENT_SECRET, "follow"]]);
   const capy = await w.load("convex/prTracking/codingAgent.ts").capyConfigFor(ctx, { appId });
   assert.deepEqual(capy, { ok: true, apiKey: DEPLOYMENT_CAPY });
-  assert.deepEqual(reads, []);
+  assert.deepEqual(reads, ["internal.access.demoClosed"], "the coding agent's key needs nothing more");
   const monitor = await w.run("internal.monitor.tick", {});
   assert.deepEqual(monitor, { skipped: "PROTECTED_APP_URL is not set on this deployment, so no journey was checked." }, "the demo's monitor is unchanged");
 });

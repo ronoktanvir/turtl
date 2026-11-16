@@ -18,11 +18,12 @@ const TOKENS = { alice: "alice-practice-token-" + "a".repeat(40), bob: "bob-prac
 // The schema reaches Convex Auth's tables, which ship only as an ES module.
 const esModules = { "@convex-dev/auth/server": await import("@convex-dev/auth/server") };
 
-function world() {
+// `users: false` is a deployment no account was ever made on, as the single-owner demo is (convex/access.ts).
+function world({ users = true } = {}) {
   const load = createLoader(esModules);
   const tables = load("convex/schema.ts").default.tables;
   const db = memoryDb(tables, {
-    users: [{ _id: "users:alice", email: "alice@example.com" }, { _id: "users:bob", email: "bob@example.com" }],
+    users: users ? [{ _id: "users:alice", email: "alice@example.com" }, { _id: "users:bob", email: "bob@example.com" }] : [],
     bookingDemoSettings: [{ _id: "bookingDemoSettings:1", key: "demo", recommendationsEnabled: true, providerTimeout: false, bookingStoreFailure: false, updatedAt: 1 }],
   });
   const scheduled = [];
@@ -167,7 +168,7 @@ test("a practice app breaks only while it works with no open case, and at most s
 
 test("with AUTH_REQUIRED unset (the single-owner demo) there is no practice app to offer or make", async () => {
   await withEnv({ ...ACCOUNTS, AUTH_REQUIRED: undefined }, async () => {
-    const w = world();
+    const w = world({ users: false });
     const { status, claim, practiceProblem } = w.load("convex/practice/projects.ts");
     assert.deepEqual(await status.handler(w.as(null), {}), { available: false, breaksPerDay: 10, project: null });
     assert.equal(practiceProblem(), "A practice app needs accounts, and this backend runs the single-owner demo.");

@@ -45,6 +45,9 @@ import { structuralTables } from "./structural/schema";
 
 export default defineSchema({
   ownerPasscodeConfig: defineTable({ passcodeDigest: v.string() }),
+  // When the backend log last said the single-owner demo is closed because the deployment holds accounts
+  // (convex/access.ts, noteClosedDemo). One row, deployment-wide, naming no account.
+  closedDemoNotices: defineTable({ loggedAt: v.number() }),
   // Mutations must enforce ownerId access; isSample and optional ownership do not grant production access.
   apps: defineTable({
     name: v.string(),

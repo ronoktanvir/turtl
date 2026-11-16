@@ -1,7 +1,7 @@
 import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { internalQuery, type ActionCtx, type QueryCtx } from "./_generated/server";
+import { internalMutation, internalQuery, type ActionCtx, type QueryCtx } from "./_generated/server";
 import { addressConfirmed, unconfirmedAccount } from "./auth/confirmed";
 import type { Actor } from "./constants";
 
@@ -49,21 +49,45 @@ export function accessEnforced(): boolean {
   return value !== undefined && value !== "" && value !== "false";
 }
 
-// The single-owner demo on a deployment that holds accounts: every public function refuses.
+// The single-owner demo on a deployment that holds accounts is closed: nothing serves or acts in the demo's terms.
+// Every public function refuses (convex/functions.ts), and so do the paths that run without a caller: the monitor's
+// cron, customer reports, the consent gate for every outbound call, GitHub's callback and webhook, GitHub tokens, the
+// owners' apps, the runner and push delivery (each says where it asks). The monitor's cron writes the one log line.
 
 /** What the person sees. The backend log says why. */
 export const UNAVAILABLE = "turtl is unavailable right now. Please try again later.";
 const DEMO_WITH_ACCOUNTS =
-  'Refused a call: AUTH_REQUIRED is unset, empty or "false", which makes this deployment the single-owner demo, but it ' +
-  "holds accounts (rows in authAccounts), and the demo would hand every account's projects to anyone. Every public " +
-  "function refuses until AUTH_REQUIRED is set to true (or the accounts are deleted, to run the demo).";
+  'turtl is closed: AUTH_REQUIRED is unset, empty or "false", which makes this deployment the single-owner demo, but it ' +
+  "holds accounts (a sign-in, a user, or a project another account owns), and the demo would hand every account's " +
+  "projects to anyone. Every public function refuses, and nothing runs in the demo's terms: no check, no customer " +
+  "report, no outbound call, no GitHub change, no step of a case. Set AUTH_REQUIRED=true to serve the accounts again.";
+/** The log line again at most this often while the deployment stays closed. */
+const CLOSED_LOG_EVERY_MS = 24 * 60 * 60_000;
 
-/** Refuses when this is the single-owner demo and the deployment holds any account. With accounts on: nothing, no
- * read. In the demo: one read of at most one row. convex/functions.ts runs it before every public query and mutation. */
+/** Whether this is the single-owner demo on a deployment that holds accounts: any sign-in row, any user, or any
+ * project whose owner is not the demo's one owner. With accounts on: false, and nothing is read. In the demo: four
+ * reads of at most one row each, which on a working demo find nothing. */
+export async function demoHoldsAccounts(ctx: DbCtx): Promise<boolean> {
+  if (accessEnforced()) return false;
+  const { db } = ctx;
+  if ((await db.query("authAccounts").first()) !== null || (await db.query("users").first()) !== null) return true;
+  // Owners sort as text, so another account's id sorts after the demo's own or before it; a project with no owner
+  // sorts first of all, so the last one before the demo's tells which.
+  if ((await db.query("apps").withIndex("by_owner", (q) => q.gt("ownerId", SOLO_ACCOUNT)).first()) !== null) return true;
+  const before = await db.query("apps").withIndex("by_owner", (q) => q.lt("ownerId", SOLO_ACCOUNT)).order("desc").first();
+  return before !== null && before.ownerId !== undefined;
+}
+
+/** The same from an action, through one internal query; with accounts on it asks nothing. */
+export async function demoHoldsAccountsInAction(ctx: AskCtx): Promise<boolean> {
+  return !accessEnforced() && (await ctx.runQuery(internal.access.demoClosed, {}));
+}
+
+/** Refuses when this is the single-owner demo and the deployment holds accounts (demoHoldsAccounts). With accounts on:
+ * nothing, no read. convex/functions.ts runs it before every public query and mutation. It writes no log line of its
+ * own: a refused call can save nothing, so the monitor's cron writes the one line (noteClosedDemo). */
 export async function refuseDemoWithAccounts(ctx: DbCtx): Promise<void> {
-  if (accessEnforced() || (await ctx.db.query("authAccounts").first()) === null) return;
-  console.error(DEMO_WITH_ACCOUNTS);
-  throw new ConvexError(UNAVAILABLE);
+  if (await demoHoldsAccounts(ctx)) throw new ConvexError(UNAVAILABLE);
 }
 
 /** The same before every public action, which has no database: one internal query in the demo, nothing with accounts on. */
@@ -314,6 +338,30 @@ export const demoOpen = internalQuery({
   handler: async (ctx) => {
     await refuseDemoWithAccounts(ctx);
     return null;
+  },
+});
+
+/** demoHoldsAccountsInAction's read. */
+export const demoClosed = internalQuery({
+  args: {},
+  returns: v.boolean(),
+  handler: async (ctx) => await demoHoldsAccounts(ctx),
+});
+
+/** For the monitor's cron, every minute: whether the demo is closed, writing the reason to the backend log when it is
+ * first seen and then at most once a day while it lasts. Returns when the line was last written. */
+export const noteClosedDemo = internalMutation({
+  args: {},
+  returns: v.object({ closed: v.boolean(), loggedAt: v.union(v.number(), v.null()) }),
+  handler: async (ctx) => {
+    if (!(await demoHoldsAccounts(ctx))) return { closed: false, loggedAt: null };
+    const now = Date.now();
+    const notice = await ctx.db.query("closedDemoNotices").first();
+    if (notice && now - notice.loggedAt < CLOSED_LOG_EVERY_MS) return { closed: true, loggedAt: notice.loggedAt };
+    console.error(DEMO_WITH_ACCOUNTS);
+    if (notice) await ctx.db.patch(notice._id, { loggedAt: now });
+    else await ctx.db.insert("closedDemoNotices", { loggedAt: now });
+    return { closed: true, loggedAt: now };
   },
 });
 
