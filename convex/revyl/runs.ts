@@ -98,8 +98,10 @@ export async function advanceRun(ctx: ActionCtx, runId: Id<"revylRuns">): Promis
   const verdict =
     failedTests > 0 ? "failed" : body.status === "completed" && passedTests > 0 ? "passed" : "error";
 
+  const all = reports.flatMap(stepScreenshots);
+  const kept = all.length > MAX_SCREENSHOTS ? [...all.slice(0, MAX_SCREENSHOTS - 1), all[all.length - 1]] : all;
   const shots = [];
-  for (const shot of reports.flatMap(stepScreenshots).slice(0, MAX_SCREENSHOTS)) {
+  for (const shot of kept) {
     try {
       const response = await fetch(shot.url, { signal: AbortSignal.timeout(20_000) });
       if (!response.ok) continue;
