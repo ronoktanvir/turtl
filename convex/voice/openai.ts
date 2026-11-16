@@ -17,7 +17,7 @@ const SPEECH_STYLE = "Calm, clear and unhurried, like a colleague on call talkin
 async function call(gate: Gate, path: string, init: RequestInit): Promise<{ ok: true; response: Response } | { ok: false; reason: string }> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) return { ok: false, reason: NO_MODEL_REASON };
-  const opened = await gate.open("openai");
+  const opened = await gate.open("openai", "send", VOICE_CALL_ESTIMATE_USD);
   if (!opened.ok) return { ok: false, reason: opened.reason };
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);

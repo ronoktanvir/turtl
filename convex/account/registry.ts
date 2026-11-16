@@ -135,6 +135,7 @@ export const accountErasers: Eraser[] = [
   accountRows("pushTokens", "by_account_and_disabled"),
   accountRows("aiConsents", "by_account"),
   accountRows("modelSpend", "by_account_and_month"),
+  accountRows("accountSpendDays", "by_account_and_day"),
   accountRows("codingThreads", "by_account_day_and_request"),
   // The account's coding agent key, sealed (convex/secrets). A project's control token went with the project above.
   accountRows("secrets", "by_account_and_kind"),

@@ -3,7 +3,7 @@ import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import type { ActionCtx } from "../_generated/server";
 import { gateFor, type Gate } from "../consent/gate";
-import { modelCost } from "../spend/limits";
+import { callEstimate, modelCost } from "../spend/limits";
 import type { HandlerInput, HandlerResult } from "../runner/contract";
 import { readFinding, type KnownRecord, type ScenarioId } from "./rules";
 
@@ -40,9 +40,9 @@ type Answer = { ok: true; json: Record<string, unknown> } | { ok: false; reason:
 async function ask(gate: Gate, prompt: unknown): Promise<Answer> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) return { ok: false, reason: NO_MODEL_REASON };
-  const opened = await gate.open("openai");
-  if (!opened.ok) return { ok: false, reason: opened.reason };
   const model = structuralModelId();
+  const opened = await gate.open("openai", "send", callEstimate(model, SYSTEM_PROMPT.length + JSON.stringify(prompt).length));
+  if (!opened.ok) return { ok: false, reason: opened.reason };
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), MODEL_TIMEOUT_MS);
   try {

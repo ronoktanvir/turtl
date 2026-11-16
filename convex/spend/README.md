@@ -18,12 +18,23 @@ Every limit above is per account or per project, and nothing yet stops a script 
 
 The totals live in `deploymentTotals` (one row per total per hour or day; older ones are deleted as a new one starts). They belong to no account and are not deleted with one.
 
+## Each account's share of the day
+
+The daily ceiling is one pool every account shares, so without more one account could reach it alone (its month in a morning of chat, plus its projects' customer reports) and no other owner would get a diagnosis until midnight UTC (second review, finding 12). So each account has a share of the day, checked by the gate after the ceiling:
+
+- **Its own calls**, `ACCOUNT_MODEL_SPEND_PER_DAY_USD` (default $2.50): diagnosis, fix options, the case chat, voice, reading its repositories and the code map.
+- **Its projects' customer reports together**, `ACCOUNT_INTAKE_SPEND_PER_DAY_USD` (default $1.00), on top of each project's own `INTAKE_SPEND_PER_DAY_USD`. Kept apart from the first, so customers cannot use up what diagnosing the owner's outages needs.
+
+Both live in `accountSpendDays` (one row per account per day; older days are deleted as a new one starts; the rows go with the account). A call is counted from the moment the gate lets it through: `internal.consent.gate.admit` holds the caller's estimate of its cost (`callEstimate(model, promptChars, maxOutputTokens)`, or $0.10 when it gives none) in the same transaction as the check, and `addModelSpend` replaces the hold with what the call cost. So calls started together are counted one after another and a burst stops at the share; the day can pass the share by at most the last call let through. A call that fails before reporting its cost keeps its hold until the day ends.
+
+With the defaults one account can put at most about $3.50 (plus one call each side) into the deployment's $25.00 day, so it takes at least eight accounts acting together to reach the ceiling.
+
 In the single-owner demo there is no limit and nothing is recorded.
 
 ## Files
 
 - `limits.ts`: the two limits, the month and day keys, and `modelCost(model, usage)`: the list price from `convex/routing/configs.ts`, or the dearest price on that list for a model it does not price, so an unpriced model cannot slip past the limit. Speech-to-text and text-to-speech report no tokens and count $0.01 a call.
-- `schema.ts`: `modelSpend` (one row per account per month: estimated dollars and calls), `codingThreads` (one row per thread started, by day) and `intakeDays` (one row per project per day: what its customer reports cost and how many cases they opened; older days are deleted as a new one starts).
+- `schema.ts`: `modelSpend` (one row per account per month: estimated dollars and calls), `accountSpendDays` (one row per account per day: its own calls and its customers' reports, spent and held), `codingThreads` (one row per thread started, by day) and `intakeDays` (one row per project per day: what its customer reports cost and how many cases they opened; older days are deleted as a new one starts).
 - `ledger.ts`: `addModelSpend` (to the project's day when the gate was made for customer reports, otherwise the account's month) and `recordThread`, written only by the gate (`convex/consent/gate.ts`) after a call it let through; `openIntakeCase`, which `intake/records:land` asks before opening a case; and the readers the gate checks before a call.
 - `status.ts`: `api.spend.status.mine`, the gear sheet's line: spend this month against the limit, and coding agents started today against theirs.
 

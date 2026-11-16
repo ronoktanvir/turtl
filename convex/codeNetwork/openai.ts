@@ -1,7 +1,7 @@
 import { NO_MODEL_REASON } from "../constants";
 import type { Gate } from "../consent/gate";
 import { Refused, VendorError, vendorFailure } from "../consent/outbound";
-import { modelCost } from "../spend/limits";
+import { callEstimate, modelCost } from "../spend/limits";
 
 declare const process: { env: Record<string, string | undefined> };
 
@@ -30,9 +30,10 @@ export async function respond(
 ): Promise<{ text: string; usage: ModelUsage }> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error(`${capitalize(NO_MODEL_REASON)}.`);
-  const opened = await gate.open("openai");
-  if (!opened.ok) throw new Refused(opened.reason);
   const model = process.env.OPENAI_MODEL || DEFAULT_MODEL;
+  const promptChars = instructions.length + (typeof input === "string" ? input.length : input.reduce((sum, item) => sum + item.content.length, 0));
+  const opened = await gate.open("openai", "send", callEstimate(model, promptChars, maxOutputTokens));
+  if (!opened.ok) throw new Refused(opened.reason);
   let response: Response;
   try {
     response = await opened.fetch("https://api.openai.com/v1/responses", {

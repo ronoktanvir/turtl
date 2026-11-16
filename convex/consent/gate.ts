@@ -1,11 +1,20 @@
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
-import { internalQuery, type ActionCtx, type QueryCtx } from "../_generated/server";
+import { internalMutation, internalQuery, type ActionCtx, type QueryCtx } from "../_generated/server";
 import { accessEnforced, SOLO_ACCOUNT } from "../access";
 import { deploymentSpendReached } from "../spend/ceilings";
-import { intakeSpendToday, monthSpend, threadsToday } from "../spend/ledger";
-import { codingThreadsPerDay, intakeSpendPerDayUsd, modelSpendLimitUsd, spendRefusal } from "../spend/limits";
+import { accountDay, holdModelCall, intakeSpendToday, monthSpend, threadsToday } from "../spend/ledger";
+import {
+  accountIntakeSpendPerDayUsd,
+  accountModelSpendPerDayUsd,
+  codingThreadsPerDay,
+  intakeSpendPerDayUsd,
+  MAX_CALL_HOLD_USD,
+  MODEL_CALL_HOLD_USD,
+  modelSpendLimitUsd,
+  spendRefusal,
+} from "../spend/limits";
 import { sendTo } from "./outbound";
 import { asAgreement, latestAgreement } from "./permission";
 import { MODEL_SERVICES, permissionFor, refusal, serviceName, type Outbound } from "./services";
@@ -34,14 +43,15 @@ export type Allowance = "account" | "intake";
  */
 export type Purpose = "send" | "start_thread" | "erase";
 
-type Answer = { ok: true; account: string; appId?: Id<"apps"> } | { ok: false; reason: string };
+type Answer = { ok: true; account: string; appId?: Id<"apps">; held?: number } | { ok: false; reason: string };
 
 export interface Gate {
   /** Null when turtl may send to this service now, otherwise the plain reason it may not. */
   blocked(service: Outbound, purpose?: Purpose): Promise<string | null>;
-  /** Asks, and on a yes hands back the only fetch that may reach the service. */
-  open(service: Outbound, purpose?: Purpose): Promise<{ ok: true; fetch: typeof fetch } | { ok: false; reason: string }>;
-  /** Adds a call's estimated cost to the account's month. Does nothing in the demo. */
+  /** Asks, and on a yes hands back the only fetch that may reach the service. A model call is counted at once, at
+   * `estimateUsd` (the most it is likely to cost: callEstimate in convex/spend/limits.ts) until spent() reports it. */
+  open(service: Outbound, purpose?: Purpose, estimateUsd?: number): Promise<{ ok: true; fetch: typeof fetch } | { ok: false; reason: string }>;
+  /** Adds a call's estimated cost to the account's month and day, in place of its hold. Does nothing in the demo. */
   spent(costUsd: number): Promise<void>;
   /** Counts a started coding-agent thread against the account's day. Does nothing in the demo. */
   threadStarted(requestId: string): Promise<void>;
@@ -62,38 +72,81 @@ async function ownerOf(ctx: Pick<QueryCtx, "db">, scope: Scope): Promise<{ accou
   return { account: app?.ownerId ?? null, appId: app ? app._id : null };
 }
 
+type Args = { scope: Scope; service: string; purpose: Purpose; allowance?: Allowance; estimateUsd?: number };
+type Decision = { answer: Answer; hold: "own" | "intake" | null };
+
+const isModelCall = (service: string, purpose: Purpose) => purpose === "send" && (MODEL_SERVICES as readonly string[]).includes(service);
+
+// The answer for one call. `hold` names the account's day share a model call it lets through counts against until its
+// cost comes back: admit holds it, check (which only asks) does not.
+async function decide(ctx: Pick<QueryCtx, "db">, { scope, service, purpose, allowance = "account" }: Args): Promise<Decision> {
+  const no = (reason: string): Decision => ({ answer: { ok: false, reason }, hold: null });
+  if (!accessEnforced()) return { answer: { ok: true, account: SOLO_ACCOUNT }, hold: null };
+  const { account, appId } = await ownerOf(ctx, scope);
+  if (purpose === "erase") return { answer: { ok: true, account: account ?? "" }, hold: null };
+  if (!account) return no(refusal.noOwner(serviceName(service)));
+  // A customer-report call is billed to its project, so it must name one.
+  if (allowance === "intake" && !appId) return no(refusal.noOwner(serviceName(service)));
+  const permitted = permissionFor(asAgreement(await latestAgreement(ctx, account)), service);
+  if (!permitted.ok) return { answer: permitted, hold: null };
+  const now = Date.now();
+  let hold: Decision["hold"] = null;
+  if (isModelCall(service, purpose)) {
+    // The deployment's own daily ceiling comes first: however many accounts there are, the day's total is bounded.
+    if (await deploymentSpendReached(ctx, now)) return no(spendRefusal.deploymentSpent());
+    // Then the account's share of that day, so one account (its own calls, or its customers' reports) cannot reach the
+    // ceiling alone and stop every other owner's diagnosis (finding 12). Calls still running count at their hold.
+    const day = await accountDay(ctx, account, now);
+    if (allowance === "intake") {
+      const limit = intakeSpendPerDayUsd();
+      if ((await intakeSpendToday(ctx, appId!, now)) >= limit) return no(spendRefusal.intakeSpent(limit));
+      const share = accountIntakeSpendPerDayUsd();
+      if (day.intakeUsd + day.intakeHeldUsd >= share) return no(spendRefusal.accountIntakeSpent(share));
+      hold = "intake";
+    } else {
+      const limit = modelSpendLimitUsd();
+      if ((await monthSpend(ctx, account, now)) >= limit) return no(spendRefusal.overLimit(limit, now));
+      const share = accountModelSpendPerDayUsd();
+      if (day.ownUsd + day.ownHeldUsd >= share) return no(spendRefusal.accountDaySpent(share));
+      hold = "own";
+    }
+  }
+  if (purpose === "start_thread") {
+    const cap = codingThreadsPerDay();
+    if ((await threadsToday(ctx, account, now)) >= cap) return no(spendRefusal.threadCap(cap));
+  }
+  return { answer: allowance === "intake" ? { ok: true, account, appId: appId! } : { ok: true, account }, hold };
+}
+
+const vArgs = { scope: vScope, service: v.string(), purpose: vPurpose, allowance: v.optional(vAllowance), estimateUsd: v.optional(v.number()) };
+
+/** What an admitted call is held at: its caller's estimate, within bounds, or the flat hold when it gave none. */
+const holdFor = (estimateUsd: number | undefined) =>
+  estimateUsd !== undefined && Number.isFinite(estimateUsd) && estimateUsd > 0 ? Math.min(estimateUsd, MAX_CALL_HOLD_USD) : MODEL_CALL_HOLD_USD;
+const vAnswer = v.union(
+  v.object({ ok: v.literal(true), account: v.string(), appId: v.optional(v.id("apps")), held: v.optional(v.number()) }),
+  v.object({ ok: v.literal(false), reason: v.string() }),
+);
+
+// Asks without counting anything: for `blocked`, which only wants to know.
 export const check = internalQuery({
-  args: { scope: vScope, service: v.string(), purpose: vPurpose, allowance: v.optional(vAllowance) },
-  returns: v.union(
-    v.object({ ok: v.literal(true), account: v.string(), appId: v.optional(v.id("apps")) }),
-    v.object({ ok: v.literal(false), reason: v.string() }),
-  ),
-  handler: async (ctx, { scope, service, purpose, allowance = "account" }): Promise<Answer> => {
-    if (!accessEnforced()) return { ok: true, account: SOLO_ACCOUNT };
-    const { account, appId } = await ownerOf(ctx, scope);
-    if (purpose === "erase") return { ok: true, account: account ?? "" };
-    if (!account) return { ok: false, reason: refusal.noOwner(serviceName(service)) };
-    // A customer-report call is billed to its project, so it must name one.
-    if (allowance === "intake" && !appId) return { ok: false, reason: refusal.noOwner(serviceName(service)) };
-    const permitted = permissionFor(asAgreement(await latestAgreement(ctx, account)), service);
-    if (!permitted.ok) return permitted;
-    const now = Date.now();
-    if (purpose === "send" && (MODEL_SERVICES as readonly string[]).includes(service)) {
-      // The deployment's own daily ceiling comes first: however many accounts there are, the day's total is bounded.
-      if (await deploymentSpendReached(ctx, now)) return { ok: false, reason: spendRefusal.deploymentSpent() };
-      if (allowance === "intake") {
-        const limit = intakeSpendPerDayUsd();
-        if ((await intakeSpendToday(ctx, appId!, now)) >= limit) return { ok: false, reason: spendRefusal.intakeSpent(limit) };
-      } else {
-        const limit = modelSpendLimitUsd();
-        if ((await monthSpend(ctx, account, now)) >= limit) return { ok: false, reason: spendRefusal.overLimit(limit, now) };
-      }
-    }
-    if (purpose === "start_thread") {
-      const cap = codingThreadsPerDay();
-      if ((await threadsToday(ctx, account, now)) >= cap) return { ok: false, reason: spendRefusal.threadCap(cap) };
-    }
-    return allowance === "intake" ? { ok: true, account, appId: appId! } : { ok: true, account };
+  args: vArgs,
+  returns: vAnswer,
+  handler: async (ctx, args): Promise<Answer> => (await decide(ctx, args)).answer,
+});
+
+// Asks and, on a yes for a model call, counts the call at its estimate against the account's day in the same
+// transaction. Calls started together are then counted one after another, so a burst stops at the account's share:
+// the day's total can pass the share by at most the last call let through.
+export const admit = internalMutation({
+  args: vArgs,
+  returns: vAnswer,
+  handler: async (ctx, args): Promise<Answer> => {
+    const { answer, hold } = await decide(ctx, args);
+    if (!answer.ok || !hold) return answer;
+    const held = holdFor(args.estimateUsd);
+    await holdModelCall(ctx, answer.account, hold, held);
+    return { ...answer, held };
   },
 });
 
@@ -105,33 +158,48 @@ export function gateFor(ctx: Runner, scope: Scope, allowance: Allowance = "accou
   const enforced = accessEnforced();
   let account: string | null = enforced ? null : SOLO_ACCOUNT;
   let intakeApp: Id<"apps"> | null = null;
+  // The holds of the model calls this gate let through whose cost has not come back yet, oldest first.
+  const holds: number[] = [];
 
-  const ask = async (service: Outbound, purpose: Purpose): Promise<Answer> => {
+  // `estimateUsd` set: the call is about to be sent, so a model call is counted at once (admit); otherwise only asked.
+  const ask = async (service: Outbound, purpose: Purpose, admitting: { estimateUsd?: number } | null): Promise<Answer> => {
     if (!enforced) return { ok: true, account: SOLO_ACCOUNT };
     // Deleting the owner's copies at a vendor needs no permission: it sends nothing but the ids to remove.
     if (purpose === "erase") return { ok: true, account: account ?? "" };
-    const answer: Answer = await ctx.runQuery(internal.consent.gate.check, { scope, service, purpose, ...(allowance === "intake" && { allowance }) });
+    const args = { scope, service, purpose, ...(allowance === "intake" && { allowance }) };
+    const answer: Answer = admitting && isModelCall(service, purpose)
+      ? await ctx.runMutation(internal.consent.gate.admit, { ...args, ...(admitting.estimateUsd !== undefined && { estimateUsd: admitting.estimateUsd }) })
+      : await ctx.runQuery(internal.consent.gate.check, args);
     if (answer.ok) {
       account = answer.account;
       intakeApp = answer.appId ?? intakeApp;
+      if (answer.held) holds.push(answer.held);
     }
     return answer;
   };
 
   return {
     blocked: async (service, purpose = "send") => {
-      const answer = await ask(service, purpose);
+      const answer = await ask(service, purpose, null);
       return answer.ok ? null : answer.reason;
     },
-    open: async (service, purpose = "send") => {
-      const answer = await ask(service, purpose);
+    open: async (service, purpose = "send", estimateUsd) => {
+      const answer = await ask(service, purpose, { estimateUsd });
       return answer.ok ? { ok: true, fetch: sendTo(service) } : { ok: false, reason: answer.reason };
     },
     spent: async (costUsd) => {
-      if (!enforced || !account || !(costUsd > 0)) return;
+      if (!enforced || !account) return;
       if (allowance === "intake" && !intakeApp) return;
+      // Each call's cost takes the place of the hold it was let through with.
+      const release = holds.shift() ?? 0;
+      if (!(costUsd > 0) && release === 0) return;
       try {
-        await ctx.runMutation(internal.spend.ledger.addModelSpend, { account, costUsd, ...(intakeApp && { appId: intakeApp }) });
+        await ctx.runMutation(internal.spend.ledger.addModelSpend, {
+          account,
+          costUsd: costUsd > 0 ? costUsd : 0,
+          ...(intakeApp && { appId: intakeApp }),
+          ...(release > 0 && { held: release }),
+        });
       } catch {
         console.error("Recording model spend failed");
       }
