@@ -166,6 +166,7 @@ function ScrollingTitle({ title, testID }: { title: string; testID?: string }) {
   const [x, setX] = useState(0);
   const [node, setNode] = useState<HTMLElement | null>(null);
   const overflow = content > box + 1;
+  useEffect(() => setX(0), [title]); // a new title starts at its beginning
   // A mouse wheel has no sideways axis, so over a title that does not fit, its up and down scroll the title.
   useEffect(() => {
     if (Platform.OS !== "web" || !node || !overflow) return;
