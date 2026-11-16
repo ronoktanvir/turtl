@@ -58,7 +58,10 @@ async function until(read, ok, label, timeout = 30_000) {
 
 const passed = { runId: "proof", verdict: "passed", failedStep: null, error: null, steps: [], cleanup: { ok: true, deletedBookings: 0 }, revision: "abc1234", environment: "proof", startedAt: 1, completedAt: 2 };
 
-/** The owner's app: every journey check passes while it runs. stop() closes it, so a check gets no response at all. */
+/**
+ * The owner's app: every journey check passes while it runs, and its health route answers 200 with no check result,
+ * as a real app's does. stop() closes it, so a check gets no response at all.
+ */
 function standInApp() {
   const requests = [];
   let server = null;
@@ -68,7 +71,7 @@ function standInApp() {
     request.resume();
     request.on("end", () => {
       response.writeHead(200, { "Content-Type": "application/json", Connection: "close" });
-      response.end(JSON.stringify(path.endsWith("/journey-check") ? passed : { ok: true }));
+      response.end(JSON.stringify(path.endsWith("/journey-check") ? passed : { ok: true, service: "proof" }));
     });
   };
   return {
@@ -166,7 +169,8 @@ test("cases for an app that stops answering, on a local Convex backend", { timeo
   await t.test("with accounts on: three rounds with no answer open one case for the project, which shows its checks not answering; the app answering closes it", async () => {
     for (const [name, value] of Object.entries(ACCOUNTS)) await convex("env", "set", name, value);
     await delay(1500);
-    const seeded = await admin.mutation(ref("protectedApp/localProof:seed"), { email: `ada-${RUN}@proof.test`, liveUrl: `http://127.0.0.1:${APP_PORT}/a-${RUN}`, checks: 2, run: RUN });
+    // Two real checks, and the project's health route registered as a journey beside them, as onboarding does.
+    const seeded = await admin.mutation(ref("protectedApp/localProof:seed"), { email: `ada-${RUN}@proof.test`, liveUrl: `http://127.0.0.1:${APP_PORT}/a-${RUN}`, checks: 2, run: RUN, health: true });
     const ada = client(`${seeded.account}|${seeded.sessionId}`);
     await ada.mutation(ref("push/devices:register"), { token: TOKEN("ada"), platform: "ios" });
     const read = () => admin.query(ref("protectedApp/localProof:snapshot"), { appId: seeded.appId });
@@ -175,7 +179,14 @@ test("cases for an app that stops answering, on a local Convex backend", { timeo
     // of its own in between; every count and case below is read back, never assumed.
     const round = () => admin.action(ref("monitor:checkProject"), { appId: seeded.appId });
     const first = await round();
-    assert.deepEqual(first.checked.map((check) => check.outcome), ["passed", "passed"]);
+    assert.deepEqual(first.checked.map((check) => check.outcome), ["passed", "passed", "check_error"], "the health route gives the monitor no check result");
+
+    // While the app is up, its health route's reply with no check result never counts, however many rounds.
+    for (let n = 0; n < 5; n++) await round();
+    const up = await read();
+    assert.deepEqual([counts(up), notAnsweringCases(up)], [[0, 0, 0], []]);
+    assert.ok((await overview()).every((check) => check.state === "passing" && !check.notAnswering));
+    say(`accounts: 6 rounds with the app up and its health route answering 200 with no check result: tries in a row ${JSON.stringify(counts(up))}, not-answering cases ${notAnsweringCases(up).length}`);
 
     await app.stop();
     say("accounts: the stand-in app stopped");
@@ -197,8 +208,11 @@ test("cases for an app that stops answering, on a local Convex backend", { timeo
     assert.deepEqual([row.steps.map((step) => step.status), row.attempts.map((attempt) => attempt.status)], [["waiting"], ["waiting"]]);
     say(`accounts: case opened: status ${row.status}, signature ${row.signature}, one step ${row.steps[0].status}`);
     say(`accounts: what the case says: "${row.impact}"`);
+    assert.match(row.impact, /^turtl's last 3 tries of 2 checks \("Book 1" and "Book 2"\) got no usable answer/, "it names the real checks only");
     const shown = await overview();
-    assert.ok(shown.every((check) => check.state === "failing" && check.notAnswering?.tries >= 3), JSON.stringify(shown));
+    const [health, ...real] = [shown.find((check) => check.name === "Health"), ...shown.filter((check) => check.name !== "Health")];
+    assert.ok(real.every((check) => check.state === "failing" && check.notAnswering?.tries >= 3), JSON.stringify(shown));
+    assert.deepEqual([health.state, health.notAnswering], ["passing", undefined], "the health journey is shown as before");
     say(`accounts: the project shows ${JSON.stringify(shown.map((check) => ({ name: check.name, state: check.state, notAnswering: check.notAnswering })))}`);
     const told = await until(read, (s) => notAnsweringCases(s)[0].pushes[0]?.outcome === "sent", "Ada was told");
     assert.deepEqual(notAnsweringCases(told)[0].notices.map((notice) => notice.event), ["not_answering"]);
@@ -217,7 +231,8 @@ test("cases for an app that stops answering, on a local Convex backend", { timeo
     const done = notAnsweringCases(closed)[0];
     assert.equal(notAnsweringCases(closed).length, 1);
     assert.deepEqual(done.notices.map((notice) => notice.event).sort(), ["answering_again", "not_answering"]);
-    assert.deepEqual(counts(closed), [0, 0]);
+    assert.deepEqual(counts(closed), [0, 0, 0]);
+    assert.match(done.attempts[0].summary, /Its checks pass now\.$/);
     assert.ok((await overview()).every((check) => check.state === "passing" && !check.notAnswering));
     const again = expo.sends().filter((send) => send.body.some((message) => message.to === TOKEN("ada"))).at(-1);
     assert.equal(again.body[0].body, BODIES.answering_again);

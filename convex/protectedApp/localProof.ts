@@ -15,11 +15,13 @@ function requireLocalProof() {
 }
 
 // One owner with a live sign-in session (so their phone can be registered for notifications) and one project on the
-// stand-in's address, with `checks` checks that need no control token.
+// stand-in's address, with `checks` checks that need no control token. `health`: also its health endpoint, registered
+// as a journey exactly as onboarding registers one (convex/onboarding/prepare.ts, checkLive): a GET check, passed at
+// registration from its 200.
 export const seed = internalMutation({
-  args: { email: v.string(), liveUrl: v.string(), checks: v.number(), run: v.string() },
+  args: { email: v.string(), liveUrl: v.string(), checks: v.number(), run: v.string(), health: v.optional(v.boolean()) },
   returns: v.object({ account: v.id("users"), sessionId: v.id("authSessions"), appId: v.id("apps") }),
-  handler: async (ctx, { email, liveUrl, checks, run }) => {
+  handler: async (ctx, { email, liveUrl, checks, run, health }) => {
     requireLocalProof();
     const account = await ctx.db.insert("users", { email });
     await ctx.db.insert("authAccounts", { userId: account, provider: "password", providerAccountId: `${run}-${email}` });
@@ -29,6 +31,13 @@ export const seed = internalMutation({
       await ctx.db.insert("journeys", {
         appId, name: `Book ${n + 1}`, description: "A stand-in journey.", checkVersion: "proof-v1",
         check: { kind: "http", config: { url: `${liveUrl}/check-${n + 1}/journey-check`, method: "POST", expectedStatus: 200 } },
+      });
+    }
+    if (health) {
+      await ctx.db.insert("journeys", {
+        appId, name: "Health", description: "The server answers its health check.", checkVersion: `journey-check-v1:${run}`,
+        check: { kind: "http", config: { url: `${liveUrl}/health`, method: "GET", expectedStatus: 200 } },
+        lastPassedAt: Date.now(),
       });
     }
     return { account, sessionId, appId };
