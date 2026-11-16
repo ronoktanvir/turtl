@@ -16,7 +16,7 @@ import { createLoader, memoryDb, root } from "./fixtures/convex-memory.mjs";
 const VARIABLES = [
   "AUTH_REQUIRED", "AUTH_STAND_IN_URL", "AUTH_RESEND_KEY", "AUTH_EMAIL_FROM", "CONVEX_CLOUD_URL", "SITE_URL",
   "NEW_ACCOUNTS_PER_HOUR", "NEW_ACCOUNTS_PER_DAY", "PASSWORD_SIGNUPS_PER_HOUR", "PASSWORD_SIGNUPS_PER_DAY", "CONFIRMED_SIGNUPS_PER_HOUR", "CONFIRMED_SIGNUPS_PER_DAY",
-  "SECRETS_ENCRYPTION_KEY", "AUTH_GITHUB_ID", "AUTH_GITHUB_SECRET", "GITHUB_APP_ID", "GITHUB_APP_PRIVATE_KEY", "GITHUB_APP_SLUG",
+  "EMAILS_PER_DAY", "SECRETS_ENCRYPTION_KEY", "AUTH_GITHUB_ID", "AUTH_GITHUB_SECRET", "GITHUB_APP_ID", "GITHUB_APP_PRIVATE_KEY", "GITHUB_APP_SLUG",
 ];
 const MAX_FAILED_PASSWORDS_PER_HOUR = 10;
 const realAuth = await import("@convex-dev/auth/server");
@@ -240,7 +240,7 @@ test("1. a stranger who knows the owner's address cannot spoil the owner's reset
   for (let n = 0; n < 20; n++) await w.password({ flow: "reset", email: "owner@example.com" });
   const nearMiss = (ownersCode[0] === "A" ? "B" : "A") + ownersCode.slice(1);
   const guesses = [nearMiss, "12345678", "00000000", "", "not a code", ...Array.from({ length: 995 }, guess)];
-  for (const code of guesses) await assert.rejects(reset({ code }), refusal(words.wrongCode));
+  for (const code of guesses) await assert.rejects(reset({ code }), refusal(words.wrongResetCode));
   assert.equal(w.db.rows("authRateLimits").length, 0, "no count of wrong codes exists, for the address or the account");
   assert.equal(w.emailsTo("owner@example.com").length, 2, "the sign-up's confirmation, and one reset: asking again within a minute sends nothing");
   // The owner's code works, pasted however the mail app hands it over.
@@ -264,7 +264,7 @@ test("1. the reviewer's attack replayed: the password kept locked, every new cod
     await as({ flow: "reset" });
     const ownersCode = w.standIn.lastCode("owner@example.com");
     // The stranger, polling, guesses before the owner types: far more than any count of tries would have allowed.
-    for (let n = 0; n < 50; n++) await assert.rejects(as({ flow: "reset-verification", code: guess(), newPassword: "stranger's pick" }), refusal(words.wrongCode));
+    for (let n = 0; n < 50; n++) await assert.rejects(as({ flow: "reset-verification", code: guess(), newPassword: "stranger's pick" }), refusal(words.wrongResetCode));
     const back = await as({ flow: "reset-verification", code: ownersCode, newPassword: `owner's password ${round}` });
     assert.ok(back.userId, `round ${round}: the owner's own code works`);
     // The stranger locks the new password again; the owner is already signed in on this phone.
@@ -302,14 +302,14 @@ test("2. at most five reset emails a day go to one address, and the newest still
   const reset = (code, newPassword) => w.password({ flow: "reset-verification", email: "owner@example.com", code, newPassword });
   assert.ok((await reset(codes[4], "the owner's new password")).userId, "the newest email works until another can be sent");
   // ...and it worked once: every code of the day is used with it.
-  await assert.rejects(reset(codes[3], "another password"), refusal(words.wrongCode));
+  await assert.rejects(reset(codes[3], "another password"), refusal(words.wrongResetCode));
   // Then a new email can go out.
   at(t, sentAt(0) + DAY + 1);
   await w.password({ flow: "reset", email: "owner@example.com" });
   assert.equal(resets().length, 6, "a day after the first, the sixth");
   // A code past its 24 hours never works.
   at(t, sentAt(0) + DAY + 1 + DAY);
-  await assert.rejects(reset(w.standIn.lastCode("owner@example.com"), "a late password"), refusal(words.wrongCode), "expired");
+  await assert.rejects(reset(w.standIn.lastCode("owner@example.com"), "a late password"), refusal(words.wrongResetCode), "expired");
 });
 
 test("2. a stranger's requests never replace or cancel a code the owner already has", async (t) => {
@@ -355,13 +355,13 @@ test("4. a reset ends every other session of the account, and a code cannot be r
   // Two redemptions of one code at once (the owner's phone and a stranger who saw the email over a shoulder).
   const outcomes = await Promise.allSettled([redeem("first password"), redeem("second password")]);
   assert.deepEqual(outcomes.map((outcome) => outcome.status).sort(), ["fulfilled", "rejected"], "exactly one works");
-  assert.ok(refusal(words.wrongCode)(outcomes.find((outcome) => outcome.status === "rejected").reason));
+  assert.ok(refusal(words.wrongResetCode)(outcomes.find((outcome) => outcome.status === "rejected").reason));
   const won = outcomes.find((outcome) => outcome.status === "fulfilled").value;
   assert.equal(won.userId, owner.userId);
   // Every session from before is gone; only the one the reset just made is left.
   assert.deepEqual(w.db.rows("authSessions").filter((session) => session.userId === owner.userId).map((session) => session._id), [won.sessionId]);
   for (const before of [owner, elsewhere]) await assert.rejects(access.requireAccount(as(before.identity)), refusal("Sign in to continue."));
-  await assert.rejects(redeem("third password"), refusal(words.wrongCode), "a code works once");
+  await assert.rejects(redeem("third password"), refusal(words.wrongResetCode), "a code works once");
 });
 
 // Review finding 18: an owner who lost a phone resets the password from another device. Every session ends, and the
@@ -442,8 +442,9 @@ test("5. with accounts on and no email service, there is no password sign-up, si
   assert.deepEqual(w.db.rows("users"), []);
 });
 
-test("6. throwaway password sign-ups cannot use up the room for Apple, GitHub or confirmed accounts", async (t) => {
-  const w = await world(t, ACCOUNTS);
+test("6. throwaway password sign-ups on many domains cannot use up the room for Apple, GitHub or confirmed accounts", async (t) => {
+  // Plenty of email for the day, so only the sign-up ceilings are at work here (the day's emails have their own test).
+  const w = await world(t, { ...ACCOUNTS, EMAILS_PER_DAY: "1000" });
   t.mock.timers.enable({ apis: ["Date"], now: START + 30 * 60_000 });
   const limits = w.load("convex/spend/limits.ts");
   const { ceilingRefusal } = limits;
@@ -461,7 +462,7 @@ test("6. throwaway password sign-ups cannot use up the room for Apple, GitHub or
     at(t, START + hour * 3_600_000 + 30 * 60_000);
     for (let n = 0; n < 45; n++) {
       try {
-        await w.password({ flow: "signUp", email: `throwaway-${hour}-${n}@example.com`, password: "throwaway pass" });
+        await w.password({ flow: "signUp", email: `throwaway@d${hour}x${n}.example`, password: "throwaway pass" });
         made += 1;
       } catch (error) {
         assert.ok(refusal(ceilingRefusal.passwordSignUpsThisHour)(error) || refusal(ceilingRefusal.passwordSignUpsToday)(error), error?.data);
@@ -624,6 +625,137 @@ test("the single-owner demo is unchanged: no sign-up, no hold, no email, nothing
   assert.deepEqual(w.db.rows("deploymentTotals"), [], "and counts nothing");
 });
 
+// ---------------------------------------------------------------------------------------------- third review
+
+// Finding 21: Mallory asks for a reset of her own account and sends Alice the link. Before, the link carried Mallory's
+// address too, and finishing it signed Alice into Mallory's account.
+test("Finding 21: a reset link for address A, completed with address B, is refused and changes nothing", async (t) => {
+  const w = await world(t, ACCOUNTS);
+  t.mock.timers.enable({ apis: ["Date"], now: START + 9 * 3_600_000 });
+  const { words } = w;
+  await confirmedOwner(w, "alice@example.com", "alice's own pass");
+  await confirmedOwner(w, "mallory@elsewhere.example", "mallory's pass");
+  await w.password({ flow: "reset", email: "mallory@elsewhere.example" });
+  const link = w.standIn.lastLink("mallory@elsewhere.example");
+  assert.match(link, /^turtl:\/\/reset-password\?emailCode=[0-9A-Z-]{23}$/, "the link carries the code and no address");
+  const code = new URL(link).searchParams.get("emailCode");
+  // Alice taps it. Her screen holds her own address (this phone's request, or typed), never one from the link.
+  await assert.rejects(w.password({ flow: "reset-verification", email: "alice@example.com", code, newPassword: "alice's new pass" }), refusal(words.wrongResetCode));
+  // The words are the same for a mistyped code and an expired one, and name nobody.
+  await assert.rejects(w.password({ flow: "reset-verification", email: "alice@example.com", code: guess(), newPassword: "alice's new pass" }), refusal(words.wrongResetCode));
+  assert.ok(!/mallory|elsewhere|belongs|another account/i.test(words.wrongResetCode));
+  // Nothing changed: Alice's password is hers, and Mallory's code still works, for Mallory's address only.
+  assert.ok((await w.password({ flow: "signIn", email: "alice@example.com", password: "alice's own pass" })).userId);
+  await assert.rejects(w.password({ flow: "signIn", email: "alice@example.com", password: "alice's new pass" }), refusal(words.wrongPassword));
+  assert.ok((await w.password({ flow: "reset-verification", email: "mallory@elsewhere.example", code, newPassword: "mallory's new pass" })).userId);
+  // Alice's own reset works as before.
+  at(t, START + 9 * 3_600_000 + 2 * 60_000);
+  await w.password({ flow: "reset", email: "alice@example.com" });
+  assert.ok((await w.password({ flow: "reset-verification", email: "alice@example.com", code: w.standIn.lastCode("alice@example.com"), newPassword: "alice's new pass" })).userId);
+});
+
+test("Finding 21: a confirmation link someone else sends confirms nothing and disturbs nothing", async (t) => {
+  const w = await world(t, ACCOUNTS);
+  t.mock.timers.enable({ apis: ["Date"], now: START + 9 * 3_600_000 });
+  const { words } = w;
+  const mallory = await w.password({ flow: "signUp", email: "mallory@elsewhere.example", password: "mallory's pass" });
+  const alice = await w.password({ flow: "signUp", email: "alice@example.com", password: "alice's own pass" });
+  const malloryCode = new URL(w.standIn.lastLink("mallory@elsewhere.example")).searchParams.get("emailCode");
+  const viewer = async (who) => await w.call("api.users.viewer", {}, who.identity);
+  // Alice, still waiting, taps Mallory's link and Confirm: refused, and she is still waiting.
+  await assert.rejects(w.call("api.auth.confirmation.confirm", { code: malloryCode }, alice.identity), refusal(words.wrongCode));
+  assert.equal((await viewer(alice)).confirmed, false);
+  // Her own code still works, and so does Mallory's, for Mallory.
+  await w.call("api.auth.confirmation.confirm", { code: w.standIn.lastCode("alice@example.com") }, alice.identity);
+  assert.equal((await viewer(alice)).confirmed, true);
+  // Signed in and confirmed, the link has nothing to confirm and changes nothing.
+  assert.equal(await w.call("api.auth.confirmation.confirm", { code: malloryCode }, alice.identity), null);
+  assert.equal((await viewer(alice)).id, alice.userId);
+  await w.call("api.auth.confirmation.confirm", { code: malloryCode }, mallory.identity);
+  assert.equal((await viewer(mallory)).confirmed, true);
+  // Signed out, it reaches nothing.
+  await assert.rejects(w.call("api.auth.confirmation.confirm", { code: malloryCode }, null), refusal("Sign in to continue."));
+});
+
+test("Finding 19: one email domain's sign-ups and confirmations stop at its share while another domain's still pass", async (t) => {
+  const w = await world(t, ACCOUNTS);
+  t.mock.timers.enable({ apis: ["Date"], now: START + 10 * 3_600_000 });
+  const { domainCap, emailDomain, domainRefusal, LARGE_PROVIDERS } = w.load("convex/auth/domains.ts");
+  // The shares at the default ceilings: an ordinary domain a tenth (at least 2), a large provider half.
+  assert.deepEqual([domainCap(40, "acme.example"), domainCap(200, "acme.example"), domainCap(20, "acme.example"), domainCap(100, "acme.example")], [4, 20, 2, 10]);
+  assert.deepEqual([domainCap(40, "gmail.com"), domainCap(200, "gmail.com"), domainCap(20, "gmail.com"), domainCap(100, "gmail.com")], [20, 100, 10, 50]);
+  assert.ok(LARGE_PROVIDERS.length <= 15, "the list stays short");
+  // Subdomains count with their domain, so a wildcard catch-all gains nothing.
+  assert.deepEqual(["a@catchall.example", "a@mail.catchall.example", "a@x.y.catchall.example", "a@eu.acme.co.uk", "a@acme.co.uk"].map(emailDomain), ["catchall.example", "catchall.example", "catchall.example", "acme.co.uk", "acme.co.uk"]);
+  const signUp = (email) => w.password({ flow: "signUp", email, password: "throwaway pass" });
+  // A script at one catch-all domain: four an hour, then refused, without making an account.
+  const made = [];
+  for (let n = 0; n < 4; n++) made.push(await signUp(`s${n}@${n % 2 ? "mail." : ""}catchall.example`));
+  await assert.rejects(signUp("s4@x.catchall.example"), refusal(domainRefusal.signUpsThisHour));
+  assert.equal(w.db.rows("users").length, 4);
+  // Another domain is not held up, and a large provider has room for many more.
+  assert.ok((await signUp("real@acme.example")).userId);
+  for (let n = 0; n < 20; n++) assert.ok((await signUp(`person${n}@gmail.com`)).userId);
+  await assert.rejects(signUp("person20@gmail.com"), refusal(domainRefusal.signUpsThisHour));
+  // Confirmations: two an hour at one domain; the third is refused and its code still works an hour later.
+  const confirm = (who, email) => w.call("api.auth.confirmation.confirm", { code: w.standIn.lastCode(email) }, who.identity);
+  await confirm(made[0], "s0@catchall.example");
+  await confirm(made[1], "s1@mail.catchall.example");
+  await assert.rejects(confirm(made[2], "s2@catchall.example"), refusal(domainRefusal.confirmationsThisHour));
+  await confirm(await w.password({ flow: "signIn", email: "real@acme.example", password: "throwaway pass" }), "real@acme.example");
+  at(t, START + 11 * 3_600_000);
+  await confirm(made[2], "s2@catchall.example");
+  assert.equal((await w.call("api.users.viewer", {}, made[2].identity)).confirmed, true);
+  // Over the day the domain stops at its share: twenty sign-ups.
+  for (let hour = 11; hour < 24; hour++) {
+    at(t, START + hour * 3_600_000);
+    for (let n = 0; n < 4; n++) await signUp(`h${hour}n${n}@catchall.example`).catch(() => {});
+  }
+  const atDomain = w.db.rows("users").filter((user) => emailDomain(user.email) === "catchall.example").length;
+  assert.equal(atDomain, 20, "a day's share of password sign-ups");
+});
+
+test("Finding 19: the day's emails: the ceiling refuses in plain words, leaves a code already sent working, and sign-ups never take a confirmed owner's reset", async (t) => {
+  // Six emails a day: sign-ups may cause four of them, and one domain two of those.
+  const w = await world(t, { ...ACCOUNTS, EMAILS_PER_DAY: "6" });
+  t.mock.timers.enable({ apis: ["Date"], now: START + 8 * 3_600_000 });
+  let now = START + 8 * 3_600_000;
+  const later = () => at(t, (now += 61_000));
+  const { domainRefusal } = w.load("convex/auth/domains.ts");
+  const { words } = w;
+  await confirmedOwner(w, "owner@example.com");
+  later();
+  await w.password({ flow: "reset", email: "owner@example.com" });
+  const first = w.standIn.lastCode("owner@example.com");
+  // One domain's share of the sign-ups' emails: the second sign-up at acme.example is its last.
+  const signUp = (email) => w.password({ flow: "signUp", email, password: "throwaway pass" });
+  await signUp("one@acme.example");
+  await assert.rejects(signUp("two@acme.example").then(() => signUp("three@acme.example")), refusal(domainRefusal.signUpDomainEmailsToday));
+  assert.equal(w.db.rows("users").filter((user) => user.email === "three@acme.example").length, 0, "no account an email could not reach");
+  // The sign-ups' share of the day is four: one more, and then no more password sign-ups today, at any domain.
+  await signUp("new@other.example");
+  await assert.rejects(signUp("late@third.example"), refusal(domainRefusal.signUpEmailsToday));
+  // A confirmed owner's reset still has room.
+  later();
+  await w.password({ flow: "reset", email: "owner@example.com" });
+  assert.equal(w.emailsTo("owner@example.com").length, 3, "the confirmation and two resets");
+  // Now the day is full: refused in plain words, the same for an address with no account.
+  later();
+  await assert.rejects(w.password({ flow: "reset", email: "owner@example.com" }), refusal(domainRefusal.emailsToday));
+  await assert.rejects(w.password({ flow: "reset", email: "nobody@example.com" }), refusal(domainRefusal.emailsToday));
+  assert.match(domainRefusal.emailsToday, /A code turtl already sent you still works/);
+  assert.equal(w.standIn.emails.length, 6);
+  // The codes already sent still work.
+  assert.ok((await w.password({ flow: "reset-verification", email: "owner@example.com", code: first, newPassword: "a new password" })).userId);
+  const waiting = await w.password({ flow: "signIn", email: "one@acme.example", password: "throwaway pass" });
+  await w.call("api.auth.confirmation.confirm", { code: w.standIn.lastCode("one@acme.example") }, waiting.identity);
+  // The next day there is room again.
+  at(t, START + DAY + 8 * 3_600_000);
+  await w.password({ flow: "reset", email: "owner@example.com" });
+  assert.equal(w.standIn.emails.length, 7);
+  assert.equal(words.wrongResetCode.length > 0, true);
+});
+
 // ---------------------------------------------------------------------------------------------- the emails and the codes
 
 test("the emails are short and plain, say what to do and that they can be ignored, carry a link and the code, and never a password", async (t) => {
@@ -644,9 +776,13 @@ test("the emails are short and plain, say what to do and that they can be ignore
     assert.ok(message.text.split(/\s+/).length < 110, "short");
     assert.ok(!/<script|<img|<style|https?:\/\//i.test(message.html), "nothing but paragraphs and the turtl:// link");
   }
-  assert.match(reset.text, /turtl:\/\/reset-password\?email=o'neil%2Btest%40example\.com&emailCode=ABCDE-01234-56789-FGHJK/);
-  assert.match(reset.html, /href="turtl:\/\/reset-password\?email=o&#39;neil%2Btest%40example\.com&#38;emailCode=ABCDE-01234-56789-FGHJK"/, "escaped in HTML");
-  assert.match(confirm.text, /turtl:\/\/confirm-email\?emailCode=ABCDE-01234-56789-FGHJK/);
+  // The links carry the code and nothing else (finding 21); the reset email names the account it is for.
+  assert.match(reset.text, /^turtl:\/\/reset-password\?emailCode=ABCDE-01234-56789-FGHJK$/m);
+  assert.match(reset.html, /href="turtl:\/\/reset-password\?emailCode=ABCDE-01234-56789-FGHJK"/);
+  assert.match(reset.text, /the turtl account for o'neil\+test@example\.com/);
+  assert.match(reset.html, /the turtl account for o&#39;neil\+test@example\.com/, "escaped in HTML");
+  assert.match(confirm.text, /^turtl:\/\/confirm-email\?emailCode=ABCDE-01234-56789-FGHJK$/m);
+  for (const message of [reset, confirm]) assert.ok(!/[?&]email=/.test(message.text + message.html), "no address in a link");
   assert.match(confirm.text, /deletes it after 7 days/);
   // Codes: twenty from the alphabet, varied; pasted any way they come.
   const { randomCode } = w.load("convex/auth/codes.ts");
@@ -667,9 +803,10 @@ test("a refused send takes its code back, so it neither works nor counts, and th
   t.mock.method(console, "error", (...args) => logged.push(args.join(" ")));
   const ctx = { runMutation: (fn, args) => w.call(fn.path, args) };
   const refused = async () => new Response("owner@example.com is not allowed", { status: 403 });
-  await assert.rejects(emailCode(ctx, "owner@example.com", "reset", refused), refusal(w.words.emailNotSent));
+  await assert.rejects(emailCode(ctx, "owner@example.com", "reset", { side: "signup", fetcher: refused }), refusal(w.words.emailNotSent));
   assert.deepEqual(logged, ["turtl's email was not accepted (HTTP 403)."]);
   assert.deepEqual(w.db.rows("authEmailCodes"), []);
+  assert.deepEqual(w.db.rows("authCounts"), [], "nor against the day");
   assert.deepEqual(await emailCode(ctx, "owner@example.com", "reset"), { ok: true }, "and the next one goes out at once");
   const [row] = w.db.rows("authEmailCodes");
   assert.equal(row.addressHash.length, 64);
@@ -681,15 +818,19 @@ test("a refused send takes its code back, so it neither works nor counts, and th
   await assert.rejects(w.password({ flow: "signUp", email: "new@example.com", password: "tide pools at dawn" }), refusal(w.words.signUpOff));
 });
 
-test("emailed codes are forgotten a day after they were sent", async (t) => {
+test("emailed codes are forgotten a day after they were sent, and the day's counts the next day", async (t) => {
   const w = await world(t, ACCOUNTS);
   t.mock.timers.enable({ apis: ["Date"], now: START });
   await w.password({ flow: "signUp", email: "one@example.com", password: "tide pools at dawn" });
+  const counted = w.db.rows("authCounts");
+  assert.deepEqual(counted.map((row) => row.name).sort(), ["domain_signup_emails_day", "domain_signups_day", "domain_signups_hour", "emails_day", "signup_emails_day"]);
+  assert.ok(counted.every((row) => !JSON.stringify(row).includes("example.com")), "a domain is kept only as a hash");
   at(t, START + DAY - 1);
   assert.equal(await w.call("internal.auth.codes.prune"), 0);
   at(t, START + DAY + 1);
-  assert.equal(await w.call("internal.auth.codes.prune"), 1);
+  assert.equal(await w.call("internal.auth.codes.prune"), 1 + counted.length);
   assert.deepEqual(w.db.rows("authEmailCodes"), []);
+  assert.deepEqual(w.db.rows("authCounts"), []);
 });
 
 // ---------------------------------------------------------------------------------------------- the app
@@ -718,4 +859,37 @@ test("the app holds an unconfirmed account at Check your email, and the email's 
   const confirm = readFileSync(join(root, "app/confirm-email.tsx"), "utf8");
   for (const testID of ["confirm-email", "confirm-code", "confirm-submit", "confirm-resend", "confirm-start-over", "confirm-sign-out"]) assert.ok(confirm.includes(`"${testID}"`), testID);
   assert.ok(!/<Text[\s>]|#[0-9a-fA-F]{3,6}\b|fontFamily/.test(confirm), "components and tokens only");
+  // Finding 21: the reset screen takes only the code from a link. Whose password changes comes from this phone's own
+  // request or from the person, and the screen says so before the button; the confirm screen names the account.
+  const reset = readFileSync(join(root, "app/reset-password.tsx"), "utf8");
+  assert.match(reset, /useLocalSearchParams<\{ emailCode\?: string \}>\(\)\.emailCode/);
+  assert.ok(!/linked\.email\b|params\.email\b|email\?: string/.test(reset), "no address is read from the link");
+  assert.match(reset, /recentResetAddress\(\)/);
+  assert.ok(reset.indexOf('testID="reset-whose"') < reset.indexOf('testID="reset-submit"'), "whose account, before the button");
+  assert.ok(reset.indexOf('testID="reset-account"') < reset.indexOf('testID="reset-submit"'));
+  assert.match(confirm, /status === "signedOut" \|\| status === "checking"\)\) rememberLinkedCode/, "a link opened by a confirmed account is dropped");
+  assert.ok(confirm.indexOf('testID="confirm-address"') < confirm.indexOf('testID="confirm-submit"'));
+});
+
+test("Finding 21: the phone remembers the address it asked to reset, for a code's life, and nothing in a link can set it", async (t) => {
+  const kept = new Map();
+  const secureStore = {
+    AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY: "after-first-unlock-this-device-only",
+    getItemAsync: async (key) => kept.get(key) ?? null,
+    setItemAsync: async (key, value) => void kept.set(key, value),
+    deleteItemAsync: async (key) => void kept.delete(key),
+  };
+  const load = createLoader({ "expo-secure-store": secureStore, "react-native": { Platform: { OS: "ios" } } });
+  const { rememberResetAddress, recentResetAddress, forgetResetAddress } = load("data/account/resetAddress.ts");
+  const now = Date.parse("2026-11-16T09:00:00Z");
+  t.mock.timers.enable({ apis: ["Date"], now });
+  assert.equal(await recentResetAddress(), null, "nothing asked here");
+  await rememberResetAddress("alice@example.com");
+  assert.equal(await recentResetAddress(), "alice@example.com");
+  assert.equal(await recentResetAddress(now + 23 * 3_600_000), "alice@example.com");
+  assert.equal(await recentResetAddress(now + 25 * 3_600_000), null, "gone with the code");
+  await forgetResetAddress();
+  assert.equal(await recentResetAddress(), null, "forgotten after a reset that worked");
+  kept.set("turtl.resetAddress", "not json");
+  assert.equal(await recentResetAddress(), null);
 });

@@ -4,40 +4,51 @@ import { Linking } from "react-native";
 import Field from "../components/account/Field";
 import FormScreen, { FormLink } from "../components/account/FormScreen";
 import { legalLinks } from "../components/legal/links";
-import { Button, T } from "../components/ui";
+import { Button, Card, T } from "../components/ui";
 import { CODE_VALID_HOURS, formatCode, MIN_PASSWORD_LENGTH, normalizeCode, normalizeEmail, passwordProblem, words } from "../convex/auth/rules";
 import { useAccount, useAccountActions } from "../data/account";
+import { forgetResetAddress, recentResetAddress, rememberResetAddress } from "../data/account/resetAddress";
 
 const support = legalLinks.find((link) => link.id === "support")!.url;
 
-/** Reset a forgotten password with a code sent by email. The email's turtl://reset-password link opens this screen
- * with the address and the code filled in; nothing is sent until the person chooses a password and taps Set new
- * password. Without an email service on the backend, it says how to reach support instead. */
+/**
+ * Reset a forgotten password with a code sent by email. The email's turtl://reset-password link opens this screen with
+ * the code filled in, and only the code (finding 21): whose password changes comes from this phone's own request, or
+ * from the person, never from the link, and the screen says it before the button. Nothing is sent until the person
+ * chooses a password and taps Set new password. Without an email service on the backend, it says how to reach support.
+ */
 export default function ResetPassword() {
   const router = useRouter();
-  const linked = useLocalSearchParams<{ email?: string; emailCode?: string }>();
+  const linked = useLocalSearchParams<{ emailCode?: string }>().emailCode;
   const { mode } = useAccount();
   const { requestReset, resetPassword } = useAccountActions();
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
   const [password, setPassword] = useState("");
-  const [sentTo, setSentTo] = useState<string | null>(null);
+  // The address this phone asked to reset (here, or earlier within a code's life); null when the person must type it.
+  const [known, setKnown] = useState<string | null>(null);
+  const [choosing, setChoosing] = useState(false);
   const [fromLink, setFromLink] = useState(false);
   const pending = useRef(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // A link fills the address and the code in, and goes straight to choosing a password.
+  // A link fills the code in and goes to choosing a password. The address is this phone's own last request, if any.
   useEffect(() => {
-    const address = typeof linked.email === "string" ? normalizeEmail(linked.email) : null;
-    const given = typeof linked.emailCode === "string" ? normalizeCode(linked.emailCode) : null;
-    if (!address || !given) return;
-    setEmail(address);
-    setSentTo(address);
+    const given = typeof linked === "string" ? normalizeCode(linked) : null;
+    if (!given) return;
     setCode(formatCode(given));
     setFromLink(true);
+    setChoosing(true);
     setError(null);
-  }, [linked.email, linked.emailCode]);
+    let current = true;
+    void recentResetAddress().then((address) => {
+      if (current) setKnown(address);
+    });
+    return () => {
+      current = false;
+    };
+  }, [linked]);
 
   const run = async (work: () => Promise<string | null>, onDone?: () => void) => {
     if (pending.current) return;
@@ -53,15 +64,30 @@ export default function ResetPassword() {
   const send = () => {
     const normalized = normalizeEmail(email);
     if (!normalized) return setError(words.badEmail);
-    void run(() => requestReset(normalized), () => setSentTo(normalized));
+    void run(
+      () => requestReset(normalized),
+      () => {
+        void rememberResetAddress(normalized);
+        setKnown(normalized);
+        setFromLink(false);
+        setChoosing(true);
+      },
+    );
   };
+  const account = known ?? normalizeEmail(email);
   const change = () => {
-    if (!sentTo) return;
-    const problem = passwordProblem(password, sentTo);
+    if (!account) return setError(words.badEmail);
+    const problem = passwordProblem(password, account);
     if (problem) return setError(problem);
-    if (!normalizeCode(code)) return setError(words.wrongCode);
+    if (!normalizeCode(code)) return setError(words.wrongResetCode);
     // On success the account gate opens Projects.
-    void run(() => resetPassword(sentTo, code, password));
+    void run(() => resetPassword(account, code, password), () => void forgetResetAddress());
+  };
+  const startAgain = () => {
+    setCode("");
+    setError(null);
+    setFromLink(false);
+    setChoosing(false);
   };
 
   if (!mode?.passwordReset) {
@@ -75,31 +101,58 @@ export default function ResetPassword() {
     );
   }
 
+  if (!choosing) {
+    return (
+      <FormScreen title="Reset your password" testID="reset-password">
+        <T color="textMuted">Enter the email address you signed up with. turtl will email you a link and a code.</T>
+        <Field label="Email" testID="reset-email" value={email} onChangeText={setEmail} keyboardType="email-address" textContentType="username" autoComplete="email" editable={!busy} returnKeyType="send" onSubmitEditing={send} />
+        {error && <T font="text" color="statusAffected" accessibilityRole="alert" testID="reset-error">{error}</T>}
+        <Button label={busy ? "Sending…" : "Email me a code"} disabled={busy || !email} onPress={send} testID="reset-send" />
+      </FormScreen>
+    );
+  }
+
   return (
     <FormScreen title="Reset your password" testID="reset-password">
-      {sentTo === null ? (
-        <>
-          <T color="textMuted">Enter the email address you signed up with. turtl will email you a link and a code.</T>
-          <Field label="Email" testID="reset-email" value={email} onChangeText={setEmail} keyboardType="email-address" textContentType="username" autoComplete="email" editable={!busy} returnKeyType="send" onSubmitEditing={send} />
-          {error && <T font="text" color="statusAffected" accessibilityRole="alert" testID="reset-error">{error}</T>}
-          <Button label={busy ? "Sending…" : "Email me a code"} disabled={busy || !email} onPress={send} testID="reset-send" />
-        </>
+      {fromLink ? (
+        <T testID="reset-sent">The code from your email is filled in.</T>
       ) : (
-        <>
-          {fromLink ? (
-            <T testID="reset-sent">The code from your email is filled in. Choose a new password for <T font="text">{sentTo}</T>.</T>
-          ) : (
-            <T testID="reset-sent">
-              If there's an account for <T font="text">{sentTo}</T>, an email is on its way. Tap the link in it on this phone, or copy the code here. It works for {CODE_VALID_HOURS} hours.
-            </T>
-          )}
-          <Field label="Code from the email" testID="reset-code" code value={code} onChangeText={setCode} placeholder="Paste the code here" autoCapitalize="characters" textContentType="oneTimeCode" autoComplete="one-time-code" editable={!busy} />
-          <Field label="New password" testID="reset-new-password" hint={`At least ${MIN_PASSWORD_LENGTH} characters.`} value={password} onChangeText={setPassword} secureTextEntry textContentType="newPassword" autoComplete="new-password" editable={!busy} returnKeyType="go" onSubmitEditing={change} />
-          {error && <T font="text" color="statusAffected" accessibilityRole="alert" testID="reset-error">{error}</T>}
-          <Button label={busy ? "Saving…" : "Set new password"} disabled={busy || !code || !password} onPress={change} testID="reset-submit" />
-          <FormLink label="Send a new code" onPress={() => { setCode(""); setError(null); setFromLink(false); setSentTo(null); }} testID="reset-again" />
-        </>
+        <T testID="reset-sent">If there's a turtl account for the address below, an email is on its way. Tap the link in it on this phone, or copy the code here. It works for {CODE_VALID_HOURS} hours.</T>
       )}
+      {known ? (
+        <Card testID="reset-account" style={{ paddingVertical: 14, paddingHorizontal: 16, gap: 2 }}>
+          <T variant="small" color="textMuted">Account</T>
+          <T variant="strong" font="text" selectable>{known}</T>
+        </Card>
+      ) : (
+        <Field label="Email address of your account" testID="reset-account-email" value={email} onChangeText={setEmail} keyboardType="email-address" textContentType="username" autoComplete="email" editable={!busy} />
+      )}
+      <Field label="Code from the email" testID="reset-code" code value={code} onChangeText={setCode} placeholder="Paste the code here" autoCapitalize="characters" textContentType="oneTimeCode" autoComplete="one-time-code" editable={!busy} />
+      <Field label="New password" testID="reset-new-password" hint={`At least ${MIN_PASSWORD_LENGTH} characters.`} value={password} onChangeText={setPassword} secureTextEntry textContentType="newPassword" autoComplete="new-password" editable={!busy} returnKeyType="go" onSubmitEditing={change} />
+      <T variant="small" color="textMuted" testID="reset-whose">
+        {account ? (
+          <>
+            This sets a new password for the turtl account <T font="text">{account}</T>. The code works only if turtl emailed it to that address.
+          </>
+        ) : (
+          "Enter the email address of your turtl account. The code works only for the address turtl emailed it to."
+        )}
+      </T>
+      {error && <T font="text" color="statusAffected" accessibilityRole="alert" testID="reset-error">{error}</T>}
+      <Button label={busy ? "Saving…" : "Set new password"} disabled={busy || !account || !code || !password} onPress={change} testID="reset-submit" />
+      {known && (
+        <FormLink
+          label="Not your account? Use another address"
+          role="button"
+          onPress={() => {
+            setKnown(null);
+            setEmail("");
+            setError(null);
+          }}
+          testID="reset-other-address"
+        />
+      )}
+      <FormLink label="Send a new code" onPress={startAgain} testID="reset-again" />
     </FormScreen>
   );
 }

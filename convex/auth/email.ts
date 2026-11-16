@@ -1,7 +1,8 @@
 import { ConvexError } from "convex/values";
 import { internal } from "../_generated/api";
 import type { ActionCtx } from "../_generated/server";
-import { addressHash, codeHash, randomCode, type Allowed, type Purpose } from "./codes";
+import { addressHash, codeHash, randomCode, type Allowed, type Purpose, type Side } from "./codes";
+import { emailDomain } from "./domains";
 import { APP_LINK_PREFIX, CODE_VALID_HOURS, formatCode, UNCONFIRMED_DAYS, words } from "./rules";
 import { emailService } from "./settings";
 
@@ -15,13 +16,16 @@ import { emailService } from "./settings";
 
 export type Message = { subject: string; text: string; html: string };
 
-/** The link in an email: it opens turtl's reset or confirm screen with the code (and for a reset, the address) filled in.
+/**
+ * The link in an email: it opens turtl's reset or confirm screen with the code filled in, and nothing else. It never
+ * carries the address (finding 21): a reset link someone forwards from their own account must not be able to name
+ * whose password the person who taps it is about to set. The reset screen takes the address from this phone's own
+ * request, or from the person; the code works only for the address it was sent to.
  * The parameter is emailCode, not code: Convex Auth's provider in a browser takes a ?code= in the page's address for
- * its own sign-in codes. */
-export function codeLink(purpose: Purpose, code: string, email: string): string {
-  return purpose === "reset"
-    ? `${APP_LINK_PREFIX}reset-password?email=${encodeURIComponent(email)}&emailCode=${formatCode(code)}`
-    : `${APP_LINK_PREFIX}confirm-email?emailCode=${formatCode(code)}`;
+ * its own sign-in codes.
+ */
+export function codeLink(purpose: Purpose, code: string): string {
+  return `${APP_LINK_PREFIX}${purpose === "reset" ? "reset-password" : "confirm-email"}?emailCode=${formatCode(code)}`;
 }
 
 const escape = (text: string) => text.replace(/[&<>"']/g, (character) => `&#${character.charCodeAt(0)};`);
@@ -46,12 +50,12 @@ export function resetMessage(email: string, code: string): Message {
     subject: "Reset your turtl password",
     ...compose(
       {
-        intro: "Someone asked to reset the password of the turtl account for this email address. To choose a new password, open this link on the phone where you use turtl:",
+        intro: `Someone asked to reset the password of the turtl account for ${email}. To choose a new password, open this link on the phone where you asked:`,
         linkLabel: "Choose a new password in turtl",
         screen: "Reset your password",
-        after: `The code works once, for ${CODE_VALID_HOURS} hours. If you didn't ask for this, ignore this email: your password stays the same.`,
+        after: `The code works once, for ${CODE_VALID_HOURS} hours, and only for ${email}. If you didn't ask for this, ignore this email: your password stays the same.`,
       },
-      codeLink("reset", code, email),
+      codeLink("reset", code),
       code,
     ),
   };
@@ -68,7 +72,7 @@ export function confirmMessage(email: string, code: string): Message {
         screen: "Check your email",
         after: `The code works for ${CODE_VALID_HOURS} hours. If you didn't make a turtl account, ignore this email: the account can't do anything, and turtl deletes it after ${UNCONFIRMED_DAYS} days.`,
       },
-      codeLink("confirm", code, email),
+      codeLink("confirm", code),
       code,
     ),
   };
@@ -92,12 +96,18 @@ export async function sendEmail(to: string, message: Message, fetcher: typeof fe
 /**
  * Emails a new code of this kind to the address, when the limits allow another email now (codes.ts). The code is made
  * here, filed by its hash, and exists in plain text only in the email. A send that fails takes the code back, so it
- * neither works nor counts against the address.
+ * neither works nor counts against the address or the day. `side` is "reset" only for a reset of an account whose
+ * address is confirmed; everything else is something a sign-up can cause, and has the smaller share of the day.
  */
-export async function emailCode(ctx: Pick<ActionCtx, "runMutation">, email: string, purpose: Purpose, fetcher?: typeof fetch): Promise<Allowed> {
+export async function emailCode(
+  ctx: Pick<ActionCtx, "runMutation">,
+  email: string,
+  purpose: Purpose,
+  { side = "signup", fetcher }: { side?: Side; fetcher?: typeof fetch } = {},
+): Promise<Allowed> {
   if (!emailService()) throw new ConvexError(purpose === "reset" ? words.resetOff : words.signUpOff);
   const code = randomCode();
-  const filed = { addressHash: await addressHash(email), purpose, codeHash: await codeHash(code) };
+  const filed = { addressHash: await addressHash(email), purpose, codeHash: await codeHash(code), domain: emailDomain(email), side };
   const allowed: Allowed = await ctx.runMutation(internal.auth.codes.reserve, filed);
   if (!allowed.ok) return allowed;
   try {

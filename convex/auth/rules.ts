@@ -17,6 +17,9 @@ export const words = {
   badEmail: "Enter your email address, like name@example.com.",
   tooManyTries: "Too many wrong passwords for this account. Reset your password to get back in now, or wait an hour and try again.",
   wrongCode: "That code didn't work. Copy the whole code from the newest email from turtl, or tap the link in it.",
+  // One answer for a mistyped code, a used or expired one, and one emailed to another address, so it never says whose
+  // code it is (finding 21).
+  wrongResetCode: "That code doesn't work for this email address. Check the address, and use the newest email turtl sent to it.",
   resetOff: "Password reset by email isn't available yet. Contact support and we'll help you back in.",
   signUpOff: "Signing up with an email address isn't available on this server yet. Sign up with Apple or GitHub instead.",
   emailNotSent: "turtl couldn't send the email just now. Try again in a few minutes.",

@@ -33,6 +33,7 @@ const EXEMPT = {
   bookingDemoAttempts: "The booking demo's own log of booking attempts. No account's data.",
   githubWebhookDeliveries: "GitHub's delivery ids and body digests, kept so a replayed webhook changes nothing. They name an installation number, never a person or an account.",
   authAppleNonces: "SHA-256 hashes of Apple sign-in nonces already used. They name nobody, and each is deleted minutes after its token expires.",
+  authCounts: "Running counts of sign-ups, confirmations and emails per hour and day, for the whole deployment or under a SHA-256 hash of an email domain. They name no account and no address, and the hourly sweep deletes every day before today.",
   authEmailCodes: "One row per code emailed in the last day, filed under a SHA-256 hash of the address and holding only the code's hash. It names no account, and must outlive one: it is what stops deleting an account and signing up again from mailing an address more than five times a day. The hourly sweep deletes each row a day after it was sent.",
   deploymentTotals: "Deployment-wide running totals (new accounts per hour and day, every account's model spend per day). They count everyone and name no account.",
   monitorCursor: "How far the monitor has looked through the checks added to every project: one deployment-wide row holding points in time. It names no account and no project.",

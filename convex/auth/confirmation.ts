@@ -8,6 +8,7 @@ import { beginDeletion } from "../account/deletion";
 import { admitNewAccount } from "../spend/ceilings";
 import { addressHash, codeHash, emailState, useCode } from "./codes";
 import { addressConfirmed, markAddressConfirmed, unconfirmedRow } from "./confirmed";
+import { domainRefusal } from "./domains";
 import { emailCode } from "./email";
 import { CODE_EMAILS_PER_DAY, normalizeCode, normalizeEmail, UNCONFIRMED_DAYS, words } from "./rules";
 
@@ -78,7 +79,7 @@ export const confirm = mutation({
     const email = await emailOf(ctx, account);
     if (!normalized || !email) throw new ConvexError(words.wrongCode);
     // The ceiling on confirmations comes first. Any refusal below undoes it, and leaves the code unused.
-    await admitNewAccount(ctx, "confirmation");
+    await admitNewAccount(ctx, "confirmation", email);
     if (!(await useCode(ctx, await addressHash(email), "confirm", await codeHash(normalized)))) throw new ConvexError(words.wrongCode);
     await markAddressConfirmed(ctx, account);
     return null;
@@ -95,7 +96,8 @@ export const resend = action({
     if (!account || !email) throw new ConvexError(SIGN_IN_REQUIRED);
     const allowed = await emailCode(ctx, email, "confirm");
     if (allowed.ok) return { sent: true, message: resent(email) };
-    return { sent: false, message: allowed.reason === "wait" ? waitWords : limitWords };
+    const message = { wait: waitWords, limit: limitWords, ceiling: domainRefusal.emailsToday, domain: domainRefusal.domainEmailsToday }[allowed.reason];
+    return { sent: false, message };
   },
 });
 

@@ -88,7 +88,10 @@ try {
   for (const [name, value] of Object.entries(plain)) await convex("env", "set", name, value);
   await new Promise((resolve) => setTimeout(resolve, 1500));
 
-  const owner = `owner-${randomBytes(3).toString("hex")}@example.com`;
+  // A domain of its own each run: every email domain has a small share of sign-ups an hour, which earlier runs and
+  // other local proofs on this backend may have used.
+  const run = randomBytes(3).toString("hex");
+  const owner = `owner@proof-${run}.example`;
   const secret = "local proof " + randomBytes(8).toString("hex");
   let first;
   await step("a password sign-up is held at Check your email: no permission, no project, no account for actions", async () => {
@@ -132,27 +135,45 @@ try {
     const code = standIn.lastCode(owner);
     for (let n = 0; n < 20; n++) await stranger.action(ref("auth:signIn"), { provider: "password", params: { email: owner, flow: "reset" } });
     for (let n = 0; n < 300; n++) {
-      await assert.rejects(stranger.action(ref("auth:signIn"), { provider: "password", params: { email: owner, code: guess(), newPassword: "stranger's pick", flow: "reset-verification" } }), refusedWith(/That code didn't work/));
+      await assert.rejects(stranger.action(ref("auth:signIn"), { provider: "password", params: { email: owner, code: guess(), newPassword: "stranger's pick", flow: "reset-verification" } }), refusedWith(/doesn't work for this email address/));
     }
     assert.deepEqual(subjects(owner).filter((subject) => subject === "Reset your turtl password").length, 1, "21 requests in a minute, one email");
     const back = await signIn({ email: owner, code, newPassword: "the owner's new password", flow: "reset-verification" });
     assert.ok(back.tokens, "the owner is signed in");
     assert.equal(await first.client.query(ref("users:viewer"), {}), null, "the session from before the reset has ended");
     assert.ok((await signIn({ email: owner, password: "the owner's new password", flow: "signIn" })).tokens, "the lock is cleared: the new password works at once");
-    await assert.rejects(signIn({ email: owner, code, newPassword: "a third password", flow: "reset-verification" }), refusedWith(/That code didn't work/), "a code works once");
+    await assert.rejects(signIn({ email: owner, code, newPassword: "a third password", flow: "reset-verification" }), refusedWith(/doesn't work for this email address/), "a code works once");
   });
 
   await step("Start over throws an unconfirmed account away and frees its address at once", async () => {
-    const typo = `typo-${randomBytes(3).toString("hex")}@exmaple.com`;
+    const typo = `typo@proof-${run}.exmaple`;
     const held = await signIn({ email: typo, password: secret, flow: "signUp" });
     await held.client.mutation(ref("auth/confirmation:startOver"), {});
     assert.equal(await held.client.query(ref("users:viewer"), {}), null);
     assert.ok((await signIn({ email: typo, password: "another password here", flow: "signUp" })).tokens, "the same address signs up again");
   });
 
+  await step("a reset link from Mallory's own account, finished with Alice's address, is refused and changes nothing", async () => {
+    const mallory = `mallory-${randomBytes(3).toString("hex")}@elsewhere.example`;
+    await signIn({ email: mallory, password: secret, flow: "signUp" });
+    await new ConvexHttpClient(convexUrl).action(ref("auth:signIn"), { provider: "password", params: { email: mallory, flow: "reset" } });
+    const link = standIn.lastLink(mallory);
+    assert.match(link, /^turtl:\/\/reset-password\?emailCode=[0-9A-Z-]{23}$/, "the link names no address");
+    const code = new URL(link).searchParams.get("emailCode");
+    await assert.rejects(signIn({ email: owner, code, newPassword: "alice's pick", flow: "reset-verification" }), refusedWith(/doesn't work for this email address/));
+    assert.ok((await signIn({ email: owner, password: "the owner's new password", flow: "signIn" })).tokens, "the owner's password is unchanged");
+  });
+
+  await step("one email domain stops at its share of sign-ups this hour, while another domain still signs up", async () => {
+    const domain = `catchall-${randomBytes(3).toString("hex")}.example`;
+    for (let n = 0; n < 4; n++) await signIn({ email: `s${n}@${n % 2 ? "mail." : ""}${domain}`, password: secret, flow: "signUp" });
+    await assert.rejects(signIn({ email: `s4@${domain}`, password: secret, flow: "signUp" }), refusedWith(/addresses at this email domain/));
+    assert.ok((await signIn({ email: `real-${randomBytes(3).toString("hex")}@acme.example`, password: secret, flow: "signUp" })).tokens);
+  });
+
   if (slow) {
     await step("five reset emails to one address, a minute apart, and the sixth is refused; the newest still works", async () => {
-      const target = `limits-${randomBytes(3).toString("hex")}@example.com`;
+      const target = `limits@limits-${run}.example`;
       await signIn({ email: target, password: secret, flow: "signUp" });
       const resets = () => subjects(target).filter((subject) => subject === "Reset your turtl password").length;
       for (let n = 0; n < 6; n++) {

@@ -27,9 +27,15 @@ own (`codes.ts`), not Convex Auth's verification codes, and both follow the same
 - A code is 20 letters and digits from Crockford's alphabet, about 100 bits (`rules.ts`). Nobody can guess one, so
   wrong codes are not counted at all: there is no count of tries for a stranger to use up, and no address or account
   is ever locked by a wrong code.
-- Nobody types it. Each email carries a `turtl://` link (`turtl://reset-password?email=…&emailCode=…`,
-  `turtl://confirm-email?emailCode=…`) that opens the app on the right screen with the code filled in, and the code itself,
-  to paste. A link never acts by itself: the person taps Set new password or Confirm email.
+- Nobody types it. Each email carries a `turtl://` link (`turtl://reset-password?emailCode=…`,
+  `turtl://confirm-email?emailCode=…`) that opens the app on the right screen with the code filled in, and the code
+  itself, to paste. A link never acts by itself: the person taps Set new password or Confirm email.
+- A link carries the code and nothing else (third review, finding 21). Someone could otherwise ask for a reset of their
+  own account and send the link to a stranger, who would set a password and find themselves in the sender's account.
+  The reset screen takes the address from this phone's own last request (`data/account/resetAddress.ts`: the Keychain,
+  for a code's 24 hours) or asks the person to type it, and says before the button whose password it sets. A code works
+  only for the address it was sent to, and every refusal reads the same, so it never says whose code it is. The confirm
+  screen names the signed-in account the code would confirm; a code sent to anyone else confirms nothing.
 - Asking again never replaces or cancels a code already sent. Every code works until it expires, until it is used, or
   until another code of the same kind for that address is used; so a reset or a confirmation happens once.
 - At most 5 emails of a kind go to one address in any 24 hours, and none within a minute of the last. Each code works
@@ -87,11 +93,30 @@ day (`convex/spend/ceilings.ts`), so filling one never shuts another:
 | Password accounts confirming their address | `CONFIRMED_SIGNUPS_PER_HOUR`, `CONFIRMED_SIGNUPS_PER_DAY` | 20, 100 |
 | Sign-ups with Apple or GitHub | `NEW_ACCOUNTS_PER_HOUR`, `NEW_ACCOUNTS_PER_DAY` | 20, 100 |
 
-A script of throwaway password sign-ups fills only the first, which holds up only other password sign-ups for the rest
-of that day; Apple and GitHub sign-ups, and real people confirming, still get in. Someone with many real mailboxes (one
-domain that takes every address is enough) can also fill the second and stop password accounts confirming for the day,
-each confirmed account bringing its own allowances, which the deployment's spend ceilings bound. Only many Apple IDs or
-GitHub accounts fill the third.
+One email domain may take only a tenth of the first two, at least 2 (with the defaults: 4 sign-ups an hour and 20 a
+day, 2 confirmations an hour and 10 a day), counted by its registrable domain, so `mail.acme.com` and `acme.com` are one
+and a wildcard catch-all gains nothing from subdomains (`domains.ts`). Each of a short list of large public providers
+(Gmail, Outlook, iCloud, Yahoo, Proton) may take half instead, since most real people use one and making many real
+mailboxes there costs a phone number each.
+
+A script of throwaway password sign-ups at one domain stops at that domain's share. What is left: password sign-ups
+need no mailbox, so a script that invents many domain names can still fill the first ceiling (each of those emails
+bounces) and hold up other password sign-ups for the day; Apple and GitHub sign-ups, and real people confirming, still
+get in. Filling the second needs real mailboxes at ten or more domains a day. Only many Apple IDs or GitHub accounts
+fill the third.
+
+## The day's emails
+
+`EMAILS_PER_DAY` (default 300) bounds every email turtl sends in a UTC day; set it to fit the email plan. Emails a
+sign-up can cause (each confirmation, and a reset of an account that has not confirmed its address) may use two thirds
+of it (200), and one email domain a tenth of those (20; a large provider half, 100). A reset for a confirmed account
+may use the rest, so a sign-up flood never takes the room an owner's reset needs. A sign-up is refused before any
+account is made once no email could reach it today. When the day runs out, turtl says so in plain words to anyone who
+asks for a reset, account or not, and codes already sent keep working.
+
+Unsolicited email therefore adds up to at most 5 confirmation and 5 reset emails to one address in any 24 hours, 20
+sign-up emails a day to one ordinary domain (100 to a large provider), and `EMAILS_PER_DAY` in all. Someone who knows
+many owners' addresses can still send each of them 5 reset emails a day and use up the day's resets.
 
 ## What is stored
 

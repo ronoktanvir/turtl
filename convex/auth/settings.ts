@@ -57,6 +57,15 @@ export function appleClient(): AppleClient | null {
   return { clientId: appleAudience(), teamId, keyId, privateKey, base: appleAuthBase() };
 }
 
+export const DEFAULT_EMAILS_PER_DAY = 300;
+
+/** The most emails turtl sends in a UTC day, all kinds together (convex/auth/codes.ts). Set it to fit the email plan. */
+export function emailsPerDay(): number {
+  const raw = process.env.EMAILS_PER_DAY;
+  const value = Number(raw);
+  return raw === undefined || raw.trim() === "" || !Number.isFinite(value) || value < 1 ? DEFAULT_EMAILS_PER_DAY : Math.floor(value);
+}
+
 /** turtl's email (a password reset, and confirming a new password account's address) goes out only when both the key
  * and a sender are set. With accounts on, password sign-up needs it too (convex/auth/password.ts). */
 export function emailService(): { key: string; from: string; endpoint: string } | null {
