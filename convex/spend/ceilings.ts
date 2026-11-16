@@ -1,6 +1,8 @@
 import { ConvexError } from "convex/values";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { accessEnforced } from "../access";
+import { bump, countOf, dayWindow, domainKey, hourWindow, type CountName } from "../auth/counts";
+import { domainCap, domainRefusal, emailDomain } from "../auth/domains";
 import {
   ceilingRefusal,
   confirmedSignUpsPerDay,
@@ -89,17 +91,34 @@ const CEILINGS: Record<Admission, { hour: Name; day: Name; perHour: () => number
   },
 };
 
+// Each email domain may take only a small share of the password sign-ups and of the confirmations (finding 19), so one
+// domain (a catch-all domain gives a script endless real mailboxes) cannot use up the room (convex/auth/domains.ts).
+const DOMAIN_COUNTS: Record<"password" | "confirmation", { hour: CountName; day: CountName; thisHour: string; today: string }> = {
+  password: { hour: "domain_signups_hour", day: "domain_signups_day", thisHour: domainRefusal.signUpsThisHour, today: domainRefusal.signUpsToday },
+  confirmation: { hour: "domain_confirmations_hour", day: "domain_confirmations_day", thisHour: domainRefusal.confirmationsThisHour, today: domainRefusal.confirmationsToday },
+};
+
 /**
  * Called inside the mutation that creates a user (Convex Auth's callback in convex/auth.ts) or confirms its address
  * (convex/auth/confirmation.ts), so the count and the change are one transaction. Refuses in plain words, which the app
- * shows as they are, once this hour's or today's count of that kind reaches its ceiling; the refusal undoes the change.
+ * shows as they are, once this hour's or today's count of that kind reaches its ceiling, or, for a password sign-up or
+ * a confirmation, once the address's email domain has had its share; the refusal undoes the change.
  */
-export async function admitNewAccount(ctx: MutationCtx, kind: Admission): Promise<void> {
+export async function admitNewAccount(ctx: MutationCtx, kind: Admission, email?: string): Promise<void> {
   if (!accessEnforced()) return;
   const now = Date.now();
   const ceiling = CEILINGS[kind];
   if ((await total(ctx, ceiling.hour, hourKey(now))) >= ceiling.perHour()) throw new ConvexError(ceiling.thisHour);
   if ((await total(ctx, ceiling.day, dayKey(now))) >= ceiling.perDay()) throw new ConvexError(ceiling.today);
+  if (kind !== "provider" && email) {
+    const domain = emailDomain(email);
+    const key = await domainKey(domain);
+    const counts = DOMAIN_COUNTS[kind];
+    if ((await countOf(ctx, counts.hour, key, hourWindow(now))) >= domainCap(ceiling.perHour(), domain)) throw new ConvexError(counts.thisHour);
+    if ((await countOf(ctx, counts.day, key, dayWindow(now))) >= domainCap(ceiling.perDay(), domain)) throw new ConvexError(counts.today);
+    await bump(ctx, counts.hour, key, hourWindow(now));
+    await bump(ctx, counts.day, key, dayWindow(now));
+  }
   await add(ctx, ceiling.hour, hourKey(now), 1);
   await add(ctx, ceiling.day, dayKey(now), 1);
 }

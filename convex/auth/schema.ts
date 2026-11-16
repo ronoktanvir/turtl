@@ -41,4 +41,24 @@ export const accountTables = {
    * (convex/auth/confirmation.ts). While the row exists the account reaches nothing but the "check your email" screen.
    * Deleted when the address is confirmed; an account still here after UNCONFIRMED_DAYS is deleted. */
   authUnconfirmed: defineTable({ account: v.string(), since: v.number() }).index("by_account", ["account"]).index("by_since", ["since"]),
+  /** Running counts behind the limits per email domain and on the day's emails (convex/auth/counts.ts): sign-ups and
+   * confirmations per domain per hour and per day, and emails per day, for the whole deployment ("" as the key) or per
+   * domain. `key` is a SHA-256 hash of the domain, never the domain; `window` is the UTC hour or day. They name no
+   * account and no address; the hourly sweep deletes every window before today. */
+  authCounts: defineTable({
+    name: v.union(
+      v.literal("domain_signups_hour"),
+      v.literal("domain_signups_day"),
+      v.literal("domain_confirmations_hour"),
+      v.literal("domain_confirmations_day"),
+      v.literal("emails_day"),
+      v.literal("signup_emails_day"),
+      v.literal("domain_signup_emails_day"),
+    ),
+    key: v.string(),
+    window: v.string(),
+    value: v.number(),
+  })
+    .index("by_name_key_and_window", ["name", "key", "window"])
+    .index("by_window", ["window"]),
 };

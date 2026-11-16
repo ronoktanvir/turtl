@@ -40,12 +40,13 @@ export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
     // (convex/spend/ceilings.ts), and a password account is held until its email address is confirmed
     // (convex/auth/confirmation.ts). This runs inside the mutation that makes the user, so a refusal leaves no account
     // behind, and no password account exists without its hold.
-    async afterUserCreatedOrUpdated(ctx, { userId, existingUserId, provider }) {
+    async afterUserCreatedOrUpdated(ctx, { userId, existingUserId, provider, profile }) {
       refuseSignInToDemo();
       if (existingUserId !== null) return;
       const mutationCtx = ctx as unknown as MutationCtx;
       if (provider?.id === PASSWORD_PROVIDER_ID) {
-        await admitNewAccount(mutationCtx, "password");
+        // The address's email domain has its own small share of password sign-ups (convex/auth/domains.ts).
+        await admitNewAccount(mutationCtx, "password", typeof profile?.email === "string" ? profile.email : undefined);
         await holdUntilConfirmed(mutationCtx, userId);
       } else {
         await admitNewAccount(mutationCtx, "provider");

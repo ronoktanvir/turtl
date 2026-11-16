@@ -20,6 +20,8 @@ import type * as auth_appleTokens from "../auth/appleTokens.js";
 import type * as auth_codes from "../auth/codes.js";
 import type * as auth_confirmation from "../auth/confirmation.js";
 import type * as auth_confirmed from "../auth/confirmed.js";
+import type * as auth_counts from "../auth/counts.js";
+import type * as auth_domains from "../auth/domains.js";
 import type * as auth_email from "../auth/email.js";
 import type * as auth_password from "../auth/password.js";
 import type * as auth_review from "../auth/review.js";
@@ -208,6 +210,8 @@ declare const fullApi: ApiFromModules<{
   "auth/codes": typeof auth_codes;
   "auth/confirmation": typeof auth_confirmation;
   "auth/confirmed": typeof auth_confirmed;
+  "auth/counts": typeof auth_counts;
+  "auth/domains": typeof auth_domains;
   "auth/email": typeof auth_email;
   "auth/password": typeof auth_password;
   "auth/review": typeof auth_review;

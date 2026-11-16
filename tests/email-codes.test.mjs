@@ -16,7 +16,7 @@ import { createLoader, memoryDb, root } from "./fixtures/convex-memory.mjs";
 const VARIABLES = [
   "AUTH_REQUIRED", "AUTH_STAND_IN_URL", "AUTH_RESEND_KEY", "AUTH_EMAIL_FROM", "CONVEX_CLOUD_URL", "SITE_URL",
   "NEW_ACCOUNTS_PER_HOUR", "NEW_ACCOUNTS_PER_DAY", "PASSWORD_SIGNUPS_PER_HOUR", "PASSWORD_SIGNUPS_PER_DAY", "CONFIRMED_SIGNUPS_PER_HOUR", "CONFIRMED_SIGNUPS_PER_DAY",
-  "SECRETS_ENCRYPTION_KEY", "AUTH_GITHUB_ID", "AUTH_GITHUB_SECRET", "GITHUB_APP_ID", "GITHUB_APP_PRIVATE_KEY", "GITHUB_APP_SLUG",
+  "EMAILS_PER_DAY", "SECRETS_ENCRYPTION_KEY", "AUTH_GITHUB_ID", "AUTH_GITHUB_SECRET", "GITHUB_APP_ID", "GITHUB_APP_PRIVATE_KEY", "GITHUB_APP_SLUG",
 ];
 const MAX_FAILED_PASSWORDS_PER_HOUR = 10;
 const realAuth = await import("@convex-dev/auth/server");
@@ -442,8 +442,9 @@ test("5. with accounts on and no email service, there is no password sign-up, si
   assert.deepEqual(w.db.rows("users"), []);
 });
 
-test("6. throwaway password sign-ups cannot use up the room for Apple, GitHub or confirmed accounts", async (t) => {
-  const w = await world(t, ACCOUNTS);
+test("6. throwaway password sign-ups on many domains cannot use up the room for Apple, GitHub or confirmed accounts", async (t) => {
+  // Plenty of email for the day, so only the sign-up ceilings are at work here (the day's emails have their own test).
+  const w = await world(t, { ...ACCOUNTS, EMAILS_PER_DAY: "1000" });
   t.mock.timers.enable({ apis: ["Date"], now: START + 30 * 60_000 });
   const limits = w.load("convex/spend/limits.ts");
   const { ceilingRefusal } = limits;
@@ -461,7 +462,7 @@ test("6. throwaway password sign-ups cannot use up the room for Apple, GitHub or
     at(t, START + hour * 3_600_000 + 30 * 60_000);
     for (let n = 0; n < 45; n++) {
       try {
-        await w.password({ flow: "signUp", email: `throwaway-${hour}-${n}@example.com`, password: "throwaway pass" });
+        await w.password({ flow: "signUp", email: `throwaway@d${hour}x${n}.example`, password: "throwaway pass" });
         made += 1;
       } catch (error) {
         assert.ok(refusal(ceilingRefusal.passwordSignUpsThisHour)(error) || refusal(ceilingRefusal.passwordSignUpsToday)(error), error?.data);
@@ -676,6 +677,85 @@ test("Finding 21: a confirmation link someone else sends confirms nothing and di
   await assert.rejects(w.call("api.auth.confirmation.confirm", { code: malloryCode }, null), refusal("Sign in to continue."));
 });
 
+test("Finding 19: one email domain's sign-ups and confirmations stop at its share while another domain's still pass", async (t) => {
+  const w = await world(t, ACCOUNTS);
+  t.mock.timers.enable({ apis: ["Date"], now: START + 10 * 3_600_000 });
+  const { domainCap, emailDomain, domainRefusal, LARGE_PROVIDERS } = w.load("convex/auth/domains.ts");
+  // The shares at the default ceilings: an ordinary domain a tenth (at least 2), a large provider half.
+  assert.deepEqual([domainCap(40, "acme.example"), domainCap(200, "acme.example"), domainCap(20, "acme.example"), domainCap(100, "acme.example")], [4, 20, 2, 10]);
+  assert.deepEqual([domainCap(40, "gmail.com"), domainCap(200, "gmail.com"), domainCap(20, "gmail.com"), domainCap(100, "gmail.com")], [20, 100, 10, 50]);
+  assert.ok(LARGE_PROVIDERS.length <= 15, "the list stays short");
+  // Subdomains count with their domain, so a wildcard catch-all gains nothing.
+  assert.deepEqual(["a@catchall.example", "a@mail.catchall.example", "a@x.y.catchall.example", "a@eu.acme.co.uk", "a@acme.co.uk"].map(emailDomain), ["catchall.example", "catchall.example", "catchall.example", "acme.co.uk", "acme.co.uk"]);
+  const signUp = (email) => w.password({ flow: "signUp", email, password: "throwaway pass" });
+  // A script at one catch-all domain: four an hour, then refused, without making an account.
+  const made = [];
+  for (let n = 0; n < 4; n++) made.push(await signUp(`s${n}@${n % 2 ? "mail." : ""}catchall.example`));
+  await assert.rejects(signUp("s4@x.catchall.example"), refusal(domainRefusal.signUpsThisHour));
+  assert.equal(w.db.rows("users").length, 4);
+  // Another domain is not held up, and a large provider has room for many more.
+  assert.ok((await signUp("real@acme.example")).userId);
+  for (let n = 0; n < 20; n++) assert.ok((await signUp(`person${n}@gmail.com`)).userId);
+  await assert.rejects(signUp("person20@gmail.com"), refusal(domainRefusal.signUpsThisHour));
+  // Confirmations: two an hour at one domain; the third is refused and its code still works an hour later.
+  const confirm = (who, email) => w.call("api.auth.confirmation.confirm", { code: w.standIn.lastCode(email) }, who.identity);
+  await confirm(made[0], "s0@catchall.example");
+  await confirm(made[1], "s1@mail.catchall.example");
+  await assert.rejects(confirm(made[2], "s2@catchall.example"), refusal(domainRefusal.confirmationsThisHour));
+  await confirm(await w.password({ flow: "signIn", email: "real@acme.example", password: "throwaway pass" }), "real@acme.example");
+  at(t, START + 11 * 3_600_000);
+  await confirm(made[2], "s2@catchall.example");
+  assert.equal((await w.call("api.users.viewer", {}, made[2].identity)).confirmed, true);
+  // Over the day the domain stops at its share: twenty sign-ups.
+  for (let hour = 11; hour < 24; hour++) {
+    at(t, START + hour * 3_600_000);
+    for (let n = 0; n < 4; n++) await signUp(`h${hour}n${n}@catchall.example`).catch(() => {});
+  }
+  const atDomain = w.db.rows("users").filter((user) => emailDomain(user.email) === "catchall.example").length;
+  assert.equal(atDomain, 20, "a day's share of password sign-ups");
+});
+
+test("Finding 19: the day's emails: the ceiling refuses in plain words, leaves a code already sent working, and sign-ups never take a confirmed owner's reset", async (t) => {
+  // Six emails a day: sign-ups may cause four of them, and one domain two of those.
+  const w = await world(t, { ...ACCOUNTS, EMAILS_PER_DAY: "6" });
+  t.mock.timers.enable({ apis: ["Date"], now: START + 8 * 3_600_000 });
+  let now = START + 8 * 3_600_000;
+  const later = () => at(t, (now += 61_000));
+  const { domainRefusal } = w.load("convex/auth/domains.ts");
+  const { words } = w;
+  await confirmedOwner(w, "owner@example.com");
+  later();
+  await w.password({ flow: "reset", email: "owner@example.com" });
+  const first = w.standIn.lastCode("owner@example.com");
+  // One domain's share of the sign-ups' emails: the second sign-up at acme.example is its last.
+  const signUp = (email) => w.password({ flow: "signUp", email, password: "throwaway pass" });
+  await signUp("one@acme.example");
+  await assert.rejects(signUp("two@acme.example").then(() => signUp("three@acme.example")), refusal(domainRefusal.signUpDomainEmailsToday));
+  assert.equal(w.db.rows("users").filter((user) => user.email === "three@acme.example").length, 0, "no account an email could not reach");
+  // The sign-ups' share of the day is four: one more, and then no more password sign-ups today, at any domain.
+  await signUp("new@other.example");
+  await assert.rejects(signUp("late@third.example"), refusal(domainRefusal.signUpEmailsToday));
+  // A confirmed owner's reset still has room.
+  later();
+  await w.password({ flow: "reset", email: "owner@example.com" });
+  assert.equal(w.emailsTo("owner@example.com").length, 3, "the confirmation and two resets");
+  // Now the day is full: refused in plain words, the same for an address with no account.
+  later();
+  await assert.rejects(w.password({ flow: "reset", email: "owner@example.com" }), refusal(domainRefusal.emailsToday));
+  await assert.rejects(w.password({ flow: "reset", email: "nobody@example.com" }), refusal(domainRefusal.emailsToday));
+  assert.match(domainRefusal.emailsToday, /A code turtl already sent you still works/);
+  assert.equal(w.standIn.emails.length, 6);
+  // The codes already sent still work.
+  assert.ok((await w.password({ flow: "reset-verification", email: "owner@example.com", code: first, newPassword: "a new password" })).userId);
+  const waiting = await w.password({ flow: "signIn", email: "one@acme.example", password: "throwaway pass" });
+  await w.call("api.auth.confirmation.confirm", { code: w.standIn.lastCode("one@acme.example") }, waiting.identity);
+  // The next day there is room again.
+  at(t, START + DAY + 8 * 3_600_000);
+  await w.password({ flow: "reset", email: "owner@example.com" });
+  assert.equal(w.standIn.emails.length, 7);
+  assert.equal(words.wrongResetCode.length > 0, true);
+});
+
 // ---------------------------------------------------------------------------------------------- the emails and the codes
 
 test("the emails are short and plain, say what to do and that they can be ignored, carry a link and the code, and never a password", async (t) => {
@@ -723,9 +803,10 @@ test("a refused send takes its code back, so it neither works nor counts, and th
   t.mock.method(console, "error", (...args) => logged.push(args.join(" ")));
   const ctx = { runMutation: (fn, args) => w.call(fn.path, args) };
   const refused = async () => new Response("owner@example.com is not allowed", { status: 403 });
-  await assert.rejects(emailCode(ctx, "owner@example.com", "reset", refused), refusal(w.words.emailNotSent));
+  await assert.rejects(emailCode(ctx, "owner@example.com", "reset", { side: "signup", fetcher: refused }), refusal(w.words.emailNotSent));
   assert.deepEqual(logged, ["turtl's email was not accepted (HTTP 403)."]);
   assert.deepEqual(w.db.rows("authEmailCodes"), []);
+  assert.deepEqual(w.db.rows("authCounts"), [], "nor against the day");
   assert.deepEqual(await emailCode(ctx, "owner@example.com", "reset"), { ok: true }, "and the next one goes out at once");
   const [row] = w.db.rows("authEmailCodes");
   assert.equal(row.addressHash.length, 64);
@@ -737,15 +818,19 @@ test("a refused send takes its code back, so it neither works nor counts, and th
   await assert.rejects(w.password({ flow: "signUp", email: "new@example.com", password: "tide pools at dawn" }), refusal(w.words.signUpOff));
 });
 
-test("emailed codes are forgotten a day after they were sent", async (t) => {
+test("emailed codes are forgotten a day after they were sent, and the day's counts the next day", async (t) => {
   const w = await world(t, ACCOUNTS);
   t.mock.timers.enable({ apis: ["Date"], now: START });
   await w.password({ flow: "signUp", email: "one@example.com", password: "tide pools at dawn" });
+  const counted = w.db.rows("authCounts");
+  assert.deepEqual(counted.map((row) => row.name).sort(), ["domain_signup_emails_day", "domain_signups_day", "domain_signups_hour", "emails_day", "signup_emails_day"]);
+  assert.ok(counted.every((row) => !JSON.stringify(row).includes("example.com")), "a domain is kept only as a hash");
   at(t, START + DAY - 1);
   assert.equal(await w.call("internal.auth.codes.prune"), 0);
   at(t, START + DAY + 1);
-  assert.equal(await w.call("internal.auth.codes.prune"), 1);
+  assert.equal(await w.call("internal.auth.codes.prune"), 1 + counted.length);
   assert.deepEqual(w.db.rows("authEmailCodes"), []);
+  assert.deepEqual(w.db.rows("authCounts"), []);
 });
 
 // ---------------------------------------------------------------------------------------------- the app

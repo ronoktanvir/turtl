@@ -7,6 +7,7 @@ import { internal } from "../_generated/api";
 import type { DataModel, Doc } from "../_generated/dataModel";
 import { accessEnforced } from "../access";
 import { addressHash, codeHash } from "./codes";
+import { domainRefusal, emailDomain } from "./domains";
 import { emailCode } from "./email";
 import { normalizeCode, normalizeEmail, passwordProblem, words } from "./rules";
 import { emailService } from "./settings";
@@ -62,6 +63,9 @@ export function password() {
           const confirming = accessEnforced();
           if (confirming && !emailService()) throw refuse(words.signUpOff);
           if (await findPasswordAccount(ctx, email)) throw refuse(words.accountExists);
+          // No account is made that today's emails could not reach (codes.ts, the day's emails).
+          const full = confirming ? await ctx.runQuery(internal.auth.codes.emailRoom, { domain: emailDomain(email), side: "signup" }) : null;
+          if (full) throw refuse(full === "domain" ? domainRefusal.signUpDomainEmailsToday : domainRefusal.signUpEmailsToday);
           let userId: Doc<"users">["_id"];
           try {
             // Convex Auth's callback (convex/auth.ts) counts the sign-up and, with accounts on, holds the account until
@@ -96,10 +100,16 @@ export function password() {
         }
         case "reset": {
           if (!emailService()) throw refuse(words.resetOff);
+          // The day's emails are counted for everyone alike, so saying they have run out says nothing about this address.
+          if (await ctx.runQuery(internal.auth.codes.emailRoom, { domain: emailDomain(email), side: "reset" })) throw refuse(domainRefusal.emailsToday);
           const account = await findPasswordAccount(ctx, email);
           // The same answer whether or not there is an account, and whether or not the limits let an email go now
-          // (codes.ts): asking again never replaces the code already in the owner's inbox.
-          if (account) await emailCode(ctx, email, "reset");
+          // (codes.ts): asking again never replaces the code already in the owner's inbox. A reset of an account that
+          // has not confirmed its address is something a sign-up can cause, so it has the sign-ups' share of the day.
+          if (account) {
+            const confirmed: boolean = await ctx.runQuery(internal.auth.confirmation.isConfirmed, { account: account.userId });
+            await emailCode(ctx, email, "reset", { side: confirmed ? "reset" : "signup" });
+          }
           return null;
         }
         case "reset-verification": {

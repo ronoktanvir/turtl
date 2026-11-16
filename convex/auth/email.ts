@@ -1,7 +1,8 @@
 import { ConvexError } from "convex/values";
 import { internal } from "../_generated/api";
 import type { ActionCtx } from "../_generated/server";
-import { addressHash, codeHash, randomCode, type Allowed, type Purpose } from "./codes";
+import { addressHash, codeHash, randomCode, type Allowed, type Purpose, type Side } from "./codes";
+import { emailDomain } from "./domains";
 import { APP_LINK_PREFIX, CODE_VALID_HOURS, formatCode, UNCONFIRMED_DAYS, words } from "./rules";
 import { emailService } from "./settings";
 
@@ -95,12 +96,18 @@ export async function sendEmail(to: string, message: Message, fetcher: typeof fe
 /**
  * Emails a new code of this kind to the address, when the limits allow another email now (codes.ts). The code is made
  * here, filed by its hash, and exists in plain text only in the email. A send that fails takes the code back, so it
- * neither works nor counts against the address.
+ * neither works nor counts against the address or the day. `side` is "reset" only for a reset of an account whose
+ * address is confirmed; everything else is something a sign-up can cause, and has the smaller share of the day.
  */
-export async function emailCode(ctx: Pick<ActionCtx, "runMutation">, email: string, purpose: Purpose, fetcher?: typeof fetch): Promise<Allowed> {
+export async function emailCode(
+  ctx: Pick<ActionCtx, "runMutation">,
+  email: string,
+  purpose: Purpose,
+  { side = "signup", fetcher }: { side?: Side; fetcher?: typeof fetch } = {},
+): Promise<Allowed> {
   if (!emailService()) throw new ConvexError(purpose === "reset" ? words.resetOff : words.signUpOff);
   const code = randomCode();
-  const filed = { addressHash: await addressHash(email), purpose, codeHash: await codeHash(code) };
+  const filed = { addressHash: await addressHash(email), purpose, codeHash: await codeHash(code), domain: emailDomain(email), side };
   const allowed: Allowed = await ctx.runMutation(internal.auth.codes.reserve, filed);
   if (!allowed.ok) return allowed;
   try {
