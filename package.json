@@ -9,7 +9,7 @@
     "android": "expo start --android",
     "typecheck": "tsc --noEmit",
     "test:ui": "node --test tests/*.test.mjs",
-    "test:ci": "node --test $(grep -L playwright-core tests/*.test.mjs)"
+    "test:ci": "node --test $(grep -L playwright-core tests/*.test.mjs) convex/evidence/snapshots.test.mjs"
   },
   "dependencies": {
     "@auth/core": "^0.41.3",
