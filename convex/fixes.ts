@@ -24,7 +24,7 @@ import {
   type FixOption,
 } from "./fixOptions";
 import { CRITERIA, DONE_MEANS, ENVIRONMENT } from "./protectedApp/client";
-import { latestProposal } from "./protectedApp/records";
+import { latestAction, latestProposal } from "./protectedApp/records";
 import { registerBookingApp } from "./protectedApp/registry";
 import type { Facts } from "./runner/handlers/journey";
 import { createCaseFromTemplate, finishAttempt, loadSteps, setCaseStatus, startAttempt, waitOnAttempt } from "./workflow";
@@ -105,6 +105,12 @@ export const chatContext = internalQuery({
       .withIndex("by_case", (q) => q.eq("caseId", caseId))
       .order("desc")
       .take(HISTORY_LENGTH);
+    const action = await latestAction(ctx, caseId);
+    const verifications = await ctx.db
+      .query("verifications")
+      .withIndex("by_case", (q) => q.eq("caseId", caseId))
+      .order("desc")
+      .take(HISTORY_LENGTH);
     return {
       case: row,
       appName: (await ctx.db.get(row.appId))?.name ?? "the app",
@@ -112,6 +118,22 @@ export const chatContext = internalQuery({
       hasPullRequestAction: !!pullRequestEntry(catalog),
       facts: (output("gather_context")?.facts as Facts | undefined) ?? null,
       cause: (output("investigate")?.diagnosis?.cause as string | undefined) ?? null,
+      latestAction: action ? {
+        id: action._id,
+        type: action.type,
+        status: action.status,
+        result: action.result ?? null,
+        completedAt: action.completedAt ?? null,
+        cancelledBy: action.cancelledBy ?? null,
+      } : null,
+      verifications: verifications.map((verification) => ({
+        phase: verification.phase,
+        actionId: verification.actionId ?? null,
+        verdict: verification.verdict,
+        summary: verification.summary,
+        completedAt: verification.completedAt,
+        criteria: verification.criterionResults.map(({ criterionId, status, summary }) => ({ criterionId, status, summary })),
+      })),
       proposal: await latestProposal(ctx, caseId),
       history: history.reverse().map((m) => ({ role: m.role, text: m.text })),
     };
@@ -200,7 +222,10 @@ export const appendChatFix = internalMutation({
 
 const CHAT_PROMPT = [
   "You are turtl, talking with the owner of an app about one case on its Investigate further screen. The owner is not an engineer.",
-  "Use only the case, facts, diagnosis and current fixes you are given. If you do not know, say so. Never claim that a fix was applied: the owner approves fixes separately.",
+  "Answer the owner's current message using only the supplied case, historical findings, latest action, phase-labelled verifications and fixes. If you do not know, say so. This chat does not execute a fix; a recorded completed action can show what already ran.",
+  "The gathered facts, diagnosis and before-phase checks describe the incident before an action; they are history, not proof that the app is still broken. Use case.status for the recorded present state and the latest after_fix or after_deploy verification for latestAction.id, by completedAt, to explain the outcome. Never treat an uncovered criterion as passed or a before-phase failure as a failure after recovery.",
+  "For a restored or resolved case with a passing after-action check, say service was restored and explain what restored it from latestAction.result. Do not say it is still broken or awaiting the same completed fix. Distinguish temporary recovery from a permanent repair, and do not claim a device check passed if it was uncovered.",
+  "For a declined proposal or owner-cancelled action, explain that it was declined or stopped and no live change was applied, unless the recorded completed action or after-action verification shows otherwise. Stopping does not undo an earlier applied change. For waiting_for_owner, explain that the case is waiting for the owner's decision; do not claim a pending fix ran. Unknown, running or failed actions are not confirmed recoveries.",
   'Reply with a JSON object: {"reply": string, "fix": object | null}. reply: at most four plain sentences.',
   `Set fix only to propose a new fix that differs in substance from every current fix; never restate a current fix in other words. If no different sensible fix exists, set fix to null and say so. A new fix is a code change that ships as a pull request. ${FIX_FIELDS}`,
 ].join("\n");
@@ -232,8 +257,10 @@ export const investigate = action({
       {
         app: context.appName,
         case: { title: context.case.title, impact: context.case.impact, status: context.case.status },
-        facts: context.facts,
-        diagnosis: context.cause,
+        historicalFindings: { facts: context.facts, diagnosis: context.cause },
+        latestAction: context.latestAction,
+        verifications: context.verifications,
+        decision: proposal ? { status: proposal.decisionStatus, chosenKey: proposal.chosenKey ?? null } : null,
         currentFixes: (proposal?.options ?? []).map((o) => ({
           title: o.title,
           kind: o.kind,
@@ -243,6 +270,7 @@ export const investigate = action({
           whatMightBeLost: o.whatMightBeLost,
         })),
         conversation: context.history,
+        message: asked,
         ...(newFix && {
           request: "The owner tapped New fix: propose one more fix that differs from the current ones, or say plainly why there is no other sensible one.",
         }),
