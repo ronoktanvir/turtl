@@ -36,7 +36,7 @@ export const CARDS: readonly CardDefinition[] = [
     id: "what-we-found",
     name: "What we found",
     copy: "Placeholder: what the investigation turned up and how sure we are will appear here.",
-    purposes: ["gather_context", "investigate", "examine_broader_causes"],
+    purposes: ["collect_app_state", "collect_error_window", "gather_context", "investigate", "examine_broader_causes"],
   },
   {
     id: "recommended-action",

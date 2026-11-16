@@ -8,8 +8,10 @@ import {
 } from "./_generated/server";
 import {
   CLOSED_CASE_STATUSES,
+  EVIDENCE_STAGES,
   STAGES,
   STAGE_IDS,
+  STEP_PURPOSE_IDS,
   vCaseKind,
   vRaisedBy,
   vStage,
@@ -29,6 +31,7 @@ export const vStepDef = v.object({
 
 export const vNewCase = v.object({
   appId: v.id("apps"),
+  journeyId: v.optional(v.id("journeys")),
   title: v.string(),
   impact: v.string(),
   kind: vCaseKind,
@@ -52,7 +55,6 @@ const TEMPLATE_KINDS: Record<(typeof STAGE_IDS)[number], StepDef["kind"]> = {
   learn: "function",
 };
 
-// The initial template: the eight stages as a linear chain.
 export const TEMPLATE_STEPS: StepDef[] = STAGES.map((stage, index) => ({
   key: stage.id,
   title: stage.label,
@@ -60,6 +62,39 @@ export const TEMPLATE_STEPS: StepDef[] = STAGES.map((stage, index) => ({
   kind: TEMPLATE_KINDS[stage.id],
   purpose: stage.id,
 }));
+
+export const EVIDENCE_TEMPLATE_STEPS: StepDef[] = TEMPLATE_STEPS.flatMap((step) =>
+  step.purpose === "gather_context"
+    ? [
+        ...EVIDENCE_STAGES.map((stage): StepDef => ({
+          key: stage.id,
+          title: stage.label,
+          dependsOn: ["detect_or_receive"],
+          kind: "function",
+          purpose: stage.id,
+        })),
+        { ...step, dependsOn: EVIDENCE_STAGES.map((stage) => stage.id) },
+      ]
+    : [step],
+);
+
+export function orderSteps<T extends { key: string; purpose: string; dependsOn: string[] }>(steps: T[]): T[] {
+  const rank = (purpose: string) => {
+    const index = (STEP_PURPOSE_IDS as readonly string[]).indexOf(purpose);
+    return index < 0 ? STEP_PURPOSE_IDS.length : index;
+  };
+  const remaining = [...steps].sort((a, b) => rank(a.purpose) - rank(b.purpose) || a.key.localeCompare(b.key));
+  const ordered: T[] = [];
+  const visited = new Set<string>();
+  while (remaining.length) {
+    const index = remaining.findIndex((step) => step.dependsOn.every((key) => visited.has(key)));
+    if (index < 0) throw new Error("The workflow has a missing dependency or a cycle.");
+    const [step] = remaining.splice(index, 1);
+    ordered.push(step);
+    visited.add(step.key);
+  }
+  return ordered;
+}
 
 function validateSteps(steps: StepDef[]) {
   const keys = new Set<string>();
@@ -211,11 +246,11 @@ export async function resumeAttempt(
 export async function recordLateResult(
   ctx: MutationCtx,
   attemptId: Id<"stepAttempts">,
-  notes: AttemptNotes,
+  notes: AttemptNotes & { status?: "done" | "failed" | "waiting" },
 ) {
   const { live } = await loadAttempt(ctx, attemptId);
   if (live) throw new Error("This attempt is still current; finish it instead.");
-  await ctx.db.patch(attemptId, { ...notes, lateResultAt: Date.now() });
+  await ctx.db.patch(attemptId, { lateResult: notes, lateResultAt: Date.now() });
 }
 
 export async function setCaseStatus(ctx: MutationCtx, caseId: Id<"cases">, status: CaseStatus) {
@@ -249,9 +284,8 @@ export async function loadSteps(ctx: QueryCtx, caseId: Id<"cases">) {
     .query("steps")
     .withIndex("by_case", (q) => q.eq("caseId", caseId))
     .collect();
-  steps.sort((a, b) => STAGE_IDS.indexOf(a.purpose) - STAGE_IDS.indexOf(b.purpose));
   return await Promise.all(
-    steps.map(async (step) => ({
+    orderSteps(steps).map(async (step) => ({
       ...step,
       currentAttempt: step.currentAttemptId
         ? await ctx.db.get(step.currentAttemptId)

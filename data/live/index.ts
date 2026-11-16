@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useCase } from "./case";
 
 export { useAgentWork, useCase } from "./case";
+export { useWorkflow } from "./workflow";
 export { useProjects, useProject, useCases, useApprovalSettings } from "./projects";
 export { useChat, useCodeNetwork } from "./network";
 export { approveFix, declineFixes, stopEnactment, mergePullRequest, setApprovals, approvePreventionCheck, addPreference, removePreference, confirmPreference, dismissPreference } from "./ownerActions";

@@ -12,6 +12,7 @@ import { CLOSED_CASE_STATUSES } from "../constants";
 import type { CaseStatus, Stage } from "../constants";
 import {
   MAX_ATTEMPTS,
+  EVIDENCE_TEMPLATE_STEPS,
   createCaseFromTemplate,
   finishAttempt,
   loadSteps,
@@ -36,6 +37,8 @@ const STAGED_LATE_BY_MS = 3000;
 
 const STATUS_ON_START: Partial<Record<Stage, CaseStatus>> = {
   detect_or_receive: "open",
+  collect_app_state: "investigating",
+  collect_error_window: "investigating",
   gather_context: "investigating",
   investigate: "investigating",
   examine_broader_causes: "investigating",
@@ -52,7 +55,15 @@ const settled = (step: Doc<"steps"> | undefined) =>
 
 // The one entry point: insert the case with its template steps and let the runner take it.
 export async function startCaseRun(ctx: MutationCtx, fields: Infer<typeof vNewCase>) {
-  const caseId = await createCaseFromTemplate(ctx, fields);
+  if (fields.journeyId) {
+    const journey = await ctx.db.get(fields.journeyId);
+    if (!journey || journey.appId !== fields.appId) throw new Error("The journey does not belong to this app.");
+  }
+  const caseId = await createCaseFromTemplate(
+    ctx,
+    fields,
+    fields.journeyId && !fields.isSample ? EVIDENCE_TEMPLATE_STEPS : undefined,
+  );
   await ctx.scheduler.runAfter(0, internal.runner.run.advance, { caseId });
   return caseId;
 }
@@ -249,7 +260,11 @@ async function applyResult(
     step.currentAttemptId === attemptId &&
     (attempt.status === "running" || attempt.status === "waiting");
   if (!live) {
-    await recordLateResult(ctx, attemptId, notes);
+    await recordLateResult(ctx, attemptId, {
+      ...notes,
+      status: result.status,
+      ...(result.status === "failed" && { error: result.error }),
+    });
     return { applied: false, reason: "late: not the step's current, unfinished attempt" };
   }
 

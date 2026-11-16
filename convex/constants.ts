@@ -15,6 +15,17 @@ export const STAGES = [
 
 export const STAGE_IDS = STAGES.map((stage) => stage.id);
 
+export const EVIDENCE_STAGES = [
+  { id: "collect_app_state", label: "Read app health, flags and revision" },
+  { id: "collect_error_window", label: "Read the error window" },
+] as const;
+
+export const STEP_PURPOSE_IDS = [
+  "detect_or_receive",
+  ...EVIDENCE_STAGES.map((stage) => stage.id),
+  ...STAGE_IDS.filter((id) => id !== "detect_or_receive"),
+] as const;
+
 export const CASE_STATUSES = [
   { id: "open", label: "Open" },
   { id: "investigating", label: "Investigating" },
@@ -49,6 +60,8 @@ export const STEP_STATUSES = [
 
 export const vStage = v.union(
   v.literal("detect_or_receive"),
+  v.literal("collect_app_state"),
+  v.literal("collect_error_window"),
   v.literal("gather_context"),
   v.literal("investigate"),
   v.literal("examine_broader_causes"),

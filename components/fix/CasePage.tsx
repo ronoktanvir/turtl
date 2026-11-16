@@ -2,7 +2,7 @@ import { useRouter } from "expo-router";
 import { useEffect, useRef, useState, type ComponentRef } from "react";
 import { Image, Pressable, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useCase, useDataStatus } from "../../data";
+import { isLiveData, useCase, useDataStatus, useWorkflow } from "../../data";
 import type { FixOption, Screenshot } from "../../data/types";
 import { useTheme } from "../../theme";
 import { ago, Button, Card, Chip, devToolsOn, HealthWord, Icon, Reveal, T, Turtle } from "../ui";
@@ -10,6 +10,7 @@ import { CouncilView } from "./CouncilView";
 import { CodeBox, LogRow, SpanText, Viz } from "./Evidence";
 import { ApproveSheet, DeclineSheet, FixCard } from "./FixCard";
 import { StructuralFindingCard } from "./StructuralFinding";
+import { WorkflowGraph } from "../execution/WorkflowGraph";
 
 const tabs = ["Overview", "Logs", "Code"] as const;
 const tabIcons = { Overview: "Layers", Logs: "Terminal", Code: "Code2" } as const;
@@ -17,6 +18,7 @@ const phases: Record<Screenshot["phase"], string> = { failure: "When it failed",
 
 export function CasePage({ caseId, current }: { caseId: string; current: boolean }) {
   const c = useCase(caseId);
+  const workflow = useWorkflow(caseId);
   const { errors } = useDataStatus();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
@@ -107,6 +109,7 @@ export function CasePage({ caseId, current }: { caseId: string; current: boolean
                 </View>
               </Reveal>
               {c.structural && <StructuralFindingCard finding={c.structural} sources={sources} id={id} />}
+              {isLiveData && (workflow ? <WorkflowGraph key={caseId} workflow={workflow} /> : <T color="textMuted">{workflow === undefined ? "Loading Plan…" : "No workflow has been recorded for this case."}</T>)}
               {c.overview.length === 0 && <T color="textMuted" testID={id("overview-empty")}>No overview evidence has been collected yet.</T>}
               {c.overview.map((block, i) =>
                 block.kind === "paragraph" ? (

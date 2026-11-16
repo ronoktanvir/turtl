@@ -95,6 +95,15 @@ export default defineSchema({
     output: v.optional(v.any()),
     outputRefs: v.optional(v.array(vOutputRef)),
     lateResultAt: v.optional(v.number()),
+    lateResult: v.optional(v.object({
+      status: v.optional(vAttemptStatus),
+      summary: v.optional(v.string()),
+      handoff: v.optional(v.string()),
+      error: v.optional(v.string()),
+      externalRef: v.optional(v.string()),
+      output: v.optional(v.any()),
+      outputRefs: v.optional(v.array(vOutputRef)),
+    })),
   })
     .index("by_step", ["stepId"])
     .index("by_case", ["caseId"]),
