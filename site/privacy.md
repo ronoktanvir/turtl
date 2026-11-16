@@ -12,111 +12,145 @@ turtl is run by {% include blank.html value=site.data.operator.legal_name label=
 
 ## The short version
 
-- turtl sends parts of **your source code**, **the details of each case**, and **your voice recordings** to AI services run by other companies. It asks your permission first, and you can take it back.
+- turtl sends parts of **your source code**, **the details of each case**, **what you write to it**, and **your voice recordings** to AI services run by other companies. It asks your permission first, and you can take it back.
 - turtl does not sell your data, show ads, or track you across other apps and websites.
 - turtl contains no advertising or analytics software.
-- You can delete your account and what turtl holds about you from inside the app.
-
-{% include review.html note="The first and last points depend on work that is not finished: the permission screen (checklist RC-26) and account deletion (RC-23). Do not publish them as fact until both are in the build you submit." %}
+- You can delete your account, and what turtl holds about you, from inside the app.
 
 ## What turtl collects
 
 ### About you
 
-- **Your account.** The email address you sign in with, your name if you give one or if Apple or GitHub passes it on, and the id Apple or GitHub gives turtl for your account. turtl uses these to sign you in and to keep your projects yours.
-- **A passcode, if you set one.** turtl stores a scrambled form of it that cannot be turned back into the passcode. Your phone keeps the passcode itself in its secure storage.
-
-{% include review.html note="Sign-in is being built. Confirm this list against what the accounts work stores before launch (RC-12, RC-19)." %}
+- **Your account.** The email address you sign in with. If you sign in with Apple or GitHub: the id it gives turtl for you, and your name, and from GitHub your profile picture, if it passes them on. If you sign in with a password, turtl stores a scrambled form of it that cannot be turned back into the password. turtl uses these to sign you in and to keep your projects yours.
+- **A token from Apple,** if you sign in with Apple. turtl keeps it only so that it can tell Apple to end turtl's access when you delete your account.
+- **Your phone's notification address,** if you turn on notifications. It is a token that lets a notification reach your phone. turtl keeps one for each phone where you turned them on.
+- **Your sign-in on the phone** is kept in the iOS Keychain.
 
 ### What you connect
 
-- **Your source code.** When you connect a GitHub repository, turtl reads up to 200 source files from it. It keeps a map of your app in plain words: the names of its parts, a sentence about each, and file paths. It does not keep the code in its own database, but it does place a copy with a search service so it can answer your questions (see "Who receives your data").
-- **Your live app.** turtl calls your app about once a minute to check its health and to run a test of the journey you chose. It keeps the results: whether each step passed, error codes, error counts, and which version is deployed.
+- **Your source code.** You choose which GitHub repositories turtl may read, through turtl's GitHub app. turtl reads up to a few hundred files from a repository. It keeps a map of your app in plain words: the names of its parts, a sentence about each, and file paths. It does not keep the code in its own database, but it does place a copy with a search service so it can answer your questions (see "Who receives your data").
+- **Your live app.** turtl calls your app regularly, as often as once a minute, to check its health and to run tests of the journeys you chose. It keeps the results: whether each step passed, error codes, error counts, and which version is deployed.
+- **Your app's control token and your coding agent's key,** if you add them. The control token lets turtl call your app's protected checks and recovery steps; turtl sends it only to your app's own address. The coding agent key is your own key for Capy, which writes the code changes you approve; turtl sends it only to Capy. turtl keeps both encrypted and never shows them again.
 - **Your pull requests.** For a code change turtl proposed: its title, link, and whether its checks pass.
 
 ### What you write and say
 
 - **Messages.** What you type to turtl about a case or about your code, and its replies.
-- **Decisions.** What you approved, declined, stopped, or merged, and when.
+- **Decisions, notes and preferences.** What you approved, declined, stopped, or merged, and when; a note you leave with a decision; and what you tell turtl matters to you about a project.
 - **Your voice.** When you tap Talk, turtl records up to 30 seconds, turns it into text, and deletes the recording from your phone straight away. turtl does not keep the audio. The text becomes a message in the conversation.
 
 ### What your customers send
 
-If you add turtl's report form to your own app, your customers can send a bug report or a feature request of up to 2,000 characters, and may leave an email address or other contact. turtl stores the report, the contact, and a random id that lets it count one person once. See "If you use the report form".
+If you add turtl's report form to your own app, your customers can send a bug report or a feature request of up to 2,000 characters. turtl stores the report and a random id the form makes up, which lets turtl count one person once. turtl's form does not ask for a contact. If another form sends one, turtl turns it into a scrambled reference and does not keep the contact itself. See "If you use the report form".
 
 ### What turtl does not collect
 
-turtl does not collect your location, your contacts, your photos, an advertising identifier, or a record of how you use the app. It does not read anything from your phone beyond what is listed above. The microphone is the only permission it asks for, and only when you tap Talk.
-
-{% include review.html note="When push notifications are added, turtl will collect a device token to deliver them. Add it here and to the App Privacy answers at that point (RC-12)." %}
+turtl does not collect your location, your contacts, your photos, an advertising identifier, or a record of how you use the app. It does not read anything from your phone beyond what is listed above. It asks for two permissions, each only when you tap for it: the microphone, when you tap Talk, and notifications, when you tap Turn on notifications.
 
 ## Why turtl uses it
 
-turtl uses what it collects only to do what you installed it for: to notice when your app breaks, work out why, propose and carry out the fixes you approve, check they worked, and answer your questions. It does not use your data for advertising or to build a profile of you, and it does not use it to train AI models.
+turtl uses what it collects only to do what you installed it for: to notice when your app breaks, work out why, propose and carry out the fixes you approve, check they worked, tell you when a case needs you, and answer your questions. It does not use your data for advertising or to build a profile of you, and it does not use it to train AI models.
+
+## Notifications and emails
+
+- **Notifications.** If you turn them on, turtl sends one when a case needs your decision, and when a fix you allowed in advance has run and your app passed its check. A notification shows the name of your project and one fixed sentence. It never shows your customers' words, your code, or an error. It goes through Expo's push service, which hands it to Apple. You can turn notifications off in the app's settings or in iOS Settings.
+- **Emails.** turtl sends you an email only when you ask to reset your password. It holds a code and nothing else, and is sent through Resend. turtl sends no newsletters or marketing.
 
 ## Who receives your data
 
-turtl cannot work without these services. Each one receives only what the table says.
+Each of these services receives only what the table says. The first three are AI services, and turtl sends nothing to them until you allow it (see "Before turtl uses AI").
 
 <div class="table-wrap" markdown="1">
 
 | Service | What it receives | Why |
 | --- | --- | --- |
-| **OpenAI** (AI) | Excerpts of your source code, case details, your messages, your customers' reports, and your voice recordings | To name the parts of your app, diagnose a problem, propose fixes, answer questions, sort customers' reports, and turn speech into text and text into speech |
-| **Supermemory** (AI search) | Up to 30,000 characters of each source file, notes on past cases, your questions about the code, and your customers' reports | To find the code and the past cases that matter to a question or a new problem |
-| **Capy** (AI coding agent) | The title of a case and the instructions for a code change you approved. Capy then works in your repository through its own connection to GitHub | To write the change and open a pull request for you to review |
-| **GitHub** | Requests to read your repository and your pull requests, and to merge a pull request when you tap Merge | To read your code and carry out your decision |
+| **OpenAI** (AI) | Excerpts of your source code, case details, your messages, notes and preferences, your customers' reports, and your voice recordings | To name the parts of your app, diagnose a problem, propose fixes, answer questions, sort customers' reports, and turn speech into text and text into speech |
+| **Supermemory** (AI search) | Up to 30,000 characters of each source file, notes on past cases, your preferences, your questions about the code, and your customers' reports | To find the code, the past cases and the preferences that matter to a question or a new problem |
+| **Capy** (AI coding agent) | The title of a case and the instructions for a code change you approved, or, when you add a project, a brief of the changes that prepare it. Capy then works in your repository through its own connection to GitHub, with your own Capy key | To write the change and open a pull request for you to review |
+| **Keiki** (uses AI) | A notice of one or two sentences, such as the name of your app and the title of a case, and the phone number alerts go to | To text the owner when a case needs them. turtl uses it only in a demo we run for ourselves; it sends nothing to Keiki for your account |
+| **GitHub** | Your sign-in, if you choose GitHub; requests to read the repositories you chose and their pull requests; a merge when you tap Merge; and removing turtl's app when you disconnect or delete your account | To sign you in, read your code, and carry out your decisions |
 | **Revyl** | A request to run a test of your app on a phone in its cloud. It sends back screenshots | To check on a device that a fix worked |
-| **Keiki** (uses AI) | A notice of one or two sentences, such as the name of your app and the title of a case, and the phone number alerts go to | To text you when a case needs you |
+| **Expo** | Your phone's notification address, and each notification: your project's name and one fixed sentence | To deliver notifications to your phone, through Apple |
+| **Resend** | Your email address and a reset code | To send the email that resets your password |
+| **Apple** | Your sign-in, if you choose Apple, and the token turtl keeps, when you delete your account | To sign you in, and to end turtl's access when you delete your account |
 | **Convex** | Everything turtl stores | It hosts turtl's database and files |
 
 </div>
 
-Each of these companies handles what it receives under its own terms, which you can read here: [OpenAI](https://openai.com/policies/privacy-policy/), [Supermemory](https://supermemory.ai/privacy/), [Capy](https://capy.ai/privacy-policy), [GitHub](https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement), [Revyl](https://revyl.com/privacy/), [Keiki](https://onkeiki.com/privacy), [Convex](https://www.convex.dev/legal/privacy). We require each of them to protect your data at least as well as this policy does.
+turtl's code can also ask Anthropic and Google for a second opinion on a diagnosis, but only in a demo we run for ourselves. turtl does not send your data to them.
+
+{% include review.html note="Keiki is on the permission screen, but with accounts on turtl never sends anything to it (convex/keiki.ts). Decide whether to keep it on the screen, or take it off in the code, and then keep or remove its row here." %}
+
+Each of these companies handles what it receives under its own terms, which you can read here: [OpenAI](https://openai.com/policies/privacy-policy/), [Supermemory](https://supermemory.ai/privacy/), [Capy](https://capy.ai/privacy-policy), [Keiki](https://onkeiki.com/privacy), [GitHub](https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement), [Revyl](https://revyl.com/privacy/), [Expo](https://expo.dev/privacy), [Resend](https://resend.com/legal/privacy-policy), [Apple](https://www.apple.com/legal/privacy/), [Convex](https://www.convex.dev/legal/privacy). We require each of them to protect your data at least as well as this policy does.
 
 {% include review.html note="The last sentence is a promise Apple requires (guideline 5.1.1(i)). It is only true once you have accepted a data processing agreement with each vendor. None is on file today (RC-28)." %}
 
 We also disclose data when the law requires it, and to a new operator if turtl is ever sold or merged, who would be bound by this policy.
 
-turtl sends nothing to these services until you say it may. The first time you use turtl it shows you this list and asks. If you say no, turtl still shows you your cases and the results of its checks, but it cannot diagnose, propose fixes, or answer questions.
+## Before turtl uses AI
 
-{% include review.html note="This paragraph describes the permission screen, which is not built yet. Rewrite it to match what the screen really does, including what still works after someone says no (RC-26)." %}
+The first time you sign in, turtl shows you a screen that names each AI service, says what it receives, and links to its own privacy policy. turtl sends nothing to them until you tap Allow. The backend refuses every call to a service you have not allowed, not only the screen.
+
+If you tap Not now, turtl still watches your app, runs its checks, and offers the recovery steps you set up, using its own rules. It cannot diagnose with AI, propose AI fixes, answer questions, or write code changes until you allow it.
+
+You can read the list again, allow it, or take your permission back at any time: open a project, tap the gear, then AI services. Taking it back stops the next request. If turtl adds a service to the list, or changes what one receives, it asks you again before sending anything to it.
+
+Each account also has a limit on how much AI it can use in a month and how many code changes it can start in a day. Settings shows where you stand.
 
 ## How long turtl keeps it
 
 - **Voice recordings** are not kept. OpenAI's published policy says it keeps no copy of audio sent for transcription.
-- **Everything else** is kept until you delete it, delete your account, or ask us to delete it.
-- **When you delete your account,** turtl deletes your projects, cases, messages, decisions, the map of your code, and screenshots from its own database, and deletes the copies of your code, case notes, and customers' reports held by Supermemory. Backups are overwritten within {% include blank.html value=site.data.operator.backup_retention_days label="number of days" %} days.
+- **A customer's report** is kept until you delete it from its case, or delete your account.
+- **Your phone's notification address** is removed when you turn notifications off on that phone, sign out, or delete your account.
+- **Everything else** is kept until you delete your account, or ask us to delete it.
 - **The other companies** keep what turtl sends them for as long as their own policies say. OpenAI's published policy is up to 30 days.
 
-{% include review.html note="Three things to settle. First, today nothing is ever deleted, in turtl or in Supermemory: the deletion described here has to be built (RC-23). Second, decide whether to keep closed cases forever or delete them after a set time, and say so here. Third, fill in how long Convex backups live." %}
+{% include review.html note="Two things to settle. First, decide whether to keep closed cases for as long as the account exists, or delete them after a set time, and say so here. Second, fill in how long Convex backups live (the blank under Deleting your account)." %}
+
+## Deleting your account
+
+Delete your account in the app: on Projects, tap your picture at the top, then Delete account. It is also at the bottom of a project's settings (the gear), under Account. turtl lists what will go, asks once more, and then signs you out.
+
+Deleting your account removes:
+
+- your projects, with every case, step, decision and message in them;
+- the map of your code, and the screenshots turtl took of your app;
+- your customers' reports;
+- what turtl remembers about past problems and your preferences, including the copies of your code, case notes, preferences and customers' reports held by Supermemory;
+- your control tokens and your coding agent key;
+- turtl's access to your GitHub repositories: turtl removes its GitHub app from every installation only you use;
+- your notifications, on every phone;
+- your account and the ways you sign in to it. If you signed in with Apple, turtl also tells Apple to end its access.
+
+You are signed out on every phone at once. turtl stops everything it was doing for you, waits a few minutes so that nothing still running can write anything, and then deletes. If another service does not answer, turtl keeps asking it until it confirms. Afterwards turtl keeps only a record that an account was deleted and when, without your email address or anything else about you. Backups are overwritten within {% include blank.html value=site.data.operator.backup_retention_days label="number of days" %} days.
+
+This cannot be undone. If you sign up again with the same address, you get a new, empty account.
+
+{% include review.html note="Revoking a Sign in with Apple token needs the Apple key settings on the production backend (AUTH_APPLE_TEAM_ID, AUTH_APPLE_KEY_ID, AUTH_APPLE_PRIVATE_KEY). Without them turtl keeps no Apple token, so there is nothing to revoke and Apple keeps listing turtl under the person's Apple ID. The deletion has been proven against stand-ins for Apple, GitHub and Supermemory, not the real services (RC-23)." %}
 
 ## Your choices
 {: #your-choices}
 
-- **Take back permission for AI services** in the app's settings. turtl stops sending new data from that moment.
+- **Take back permission for AI services**: open a project, tap the gear, then AI services. turtl stops sending new data from that moment.
+- **Turn off notifications** in the same settings (Turn off on this phone), or in iOS Settings.
 - **Turn off the microphone** in iOS Settings. You can still type.
-- **Delete your account** in the app's settings. This cannot be undone.
+- **Disconnect GitHub**: open a project, tap the gear, then Disconnect GitHub. turtl removes its GitHub app from the installations only you use. You can also remove turtl from your GitHub account's settings.
+- **Delete a customer's report** from its case.
+- **Delete your account** as described above. This cannot be undone.
 - **Ask for a copy of your data, or for something to be corrected or deleted,** by writing to {% include blank.html value=site.data.operator.contact_email label="contact email" %}. We answer within 30 days.
-- **Disconnect GitHub** in the app's settings, or remove turtl from your GitHub account.
-
-{% include review.html note="The first, third, and fifth controls do not exist in the app yet (RC-23, RC-26). Remove any that will not be in the build you submit." %}
 
 ## If you use the report form
+{: #if-you-use-the-report-form}
 
-When your customers send reports through turtl's form in your app, you decide what is collected and why, and turtl handles it for you. That makes you responsible for telling your customers, in your own privacy notice, that their reports go to turtl and to the AI services named above.
+When your customers send reports through turtl's form in your app, you decide what is collected and why, and turtl handles it for you. That makes you responsible for telling your customers, in your own privacy notice, that their reports go to turtl and to the AI services named above. turtl's form links to this page.
 
-turtl sends the text of a report to OpenAI and Supermemory. It does not send a customer's contact details to any AI service, and its alerts to you never quote a customer.
+turtl sends the text of a report to OpenAI and Supermemory. It keeps no contact details, and its notifications to you never quote a customer.
 
-A customer who wants a report deleted should ask you. You can ask us at {% include blank.html value=site.data.operator.contact_email label="contact email" %}, and so can they.
-
-{% include review.html note="A customer's contact is stored as written, with no encryption beyond the database's own, and there is no control for deleting one report (RC-25)." %}
+A customer who wants a report deleted should ask you: you can delete it from its case, and turtl deletes its copy at Supermemory too. They can also ask us at {% include blank.html value=site.data.operator.contact_email label="contact email" %}.
 
 ## Security
 
-Everything travels over encrypted connections. Access to your projects is limited to your account. Secrets that turtl needs on your phone are kept in the iOS Keychain. No system is perfectly secure; if we learn that your data was exposed, we will tell you without delay.
-
-{% include review.html note="The second sentence depends on the access checks in the accounts work, which have not landed (RC-30)." %}
+Everything travels over encrypted connections. Only your account can reach your projects. Your app's control token and your coding agent key are encrypted, and your sign-in on the phone is kept in the iOS Keychain. No system is perfectly secure; if we learn that your data was exposed, we will tell you without delay.
 
 ## Children
 
