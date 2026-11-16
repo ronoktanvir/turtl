@@ -282,6 +282,9 @@ export const vJourney = v.object({
   check: vCheck,
   checkVersion: v.string(),
   lastPassedAt: v.optional(v.number()),
+  // Since when it has passed every time it was checked: set by a pass when unset, cleared by anything else (a failure, or
+  // no answer). A case records how long it had been passing (cases.passingForMs) for the outage reserve.
+  passingSince: v.optional(v.number()),
   // Set on a prevention check registered from a structural finding (convex/structural).
   preventionFindingId: v.optional(v.id("structuralFindings")),
 });

@@ -39,6 +39,17 @@ export const DEFAULT_ACCOUNT_INTAKE_SPEND_PER_DAY_USD = 1;
 // percentage of the ceiling, so it keeps its proportion when the operator moves the ceiling ($10 of the default $25).
 export const DEFAULT_OUTAGE_RESERVE_PERCENT = 40;
 export const DEFAULT_OUTAGE_RESERVE_ACCOUNT_USD = 0.5;
+// And only for real outages on established projects (third review, finding 19): any account can make the monitor raise
+// cases at will by breaking its practice app, so a practice app never draws on it, nor a project whose checks had not
+// been passing for a day before this failure, nor an account made in the last two weeks.
+export const DEFAULT_OUTAGE_RESERVE_STEADY_HOURS = 24;
+export const DEFAULT_OUTAGE_RESERVE_ACCOUNT_AGE_DAYS = 14;
+/**
+ * What finding the cause of practice-app cases may cost one account in a day, apart from its own share: a practice app
+ * has no customers and nothing is down. Enough for the ten breaks a day the practice app allows, each explained by AI
+ * (a diagnosis, the fixes on offer and a look for a broader cause, about $0.15 to $0.20), and no more.
+ */
+export const DEFAULT_PRACTICE_AI_PER_DAY_USD = 2;
 /**
  * What a model call counts for from the moment the gate lets it through until its cost comes back, when its caller
  * gives no estimate of its own (callEstimate). Without a hold a burst of calls started together would each pass the
@@ -54,8 +65,12 @@ export const MAX_CALL_HOLD_USD = 5;
  * very long answer cannot make one call cost more than it was held at. Generous, since reasoning counts toward it.
  */
 export const ASSUMED_OUTPUT_TOKENS = 16_000;
-/** A generous count of characters per token, so an estimate from a prompt's length is high rather than low. */
-const CHARS_PER_TOKEN = 3;
+/**
+ * Tokens added to a call beyond its texts: each message's role and separators, and the reply's start. A few per message
+ * in every chat format; this is generous.
+ */
+const FRAMING_TOKENS_PER_TEXT = 8;
+const FRAMING_TOKENS = 16;
 
 /** A flat estimate for one speech-to-text or text-to-speech call, which report no token counts. */
 export const VOICE_CALL_ESTIMATE_USD = 0.01;
@@ -116,6 +131,15 @@ export const outageReservePercent = () => {
 /** Only an account whose own calls cost less than this today may draw on the outage reserve. */
 export const outageReserveAccountUsd = () => positive(process.env.OUTAGE_RESERVE_ACCOUNT_USD, DEFAULT_OUTAGE_RESERVE_ACCOUNT_USD, false);
 
+/** How long a project's check must have been passing before it failed for its case to draw on the outage reserve. */
+export const outageReserveSteadyMs = () => positive(process.env.OUTAGE_RESERVE_STEADY_HOURS, DEFAULT_OUTAGE_RESERVE_STEADY_HOURS, false) * 3_600_000;
+
+/** How old an account must be for its outages to draw on the outage reserve. */
+export const outageReserveAccountAgeMs = () => positive(process.env.OUTAGE_RESERVE_ACCOUNT_AGE_DAYS, DEFAULT_OUTAGE_RESERVE_ACCOUNT_AGE_DAYS, false) * 86_400_000;
+
+/** What one account's practice-app cases may spend on models in a calendar day (UTC). */
+export const practiceAiPerDayUsd = () => positive(process.env.PRACTICE_AI_PER_DAY_USD, DEFAULT_PRACTICE_AI_PER_DAY_USD, false);
+
 /** Projects one account may have. */
 export const projectsPerAccount = () => positive(process.env.PROJECTS_PER_ACCOUNT, DEFAULT_PROJECTS_PER_ACCOUNT, true);
 
@@ -156,12 +180,22 @@ export function modelCost(model: string, usage: { inputTokens: number; outputTok
   return listed ?? (usage.inputTokens * DEAREST.input + usage.outputTokens * DEAREST.output) / 1_000_000;
 }
 
+const utf8 = new TextEncoder();
+
 /**
- * The most a call is likely to cost, from what is about to be sent: its prompt's length and the most it may write.
- * The gate holds this much against the account's day while the call runs (convex/consent/gate.ts).
+ * The most a call can cost, from what is about to be sent: its texts and the most it may write. The gate holds this
+ * much against the account's day while the call runs (convex/consent/gate.ts), so it must not be low for any text.
+ *
+ * Input tokens are counted as the texts' UTF-8 bytes. No tokenizer turns text into more tokens than that: the
+ * byte-level BPE of OpenAI and Anthropic models makes each token of at least one byte, and Gemini's makes each of at
+ * least one character, which is at least one byte. Characters were not enough (third review): dense text such as
+ * Chinese or emoji takes three or four bytes a character and can take a token for each byte. English is about four
+ * bytes a token, so for it this is four times what a call reads; the hold is returned when the call reports its cost.
  */
-export function callEstimate(model: string, promptChars: number, maxOutputTokens = ASSUMED_OUTPUT_TOKENS): number {
-  return modelCost(model, { inputTokens: Math.ceil(Math.max(0, promptChars) / CHARS_PER_TOKEN), outputTokens: Math.max(0, maxOutputTokens) });
+export function callEstimate(model: string, texts: string | readonly string[], maxOutputTokens = ASSUMED_OUTPUT_TOKENS): number {
+  const all = typeof texts === "string" ? [texts] : texts;
+  const inputTokens = all.reduce((sum, text) => sum + utf8.encode(text).length + FRAMING_TOKENS_PER_TEXT, FRAMING_TOKENS);
+  return modelCost(model, { inputTokens, outputTokens: Math.max(0, maxOutputTokens) });
 }
 
 export const spendRefusal = {
@@ -181,6 +215,12 @@ export const spendRefusal = {
   reserveKept: () => "turtl is keeping the rest of today's AI for finding the cause of outages, so no model was asked; it starts again tomorrow",
   reserveUsed: (underUsd: number) =>
     `turtl is keeping the rest of today's AI for outages on accounts that have used less than ${dollars(underUsd)} of it today, and this account has used more, so no model was asked; it starts again tomorrow`,
+  reserveNotSteady: (hours: number) =>
+    `turtl is keeping the rest of today's AI for outages on apps whose checks had been passing for ${hours === 24 ? "a day" : `${hours} hours`} before they failed, and this one's had not, so no model was asked; it starts again tomorrow`,
+  reserveNewAccount: (days: number) =>
+    `turtl is keeping the rest of today's AI for outages on accounts more than ${days} days old, so no model was asked; it starts again tomorrow`,
+  practiceSpent: (limitUsd: number) =>
+    `this account has used today's ${dollars(limitUsd)} of AI for its practice app, so no model was asked; it starts again tomorrow`,
 };
 
 /** What a person reads when a deployment-wide ceiling or a cap refuses them. Shown as written, so whole sentences. */

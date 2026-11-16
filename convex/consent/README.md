@@ -47,7 +47,7 @@ The gate asks again on every call, so taking permission back stops the next call
 1. Put the service in `store/data-practices.json` with `needsPermission: true`, its hosts, and what it receives. Every account is asked again, because the list's version changes.
 2. Add its id to `Outbound` in `services.ts`.
 3. In the helper, take a `Gate`, call `gate.open(service)` and use the `fetch` it returns. Never call `fetch` yourself: `tests/consent-gate.test.mjs` fails on a bare `fetch(` in any file that names a gated host, and on any new file that calls `fetch` at all until it is listed there as a host that needs no permission.
-4. If it spends model money, pass the call's estimate to `gate.open(service, "send", callEstimate(model, promptChars, maxOutputTokens))`, and call `gate.spent(costUsd)` after the answer (`modelCost` in `convex/spend/limits.ts` prices it). `open` holds the estimate against the account's day until `spent` replaces it (`internal.consent.gate.admit`); `blocked` only asks (`internal.consent.gate.check`).
+4. If it spends model money, pass the call's estimate to `gate.open(service, "send", callEstimate(model, texts, maxOutputTokens))`, and call `gate.spent(costUsd)` after the answer (`modelCost` in `convex/spend/limits.ts` prices it). `open` holds the estimate against the account's day until `spent` replaces it (`internal.consent.gate.admit`); `blocked` only asks (`internal.consent.gate.check`).
 
 ## The app
 
