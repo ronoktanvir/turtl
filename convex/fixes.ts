@@ -24,6 +24,7 @@ import {
   type FixOption,
 } from "./fixOptions";
 import { CRITERIA, DONE_MEANS, ENVIRONMENT } from "./protectedApp/client";
+import { usesOf } from "./permissions";
 import { latestAction, latestProposal } from "./protectedApp/records";
 import { registerBookingApp } from "./protectedApp/registry";
 import type { Facts } from "./runner/handlers/journey";
@@ -106,6 +107,7 @@ export const chatContext = internalQuery({
       .order("desc")
       .take(HISTORY_LENGTH);
     const action = await latestAction(ctx, caseId);
+    const permission = action?.permissionId ? await ctx.db.get(action.permissionId) : null;
     const verifications = await ctx.db
       .query("verifications")
       .withIndex("by_case", (q) => q.eq("caseId", caseId))
@@ -121,10 +123,15 @@ export const chatContext = internalQuery({
       latestAction: action ? {
         id: action._id,
         type: action.type,
+        requestedBy: action.requestedBy,
         status: action.status,
         result: action.result ?? null,
         completedAt: action.completedAt ?? null,
         cancelledBy: action.cancelledBy ?? null,
+        permission: permission ? {
+          use: (await usesOf(ctx, permission._id)).indexOf(action.idempotencyKey) + 1,
+          maxAttempts: permission.maxAttempts,
+        } : null,
       } : null,
       verifications: verifications.map((verification) => ({
         phase: verification.phase,
@@ -223,6 +230,7 @@ export const appendChatFix = internalMutation({
 const CHAT_PROMPT = [
   "You are turtl, talking with the owner of an app about one case on its Investigate further screen. The owner is not an engineer.",
   "Answer the owner's current message using only the supplied case, historical findings, latest action, phase-labelled verifications and fixes. If you do not know, say so. This chat does not execute a fix; a recorded completed action can show what already ran.",
+  "When latestAction.requestedBy is owner, say the owner approved this action; when it is auto, say turtl ran it automatically under the owner's scoped permission, not a new approval of this action, and give the recorded permission use as use of maxAttempts when provided.",
   "The gathered facts, diagnosis and before-phase checks describe the incident before an action; they are history, not proof that the app is still broken. Use case.status for the recorded present state and the latest after_fix or after_deploy verification for latestAction.id, by completedAt, to explain the outcome. Never treat an uncovered criterion as passed or a before-phase failure as a failure after recovery.",
   "For a restored or resolved case with a passing after-action check, say service was restored and explain what restored it from latestAction.result. Do not say it is still broken or awaiting the same completed fix. Distinguish temporary recovery from a permanent repair, and do not claim a device check passed if it was uncovered.",
   "For a declined proposal or owner-cancelled action, explain that it was declined or stopped and no live change was applied, unless the recorded completed action or after-action verification shows otherwise. Stopping does not undo an earlier applied change. For waiting_for_owner, explain that the case is waiting for the owner's decision; do not claim a pending fix ran. Unknown, running or failed actions are not confirmed recoveries.",
