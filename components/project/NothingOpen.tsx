@@ -61,7 +61,7 @@ export default function NothingOpen({ type, projectId }: { type: CaseType; proje
       <ScrollView testID={`begin-${type}-empty`} contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 8, paddingBottom: insets.bottom + 32, gap: 28 }}>
         <View style={{ alignItems: "center", gap: 12 }}>
           <Turtle health={broken ? "needs_you" : "clear"} size={96} />
-          <T variant="strong" color="textMuted">{w.empty}</T>
+          <T variant="strong" color={broken ? "statusAffected" : "textMuted"} style={{ textAlign: "center", maxWidth: 320 }} testID={`begin-${type}-empty-line`}>{w.empty}</T>
           <T variant="small" color="textMuted" style={{ textAlign: "center", maxWidth: 320 }}>{w.note}</T>
         </View>
         <Watching projectId={projectId} testID={`begin-${type}-watching`} />

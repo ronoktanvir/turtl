@@ -102,3 +102,9 @@ test("the overview says how a failing check's last issue ended", async () => {
   assert.equal((await overviewQuery([{ _id: "c1", _creationTime: 2_000, status: "unresolved" }], journey)).checks[0].closedAs, "unresolved");
   assert.equal("closedAs" in (await overviewQuery([{ _id: "c1", _creationTime: 2_000, status: "investigating" }], journey)).checks[0], false);
 });
+
+test("the still-broken line is centred like the note under it, and coloured like the panel's Not passing", async () => {
+  const { readFileSync } = await import("node:fs");
+  const empty = readFileSync(new URL("../components/project/NothingOpen.tsx", import.meta.url), "utf8");
+  assert.match(empty, /color=\{broken \? "statusAffected" : "textMuted"\} style=\{\{ textAlign: "center", maxWidth: 320 \}\}/);
+});
