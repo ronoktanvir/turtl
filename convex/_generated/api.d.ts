@@ -113,6 +113,7 @@ import type * as prTracking_records from "../prTracking/records.js";
 import type * as prTracking_validators from "../prTracking/validators.js";
 import type * as practice_app from "../practice/app.js";
 import type * as practice_http from "../practice/http.js";
+import type * as practice_localProof from "../practice/localProof.js";
 import type * as practice_projects from "../practice/projects.js";
 import type * as practice_review from "../practice/review.js";
 import type * as practice_rules from "../practice/rules.js";
@@ -294,6 +295,7 @@ declare const fullApi: ApiFromModules<{
   "prTracking/validators": typeof prTracking_validators;
   "practice/app": typeof practice_app;
   "practice/http": typeof practice_http;
+  "practice/localProof": typeof practice_localProof;
   "practice/projects": typeof practice_projects;
   "practice/review": typeof practice_review;
   "practice/rules": typeof practice_rules;
