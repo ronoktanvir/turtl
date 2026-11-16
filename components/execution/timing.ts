@@ -7,6 +7,11 @@ export function formatDuration(milliseconds: number): string {
   return minutes ? `${minutes} min${remainder ? ` ${remainder} s` : ""}` : `${seconds} s`;
 }
 
+/** How long a finished step took: "under a second" rather than "0 s". */
+export function tookDuration(milliseconds: number): string {
+  return milliseconds < 1000 ? "under a second" : formatDuration(milliseconds);
+}
+
 export function formatStart(at: number): string {
   return new Date(at).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true });
 }
