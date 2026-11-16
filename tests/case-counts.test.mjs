@@ -25,3 +25,12 @@ test("the case page and the finding card use these words", () => {
   assert.doesNotMatch(page, /people reported it/);
   assert.match(card, /deeperCauseTitle\(finding\.connectedCaseCount\)/);
 });
+
+test("the approval count reads the same on Projects and on a project, with no full stop on either", () => {
+  const home = readFileSync(new URL("../app/project/[projectId]/index.tsx", import.meta.url), "utf8");
+  const list = readFileSync(new URL("../app/projects.tsx", import.meta.url), "utf8");
+  assert.doesNotMatch(home, /approvalLabel\([a-zA-Z]+\) \+ "\."/);
+  assert.match(home, /fixApprovals > 0 \? approvalLabel\(fixApprovals\) :/);
+  assert.match(home, /featureApprovals > 0 \? approvalLabel\(featureApprovals\) :/);
+  assert.match(list, /approvalLabel\(p\.needsApprovalCount\) :/);
+});
