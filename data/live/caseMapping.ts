@@ -130,6 +130,13 @@ export function mapCaseDetail(
   const staged = bookingDemo || cards.case.isSample || /staged|fixture/i.test(cards.case.title)
     || cards.steps.some((step) => step.staged || /staged|fixture/i.test(step.currentAttempt?.summary ?? ""));
   if (staged) paragraph([{ text: "Staged/demo case: these observations are not evidence of a real customer incident." }]);
+  const permission = cards.runPermission;
+  if (permission && cards.action?.requestedBy === "auto" && cards.action.permissionId === permission._id) {
+    const handled = cards.action.status === "completed" && (cards.case.status === "restored" || cards.case.status === "resolved");
+    const usage = Number.isInteger(permission.use) && permission.use > 0 && permission.use <= permission.maxAttempts
+      ? ` (use ${permission.use} of ${permission.maxAttempts})` : " (usage count not available)";
+    paragraph([{ text: `${handled ? "turtl handled this case" : "This action is recorded"} under your scoped permission${usage}.` }]);
+  }
   if (number === undefined) paragraph([{ text: "The display number is not available yet." }]);
   if (cards.case.impact) paragraph([{ text: cards.case.impact }]);
 

@@ -264,3 +264,25 @@ test("learned prefers the recorded memory and otherwise labels learn output as a
   assert.equal(map(cards({ steps: [step({ purpose: "learn", currentAttempt: attempt({ summary: "No check ran." }) })] })).learned, "Case-note text (not proof of recovery): No check ran.");
   assert.equal(map(cards()).learned, undefined);
 });
+
+test("automatic recovery shows its recorded scoped permission use without inventing provenance", () => {
+  const automatic = {
+    case: row({ status: "restored" }),
+    action: action({ requestedBy: "auto", permissionId: "permission-1" }),
+    runPermission: { _id: "permission-1", use: 1, maxAttempts: 3 },
+  };
+  assert.match(content(map(cards(automatic))), /turtl handled this case under your scoped permission \(use 1 of 3\)/);
+  const pending = { ...automatic, case: row({ status: "executing" }), action: action({ requestedBy: "auto", permissionId: "permission-1", status: "pending" }) };
+  assert.match(content(map(cards(pending))), /This action is recorded under your scoped permission/);
+  assert.doesNotMatch(content(map(cards(pending))), /turtl handled this case/);
+  for (const fields of [
+    { runPermission: null },
+    { runPermission: { ...automatic.runPermission, _id: "different-permission" } },
+    { action: action({ requestedBy: "owner" }) },
+  ]) assert.doesNotMatch(content(map(cards({ ...automatic, ...fields }))), /under your scoped permission/);
+  for (const use of [0, -1, 4]) {
+    const result = content(map(cards({ ...automatic, runPermission: { ...automatic.runPermission, use } })));
+    assert.match(result, /usage count not available/);
+    assert.doesNotMatch(result, /use \d of/);
+  }
+});
