@@ -88,7 +88,8 @@ export const forProject = query({
     const journeys = await ctx.db.query("journeys").withIndex("by_app", (q) => q.eq("appId", app._id)).take(MAX_CHECKS);
     const checks: Infer<typeof vWatchedCheck>[] = await Promise.all(journeys.map(async (journey) => {
       const failing = await journeyFailing(ctx, app._id, journey);
-      const quiet = isNotAnswering(journey) && journey.unanswered ? { since: journey.unanswered.since, tries: journey.unanswered.count } : null;
+      // A practice project's app is turtl's own: it is never shown as not answering (protectedApp/notAnswering.ts).
+      const quiet = !app.practice && isNotAnswering(journey) && journey.unanswered ? { since: journey.unanswered.since, tries: journey.unanswered.count } : null;
       return {
         id: journey._id as string,
         kind: "journey" as const,

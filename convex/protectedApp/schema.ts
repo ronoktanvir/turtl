@@ -9,11 +9,14 @@ export const watchingTables = {
   // Only a project that has checks gets a row. nextCheckAt is when it is next due; the monitor claims due rows through
   // by_next_check, so projects with nothing to check never take a turn (second review, finding 15). A row without it
   // (written before it existed) is due now. failure: the same failure seen on `streak` checks in a row, which spaces
-  // the checks out (watching.ts, intervalAfter).
+  // the checks out (watching.ts, intervalAfter). lastAnsweredAt: when a round last got a usable reply (a pass or a
+  // failure) from any of its checks, written by the round's end in the write it already makes; turtl reads it across
+  // projects before a not-answering case opens (protectedApp/notAnswering.ts, fleetQuiet).
   watchedProjects: defineTable({
     appId: v.id("apps"),
     runningSince: v.optional(v.number()),
     lastCheckedAt: v.optional(v.number()),
+    lastAnsweredAt: v.optional(v.number()),
     nextCheckAt: v.optional(v.number()),
     failure: v.optional(v.object({ signature: v.string(), streak: v.number(), since: v.number() })),
     notice: v.optional(v.object({ reason: v.string(), at: v.number(), partial: v.boolean() })),

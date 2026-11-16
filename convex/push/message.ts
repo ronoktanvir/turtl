@@ -13,7 +13,8 @@ export type NoticeEvent = "opened" | "needs_decision" | "handled_under_permissio
  * - handled_under_permission: a fix the owner allowed in advance ran on its own and the check after it passed.
  * - not_answering: the app gave turtl's checks no usable answer three times in a row, so a case opened. turtl cannot
  *   look into an app it cannot reach, so the owner is the one who can.
- * - answering_again: that case closed because the app answered again.
+ * - answering_again: that case closed because the app answered again. It may have answered with a failing check (whose
+ *   own case opens, with no push of its own), so the sentence is no all-clear.
  * "opened" sends no push: turtl is still looking into it and there is nothing for the owner to do yet. If the case
  * needs them, needs_decision follows.
  */
@@ -21,7 +22,7 @@ export const PUSH_BODIES: Readonly<Partial<Record<NoticeEvent, string>>> = Objec
   needs_decision: "A case needs your decision. Open it to approve or decline a fix.",
   handled_under_permission: "A fix you allowed ran and the app passed its check. Open the case to see what changed.",
   not_answering: "Your app is not answering turtl's checks. Open the case to see what turtl saw.",
-  answering_again: "Your app is answering turtl's checks again.",
+  answering_again: "Your app is answering turtl's checks again. Open the case to see whether they pass.",
 });
 
 export const FALLBACK_TITLE = "turtl";

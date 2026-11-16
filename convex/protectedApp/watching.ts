@@ -52,6 +52,8 @@ export const WATCH_WORDS = {
   noToken: "No control token is set, so turtl cannot run this project's checks. Add it in this project's Settings, under Control token.",
   someNeedToken: "Some of this project's checks need the control token, so turtl runs only the others until you add it in this project's Settings, under Control token.",
   noChecks: "It has no checks turtl can run, so turtl has nothing to check.",
+  // The single-owner demo with its checks switched off (PROTECTED_APP_URL unset, convex/monitor.ts).
+  checksOff: "turtl's checks are turned off for now, so turtl has nothing to check.",
 };
 
 type Read = Pick<QueryCtx, "db">;
@@ -220,8 +222,9 @@ export const watchSoon = internalMutation({
   },
 });
 
-// What one project's check runs now: its live address and the checks it can run, and whether any of its checks has
-// tries with no answer on record, for the end of the round (monitor.ts). Null when it cannot be checked.
+// What one project's check runs now: its live address and the checks it can run, whether any of its checks has
+// tries with no answer on record, and whether it is a practice project, for the end of the round (monitor.ts). Null
+// when it cannot be checked.
 export const plan = internalQuery({
   args: { appId: v.id("apps") },
   returns: v.union(
@@ -230,22 +233,24 @@ export const plan = internalQuery({
       base: v.string(),
       journeys: v.array(v.object({ journeyId: v.id("journeys"), url: v.string(), credentialRef: v.optional(v.string()) })),
       unanswered: v.boolean(),
+      practice: v.boolean(),
     }),
   ),
   handler: async (ctx, { appId }) => {
     const app = await ctx.db.get(appId);
     const found = app ? await planFor(ctx, app) : null;
-    return found?.kind === "run" ? { base: found.base, journeys: found.journeys, unanswered: found.unanswered } : null;
+    return found?.kind === "run" ? { base: found.base, journeys: found.journeys, unanswered: found.unanswered, practice: app?.practice === true } : null;
   },
 });
 
 // A check hands its turn back and says how it went. failure: what every check of the project failed with, when none
 // passed (monitor.ts, failureOf); null when one passed; left out when nothing ran. The same failure as last time
-// spaces the next check out (intervalAfter); a pass, or anything new, puts it back to every minute.
+// spaces the next check out (intervalAfter); a pass, or anything new, puts it back to every minute. answered: a check
+// of the round got a usable reply (a pass or a failure), recorded as lastAnsweredAt in the same write.
 export const finish = internalMutation({
-  args: { appId: v.id("apps"), checkedAt: v.number(), failure: v.optional(v.union(v.string(), v.null())) },
+  args: { appId: v.id("apps"), checkedAt: v.number(), failure: v.optional(v.union(v.string(), v.null())), answered: v.optional(v.boolean()) },
   returns: v.null(),
-  handler: async (ctx, { appId, checkedAt, failure }) => {
+  handler: async (ctx, { appId, checkedAt, failure, answered }) => {
     const row = await stateOf(ctx, appId);
     if (!row) return null;
     const same = failure && row.failure?.signature === failure;
@@ -254,6 +259,7 @@ export const finish = internalMutation({
     await ctx.db.patch(row._id, {
       runningSince: undefined,
       lastCheckedAt: checkedAt,
+      ...(answered && { lastAnsweredAt: checkedAt }),
       failure: next,
       nextCheckAt: Math.max(checkedAt, began + intervalAfter(next?.streak ?? 0) - TICK_SLACK_MS),
     });
