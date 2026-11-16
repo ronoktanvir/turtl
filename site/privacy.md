@@ -55,7 +55,7 @@ turtl uses what it collects only to do what you installed it for: to notice when
 ## Notifications and emails
 
 - **Notifications.** If you turn them on, turtl sends one when a case needs your decision, and when a fix you allowed in advance has run and your app passed its check. A notification shows the name of your project and one fixed sentence. It never shows your customers' words, your code, or an error. It goes through Expo's push service, which hands it to Apple. You can turn notifications off in the app's settings or in iOS Settings. Your phone's notification address is removed when you turn notifications off on that phone, sign out, reset your password, or delete your account, and it receives nothing once you are signed out.
-- **Emails.** turtl sends you an email only to confirm your address when you sign up with one, and when you ask to reset your password. Each holds a link and a code and nothing else, and is sent through Resend. turtl keeps only scrambled copies of each code, of your address, and of its domain, for one day. An account made with an email address that is never confirmed is deleted after 7 days. turtl sends no newsletters or marketing.
+- **Emails.** turtl sends you an email only to confirm your address when you sign up with one, and when you ask to reset your password. Each holds a link and a code and nothing else, and is sent through Resend. turtl keeps only scrambled copies of each code, of your address, and of its domain, for one day. If you ask for a password reset, turtl always sends the first one of the day; any more wait until tomorrow when it is busy, and a code already sent to you still works. An account made with an email address that is never confirmed is deleted after 7 days. turtl sends no newsletters or marketing.
 
 ## Who receives your data
 
@@ -93,7 +93,7 @@ If you tap Not now, turtl still watches your app, runs its checks, and offers th
 
 You can read the list again, allow it, or take your permission back at any time: open a project, tap the gear, then AI services. Taking it back stops the next request. If turtl adds a service to the list, or changes what one receives, it asks you again before sending anything to it.
 
-Each account also has limits on AI: a monthly allowance, a daily allowance ($2.50, plus $1.00 for its customers' reports), and a number of code changes it can start in a day. Settings shows where you stand. When turtl does not use AI, it says why on the case and explains with its own rules. Your practice app has its own small daily AI allowance; once it is used, turtl still opens the case, explains it with its own rules, and tells you why.
+Each account also has limits on AI: a monthly allowance, a daily allowance ($2.50, plus $1.00 for its customers' reports), and a number of code changes it can start in a day. Settings shows where you stand. turtl always finds the cause of an outage its checks find on your own project, up to a small daily amount that nothing another account does can use up, unless turtl as a whole has reached the most it spends on AI in a day. When turtl does not use AI, it says why on the case and explains with its own rules. Your practice app may use up to $2.00 of your daily allowance; once it has, turtl still opens the case, explains it with its own rules, and tells you why.
 
 ## How long turtl keeps it
 

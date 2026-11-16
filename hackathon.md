@@ -11,7 +11,7 @@
 - **Auth:** Convex Auth (`@convex-dev/auth` 0.0.98): email and password (with the address confirmed by an emailed code), Sign in with Apple, and GitHub, whenever `AUTH_REQUIRED` is set to anything but empty or `false`. Unset, empty or `false`, the deployment is the single-owner demo: nobody signs in, and it refuses to run if it holds any account
 - **AI models:** gpt-5.4-mini (Quick look diagnosis, and by default fix proposals, case chat, report triage and preference reading; `DIAGNOSIS_MODEL` and `FIXES_MODEL` override it), gpt-6.1-sol (Careful review diagnosis and council consolidation), gpt-5.5 and gpt-6.1-terra (council members), gpt-5.4 (broader-cause examination, `STRUCTURAL_MODEL` overrides it), gpt-6-luna (assistant chat, code network and onboarding inspection, `OPENAI_MODEL` overrides it), gpt-4o-mini-transcribe and gpt-4o-mini-tts (voice); claude-sonnet-4-5 and gemini-2.5-pro join the council only when `ANTHROPIC_API_KEY` or `GEMINI_API_KEY` is set. All are called through each provider's API, not the Convex AI Gateway
 - **Started:** 2026-11-15T20:37:34Z
-- **Last updated:** 2026-11-16T13:58:32Z
+- **Last updated:** 2026-11-16T15:00:00Z
 
 ## Log
 
@@ -329,3 +329,21 @@ Made reset and confirmation links carry only the code, so a link someone else se
 
 ### 2026-11-16 - 56105ee
 Closed the demo on a deployment that holds accounts: with `AUTH_REQUIRED` unset there, the monitor, customer reports, the AI permission gate, GitHub's pages and webhook, requests to owners' apps, the runner and push delivery refuse too, with one log line a day saying why. A project's live address may no longer be the deployment's own site or API; a practice project is the one exception, for its own path only.
+
+### 2026-11-16 - b019a6e
+Fixed a step of the local proof for each project's own control token, which assumed every monitor tick checks every project. It now waits for that project's own next check and proves the same things as before.
+
+### 2026-11-16 - a00a2e2
+Refused turtl's own address as a project's live app however its host is spelled: addresses are compared as the network reads them, in lower case and without a trailing dot, so a variant spelling of the backend's own address no longer gets through.
+
+### 2026-11-16 - b52d84b
+Brought every document to the finished wave-3 code and pinned the App Store pack's audit to `56105ee`: emails that carry only a code, secret masking, the closed demo, the outage reserve and the practice allowance, and what the app keeps on the phone. A read of the site as an owner would read it fixed an over-claim about deletion and added answers on resets and on apps that do not answer.
+
+### 2026-11-16 - 937a361
+Made sure a full day of emails cannot stop an owner's reset: each confirmed address's first reset email of the day is sent even when `EMAILS_PER_DAY` is used up, and a sign-up that cannot be emailed now makes no account and offers Sign in with Apple or GitHub, or an email address tomorrow.
+
+### 2026-11-16 - 4eea484
+Made sure an owner's own outage is always diagnosed: each account has $1.25 a day (`OUTAGE_FLOOR_PER_DAY_USD`), outside the shared day, for finding the cause of an outage turtl's checks found on its own real project, which no other account can use up. A practice app's allowance now sits inside the account's own share.
+
+### 2026-11-16 - 9d5bb95
+Put a hard stop on what the deployment spends on AI in a day (`DEPLOYMENT_MODEL_HARD_STOP_PER_DAY_USD`, twice the daily ceiling unless set, $50 with the defaults), the shared day and every account's floor together, so a month costs at most $1,550.
