@@ -1,7 +1,7 @@
 import { api } from "../../convex/_generated/api";
 import type { CaseType, Project } from "../types";
 import { useLiveQuery } from "./client";
-import { mapCaseSummary } from "./caseMapping";
+import { mapCaseSummary, onlyNotAnswering } from "./caseMapping";
 
 const closed = new Set(["restored", "resolved", "declined"]);
 const healthOrder = ["affected", "needs_you", "working", "clear"] as const;
@@ -27,6 +27,7 @@ export function useProjects(): Project[] | undefined {
       bugCount: open.filter((row) => row.kind !== "feature_request").length,
       featureCount: open.filter((row) => row.kind === "feature_request").length,
       needsApprovalCount: summaries.filter((row) => row.status === "needs_approval" || row.status === "ready_to_merge").length,
+      ...(onlyNotAnswering(open) && { onlyNotAnswering: true as const }),
     };
   });
 }

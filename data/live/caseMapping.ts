@@ -27,6 +27,15 @@ export function mapPullRequest(value: PullRequest | null | undefined): PullReque
 // kept here so this file has no runtime import (see plainWords below). Open, its status is waiting_for_app.
 const isNotAnswering = (row: Pick<Doc<"cases">, "signature" | "status">) => row.signature?.startsWith("not_answering:") === true || row.status === "waiting_for_app";
 
+/**
+ * Whether every bug a project lists (its open cases, and one left unresolved) is about the app not answering turtl's
+ * checks: then there is nothing to review or decide, and the projects list says so. False with no bugs.
+ */
+export function onlyNotAnswering(rows: Pick<Doc<"cases">, "kind" | "signature" | "status">[]): boolean {
+  const bugs = rows.filter((row) => row.kind !== "feature_request");
+  return bugs.length > 0 && bugs.every(isNotAnswering);
+}
+
 export function mapCaseSummary(row: Doc<"cases">, number: number, pullRequest?: PullRequest | null): CaseSummary {
   const quiet = isNotAnswering(row);
   const status: CaseSummary["status"] = row.status === "waiting_for_app" ? "not_answering" : row.status === "waiting_for_owner" ? "needs_approval"

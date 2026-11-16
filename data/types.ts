@@ -24,6 +24,9 @@ export type Project = {
   bugCount: number; // open fixes
   featureCount: number; // open features
   needsApprovalCount: number;
+  // Every open bug is about the app not answering turtl's checks: nothing to review or decide, so the projects list
+  // leads to the issue instead of offering to review fixes.
+  onlyNotAnswering?: true;
   approvals: ApprovalMode;
   practice?: boolean; // a practice project: turtl runs its app for the owner to break on purpose, and it has no repository
 };

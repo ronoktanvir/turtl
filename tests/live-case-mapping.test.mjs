@@ -519,3 +519,17 @@ test("a not-answering case with nothing recorded on its step still reads, from w
   const closed = map(cards({ case: quietRow({ status: "resolved", impact: "" }), steps: [] }));
   assert.equal(closed.summary, "The app answered turtl's checks again.");
 });
+
+test("a project whose listed bugs are all about the app not answering is told apart, so its card offers no review", async () => {
+  const { onlyNotAnswering } = await import("../data/live/caseMapping.ts");
+  const quiet = quietRow();
+  const stopped = quietRow({ _id: "case-s", status: "unresolved" });
+  const broken = row({ _id: "case-b", signature: "journey_failed:j1" });
+  const request = row({ _id: "case-f", kind: "feature_request", raisedBy: "customer", status: "investigating" });
+  assert.equal(onlyNotAnswering([quiet]), true);
+  assert.equal(onlyNotAnswering([stopped]), true, "closed because turtl stopped checking, still listed: nothing to review either");
+  assert.equal(onlyNotAnswering([quiet, request]), true, "a feature request is not a bug");
+  assert.equal(onlyNotAnswering([quiet, broken]), false);
+  assert.equal(onlyNotAnswering([]), false);
+  assert.equal(onlyNotAnswering([request]), false);
+});
