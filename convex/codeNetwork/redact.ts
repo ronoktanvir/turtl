@@ -18,7 +18,7 @@
 //
 // What stays, so the text is still worth reading: names, paths, URLs without credentials, version numbers, UUIDs, commit
 // hashes (40 hex), hashes given to a name such as integrity, checksum or sha256, long identifiers made of words, and
-// values that only point at a secret (${VAR}, process.env.X, {{ secrets.X }}). Callers mask first and cut after.
+// values that only point at a secret (${VAR}, an environment lookup, {{ secrets.X }}). Callers mask first, then cut.
 
 export const MASK = "[secret removed]";
 
