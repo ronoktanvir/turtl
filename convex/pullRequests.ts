@@ -4,7 +4,7 @@ import type { Doc } from "./_generated/dataModel";
 import { action, internalAction, mutation, query, type ActionCtx } from "./_generated/server";
 import { canSeeCase, guardCaseInAction, ownerActor, requireDevTools } from "./access";
 import { gateFor } from "./consent/gate";
-import { repositoryAccess } from "./github/access";
+import { repositoryAccess, type Purpose } from "./github/access";
 import { findPullRequestNumber } from "./prTracking/capy";
 import { capyConfigFor } from "./prTracking/codingAgent";
 import { registerCodeChangeAction } from "./prTracking/catalog";
@@ -26,9 +26,10 @@ export type MergeResult = { outcome: "merged"; pullRequest: PullRequest } | { ou
 const NO_GITHUB_TOKEN: NotConfigured = { outcome: "not_configured", missing: ["GITHUB_TOKEN"] };
 
 // The credential for one repository: a GitHub App installation token, or GITHUB_TOKEN while the app is not configured.
-// With accounts on, only an installation the case's project owner connected.
-async function githubAccess(ctx: ActionCtx, repo: string, caseId: string): Promise<{ token: string } | NotConfigured | Failed> {
-  const access = await repositoryAccess(ctx, repo, { caseId });
+// With accounts on, only an installation the case's project owner connected, and to merge ("change"), only while
+// GitHub says the owner can change the repository themself.
+async function githubAccess(ctx: ActionCtx, repo: string, caseId: string, purpose: Purpose = "read"): Promise<{ token: string } | NotConfigured | Failed> {
+  const access = await repositoryAccess(ctx, repo, { caseId }, purpose);
   if (!access.ok) return { outcome: "failed", message: access.message };
   return access.token ? { token: access.token } : NO_GITHUB_TOKEN;
 }
@@ -127,7 +128,7 @@ export const merge = action({
     const row: Doc<"pullRequests"> | null = await ctx.runQuery(internal.prTracking.records.forCase, { caseId });
     if (!row || row.number === undefined) return { outcome: "refused", reason: "This case has no pull request yet." };
     if (row.settledAt !== undefined) return { outcome: "refused", reason: row.openError ?? "turtl is no longer following this pull request." };
-    const access = await githubAccess(ctx, row.repo, caseId);
+    const access = await githubAccess(ctx, row.repo, caseId, "change");
     if ("outcome" in access) return access;
     const { token } = access;
     const read = await readPullRequest(token, row.repo, row.number);

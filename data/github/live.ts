@@ -2,7 +2,7 @@ import { Platform } from "react-native";
 import { api } from "../../convex/_generated/api";
 import { errorMessage, requireLiveClient, useLiveQuery } from "../live/client";
 import { withOwnerPasscode } from "../live/ownerPasscode";
-import type { GithubDisconnect, GithubRepository, GithubStatus } from "./types";
+import type { GithubDisconnect, GithubRefresh, GithubRepository, GithubStatus } from "./types";
 
 async function readable<T>(work: () => Promise<T>): Promise<T> {
   try {
@@ -32,7 +32,7 @@ export async function finishGithubConnect(ticket: string): Promise<{ connected: 
   return await readable(() => requireLiveClient().mutation(api.github.connect.finish, { ticket }));
 }
 
-export async function refreshGithubRepositories(): Promise<{ ok: boolean; problems: string[] }> {
+export async function refreshGithubRepositories(): Promise<GithubRefresh> {
   return await readable(() => requireLiveClient().action(api.github.connect.refresh, {}));
 }
 

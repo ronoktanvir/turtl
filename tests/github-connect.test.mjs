@@ -4,42 +4,13 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { runInThisContext } from "node:vm";
 import ts from "typescript";
-import { APP_ID, LEGACY_TOKEN, lifecycle, MINUTE, PKCS1, SITE, SOLO, START, WEBHOOK_SECRET, world } from "./github-harness.mjs";
+import { APP_ID, connectWorld, LEGACY_TOKEN, lifecycle, MINUTE, PKCS1, SITE, SOLO, START, WEBHOOK_SECRET, world } from "./github-harness.mjs";
 
 // Connect GitHub (convex/github/connect.ts and the two pages in convex/github/http.ts) against the stand-in GitHub in
 // scripts/github-app/stub.mjs. The person's browser is played by browse(): GitHub's install and authorize pages come
 // from the stub, turtl's /github/setup and /github/callback from the real HTTP actions. The app's calls go through
 // backend.call as a signed-in account (accounts on) or as nobody (the single-owner demo, where everyone is
 // "solo-owner"). Nothing here talks to GitHub.
-
-async function connectWorld(t, options = {}) {
-  const w = await world(t, { connect: true, ...options });
-  const project = async (ownerId) => {
-    const appId = await w.backend.insert("apps", { name: "app", ...(ownerId && { ownerId }) });
-    return { appId, caseId: await w.backend.insert("cases", { appId }) };
-  };
-  // `account` taps Connect GitHub in the app; `login` is who is signed in to github.com; `choice` is what they do there.
-  const begin = async (account, login, choice, returnTo = "app") => {
-    w.stub.signIn(login);
-    if (choice !== undefined) w.stub.willInstall(choice);
-    const { url } = await w.backend.call("github.connect.begin", { returnTo }, account);
-    return url;
-  };
-  const connectAs = async (account, login, choice, returnTo) => {
-    const url = await begin(account, login, choice, returnTo);
-    const landed = await w.open(url);
-    const back = new URL(landed.url);
-    return { url, landed, back, result: back.searchParams.get("github"), ticket: back.searchParams.get("ticket") };
-  };
-  const connected = async (account, login, choice) => {
-    const { ticket, result } = await connectAs(account, login, choice);
-    assert.equal(result, "connected");
-    return await w.backend.call("github.connect.finish", { ticket }, account);
-  };
-  const status = (account) => w.backend.call("github.connect.status", {}, account);
-  const pickable = async (account) => (await w.backend.call("github.connect.repositories", {}, account)).map((repository) => repository.fullName);
-  return { ...w, project, begin, connectAs, connected, status, pickable };
-}
 
 const EXPIRED = /expired or was started on another sign-in/;
 
@@ -161,7 +132,7 @@ test("an install link someone else started cannot connect your repositories to t
   assert.equal((await w.access("alice/app", { appId: mallory.appId })).reason, "not_connected");
   assert.equal(w.backend.rows("githubInstallationLinks").every((link) => !link.active), true);
   // Nor can mallory have turtl uninstall alice's installation: disconnecting only forgets her unfinished attempt.
-  assert.deepEqual(await w.backend.call("github.connect.disconnect", {}, "mallory-account"), { ok: true, disconnected: 0, failed: [] });
+  assert.deepEqual(await w.backend.call("github.connect.disconnect", {}, "mallory-account"), { ok: true, disconnected: 0, failed: [], stillInstalled: [] });
   assert.deepEqual(w.stub.uninstalled, []);
   assert.deepEqual(w.backend.rows("githubInstallationLinks"), []);
   assert.deepEqual(w.backend.rows("githubInstallations").map((row) => row.status), ["active"]);
@@ -205,7 +176,7 @@ test("a second account cannot list or use the first account's repositories, and 
   const bob = await w.project("bob-account");
   assert.deepEqual((await w.status("bob-account")).connections, []);
   assert.deepEqual(await w.pickable("bob-account"), []);
-  assert.deepEqual(await w.backend.call("github.connect.refresh", {}, "bob-account"), { ok: true, problems: [] });
+  assert.deepEqual(await w.backend.call("github.connect.refresh", {}, "bob-account"), { ok: true, problems: [], leftOut: [] });
   const minted = w.mints().length;
   for (const owner of [{ appId: bob.appId }, { caseId: bob.caseId }]) {
     const refused = await w.access("alice/app", owner);
@@ -221,7 +192,7 @@ test("a second account cannot list or use the first account's repositories, and 
     (await w.status("bob-account")).connections.map(({ installationId, accountLogin, scope, settingsUrl }) => ({ installationId, accountLogin, scope, settingsUrl })),
     [{ installationId: 7300, accountLogin: "acme", scope: "chosen", settingsUrl: w.stub.url + "/organizations/acme/settings/installations/7300" }],
   );
-  assert.deepEqual(await w.backend.call("github.connect.refresh", {}, "bob-account"), { ok: true, problems: [] });
+  assert.deepEqual(await w.backend.call("github.connect.refresh", {}, "bob-account"), { ok: true, problems: [], leftOut: [] });
   assert.equal(w.backend.rows("githubInstallationRepositories").filter((row) => row.installationId === 7300).length, 3, "turtl's own records read all three");
   assert.deepEqual(await w.pickable("bob-account"), ["acme/web"], "bob is shown the one he can reach");
   assert.equal((await w.access("acme/web", { appId: bob.appId })).installationId, 7300);
@@ -255,7 +226,7 @@ test("disconnecting uninstalls the app at GitHub and leaves no token, repository
   assert.equal((await w.access("alice/app", { appId: alice.appId })).source, "installation");
   assert.equal(w.backend.rows("githubInstallationTokens").length, 1);
 
-  assert.deepEqual(await w.backend.call("github.connect.disconnect", {}, "alice-account"), { ok: true, disconnected: 1, failed: [] });
+  assert.deepEqual(await w.backend.call("github.connect.disconnect", {}, "alice-account"), { ok: true, disconnected: 1, failed: [], stillInstalled: [] });
   assert.deepEqual(w.stub.uninstalled, [7101]);
   const uninstall = w.stub.requests.find((request) => request.method === "DELETE" && request.path === "/app/installations/7101");
   assert.equal(uninstall.credential, "app", "uninstalled as the app, with its JWT");
@@ -272,11 +243,11 @@ test("disconnecting uninstalls the app at GitHub and leaves no token, repository
   assert.match(failed.failed[0].message, /502/);
   w.stub.failWith(null);
   assert.equal((await w.status("alice-account")).connections.length, 1);
-  assert.deepEqual(await w.backend.call("github.connect.disconnect", {}, "alice-account"), { ok: true, disconnected: 1, failed: [] });
+  assert.deepEqual(await w.backend.call("github.connect.disconnect", {}, "alice-account"), { ok: true, disconnected: 1, failed: [], stillInstalled: [] });
   assert.deepEqual(w.stub.uninstalled, [7101, 7102]);
 });
 
-test("an installation two accounts use stays for the other, and account deletion disconnects without a caller", async (t) => {
+test("an organization's installation stays installed when its members disconnect, and account deletion disconnects without a caller", async (t) => {
   const w = await connectWorld(t, { accounts: true });
   w.stub.install({ id: 7300, login: "acme", type: "Organization", repositories: ["acme/web"], members: { bob: "all", carol: "all" } });
   await w.connected("bob-account", "bob", { existing: 7300 });
@@ -284,18 +255,20 @@ test("an installation two accounts use stays for the other, and account deletion
   const carol = await w.project("carol-account");
   assert.equal((await w.access("acme/web", { appId: carol.appId })).installationId, 7300);
 
-  assert.deepEqual(await w.backend.call("github.connect.disconnect", {}, "bob-account"), { ok: true, disconnected: 1, failed: [] });
+  const kept = "turtl stopped using acme for you, but its app is still installed on acme. Only an owner of acme can remove it, in acme's settings on GitHub.";
+  assert.deepEqual(await w.backend.call("github.connect.disconnect", {}, "bob-account"), { ok: true, disconnected: 1, failed: [], stillInstalled: [{ installationId: 7300, accountLogin: "acme", message: kept }] });
   assert.deepEqual(w.stub.uninstalled, [], "carol still uses it");
   assert.deepEqual((await w.status("bob-account")).connections, []);
   assert.deepEqual(w.backend.rows("githubInstallationLinks").map((link) => link.account), ["carol-account"]);
   assert.equal((await w.access("acme/web", { appId: carol.appId })).installationId, 7300);
 
-  // Account deletion (RC-23) calls the internal function with the account id; there is no signed-in caller.
-  assert.deepEqual(await w.backend.run("internal.github.connect.disconnectAccount", { account: "carol-account" }), { ok: true, disconnected: 1, failed: [] });
-  assert.deepEqual(w.stub.uninstalled, [7300]);
+  // Account deletion (RC-23) calls the internal function with the account id; there is no signed-in caller. carol was
+  // the last turtl account linked to acme, but acme is an organization, so turtl leaves it installed and only unlinks.
+  assert.deepEqual(await w.backend.run("internal.github.connect.disconnectAccount", { account: "carol-account" }), { ok: true, disconnected: 1, failed: [], stillInstalled: [{ installationId: 7300, accountLogin: "acme", message: kept }] });
+  assert.deepEqual(w.stub.uninstalled, []);
   assert.deepEqual(w.backend.rows("githubInstallationTokens"), []);
   assert.deepEqual(w.backend.rows("githubInstallationLinks"), []);
-  assert.deepEqual(await w.backend.run("internal.github.connect.disconnectAccount", { account: "carol-account" }), { ok: true, disconnected: 0, failed: [] }, "running it again is harmless");
+  assert.deepEqual(await w.backend.run("internal.github.connect.disconnectAccount", { account: "carol-account" }), { ok: true, disconnected: 0, failed: [], stillInstalled: [] }, "running it again is harmless");
 });
 
 test("uninstalling on GitHub ends the connection too", async (t) => {

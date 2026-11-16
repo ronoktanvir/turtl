@@ -1,11 +1,12 @@
 import type { HttpRouter } from "convex/server";
 import { internal } from "../_generated/api";
 import { httpAction, type ActionCtx } from "../_generated/server";
+import { accessEnforced } from "../access";
 import { exchangeCode, listUserInstallations, listUserRepositories, readUser, revokeUserToken, REPOSITORIES_PER_PAGE, type UserInstallation } from "./api";
 import { authorizeUrl, CALLBACK_PATH, connectConfig, SETUP_PATH, webhookSecret, type ConnectConfig } from "./config";
-import { MAX_LINKS } from "./links";
+import { MAX_LEFT_OUT, MAX_LINK_REPOSITORIES, MAX_LINKS } from "./links";
 import { randomSecret, sha256 } from "./secrets";
-import type { GithubUser, Repository } from "./shapes";
+import type { GithubUser, PersonRepository, Repository } from "./shapes";
 import { bodyDigest, readDelivery, signatureMatches } from "./webhook";
 
 export { CALLBACK_PATH, SETUP_PATH } from "./config";
@@ -82,7 +83,7 @@ export const setup = httpAction(async (ctx, request) => {
   return redirect(await authorizeUrl(connect, state, attempt.codeVerifier));
 });
 
-type Confirmed = { user: GithubUser; installations: { installation: UserInstallation; repositories: Repository[]; own: boolean }[] };
+type Confirmed = { user: GithubUser; installations: { installation: UserInstallation; repositories: PersonRepository[]; own: boolean }[] };
 
 async function everyPage<T>(read: (page: number) => Promise<{ ok: true; body: T[] } | { ok: false; message: string }>): Promise<{ ok: true; body: T[] } | { ok: false; message: string }> {
   const all: T[] = [];
@@ -111,7 +112,8 @@ async function confirmPerson(connect: Extract<ConnectConfig, { ok: true }>, code
       const repositories = await everyPage((page) => listUserRepositories(token, installation.installationId, page));
       if (!repositories.ok) return repositories;
       // An installation on the person's own account covers only repositories they own, so all of them are theirs.
-      // Anywhere else (an organization) they get only the repositories GitHub says they can reach.
+      // Anywhere else (an organization) GitHub lists what they can reach, reading included, with their permissions in
+      // each; linkOf keeps what they can change.
       const own = installation.accountType === "User" && installation.accountId === user.body.id;
       installations.push({ installation, repositories: repositories.body, own });
     }
@@ -124,8 +126,25 @@ async function confirmPerson(connect: Extract<ConnectConfig, { ok: true }>, code
 async function recordConfirmed(ctx: ActionCtx, confirmed: Confirmed) {
   for (const { installation, repositories } of confirmed.installations) {
     const { suspended: _suspended, accountId: _accountId, ...fields } = installation;
-    await ctx.runMutation(internal.github.installations.record, { installation: fields, status: "active", repositories, seenAt: Date.now() });
+    const covered: Repository[] = repositories.map(({ canPush: _canPush, ...repository }) => repository);
+    await ctx.runMutation(internal.github.installations.record, { installation: fields, status: "active", repositories: covered, seenAt: Date.now() });
   }
+}
+
+// What one installation links for the person. On their own account: everything it covers, as before. Anywhere else,
+// with accounts on, only the repositories GitHub says they can change (push, maintain or admin), at most
+// MAX_LINK_REPOSITORIES, because turtl's app can change every repository it covers; the rest are remembered as left
+// out, with why. In the single-owner demo, everything GitHub listed, as before.
+function linkOf({ installation, repositories, own }: Confirmed["installations"][number]) {
+  const { installationId } = installation;
+  if (own) return { installationId };
+  if (!accessEnforced()) return { installationId, repositories: repositories.map((repository) => repository.fullName) };
+  const changeable = repositories.filter((repository) => repository.canPush);
+  const leftOut = [
+    ...repositories.filter((repository) => !repository.canPush).map((repository) => ({ fullName: repository.fullName, why: "read_only" as const })),
+    ...changeable.slice(MAX_LINK_REPOSITORIES).map((repository) => ({ fullName: repository.fullName, why: "too_many" as const })),
+  ];
+  return { installationId, repositories: changeable.slice(0, MAX_LINK_REPOSITORIES).map((repository) => repository.fullName), checked: true, leftOut: leftOut.slice(0, MAX_LEFT_OUT) };
 }
 
 // GET /github/callback: GitHub's answer to the authorization. The state is used once; the person is sent back to
@@ -153,10 +172,7 @@ export const callback = httpAction(async (ctx, request) => {
     ticketHash: await sha256(ticket),
     githubUserId: confirmed.body.user.id,
     githubLogin: confirmed.body.user.login,
-    installations: confirmed.body.installations.map(({ installation, repositories, own }) => ({
-      installationId: installation.installationId,
-      ...(!own && { repositories: repositories.map((repository) => repository.fullName) }),
-    })),
+    installations: confirmed.body.installations.map(linkOf),
   });
   return accepted ? backTo(claimed.returnTo, { github: "connected", ticket }) : await stop("failed");
 });

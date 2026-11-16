@@ -76,14 +76,15 @@ export async function authorizeUrl(connect: Extract<ConnectConfig, { ok: true }>
 
 // Where GitHub's last redirect sends the person, decided when they start and never read from a request GitHub
 // forwards. The app's own scheme opens the Add project screen; on the web only this computer's own addresses are
-// accepted, because a ticket sent anywhere else could be used by whoever started the attempt. A hosted web build
-// would add its origin here.
+// accepted, because a ticket sent anywhere else could be used by whoever started the attempt. A loopback address is a
+// development stand-in like the others in convex/demoSettings.ts: with accounts on it is accepted only when this
+// backend itself runs on this machine, never on a hosted deployment. A hosted web build would add its origin here.
 export const APP_RETURN = "turtl://add-project";
 const LOOPBACK = /^http:\/\/(localhost|127\.0\.0\.1|\[::1\]):\d{1,5}$/;
 
 export function returnAddress(returnTo: string): string | null {
   if (returnTo === "app") return APP_RETURN;
-  return LOOPBACK.test(returnTo) ? `${returnTo}/add-project` : null;
+  return LOOPBACK.test(returnTo) && standInOnly(returnTo) ? `${returnTo}/add-project` : null;
 }
 
 // The installation's own settings page on GitHub, where the owner chooses which repositories it covers.

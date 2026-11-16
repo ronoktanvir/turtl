@@ -20,7 +20,9 @@ const readBody = (request) =>
 // A stand-in for the parts of GitHub that convex/github calls. It checks credentials the way GitHub documents them:
 // an app JWT must be RS256, signed by the app's key, name the app as issuer, be issued in the past and expire within
 // ten minutes; an installation token must be one this server minted and must not have expired; a user token must come
-// from a code this server issued, exchanged once with the app's client secret and the PKCE verifier.
+// from a code this server issued, exchanged once with the app's client secret and the PKCE verifier. It lists a
+// person's repositories with their permissions in each, and tells an installation token who a user id is now and
+// what that user may do in a repository the installation covers, by each member's role (install's members).
 // It also plays the person's browser on github.com: the install page and the authorize page answer with the
 // redirects GitHub sends, for whoever signIn() named. It is not GitHub: it proves turtl's side of the exchange and
 // nothing about GitHub's.
@@ -71,13 +73,38 @@ export async function startGithubStub({
     if (!users.has(login)) users.set(login, { id: 9_000_000 + users.size + 1, login });
     return users.get(login).id;
   };
-  // The repositories a person can reach in an installation: all of them on their own account, and in an
-  // organization what its members list gives them. Null when they cannot reach the installation at all.
-  const reachable = (installation, login) => {
-    if (installation.account.type === "User") return installation.account.login === login ? installation.repositories : null;
+  const userById = (id) => [...users.values()].find((user) => user.id === id) ?? null;
+  // A person's role in one repository of an installation, as GitHub names roles: "admin", "maintain", "write",
+  // "triage", "read", or null for none. The owner of a personal account administers all of it. In an organization,
+  // members maps a login to "all" or a list of repositories (write), or to { "<owner/name>" or "*": role }.
+  const roleIn = (installation, login, fullName) => {
+    if (installation.account.type === "User") return installation.account.login === login ? "admin" : null;
     const member = installation.members[login];
     if (member === undefined) return null;
-    return member === "all" ? installation.repositories : installation.repositories.filter((repository) => member.includes(repository.full_name));
+    if (member === "all") return "write";
+    if (Array.isArray(member)) return member.includes(fullName) ? "write" : null;
+    return member[fullName] ?? member["*"] ?? null;
+  };
+  // GitHub's permissions object for a role: each role includes the ones below it.
+  const ROLES = ["read", "triage", "write", "maintain", "admin"];
+  const permissionsOf = (role) => {
+    const at = ROLES.indexOf(role);
+    return { admin: at >= 4, maintain: at >= 3, push: at >= 2, triage: at >= 1, pull: at >= 0 };
+  };
+  // The repositories a person can reach in an installation, each with their permissions in it, the way
+  // GET /user/installations/{id}/repositories lists them. Null when they cannot reach the installation at all.
+  const reachable = (installation, login) => {
+    if (installation.account.type === "User" && installation.account.login !== login) return null;
+    if (installation.account.type !== "User" && installation.members[login] === undefined) return null;
+    return installation.repositories
+      .map((repository) => ({ repository, role: roleIn(installation, login, repository.full_name) }))
+      .filter(({ role }) => role !== null)
+      .map(({ repository, role }) => ({ ...repository, permissions: permissionsOf(role) }));
+  };
+  const installationOfToken = (authorization) => {
+    const token = tokens.get((authorization ?? "").replace(/^Bearer /, ""));
+    const installation = token && token.expiresAt > Date.now() ? installations.get(token.installationId) : undefined;
+    return installation && !installation.suspended_at ? installation : null;
   };
   const s256 = (verifier) => createHash("sha256").update(verifier).digest("base64url");
   const callbacks = [`${site}/api/auth/callback/github`, `${site}/github/callback`];
@@ -179,10 +206,34 @@ export async function startGithubStub({
       }
     }
 
+    // As an installation: its token. GET /user/{account_id} needs no permission; a collaborator's permission needs
+    // Metadata, and answers only for a repository the installation covers.
+    if (request.method === "GET" && (match = /^\/user\/(\d+)$/.exec(url.pathname))) {
+      if (!installationOfToken(authorization)) return reply(response, 401, { message: "Bad credentials" });
+      entry.credential = "installation";
+      const user = userById(Number(match[1]));
+      return user ? reply(response, 200, { id: user.id, login: user.login, type: "User" }) : reply(response, 404, { message: "Not Found" });
+    }
+    if (request.method === "GET" && (match = /^\/repos\/([^/]+\/[^/]+)\/collaborators\/([^/]+)\/permission$/.exec(url.pathname))) {
+      const installation = installationOfToken(authorization);
+      if (!installation) return reply(response, 401, { message: "Bad credentials" });
+      entry.credential = "installation";
+      const repository = installation.repositories.find((candidate) => candidate.full_name.toLowerCase() === match[1].toLowerCase());
+      const login = decodeURIComponent(match[2]);
+      if (!repository || !users.has(login)) return reply(response, 404, { message: "Not Found" });
+      const role = roleIn(installation, login, repository.full_name);
+      // The legacy permission: maintain reads as write and triage as read.
+      const permission = role === null ? "none" : role === "maintain" ? "write" : role === "triage" ? "read" : role;
+      return reply(response, 200, {
+        permission,
+        role_name: role ?? "",
+        user: { login, id: users.get(login).id, type: "User", role_name: role ?? "", permissions: role === null ? { admin: false, maintain: false, push: false, triage: false, pull: false } : permissionsOf(role) },
+      });
+    }
+
     if (request.method === "GET" && url.pathname === "/installation/repositories") {
-      const token = tokens.get((authorization ?? "").replace(/^Bearer /, ""));
-      const installation = token && token.expiresAt > Date.now() ? installations.get(token.installationId) : undefined;
-      if (!installation || installation.suspended_at) return reply(response, 401, { message: "Bad credentials" });
+      const installation = installationOfToken(authorization);
+      if (!installation) return reply(response, 401, { message: "Bad credentials" });
       entry.credential = "installation";
       const perPage = Number(url.searchParams.get("per_page") ?? 30);
       const page = Number(url.searchParams.get("page") ?? 1);
@@ -247,6 +298,26 @@ export async function startGithubStub({
       if (login) userId(login);
     },
     userId,
+    // An organization changes what a member may do: value as in install's members, or undefined to remove them.
+    setMember(installationId, login, value) {
+      const installation = installations.get(installationId);
+      if (value === undefined) delete installation.members[login];
+      else installation.members[login] = value;
+    },
+    // A person changes their GitHub login. Their id stays; the old login is free for someone else to take.
+    renameUser(from, to) {
+      const user = users.get(from);
+      users.delete(from);
+      users.set(to, { ...user, login: to });
+      for (const installation of installations.values()) {
+        if (installation.account.login === from) installation.account.login = to;
+        if (from in installation.members) {
+          installation.members[to] = installation.members[from];
+          delete installation.members[from];
+        }
+      }
+      if (browser === from) browser = to;
+    },
     // What the person does on the next visit to the install page: { id, repositories, login?, type?, members? }
     // installs, { existing: id } opens an installation that already exists and saves it, { request: true } asks an
     // organization's owner instead.

@@ -46,3 +46,30 @@ export function repositoriesOf(value: unknown): Repository[] | null {
   }
   return repositories;
 }
+
+/** A repository as GitHub lists it for a person, and whether that person may change it. */
+export type PersonRepository = Repository & { canPush: boolean };
+
+// GitHub's permissions object ({ admin, maintain, push, triage, pull }): only push, maintain or admin let a person
+// change a repository. Anything else, or no answer at all, counts as reading only.
+const pushes = (permissions: unknown) => {
+  const granted = record(permissions);
+  return granted?.push === true || granted?.maintain === true || granted?.admin === true;
+};
+
+/** GET /user/installations/{id}/repositories: each repository with the person's own permissions in it. */
+export function personRepositoriesOf(value: unknown): PersonRepository[] | null {
+  const repositories = repositoriesOf(value);
+  if (!repositories || !Array.isArray(value)) return null;
+  return repositories.map((repository, index) => ({ ...repository, canPush: pushes(record(value[index])?.permissions) }));
+}
+
+/** GET /repos/{owner}/{repo}/collaborators/{username}/permission: whether that person may change the repository, and
+ * the id of the user GitHub answered for. The legacy permission is admin, write (which includes maintain), read or none. */
+export function collaboratorPermissionOf(value: unknown): { canPush: boolean; userId: number | null } | null {
+  const answer = record(value);
+  if (typeof answer?.permission !== "string") return null;
+  const user = record(answer.user);
+  const userId = Number.isSafeInteger(user?.id) ? (user?.id as number) : null;
+  return { canPush: answer.permission === "admin" || answer.permission === "write", userId };
+}

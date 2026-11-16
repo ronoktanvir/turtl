@@ -18,8 +18,9 @@ declare const process: { env: Record<string, string | undefined> };
 //
 // - Supermemory: each namespace the account's projects wrote to is deleted whole (DELETE /ns/<namespace>). It sends
 //   only the name, so it goes through the AI permission gate as an "erase", which needs no permission.
-// - GitHub: internal.github.connect.disconnectAccount uninstalls turtl's GitHub App from every installation only this
-//   account uses, and removes turtl's records of it.
+// - GitHub: internal.github.connect.disconnectAccount uninstalls turtl's GitHub App from every installation on the
+//   person's own GitHub account that only this account uses, and removes turtl's records of it. From an
+//   organization's installation (or anyone else's) it removes only this account's link and the cached token.
 // - Apple: each Sign in with Apple refresh token kept for the account is revoked (convex/auth/appleTokens.ts).
 
 export type Outcome = { ok: true; skipped?: boolean; note?: string } | { ok: false; note: string };
@@ -44,13 +45,17 @@ async function eraseNamespace(ctx: ActionCtx, account: string, namespace: string
 
 async function disconnectGithub(ctx: ActionCtx, account: string): Promise<Outcome> {
   const installationIds: number[] = await ctx.runQuery(internal.github.links.installationsOf, { account });
-  const result: { ok: boolean; disconnected: number; failed: { installationId: number; message: string }[] } = await ctx.runAction(
+  const result: { ok: boolean; disconnected: number; failed: { installationId: number; message: string }[]; stillInstalled?: unknown[] } = await ctx.runAction(
     internal.github.connect.disconnectAccount,
     { account },
   );
   if (!result.ok) return { ok: false, note: [...new Set(result.failed.map((failure) => failure.message))].join(" ") || "GitHub did not confirm." };
   if (installationIds.length) await ctx.runMutation(internal.account.vendors.forgetInstallationNames, { installationIds });
-  return { ok: true, note: installationIds.length ? `turtl's access ended for ${installationIds.length} GitHub installation(s).` : "turtl had no access to GitHub for this account." };
+  // An organization's installation, or one someone else uses, is not this account's to remove: its link is gone, and
+  // the app stays installed there. The note names no account, so the deletion record holds nothing personal.
+  const kept = result.stillInstalled?.length ?? 0;
+  const ended = installationIds.length ? `turtl's access ended for ${installationIds.length} GitHub installation(s).` : "turtl had no access to GitHub for this account.";
+  return { ok: true, note: kept ? `${ended} ${kept} of them stay installed on GitHub until their owners remove turtl there.` : ended };
 }
 
 async function revokeApple(ctx: ActionCtx, account: string): Promise<Outcome> {

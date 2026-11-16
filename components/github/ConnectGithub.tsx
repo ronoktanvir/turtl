@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Pressable, View } from "react-native";
-import { beginGithubConnect, finishGithubConnect, refreshGithubRepositories, useGithubRepositories, useGithubStatus, type GithubRepository, type GithubReturn } from "../../data/github";
+import { beginGithubConnect, finishGithubConnect, refreshGithubRepositories, useGithubRepositories, useGithubStatus, type GithubLeftOut, type GithubRepository, type GithubReturn } from "../../data/github";
 import { useTheme } from "../../theme";
 import { BrandIcon, Card, Icon, T } from "../ui";
 import { openForConnect, openOnGithub } from "./open";
@@ -91,6 +91,8 @@ export default function ConnectGithub({
   const repositories = useGithubRepositories(connected);
   const [phase, setPhase] = useState<"idle" | "opening" | "finishing" | "refreshing">("idle");
   const [note, setNote] = useState<{ text: string; problem: boolean } | null>(null);
+  // Repositories GitHub listed that turtl left out (one the person can only read, say), with the backend's reason.
+  const [leftOut, setLeftOut] = useState<GithubLeftOut[]>([]);
   const handled = useRef<string | null>(null);
   const refreshed = useRef(false);
 
@@ -99,6 +101,7 @@ export default function ConnectGithub({
     setPhase((current) => (current === "idle" ? "refreshing" : current));
     try {
       const result = await refreshGithubRepositories();
+      setLeftOut(result.leftOut ?? []);
       if (!result.ok) setNote({ text: "turtl could not read every repository from GitHub just now, so this list may be out of date.", problem: true });
     } catch (error) {
       setNote({ text: reason(error), problem: true });
@@ -193,6 +196,16 @@ export default function ConnectGithub({
           <View accessibilityRole="radiogroup" accessibilityLabel="Your repositories" style={{ gap: 8 }}>
             {repositories.map((repository) => (
               <RepositoryRow key={repository.fullName} repository={repository} selected={selected === repoUrlOf(repository.fullName).toLowerCase()} disabled={disabled} onPress={() => onPick(repoUrlOf(repository.fullName))} />
+            ))}
+          </View>
+        )}
+        {leftOut.length > 0 && (
+          <View style={{ gap: 8 }} testID="github-left-out">
+            {leftOut.map((entry) => (
+              <View key={entry.fullName} style={{ gap: 2 }} testID={`github-left-out-${entry.fullName}`}>
+                <T variant="strong">{entry.fullName}</T>
+                <T variant="small" color="textMuted">{entry.message}</T>
+              </View>
             ))}
           </View>
         )}
