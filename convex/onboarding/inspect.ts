@@ -3,6 +3,7 @@ import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import { internalAction } from "../_generated/server";
 import { DEFAULT_MODEL, respond } from "../codeNetwork/openai";
+import { MASK, redactFiles, redactText } from "../codeNetwork/redact";
 import { gateFor } from "../consent/gate";
 import { plainFailure } from "../consent/outbound";
 import {
@@ -106,7 +107,13 @@ export function inspectionInput(input: {
   scoped: RepoFile[];
   hits: Record<ItemKey, Hit[]>;
 }): string {
-  const { repo, sha, folders, stack, scoped, hits } = input;
+  // Secrets never reach the model: secret files are left out of the excerpts and secrets are masked in the rest,
+  // including in the pattern matches' lines (convex/codeNetwork/redact.ts).
+  const { repo, sha, folders, stack } = input;
+  const scoped = redactFiles(input.scoped).files;
+  const hits = Object.fromEntries(
+    Object.entries(input.hits).map(([key, list]) => [key, list.map((hit) => ({ ...hit, text: redactText(hit.text).text }))]),
+  ) as Record<ItemKey, Hit[]>;
   const score = new Map<string, number>();
   for (const list of Object.values(hits)) for (const hit of list) score.set(hit.path, (score.get(hit.path) ?? 0) + 1);
   const important = (path: string) => /(^|\/)(package\.json|app\.json|http\.[jt]s|schema\.[jt]s|README\.md)$|(^|\/)app\/api\//.test(path);
@@ -129,15 +136,15 @@ export function inspectionInput(input: {
     "## Readiness items",
     ...READINESS_ITEMS.map((item) => `- ${item.key} (${item.label}): ${DEFINITIONS[item.key]}`),
     "",
-    `## The app's files (${scoped.length})`,
-    ...scoped.slice(0, MAX_LISTED_PATHS).map((file) => `- ${file.path}`),
+    `## The app's files (${input.scoped.length})`,
+    ...input.scoped.slice(0, MAX_LISTED_PATHS).map((file) => `- ${file.path}`),
     "",
     "## Pattern matches (leads, not findings)",
     ...READINESS_ITEMS.map((item) =>
       [`### ${item.key}`, ...(hits[item.key].length ? hits[item.key].map((hit) => `- ${hit.path}:${hit.line}: ${hit.text}`) : ["- none"])].join("\n"),
     ),
     "",
-    `## Excerpts (${excerpts.length} of ${scoped.length} files; each cut at ${EXCERPT_CHARS} characters, lines numbered)`,
+    `## Excerpts (${excerpts.length} of ${input.scoped.length} files; each cut at ${EXCERPT_CHARS} characters, lines numbered; secrets show as ${MASK})`,
     ...excerpts,
   ].join("\n");
 }

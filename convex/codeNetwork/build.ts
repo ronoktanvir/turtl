@@ -14,6 +14,7 @@ import {
   type SourceFile,
 } from "./graph";
 import { respond, type ModelUsage } from "./openai";
+import { redactFiles } from "./redact";
 import { codeNamespace, type NetCluster, type NetNode } from "./schema";
 
 declare const process: { env: Record<string, string | undefined> };
@@ -208,6 +209,8 @@ export const build = internalAction({
     const githubMs = Date.now() - started;
     const { nodes: graphNodes, edges } = buildGraph(fetched.files);
     if (graphNodes.length === 0) return { outcome: "failed", reason: `${repo} has no source files turtl can read.` };
+    // What leaves turtl is the code with its secrets masked and secret files left out (convex/codeNetwork/redact.ts).
+    const shared = redactFiles(fetched.files).files;
 
     const modelStarted = Date.now();
     let labels: Labels;
@@ -217,7 +220,7 @@ export const build = internalAction({
       if (!stored) return { outcome: "failed", reason: `reuseLabels needs a stored network for ${projectId}; none exists.` };
       labels = { clusters: stored.clusters, nodes: new Map(stored.nodes.map(({ id, ...rest }) => [id, rest])) };
     } else {
-      ({ labels, usage } = await labelWithModel(gate, fetched.files, graphNodes, edges));
+      ({ labels, usage } = await labelWithModel(gate, shared, graphNodes, edges));
     }
     const modelMs = Date.now() - modelStarted;
 
@@ -239,7 +242,7 @@ export const build = internalAction({
     const clusterName = new Map(clusters.map((cluster) => [cluster.id, cluster.name]));
 
     const namespace = codeNamespace(projectId);
-    const content = new Map(fetched.files.map((file) => [file.path, file.content]));
+    const content = new Map(shared.map((file) => [file.path, file.content]));
     const documentId = (id: string) => id.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 200);
     const documents: CodeDocument[] = [
       ...clusters.map((cluster) => ({
