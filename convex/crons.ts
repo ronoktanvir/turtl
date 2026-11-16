@@ -3,7 +3,8 @@ import { internal } from "./_generated/api";
 
 const crons = cronJobs();
 
-// Checks every registered journey; it does nothing while PROTECTED_APP_URL is not set.
+// Checks registered journeys. The demo checks its one app and does nothing while PROTECTED_APP_URL is not set; with
+// accounts on, each tick checks the next projects in turn, each with its own token (convex/protectedApp/watching.ts).
 crons.interval("check registered journeys", { minutes: 1 }, internal.monitor.tick, {});
 
 // Keeps pull requests that are being opened or are still open fresh; it does nothing while there are none.
