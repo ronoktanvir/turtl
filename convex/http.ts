@@ -2,6 +2,7 @@ import { httpRouter } from "convex/server";
 import { httpAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { revision } from "./bookingDemo/catalog";
+import { checkReadiness } from "./bookingDemo/checks";
 import { STAGED_TIMEOUT_MS } from "./bookingDemo/provider";
 
 declare const process: { env: Record<string, string | undefined> };
@@ -24,6 +25,10 @@ async function authorize(request: Request) {
 }
 
 http.route({ path: "/booking-demo/health", method: "GET", handler: httpAction(async () => json({ ok: true, service: "protected-booking", timestamp: Date.now() })) });
+http.route({ path: "/booking-demo/ready", method: "GET", handler: httpAction(async (ctx) => {
+  const readiness = await checkReadiness(ctx);
+  return json(readiness, readiness.ready ? 200 : 503);
+}) });
 http.route({ path: "/booking-demo/revision", method: "GET", handler: httpAction(async () => json({ revision: revision(), environment: "protected-app" })) });
 
 for (const path of ["/booking-demo/flags", "/booking-demo/staged-failure"] as const) {
@@ -49,12 +54,18 @@ for (const path of ["/booking-demo/flags", "/booking-demo/staged-failure"] as co
   }) });
 }
 
-http.route({ path: "/booking-demo/journey-check", method: "POST", handler: httpAction(async (ctx, request) => {
-  const denied = await authorize(request);
-  if (denied) return denied;
-  const result = await ctx.runAction(internal.bookingDemo.checks.journey, {});
-  return json(result, result.verdict === "passed" ? 200 : 503);
-}) });
+for (const [path, check] of [
+  ["/booking-demo/journey-check", internal.bookingDemo.checks.journey],
+  ["/booking-demo/journey-check/catalog", internal.bookingDemo.checks.catalogVisible],
+  ["/booking-demo/journey-check/recommendations-off", internal.bookingDemo.checks.bookingWithoutRecommendations],
+] as const) {
+  http.route({ path, method: "POST", handler: httpAction(async (ctx, request) => {
+    const denied = await authorize(request);
+    if (denied) return denied;
+    const result = await ctx.runAction(check, {});
+    return json(result, result.verdict === "passed" ? 200 : 503);
+  }) });
+}
 
 http.route({ path: "/booking-demo/errors", method: "GET", handler: httpAction(async (ctx, request) => {
   const denied = await authorize(request);

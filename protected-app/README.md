@@ -50,3 +50,7 @@ The independent **staged** `bookingStoreFailure` is the counterexample: the same
 Use turtl's existing development controls or its authenticated `/booking-demo` HTTP surface to stage/reset these backend conditions; this screen has no admin switches or credentials. See `../convex/bookingDemo/README.md` for the control boundary, environment configuration, and fixture-only server checks. Reload the page after changing the provider timeout to refresh suggestions; recovery-flag changes update live.
 
 The root Revyl build remains the on-call app's build, not a proof of this booking screen. This frontend adds no Revyl project or native proof configuration.
+
+## What turtl watches: `turtl.json`
+
+`turtl.json` tells turtl which backend routes to watch and use: the health and readiness checks, the three booking journey checks, the recommendations flag, and the recovery hook that turns recommendations off. Paths are relative to the `/booking-demo` control URL. `credentialRef` names the environment variable on turtl's side that holds the bearer token; the token itself is never in this file. `/staged-failure` is left out on purpose: it simulates outages for the demo and is not a recovery. Keep this file in step with `../convex/http.ts`; `../convex/bookingDemo/endpoints.test.mjs` fails when they drift.
