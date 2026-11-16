@@ -12,6 +12,7 @@ import type {
   Health,
   PlanStep,
   Project,
+  StructuralFinding,
 } from "../types";
 import {
   afterShots,
@@ -373,6 +374,31 @@ export async function setApprovals(projectId: string, mode: ApprovalMode): Promi
 export async function setStarred(caseId: string, starred: boolean): Promise<void> {
   patch(caseId, (c) => ({ ...c, starred }));
   commit();
+}
+
+export function listStructuralFindings(projectId: string): StructuralFinding[] {
+  return [...cases.values()]
+    .flatMap((c) => (c.projectId === projectId && c.structural ? [c.structural] : []))
+    .sort((a, b) => b.foundAt - a.foundAt);
+}
+
+function patchCheck(findingId: string, change: Partial<NonNullable<StructuralFinding["check"]>>) {
+  const owner = [...cases.values()].find((c) => c.structural?.id === findingId);
+  const finding = owner?.structural;
+  if (!owner || !finding?.check) return;
+  patch(owner.id, (c) => ({ ...c, structural: { ...finding, check: { ...finding.check!, ...change } } }));
+  commit();
+}
+
+export async function approvePreventionCheck(findingId: string): Promise<void> {
+  const check = [...cases.values()].find((c) => c.structural?.id === findingId)?.structural?.check;
+  if (!check) throw new Error("This finding offers no check the monitor can run.");
+  if (check.status !== "offered") throw new Error(`This check was already approved (${check.status.replace("_", " ")}).`);
+  patchCheck(findingId, { status: "running" });
+  setTimeout(() => patchCheck(findingId, {
+    status: "registered",
+    lastResult: { verdict: "passed", at: Date.now(), summary: "Its first run passed: an answer was saved and the next round loaded while ranking was slowed." },
+  }), 1500);
 }
 
 export function chatKey(scope: ChatScope): string {

@@ -1,10 +1,12 @@
 import type { ApprovalMode } from "../types";
 import * as actions from "./actions";
 import { withOwnerPasscode } from "./ownerPasscode";
+import * as structural from "./structural";
 
 export const approveFix = (caseId: string, fixKey: string) => withOwnerPasscode((passcode) => actions.approveFix(caseId, fixKey, passcode));
 export const stopEnactment = (caseId: string) => withOwnerPasscode((passcode) => actions.stopEnactment(caseId, passcode));
 export const setApprovals = (projectId: string, mode: ApprovalMode) => withOwnerPasscode((passcode) => actions.setApprovals(projectId, mode, passcode));
+export const approvePreventionCheck = (findingId: string) => withOwnerPasscode((passcode) => structural.approvePreventionCheck(findingId, passcode));
 export const mergePullRequest = async (caseId: string, headSha: string) => {
   try {
     return await withOwnerPasscode(async (passcode) => {

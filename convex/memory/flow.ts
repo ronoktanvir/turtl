@@ -34,11 +34,7 @@ export async function matchRecovery(
   )
     return false;
   const steps = await loadSteps(ctx, row._id);
-  const investigation = steps.filter(
-    (item) =>
-      item.purpose === "investigate" ||
-      item.purpose === "examine_broader_causes",
-  );
+  const investigation = steps.filter((item) => item.purpose === "investigate");
   if (
     investigation.some(
       (item) =>

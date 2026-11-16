@@ -8,6 +8,7 @@ import { useTheme } from "../../theme";
 import { ago, Button, Card, Chip, devToolsOn, HealthWord, Icon, Reveal, T, Turtle } from "../ui";
 import { CodeBox, LogRow, SpanText, Viz } from "./Evidence";
 import { ApproveSheet, FixCard } from "./FixCard";
+import { StructuralFindingCard } from "./StructuralFinding";
 
 const tabs = ["Overview", "Logs", "Code"] as const;
 const tabIcons = { Overview: "Layers", Logs: "Terminal", Code: "Code2" } as const;
@@ -102,6 +103,7 @@ export function CasePage({ caseId, current }: { caseId: string; current: boolean
                     )}
                 </View>
               </Reveal>
+              {c.structural && <StructuralFindingCard finding={c.structural} sources={sources} id={id} />}
               {c.overview.length === 0 && <T color="textMuted" testID={id("overview-empty")}>No overview evidence has been collected yet.</T>}
               {c.overview.map((block, i) =>
                 block.kind === "paragraph" ? (

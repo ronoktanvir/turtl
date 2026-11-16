@@ -268,6 +268,8 @@ export const vJourney = v.object({
   check: vCheck,
   checkVersion: v.string(),
   lastPassedAt: v.optional(v.number()),
+  // Set on a prevention check registered from a structural finding (convex/structural).
+  preventionFindingId: v.optional(v.id("structuralFindings")),
 });
 
 export const vActionCatalogEntry = v.object({

@@ -29,6 +29,7 @@ import {
 import { intakeTables } from "./intake/schema";
 import { revylTables } from "./revyl/schema";
 import { voiceTables } from "./voice/schema";
+import { structuralTables } from "./structural/schema";
 
 export default defineSchema({
   ownerPasscodeConfig: defineTable({ passcodeDigest: v.string() }),
@@ -187,4 +188,5 @@ export default defineSchema({
   ...codeNetworkTables,
   ...voiceTables,
   ...intakeTables,
+  ...structuralTables,
 });

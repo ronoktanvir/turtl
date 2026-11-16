@@ -144,6 +144,7 @@ export type CaseDetail = CaseSummary & {
   fixes: FixOption[]; // 1 to 4
   enactment?: Enactment;
   learned?: string; // "What turtl learned"
+  structural?: StructuralFinding; // a deeper cause across several cases, when turtl recorded one
 };
 
 export type ChatScope =
@@ -197,3 +198,26 @@ export type VoiceReply =
       audio: ArrayBuffer | null;
       speechError: string | null;
     };
+export type PreventionCheck = {
+  name: string;
+  description: string;
+  status: "offered" | "running" | "registered" | "not_registered";
+  reason?: string;
+  lastResult?: { verdict: "passed" | "failed"; at: number; summary: string };
+};
+
+export type StructuralFinding = {
+  id: string;
+  projectId: string;
+  caseId: string;
+  caseTitle: string;
+  hypothesis: string;
+  evidence: { text: string; label: string; kind: string; cite?: string }[];
+  change: { title: string; kind: FixKind; fixKey?: string; note?: string };
+  test: { description: string; disprovedIf: string };
+  confidence: number;
+  connectedCaseCount: number;
+  seededCaseCount: number;
+  check?: PreventionCheck;
+  foundAt: number;
+};
