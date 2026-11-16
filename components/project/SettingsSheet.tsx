@@ -8,6 +8,7 @@ import { Button, Icon, Sheet, T } from "../ui";
 import LegalLinks from "../legal/LegalLinks";
 import OwnerPasscodeSettings from "./OwnerPasscodeSettings";
 import PreferencesSettings from "./PreferencesSettings";
+import NotificationsSettings from "../push/NotificationsSettings";
 
 function Choice({ label, selected, disabled, onPress, testID, icon: Symbol }: { label: string; selected: boolean; disabled?: boolean; onPress: () => void; testID: string; icon: LucideIcon }) {
   const { colors } = useTheme();
@@ -52,6 +53,7 @@ export default function SettingsSheet({ visible, onClose, projectId }: { visible
       {error && <T color="statusAffected" accessibilityRole="alert">{error}</T>}
     </View>
     <PreferencesSettings projectId={projectId} />
+    {visible && <NotificationsSettings />}
     {isLiveData && visible && <OwnerPasscodeSettings />}
     <View style={{ gap: 12, marginTop: 8 }}>
       <T variant="heading">Theme</T>
