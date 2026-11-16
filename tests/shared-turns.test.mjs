@@ -347,6 +347,30 @@ test("ATTACK: a project's customers pile 20,000 reports onto one case and 3,000 
   assert.deepEqual([after.reportCount, after.distinctRequesterCount], [20_002, 5_001]);
 });
 
+// ---- Statement 3, end to end: with the day's AI used up, turtl still opens the case ----
+
+test("with every account's AI used up for the day, a failing check still opens a case, and so does a customer's report", async (t) => {
+  const w = world(t, { ...ACCOUNTS, OPENAI_API_KEY: "sk-test-stand-in" });
+  const sent = network(t, { "shop.example": () => json(failed) });
+  const services = w.load("convex/consent/services.ts");
+  const ada = await w.db.insert("users", { email: "ada@example.com" });
+  await w.db.insert("aiConsents", { account: ada, answer: "allowed", services: services.ASKED.map(({ id, version }) => ({ id, version })), listVersion: services.LIST_VERSION, answeredAt: 1 });
+  await w.db.insert("deploymentTotals", { name: "model_usd_day", window: "2026-11-16", value: 25, updatedAt: 1 });
+  const appId = await project(w, ada, "shop.example");
+  await w.run("internal.monitor.tick", {});
+  await w.drain(["internal.monitor.checkProject"]);
+  assert.deepEqual(w.rows("cases").map((row) => [row.raisedBy, row.kind]), [["monitor", "outage"]], "the monitor opened the case");
+  // A customer's report: triage asks the gate, is refused, and judges the report by its rules.
+  await w.db.insert("intakeKeys", { appId, key: "tik_ada", createdAt: 1 });
+  await w.run("internal.intake.records.receive", { key: "tik_ada", text: "The booking page shows an error and I cannot pay for my appointment.", reportId: "r1" });
+  await w.drain(["internal.intake.triage.processNext"]);
+  const triage = w.rows("reportTriage")[0];
+  assert.equal(triage.outcome, "opened");
+  assert.match(triage.reason, /no model answered \(turtl has reached the most AI it uses in one day across everyone, so no model was asked; it starts again tomorrow\)/i);
+  assert.deepEqual(w.rows("cases").map((row) => row.raisedBy), ["monitor", "customer"]);
+  assert.deepEqual(sent.filter((request) => request.host === "api.openai.com"), [], "no model was asked");
+});
+
 // ---- Statement 9: the live address's port ----
 
 test("ATTACK: an account cannot point its live app at another port of someone else's host, so turtl probes no port but the web's", async (t) => {
