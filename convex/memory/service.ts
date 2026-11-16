@@ -6,6 +6,7 @@ import {
   type ActionCtx,
 } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
+import { gateFor } from "../consent/gate";
 import { vParameterValue, type Stage } from "../constants";
 import { latestAction, latestProposal } from "../protectedApp/records";
 import type { Facts } from "../runner/handlers/journey";
@@ -60,9 +61,13 @@ export async function learnCase(
   let supermemoryWritten = false;
   let indexing =
     "Supermemory was not written because SUPERMEMORY_API_KEY is not configured.";
-  if (process.env.SUPERMEMORY_API_KEY && memory) {
+  const gate = gateFor(ctx, { caseId });
+  const refused = process.env.SUPERMEMORY_API_KEY && memory ? await gate.blocked("supermemory") : null;
+  if (refused) indexing = `Supermemory was not written because ${refused}; the Convex recovery record is saved.`;
+  else if (process.env.SUPERMEMORY_API_KEY && memory) {
     try {
       const response: unknown = await addMemory(
+        gate,
         `app_${memory.appId}`,
         [
           `Convex recovery memory: ${memory._id}`,
@@ -149,9 +154,13 @@ export const recall = internalAction({
     let supermemorySearched = false;
     let summary =
       "Supermemory was not searched because SUPERMEMORY_API_KEY is not configured; Convex signature candidates were rechecked.";
-    if (process.env.SUPERMEMORY_API_KEY) {
+    const gate = gateFor(ctx, { appId });
+    const refused = process.env.SUPERMEMORY_API_KEY ? await gate.blocked("supermemory") : null;
+    if (refused) summary = `Supermemory was not searched because ${refused}; Convex signature candidates were rechecked.`;
+    else if (process.env.SUPERMEMORY_API_KEY) {
       try {
         texts = await searchMemories(
+          gate,
           `app_${appId}`,
           symptoms ||
             exact.map((row) => row.symptoms).join("\n") ||
@@ -349,9 +358,12 @@ export async function writeCaseNote(
 
   let indexing =
     "it was not indexed in Supermemory because SUPERMEMORY_API_KEY is not configured";
-  if (process.env.SUPERMEMORY_API_KEY) {
+  const gate = gateFor(ctx, { appId: row.appId });
+  const refused = process.env.SUPERMEMORY_API_KEY ? await gate.blocked("supermemory") : null;
+  if (refused) indexing = `it was not indexed in Supermemory because ${refused}`;
+  else if (process.env.SUPERMEMORY_API_KEY) {
     try {
-      await addMemory(`app_${row.appId}`, note, {
+      await addMemory(gate, `app_${row.appId}`, note, {
         caseId: row._id,
         appId: row.appId,
         kind: "case_note",
@@ -425,10 +437,13 @@ export async function readPastCaseNotes(
   try {
     let linked: string[] = [];
     let searchFailed = false;
-    if (process.env.SUPERMEMORY_API_KEY) {
+    const gate = gateFor(ctx, { appId: row.appId });
+    const refused = process.env.SUPERMEMORY_API_KEY ? await gate.blocked("supermemory") : null;
+    if (process.env.SUPERMEMORY_API_KEY && !refused) {
       let timer: ReturnType<typeof setTimeout> | undefined;
       const texts = await Promise.race([
         searchChunks(
+          gate,
           `app_${row.appId}`,
           `${row.title}. ${row.impact} Journey failed at ${facts["journey.failedStep"] ?? "an unknown step"} with ${facts["journey.errorCode"] ?? "an unknown error"}.`,
           { limit: 10, anyOf: [{ field: "kind", value: "case_note" }] },
@@ -462,7 +477,7 @@ export async function readPastCaseNotes(
         ? `${read}: none are saved yet.`
         : found.fromSearch
           ? `${read}, found by Supermemory search, as background for the model.`
-          : `${read} from the most recent learn notes in Convex (${searchFailed ? "Supermemory search failed" : process.env.SUPERMEMORY_API_KEY ? "Supermemory search linked to none" : "SUPERMEMORY_API_KEY is not configured"}), as background for the model.`,
+          : `${read} from the most recent learn notes in Convex (${refused ? `Supermemory was not searched because ${refused}` : searchFailed ? "Supermemory search failed" : process.env.SUPERMEMORY_API_KEY ? "Supermemory search linked to none" : "SUPERMEMORY_API_KEY is not configured"}), as background for the model.`,
     };
   } catch {
     return {

@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Doc } from "../_generated/dataModel";
 import { internalAction, type ActionCtx } from "../_generated/server";
+import { gateFor } from "../consent/gate";
 import { capyConfig, findPullRequestNumber, startCapyThread } from "../prTracking/capy";
 import { githubToken, readPullRequest } from "../prTracking/github";
 import { call, describeFailure, runJourneyCheck } from "../protectedApp/client";
@@ -45,7 +46,7 @@ export const start = internalAction({
       hasManifest: inspection.hasManifest ?? false,
       neverBreak: preparation.neverBreak,
     });
-    const started = await startCapyThread(capy, { repo: preparation.repo, requestId: preparation.requestId, title: title.slice(0, 120), message });
+    const started = await startCapyThread(gateFor(ctx, { appId: app._id }), capy, { repo: preparation.repo, requestId: preparation.requestId, title: title.slice(0, 120), message });
     if (!started.ok) return fail(`Could not ask Capy to write the preparation: ${started.message}`);
     await ctx.runMutation(internal.onboarding.records.recordThread, { id: preparationId, capyThreadId: started.body.threadId, brief: message });
     return { outcome: "started" as const, threadId: started.body.threadId };
@@ -67,7 +68,7 @@ export async function syncPreparation(ctx: ActionCtx, row: Doc<"onboardingPrepar
     if (!row.capyThreadId) return "not_started";
     const capy = capyConfig();
     if (!capy.ok) return "not_configured";
-    const found = await findPullRequestNumber(capy, row.capyThreadId, row.repo, row.capyCursor);
+    const found = await findPullRequestNumber(gateFor(ctx, { appId: row.appId }), capy, row.capyThreadId, row.repo, row.capyCursor);
     if (!found.ok) {
       await ctx.runMutation(internal.onboarding.records.recordSyncError, { id: row._id, error: found.message });
       return "failed";

@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { action, internalMutation, query, type ActionCtx } from "../_generated/server";
+import { gateFor } from "../consent/gate";
 import { speak, speechModelId, transcribe, transcribeModelId } from "./openai";
 import {
   clipExtension,
@@ -112,6 +113,10 @@ export const talk = action({
       return { ok: false, reason: `That recording is longer than turtl takes (${MAX_CLIP_MS / 1000} seconds). Ask a shorter question.`, retry: true };
     }
     if (!audio.byteLength) return { ok: false, reason: "turtl didn't hear a question. Ask again, or end the conversation.", retry: true };
+    // The recording goes to OpenAI only with the owner's permission; without it nothing is sent and typing still works.
+    const gate = gateFor(ctx, { caseId });
+    const refused = await gate.blocked("openai");
+    if (refused) return { ok: false, reason: `turtl can't listen: ${refused}. You can still type your question.`, retry: false };
 
     const turn = await ctx.runMutation(internal.voice.turn.begin, { caseId });
     if (!turn.ok) return { ok: false, reason: turn.reason, retry: false };
@@ -119,7 +124,7 @@ export const talk = action({
       ctx.runMutation(internal.voice.turn.finish, { turnId: turn.turnId, outcome, ...(error ? { error } : {}) });
     try {
       const heard = await timed(ctx, caseId, { taskType: "voice_transcription", modelId: transcribeModelId(), promptVersion: "voice-transcribe-1" }, () =>
-        transcribe(audio, mimeType, `The owner of ${turn.appName} is asking turtl, an on-call assistant, about the case "${turn.title}".`),
+        transcribe(gate, audio, mimeType, `The owner of ${turn.appName} is asking turtl, an on-call assistant, about the case "${turn.title}".`),
       );
       if (!heard.ok) {
         await end("failed", heard.reason);
@@ -143,7 +148,7 @@ export const talk = action({
       }
 
       const voice = await timed(ctx, caseId, { taskType: "voice_speech", modelId: speechModelId(), promptVersion: "voice-speech-1" }, () =>
-        speak(spokenText(reply)),
+        speak(gate, spokenText(reply)),
       );
       await end(ended ? "ended" : command ? "command" : "answered", voice.ok ? undefined : `speech: ${voice.reason}`);
       return {

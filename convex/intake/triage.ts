@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { internalAction, type ActionCtx } from "../_generated/server";
+import { gateFor, type Gate } from "../consent/gate";
 import { askJson, fixesModelId } from "../fixOptions";
 import { addDocuments, searchChunks } from "../supermemory";
 import { TRIAGE_PROMPT, decide, exactCopy, instructionOnly, readTriage, ruleMatch, ruleTitle, ruleTriage, type Verdict } from "./rules";
@@ -20,10 +21,10 @@ const withTimeout = <T,>(work: Promise<T>, ms: number) =>
 
 // Supermemory may suggest open cases whose reports read like this one. Only a suggestion: triage checks it
 // against the candidates read from Convex, and a model or the rules still decide.
-async function suggest(appId: string, text: string, caseIds: string[]): Promise<string[]> {
+async function suggest(gate: Gate, appId: string, text: string, caseIds: string[]): Promise<string[]> {
   if (!process.env.SUPERMEMORY_API_KEY || !caseIds.length) return [];
   try {
-    const results = await withTimeout(searchChunks(reportsNamespace(appId), text, { limit: 5 }), SEARCH_TIMEOUT_MS);
+    const results = await withTimeout(searchChunks(gate, reportsNamespace(appId), text, { limit: 5 }), SEARCH_TIMEOUT_MS);
     const found = results.map((r) => r.metadata.caseId).filter((id): id is string => typeof id === "string" && caseIds.includes(id));
     return [...new Set(found)];
   } catch {
@@ -48,9 +49,10 @@ async function triageOne(ctx: ActionCtx, triageId: Id<"reportTriage">) {
     return;
   }
 
-  const suggested = await suggest(report.appId, report.text, candidates.map((c) => c.caseId));
+  const gate = gateFor(ctx, { appId: report.appId });
+  const suggested = await suggest(gate, report.appId, report.text, candidates.map((c) => c.caseId));
   const started = Date.now();
-  const answer = await askJson(TRIAGE_PROMPT, {
+  const answer = await askJson(gate, TRIAGE_PROMPT, {
     app: appName,
     customerChose: triage.hint ?? null,
     message: report.text,
@@ -109,7 +111,7 @@ async function triageOne(ctx: ActionCtx, triageId: Id<"reportTriage">) {
   });
   if (landed.caseId && process.env.SUPERMEMORY_API_KEY) {
     await withTimeout(
-      addDocuments(reportsNamespace(report.appId), [
+      addDocuments(gate, reportsNamespace(report.appId), [
         { id: report._id, content: report.text, metadata: { caseId: landed.caseId, reportId: report._id, kind: verdict } },
       ]),
       SEARCH_TIMEOUT_MS,

@@ -1,6 +1,7 @@
 import { internal } from "../_generated/api";
 import type { Doc } from "../_generated/dataModel";
 import type { ActionCtx } from "../_generated/server";
+import { gateFor } from "../consent/gate";
 import type { HandlerInput, HandlerResult } from "../runner/contract";
 import { capyConfig, startCapyThread } from "./capy";
 import { repoFromUrl } from "./github";
@@ -52,7 +53,7 @@ export async function runCodeChange(ctx: ActionCtx, input: HandlerInput, action:
     return fail(`Not configured: set ${capy.missing.join(" and ")} on the Convex deployment so Capy can write this change. Nothing was sent.`);
   }
 
-  const started = await startCapyThread(capy, {
+  const started = await startCapyThread(gateFor(ctx, { appId: input.case.appId }), capy, {
     repo,
     requestId: `turtl:${action.idempotencyKey}`,
     title: `turtl: ${title}`.slice(0, 120),

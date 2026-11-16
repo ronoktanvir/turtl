@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import { internalAction } from "../_generated/server";
+import { gateFor, type Gate } from "../consent/gate";
 import { repositoryAccess } from "../github/access";
 import { addDocuments, type CodeDocument } from "../supermemory";
 import {
@@ -152,11 +153,12 @@ function digest(files: SourceFile[], nodes: GraphNode[], edges: GraphEdge[]): st
 }
 
 async function labelWithModel(
+  gate: Gate,
   files: SourceFile[],
   nodes: GraphNode[],
   edges: GraphEdge[],
 ): Promise<{ labels: Labels; usage: ModelUsage }> {
-  const { text, usage } = await respond({
+  const { text, usage } = await respond(gate, {
     instructions: CLUSTER_PROMPT,
     input: digest(files, nodes, edges),
     maxOutputTokens: MODEL_OUTPUT_TOKENS,
@@ -190,6 +192,12 @@ export const build = internalAction({
       (name) => !process.env[name],
     );
     if (missing.length) return { outcome: "not_configured", missing };
+    // Nothing goes to OpenAI or Supermemory without the owner's permission (convex/consent/gate.ts).
+    const gate = gateFor(ctx, { appId: projectId });
+    for (const service of reuseLabels ? (["supermemory"] as const) : (["openai", "supermemory"] as const)) {
+      const refused = await gate.blocked(service);
+      if (refused) return { outcome: "failed", reason: `The map of the code was not built: ${refused}.` };
+    }
     if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) return { outcome: "failed", reason: `repo must be owner/name, got ${repo}.` };
 
     const started = Date.now();
@@ -209,7 +217,7 @@ export const build = internalAction({
       if (!stored) return { outcome: "failed", reason: `reuseLabels needs a stored network for ${projectId}; none exists.` };
       labels = { clusters: stored.clusters, nodes: new Map(stored.nodes.map(({ id, ...rest }) => [id, rest])) };
     } else {
-      ({ labels, usage } = await labelWithModel(fetched.files, graphNodes, edges));
+      ({ labels, usage } = await labelWithModel(gate, fetched.files, graphNodes, edges));
     }
     const modelMs = Date.now() - modelStarted;
 
@@ -255,7 +263,7 @@ export const build = internalAction({
       ),
     ];
     const supermemoryStarted = Date.now();
-    const added = await addDocuments(namespace, documents);
+    const added = await addDocuments(gate, namespace, documents);
     const supermemoryMs = Date.now() - supermemoryStarted;
 
     await ctx.runMutation(internal.codeNetwork.network.store, {

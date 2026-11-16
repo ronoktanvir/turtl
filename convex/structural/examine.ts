@@ -1,6 +1,8 @@
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import type { ActionCtx } from "../_generated/server";
+import { gateFor, type Gate } from "../consent/gate";
+import { modelCost } from "../spend/limits";
 import type { HandlerInput, HandlerResult } from "../runner/contract";
 import { readFinding, type KnownRecord, type ScenarioId } from "./rules";
 
@@ -34,17 +36,20 @@ const SYSTEM_PROMPT = [
 
 type Answer = { ok: true; json: Record<string, unknown> } | { ok: false; reason: string };
 
-async function ask(prompt: unknown): Promise<Answer> {
+async function ask(gate: Gate, prompt: unknown): Promise<Answer> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) return { ok: false, reason: "OPENAI_API_KEY is not set on this deployment, so no model was asked" };
+  const opened = await gate.open("openai");
+  if (!opened.ok) return { ok: false, reason: opened.reason };
+  const model = structuralModelId();
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), MODEL_TIMEOUT_MS);
   try {
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    const response = await opened.fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: structuralModelId(),
+        model,
         response_format: { type: "json_object" },
         messages: [
           { role: "system", content: SYSTEM_PROMPT },
@@ -54,7 +59,11 @@ async function ask(prompt: unknown): Promise<Answer> {
       signal: controller.signal,
     });
     if (!response.ok) return { ok: false, reason: `the model call returned HTTP ${response.status}` };
-    const body = (await response.json()) as { choices?: { message?: { content?: string } }[] };
+    const body = (await response.json()) as {
+      choices?: { message?: { content?: string } }[];
+      usage?: { prompt_tokens?: number; completion_tokens?: number };
+    };
+    await gate.spent(modelCost(model, body.usage && { inputTokens: body.usage.prompt_tokens ?? 0, outputTokens: body.usage.completion_tokens ?? 0 }));
     const json = JSON.parse(body.choices?.[0]?.message?.content ?? "null") as unknown;
     if (!json || typeof json !== "object") return { ok: false, reason: "the model's answer was not a JSON object" };
     return { ok: true, json: json as Record<string, unknown> };
@@ -96,7 +105,7 @@ export async function examineBroaderCauses(ctx: ActionCtx, input: HandlerInput):
       hasCodeMap: !!prompt.codeMap,
       reason: context.reason === "recurrence" ? "the failure came back after a verified recovery" : `the case has ${related} related cases`,
     });
-    const answer = await ask(prompt);
+    const answer = await ask(gateFor(ctx, { appId: input.case.appId }), prompt);
     const runRef = { kind: "agentRun", id: agentRunId };
     const examined = `Examined ${related} related case${related === 1 ? "" : "s"} (${context.triggerSummary.replace(/\.$/, "")}).`;
     if (!answer.ok) {

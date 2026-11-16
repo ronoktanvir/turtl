@@ -10,6 +10,7 @@ import {
   type MutationCtx,
   type QueryCtx,
 } from "./_generated/server";
+import { gateFor } from "./consent/gate";
 import { vOptionKind, type ProposalOption } from "./constants";
 import {
   askJson,
@@ -277,6 +278,7 @@ export const investigate = action({
           : null;
     const askedAt = Date.now();
     const answer = await askJson(
+      gateFor(ctx, { caseId }),
       (blocked ? `${CHAT_PROMPT}\nYou cannot add a fix now (${blocked}): set fix to null and say so if the owner asks for one.` : CHAT_PROMPT) +
         (feature ? `\n${FEATURE_CHAT_RULE}` : ""),
       {

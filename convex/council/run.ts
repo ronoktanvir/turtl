@@ -2,6 +2,7 @@ import { v, type Infer } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { internalAction, internalMutation, internalQuery, type ActionCtx } from "../_generated/server";
+import { gateFor, type Gate } from "../consent/gate";
 import { estimateCostUsd, PROVIDER_KEYS } from "../routing/configs";
 import { callModel, describeModel } from "../routing/models";
 import { keyIsSet, NOTICE, type CouncilMember } from "./settings";
@@ -118,6 +119,7 @@ type Runner = { caseId: Id<"cases">; stepId: Id<"steps">; stepAttemptId: Id<"ste
 
 async function runLogged(
   ctx: ActionCtx,
+  gate: Gate,
   where: Runner,
   taskType: "council_member" | "council_consolidate",
   member: CouncilMember,
@@ -141,7 +143,7 @@ async function runLogged(
     routingReason: reason,
     routing: { configKey: `council:${member.provider}/${member.model}`, configLabel: taskType === "council_member" ? "Council member" : "Council consolidation", provider: member.provider },
   });
-  const answer = await callModel({ ref: member, system, user, timeoutMs, maxOutputTokens });
+  const answer = await callModel(gate, { ref: member, system, user, timeoutMs, maxOutputTokens });
   await ctx.runMutation(internal.routing.log.finishRun, {
     agentRunId,
     status: answer.ok ? "completed" : "failed",
@@ -163,6 +165,12 @@ export async function examineWithCouncil(ctx: ActionCtx, request: CouncilRequest
   const where = { caseId: request.caseId, stepId: request.stepId, stepAttemptId: request.stepAttemptId };
   const row = await ctx.runQuery(internal.protectedApp.records.caseContext, { caseId: request.caseId });
   const appId = row.case.appId;
+  const gate = gateFor(ctx, { appId });
+  const refusals = new Map<string, string | null>();
+  const refusalFor = async (member: CouncilMember) => {
+    if (!refusals.has(member.provider)) refusals.set(member.provider, await gate.blocked(member.provider));
+    return refusals.get(member.provider) ?? null;
+  };
   const settings = await ctx.runQuery(internal.council.settings.resolve, { appId });
   const user = JSON.stringify({ question: request.question, facts: request.facts, evidence: request.evidence, ...(request.context && { context: request.context }) });
   const inputTokens = Math.ceil((MEMBER_PROMPT.length + user.length) / 3);
@@ -174,6 +182,11 @@ export async function examineWithCouncil(ctx: ActionCtx, request: CouncilRequest
     const base = { provider: member.provider, model: member.model, label: describeModel(member), supportingEvidenceIds: [], missingEvidence: [] };
     if (!keyIsSet(member)) {
       answers.push({ ...base, status: "not_run", error: `Joins when ${PROVIDER_KEYS[member.provider]} is set on the deployment.` });
+      continue;
+    }
+    const refused = await refusalFor(member);
+    if (refused) {
+      answers.push({ ...base, status: "not_run", error: `Not run: ${refused}.` });
       continue;
     }
     const cost = estimateCostUsd(member.model, inputTokens, MEMBER_MAX_OUTPUT_TOKENS);
@@ -212,7 +225,7 @@ export async function examineWithCouncil(ctx: ActionCtx, request: CouncilRequest
   const reason = `Council: ${request.purpose === "diagnosis" ? "the careful diagnosis was still unsure and no remembered recovery applied" : "a structural hypothesis was asked for"}, so ${runnable.length} models read the same evidence independently.`;
   const known = new Set(request.evidence.map((item) => item.id));
   const results = await Promise.all(
-    runnable.map((member) => runLogged(ctx, where, "council_member", member, reason, MEMBER_PROMPT, user, MEMBER_TIMEOUT_MS, MEMBER_MAX_OUTPUT_TOKENS)),
+    runnable.map((member) => runLogged(ctx, gate, where, "council_member", member, reason, MEMBER_PROMPT, user, MEMBER_TIMEOUT_MS, MEMBER_MAX_OUTPUT_TOKENS)),
   );
   let costUsd = 0;
   results.forEach(({ agentRunId, answer }, index) => {
@@ -245,7 +258,7 @@ export async function examineWithCouncil(ctx: ActionCtx, request: CouncilRequest
     supportingEvidenceIds: item.supportingEvidenceIds, missingEvidence: item.missingEvidence, wouldDisprove: item.wouldDisprove ?? null,
   }));
   const { agentRunId, answer } = await runLogged(
-    ctx, where, "council_consolidate", settings.consolidator,
+    ctx, gate, where, "council_consolidate", settings.consolidator,
     `Consolidation of ${answered.length} independent council answers.`,
     CONSOLIDATION_PROMPT, JSON.stringify({ question: request.question, evidence: request.evidence, reviews }),
     CONSOLIDATION_TIMEOUT_MS, CONSOLIDATION_MAX_OUTPUT_TOKENS,

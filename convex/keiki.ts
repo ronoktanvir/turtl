@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { internalAction } from "./_generated/server";
+import { gateFor, type Gate } from "./consent/gate";
 
 declare const process: { env: Record<string, string | undefined> };
 
@@ -15,18 +16,21 @@ const OUTCOMES = ["ran", "queued", "unavailable"] as const;
 
 // Tells the "turtl alerts" Keiki agent about an event so it can message the owner. Best effort:
 // it never throws, and it reports "ran" only when Keiki says the notice ran. The text is written
-// for the agent, which words the message itself; it is not delivered as is.
-export async function sendOwnerNotice(text: string): Promise<NoticeResult> {
+// for the agent, which words the message itself; it is not delivered as is. In accounts mode an owner who has not
+// allowed Keiki gets no text, the same as a deployment without Keiki's settings.
+export async function sendOwnerNotice(gate: Gate, text: string): Promise<NoticeResult> {
   const apiKey = process.env.KEIKI_API_KEY;
   const agentId = process.env.KEIKI_AGENT_ID;
   const phone = process.env.KEIKI_OWNER_CONTACT;
   if (!apiKey || !agentId || !phone) {
     return { outcome: "not_configured" };
   }
+  const opened = await gate.open("keiki");
+  if (!opened.ok) return { outcome: "not_configured" };
   const baseUrl = (process.env.KEIKI_BASE_URL || DEFAULT_BASE_URL).replace(/\/+$/, "");
 
   try {
-    const response = await fetch(
+    const response = await opened.fetch(
       `${baseUrl}/api/v1/developer/agents/${encodeURIComponent(agentId)}/notice`,
       {
         method: "POST",
@@ -54,8 +58,12 @@ export async function sendOwnerNotice(text: string): Promise<NoticeResult> {
   }
 }
 
-// Internal so only backend code can make the app message its owner.
+// Internal so only backend code can make the app message its owner. The project names whose permission applies.
 export const notifyOwner = internalAction({
-  args: { text: v.string() },
-  handler: async (_ctx, { text }): Promise<NoticeResult> => sendOwnerNotice(text),
+  args: { appId: v.id("apps"), text: v.string() },
+  returns: v.object({
+    outcome: v.union(v.literal("ran"), v.literal("queued"), v.literal("unavailable"), v.literal("not_configured"), v.literal("failed")),
+    status: v.optional(v.number()),
+  }),
+  handler: async (ctx, { appId, text }): Promise<NoticeResult> => sendOwnerNotice(gateFor(ctx, { appId }), text),
 });

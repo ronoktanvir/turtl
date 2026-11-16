@@ -29,6 +29,8 @@ function turnModule({ heard = "approve it", speech = { ok: true, audio: new Arra
     "convex/values": { v },
     "../_generated/api": { api: ref("api"), internal: ref("internal") },
     "../_generated/server": { action: define, internalMutation: define, query: define },
+    // The single-owner demo's gate: every answer is yes. tests/consent-gate.test.mjs covers the refusals.
+    "../consent/gate": { gateFor: () => ({ blocked: async () => null }) },
     "./openai": {
       transcribe: async () => { calls.transcribe += 1; return typeof heard === "string" ? { ok: true, text: heard } : heard; },
       speak: async () => { calls.speak += 1; return speech; },

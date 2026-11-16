@@ -1,6 +1,7 @@
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import type { ActionCtx } from "../_generated/server";
+import { gateFor } from "../consent/gate";
 import { askJson, fixesModelId } from "../fixOptions";
 
 // One JSON model call with its agentRuns row written before and finished after, whatever the outcome.
@@ -21,7 +22,7 @@ export async function askJsonWithRun(
     ...run,
     modelId: fixesModelId(),
   });
-  const answer = await askJson(system, user);
+  const answer = await askJson(gateFor(ctx, { caseId: run.caseId }), system, user);
   if (agentRunId) {
     await ctx.runMutation(internal.learning.runs.finish, {
       agentRunId,

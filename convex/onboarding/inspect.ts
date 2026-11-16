@@ -3,6 +3,8 @@ import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import { internalAction } from "../_generated/server";
 import { DEFAULT_MODEL, respond } from "../codeNetwork/openai";
+import { gateFor } from "../consent/gate";
+import { plainFailure } from "../consent/outbound";
 import {
   confirmItems,
   detectStack,
@@ -182,9 +184,15 @@ export const run = internalAction({
     let judgedBy: "model" | "rules" = "model";
     let fallbackReason: string | undefined;
     let agentRunId: Id<"agentRuns"> | undefined;
+    const gate = gateFor(ctx, { appId });
+    const refused = process.env.OPENAI_API_KEY ? await gate.blocked("openai") : null;
     if (!process.env.OPENAI_API_KEY) {
       judgedBy = "rules";
       fallbackReason = "No model answered: OPENAI_API_KEY is not set on turtl's deployment. These results are text-search leads only.";
+      items = ruleItems(hits);
+    } else if (refused) {
+      judgedBy = "rules";
+      fallbackReason = `No model answered: ${refused}. These results are text-search leads only.`;
       items = ruleItems(hits);
     } else {
       agentRunId = await ctx.runMutation(internal.onboarding.records.startAgentRun, {
@@ -196,7 +204,7 @@ export const run = internalAction({
       });
       const started = Date.now();
       try {
-        const { text } = await respond({
+        const { text } = await respond(gate, {
           instructions: INSTRUCTIONS,
           input: inspectionInput({ repo: inspection.repo, sha: read.sha, folders: inspection.folders, stack, scoped, hits }),
           maxOutputTokens: 12_000,
@@ -214,7 +222,8 @@ export const run = internalAction({
         summary = parsed.summary.trim().slice(0, 600);
         await ctx.runMutation(internal.onboarding.records.finishAgentRun, { agentRunId, status: "completed", durationMs: Date.now() - started });
       } catch (error) {
-        const message = error instanceof Error ? error.message.slice(0, 300) : "unknown error";
+        // Plain words only: a vendor's own error text can echo the code that was sent.
+        const message = plainFailure("OpenAI", error);
         await ctx.runMutation(internal.onboarding.records.finishAgentRun, { agentRunId, status: "failed", durationMs: Date.now() - started, error: message });
         judgedBy = "rules";
         fallbackReason = `No model answered (${message}). These results are text-search leads only.`;
