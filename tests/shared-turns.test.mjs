@@ -371,6 +371,71 @@ test("with every account's AI used up for the day, a failing check still opens a
   assert.deepEqual(sent.filter((request) => request.host === "api.openai.com"), [], "no model was asked");
 });
 
+// ---- Follow-up: settling agent run outcomes (convex/routing/log.ts) ----
+
+const agentRun = (fields) => ({
+  taskType: "diagnose_outage",
+  config: { modelId: "gpt-6.1-sol", harnessVersion: "h", promptVersion: "p" },
+  taskCharacteristics: { complexity: "c", risk: "r", framework: "f", repositoryArea: "a" },
+  contextRefs: [],
+  routingReason: ".",
+  status: "completed",
+  corrections: [],
+  ...fields,
+});
+
+/** One tick of the settling cron, with the runs it starts again at once while a look comes back full. */
+async function settleTick(t, w, now) {
+  t.mock.timers.setTime(now);
+  await w.run("internal.routing.log.settlePending", {});
+  await w.drain(["internal.routing.log.settlePending"]);
+}
+
+test("ATTACK (finding 15): 1,000 of another account's runs that never settle, and 500 that never could, no longer keep Alice's run from being settled", async (t) => {
+  const w = world(t);
+  network(t, {});
+  // Before, the cron took the 200 oldest unsettled runs. Repository readings at onboarding have no case, so they never
+  // settle: 500 of them, oldest of all, and nothing newer was ever settled again.
+  for (let n = 0; n < 500; n++) await w.db.insert("agentRuns", agentRun({ appId: "apps:m", taskType: "onboarding_inspection" }));
+  // Mallory's 1,000 diagnoses on cases she leaves open, all due now.
+  const mallorys = [];
+  for (let n = 0; n < 1000; n++) {
+    const caseId = await w.db.insert("cases", { appId: "apps:m", title: `m${n}`, impact: ".", kind: "outage", raisedBy: "monitor", status: "waiting_for_owner" });
+    const id = await w.db.insert("agentRuns", agentRun({ caseId, nextSettleAt: START - 1_000 }));
+    await w.db.patch(id, { _creationTime: START - 2 * DAY });
+    mallorys.push(id);
+  }
+  // Alice's diagnosis was verified by the fix it led to.
+  const alicesCase = await w.db.insert("cases", { appId: "apps:a", title: "a", impact: ".", kind: "outage", raisedBy: "monitor", status: "restored" });
+  await w.db.insert("verifications", { caseId: alicesCase, stepAttemptId: "stepAttempts:1", phase: "after_fix", environment: "test", revision: {}, checkVersion: "v1", criteriaVersion: "v1", criterionResults: [], evidenceIds: [], startedAt: START, completedAt: START, verdict: "passed", summary: "A test booking was saved." });
+  const alicesRun = await w.db.insert("agentRuns", agentRun({ caseId: alicesCase, nextSettleAt: START }));
+
+  await settleTick(t, w, START + 2 * MINUTE);
+  const runs = new Map(w.rows("agentRuns").map((row) => [row._id, row]));
+  assert.equal(runs.get(alicesRun).outcome, "verified", "Alice's run was settled at the next tick");
+  assert.equal(w.rows("agentRuns").filter((row) => row.taskType === "onboarding_inspection" && row.outcomeReason === "Not scored: only diagnosis runs are scored for routing.").length, 500, "runs that are never scored are settled at once");
+  assert.ok(mallorys.every((id) => runs.get(id).outcomeAt === undefined && runs.get(id).nextSettleAt > START + 55 * MINUTE), "Mallory's, two days old, are next looked at in an hour");
+  // Each look reads a bounded amount: 200 runs at most, and each case's newest 50 verifications.
+  assert.ok(w.reads.filter(([table]) => table === "agentRuns").every(([, , documents]) => documents <= 100));
+
+  // Thirty days after they were made, the cron stops following them: they are settled as never finished.
+  await settleTick(t, w, START + 28 * DAY + MINUTE);
+  assert.ok(
+    w.rows("agentRuns").filter((row) => mallorys.includes(row._id)).every((row) => row.outcomeAt !== undefined && /had not finished 30 days after/.test(row.outcomeReason)),
+  );
+  assert.equal(w.rows("agentRuns").filter((row) => row.outcomeAt === undefined).length, 0);
+});
+
+test("a diagnosis run waiting on its case is looked at every tick for an hour, every 10 minutes for a day, then once an hour", async (t) => {
+  const w = world(t);
+  const log = w.load("convex/routing/log.ts");
+  const made = START;
+  assert.equal(log.nextSettleAt(made, made + 30 * MINUTE) - (made + 30 * MINUTE), 2 * MINUTE - 10_000);
+  assert.equal(log.nextSettleAt(made, made + 2 * 60 * MINUTE) - (made + 2 * 60 * MINUTE), 10 * MINUTE - 10_000);
+  assert.equal(log.nextSettleAt(made, made + 3 * DAY) - (made + 3 * DAY), 60 * MINUTE - 10_000);
+  assert.equal(log.NEVER_FINISHED_MS, 30 * DAY);
+});
+
 // ---- Statement 9: the live address's port ----
 
 test("ATTACK: an account cannot point its live app at another port of someone else's host, so turtl probes no port but the web's", async (t) => {

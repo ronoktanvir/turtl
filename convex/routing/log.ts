@@ -1,4 +1,5 @@
 import { ConvexError, v } from "convex/values";
+import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import { internalMutation, internalQuery, type MutationCtx } from "../_generated/server";
 import { mutation } from "../functions";
@@ -48,6 +49,9 @@ export const startRun = internalMutation({
       routingPolicyVersion: ROUTING_POLICY_VERSION,
       status: "running",
       corrections: [],
+      // A diagnosis is scored once its case has a result: the settling cron looks at it from the next tick, with the
+      // runs whose time has come, so runs that are never scored (however many) cannot hold it up.
+      ...(args.taskType === DIAGNOSIS_TASK && { nextSettleAt: Date.now() }),
     });
   },
 });
@@ -134,12 +138,47 @@ export const caseSpend = internalQuery({
 
 type CaseVerdict = { outcome?: Doc<"agentRuns">["outcome"]; reason: string } | null;
 
+// Settling outcomes is shared by every account's runs, so each run gets its own turn (second review, finding 15: the
+// cron took the 200 oldest unsettled runs, and a run that can never settle, such as a repository reading with no case,
+// or a run on a case its owner leaves open, kept every newer run waiting for ever). A run nothing has looked at is
+// looked at once: one that is not scored is settled at once; a diagnosis run waiting on its case gets a next time to
+// look, less often as it ages, and after NEVER_FINISHED_MS is settled as never finished.
+
+/** Runs one look takes of each kind (never looked at, and due again); the look runs again while either comes back full. */
+const SETTLE_BATCH = 100;
+const SETTLE_ROUNDS = 20;
+/** The cron's interval (convex/crons.ts): how often a new diagnosis run is looked at in its first hour. */
+const SETTLE_EVERY_MS = 2 * 60_000;
+/** Then every 10 minutes for its first day, then once an hour: the floor. */
+const SETTLE_STEPS: readonly { after: number; every: number }[] = [
+  { after: 60 * 60_000, every: 10 * 60_000 },
+  { after: 24 * 60 * 60_000, every: 60 * 60_000 },
+];
+/** A diagnosis run whose case has not finished after this long is settled as never finished, and followed no more. */
+export const NEVER_FINISHED_MS = 30 * 24 * 60 * 60_000;
+/** A case's newest verifications read to decide its result. */
+const VERIFICATIONS_READ = 50;
+
+const NOT_SCORED = {
+  council: "Not scored: a council answer is an input to the proposal, not a diagnosis a fix tests.",
+  other: "Not scored: only diagnosis runs are scored for routing.",
+  neverFinished: "Not counted: its case had not finished 30 days after the diagnosis, so turtl stopped waiting for it.",
+  noCase: "Not counted: its case no longer exists.",
+};
+
+/** When to look at a waiting diagnosis run next, by its age; a little early, so it is due at the tick after its time. */
+export function nextSettleAt(createdAt: number, now: number): number {
+  const age = now - createdAt;
+  const step = [...SETTLE_STEPS].reverse().find((candidate) => age >= candidate.after);
+  return now + (step?.every ?? SETTLE_EVERY_MS) - 10_000;
+}
+
 // The case's result as far as routing is concerned, or null while it is still open. A declined fix is not counted:
 // the owner's choice says nothing about whether the diagnosis was right.
 async function caseVerdict(ctx: MutationCtx, caseId: Id<"cases">): Promise<CaseVerdict> {
   const row = await ctx.db.get(caseId);
-  if (!row) return null;
-  const verifications = await ctx.db.query("verifications").withIndex("by_case", (q) => q.eq("caseId", caseId)).collect();
+  if (!row) return { reason: NOT_SCORED.noCase };
+  const verifications = await ctx.db.query("verifications").withIndex("by_case", (q) => q.eq("caseId", caseId)).order("desc").take(VERIFICATIONS_READ);
   const after = verifications.filter((item) => item.phase !== "before").sort((a, b) => b.completedAt - a.completedAt)[0];
   if (after?.verdict === "passed") {
     return { outcome: "verified", reason: `The fix based on this diagnosis passed verification (${after.summary})` };
@@ -152,29 +191,46 @@ async function caseVerdict(ctx: MutationCtx, caseId: Id<"cases">): Promise<CaseV
   return null;
 }
 
-export async function settleCase(ctx: MutationCtx, caseId: Id<"cases">) {
-  const verdict = await caseVerdict(ctx, caseId);
-  if (!verdict) return 0;
-  const runs = await ctx.db.query("agentRuns").withIndex("by_case", (q) => q.eq("caseId", caseId)).collect();
-  let settled = 0;
-  for (const run of runs) {
-    if (run.outcomeAt !== undefined || run.status === "running" || run.status === "queued") continue;
-    if (run.taskType !== DIAGNOSIS_TASK) {
-      await ctx.db.patch(run._id, {
-        outcomeReason: run.taskType.startsWith("council_")
-          ? "Not scored: a council answer is an input to the proposal, not a diagnosis a fix tests."
-          : "Not scored: only diagnosis runs are scored for routing.",
-        outcomeAt: Date.now(),
-      });
-      continue;
-    }
-    await ctx.db.patch(run._id, {
-      ...(verdict.outcome && { outcome: verdict.outcome }),
-      outcomeReason: verdict.reason,
-      outcomeAt: Date.now(),
-    });
-    settled += 1;
+/**
+ * Settles one run if it can be, or says when to look at it next. A run still running is waited for. A run that is not
+ * a diagnosis is never scored, so it is settled as soon as it is done; a diagnosis run is settled with its case's
+ * result once the case has one, or as never finished once it is NEVER_FINISHED_MS old. `verdictOf` caches cases.
+ */
+async function settleRun(ctx: MutationCtx, run: Doc<"agentRuns">, verdictOf: (caseId: Id<"cases">) => Promise<CaseVerdict>, now: number) {
+  if (run.outcomeAt !== undefined) return true;
+  const busy = run.status === "running" || run.status === "queued";
+  if (!busy && run.taskType !== DIAGNOSIS_TASK) {
+    await ctx.db.patch(run._id, { outcomeReason: run.taskType.startsWith("council_") ? NOT_SCORED.council : NOT_SCORED.other, outcomeAt: now, nextSettleAt: undefined });
+    return true;
   }
+  const verdict = !busy && run.caseId ? await verdictOf(run.caseId) : null;
+  if (verdict) {
+    await ctx.db.patch(run._id, { ...(verdict.outcome && { outcome: verdict.outcome }), outcomeReason: verdict.reason, outcomeAt: now, nextSettleAt: undefined });
+    return true;
+  }
+  if (now - run._creationTime >= NEVER_FINISHED_MS) {
+    await ctx.db.patch(run._id, { outcomeReason: NOT_SCORED.neverFinished, outcomeAt: now, nextSettleAt: undefined });
+    return true;
+  }
+  await ctx.db.patch(run._id, { nextSettleAt: nextSettleAt(run._creationTime, now) });
+  return false;
+}
+
+function verdicts(ctx: MutationCtx) {
+  const seen = new Map<Id<"cases">, Promise<CaseVerdict>>();
+  return (caseId: Id<"cases">) => {
+    if (!seen.has(caseId)) seen.set(caseId, caseVerdict(ctx, caseId));
+    return seen.get(caseId)!;
+  };
+}
+
+/** Settles a case's runs (its newest SETTLE_BATCH) once it has a result. */
+export async function settleCase(ctx: MutationCtx, caseId: Id<"cases">) {
+  const verdictOf = verdicts(ctx);
+  if (!(await verdictOf(caseId))) return 0;
+  const runs = await ctx.db.query("agentRuns").withIndex("by_case", (q) => q.eq("caseId", caseId)).order("desc").take(SETTLE_BATCH);
+  let settled = 0;
+  for (const run of runs) if (run.outcomeAt === undefined && run.taskType === DIAGNOSIS_TASK && (await settleRun(ctx, run, verdictOf, Date.now()))) settled += 1;
   return settled;
 }
 
@@ -183,18 +239,29 @@ export const settle = internalMutation({
   handler: async (ctx, { caseId }) => await settleCase(ctx, caseId),
 });
 
-// Fills in outcomes once cases verify, fail or close. Runs from a cron; does nothing when no run is waiting.
+// Fills in outcomes once cases verify, fail or close. Runs from a cron; does nothing when no run is waiting. Takes
+// the runs nothing has looked at yet and the runs whose next look has come, each with its own budget, and runs again
+// at once while either comes back full, up to SETTLE_ROUNDS times a tick.
 export const settlePending = internalMutation({
-  args: {},
-  handler: async (ctx) => {
-    const pending = await ctx.db
+  args: { round: v.optional(v.number()) },
+  returns: v.object({ looked: v.number(), settled: v.number() }),
+  handler: async (ctx, { round = 0 }) => {
+    const now = Date.now();
+    const fresh = await ctx.db
       .query("agentRuns")
-      .withIndex("by_settled", (q) => q.eq("outcomeAt", undefined))
-      .take(200);
-    const cases = [...new Set(pending.flatMap((run) => (run.caseId ? [run.caseId] : [])))];
+      .withIndex("by_settled_and_next", (q) => q.eq("outcomeAt", undefined).eq("nextSettleAt", undefined))
+      .take(SETTLE_BATCH);
+    const due = await ctx.db
+      .query("agentRuns")
+      .withIndex("by_settled_and_next", (q) => q.eq("outcomeAt", undefined).gte("nextSettleAt", 0).lte("nextSettleAt", now))
+      .take(SETTLE_BATCH);
+    const verdictOf = verdicts(ctx);
     let settled = 0;
-    for (const caseId of cases) settled += await settleCase(ctx, caseId);
-    return { cases: cases.length, settled };
+    for (const run of [...fresh, ...due]) if (await settleRun(ctx, run, verdictOf, now)) settled += 1;
+    if ((fresh.length === SETTLE_BATCH || due.length === SETTLE_BATCH) && round + 1 < SETTLE_ROUNDS) {
+      await ctx.scheduler.runAfter(0, internal.routing.log.settlePending, { round: round + 1 });
+    }
+    return { looked: fresh.length + due.length, settled };
   },
 });
 

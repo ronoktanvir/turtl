@@ -181,7 +181,7 @@ export default defineSchema({
     // A run for a project and no case (reading the repository at onboarding, triaging a report): account deletion finds it here.
     .index("by_app", ["appId"])
     .index("by_task_and_settled", ["taskType", "outcomeAt"])
-    .index("by_settled", ["outcomeAt"]),
+    .index("by_settled_and_next", ["outcomeAt", "nextSettleAt"]),
   // Mutations must enforce app ownership and source/revision freshness; retrieved context never authorizes execution.
   contextSources: defineTable(vContextSource)
     .index("by_app", ["appId"])

@@ -42,5 +42,8 @@ export const agentRunRoutingFields = {
   outcome: v.optional(vOutcome),
   outcomeReason: v.optional(v.string()),
   outcomeAt: v.optional(v.number()),
+  // When the settling cron next looks at a diagnosis run still waiting on its case (convex/routing/log.ts). Missing on
+  // a run nothing has looked at yet: it is looked at now.
+  nextSettleAt: v.optional(v.number()),
   usage: v.optional(v.object({ inputTokens: v.number(), outputTokens: v.number() })),
 };
