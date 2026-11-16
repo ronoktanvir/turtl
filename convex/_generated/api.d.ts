@@ -109,6 +109,7 @@ import type * as prTracking_capy from "../prTracking/capy.js";
 import type * as prTracking_catalog from "../prTracking/catalog.js";
 import type * as prTracking_codingAgent from "../prTracking/codingAgent.js";
 import type * as prTracking_execute from "../prTracking/execute.js";
+import type * as prTracking_follow from "../prTracking/follow.js";
 import type * as prTracking_github from "../prTracking/github.js";
 import type * as prTracking_records from "../prTracking/records.js";
 import type * as prTracking_validators from "../prTracking/validators.js";
@@ -292,6 +293,7 @@ declare const fullApi: ApiFromModules<{
   "prTracking/catalog": typeof prTracking_catalog;
   "prTracking/codingAgent": typeof prTracking_codingAgent;
   "prTracking/execute": typeof prTracking_execute;
+  "prTracking/follow": typeof prTracking_follow;
   "prTracking/github": typeof prTracking_github;
   "prTracking/records": typeof prTracking_records;
   "prTracking/validators": typeof prTracking_validators;
