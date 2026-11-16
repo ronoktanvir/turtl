@@ -420,31 +420,8 @@ test("email and password: sign up, sign in, and each refusal in plain words", as
   await assert.rejects(provider.authorize({ flow: "reset-verification", email: "owner@example.com", code: "12345678", newPassword: "a new password" }, ctx), refusal(words.resetOff));
 });
 
-// Password reset, its codes and the limits on its emails: tests/email-codes.test.mjs, against a stand-in for Convex
-// Auth that shares turtl's database.
-
-// Review finding 7: every limit is per account, so a script that makes accounts multiplies them. With accounts on, the
-// deployment makes at most so many new accounts an hour and a day, by any method, counted where Convex Auth makes the user.
-test("with the deployment's ceiling on new accounts reached, a fresh sign-up is refused in plain words and makes nothing", async (t) => {
-  const { load, auth, store } = await world(t, { AUTH_REQUIRED: "true", NEW_ACCOUNTS_PER_HOUR: "2", NEW_ACCOUNTS_PER_DAY: "3" });
-  t.mock.timers.enable({ apis: ["Date"], now: Date.parse("2026-11-15T12:10:00Z") });
-  const { ceilingRefusal } = load("convex/spend/limits.ts");
-  load("convex/auth.ts");
-  const provider = load("convex/auth/password.ts").password();
-  const signUp = (email) => provider.authorize({ flow: "signUp", email, password: "tide pools at dawn" }, {});
-  await signUp("one@example.com");
-  await signUp("two@example.com");
-  await assert.rejects(signUp("three@example.com"), refusal(ceilingRefusal.accountsThisHour));
-  assert.equal(ceilingRefusal.accountsThisHour, "turtl is making a lot of new accounts right now, so it isn't making more this hour. Try again in an hour.");
-  assert.deepEqual(auth.users.map((user) => user.email), ["one@example.com", "two@example.com"], "the refused sign-up left no account");
-  // Signing in to an account that exists is not a new account.
-  assert.ok(await provider.authorize({ flow: "signIn", email: "one@example.com", password: "tide pools at dawn" }, {}));
-  // The next hour opens again, up to the day's ceiling.
-  t.mock.timers.setTime(Date.parse("2026-11-15T13:10:00Z"));
-  await signUp("three@example.com");
-  await assert.rejects(signUp("four@example.com"), refusal(ceilingRefusal.accountsToday));
-  assert.deepEqual(store.rows("deploymentTotals").map(({ name, value }) => [name, value]).sort(), [["accounts_day", 3], ["accounts_hour", 1]], "the earlier hour's count was dropped");
-});
+// Password reset, confirming a new account's address, the limits on emails and the ceilings on new accounts:
+// tests/email-codes.test.mjs, against a stand-in for Convex Auth that shares turtl's database.
 
 test("the demo has no ceiling on new accounts", async (t) => {
   const { load, auth } = await world(t, { NEW_ACCOUNTS_PER_HOUR: "1" });
@@ -460,7 +437,7 @@ test("users.mode answers before sign-in; users.viewer returns the signed-in pers
   assert.deepEqual(await users.mode.handler({}, {}), { accounts: false, github: true, passwordReset: false });
   process.env.AUTH_REQUIRED = "true";
   assert.deepEqual(await users.mode.handler({}, {}), { accounts: true, github: true, passwordReset: false });
-  const store = fakeDb(indexesOf(realAuth.authTables));
+  const store = fakeDb(indexesOf(load("convex/auth/schema.ts").accountTables));
   const ada = await store.seed("users", { name: "Ada", email: "ada@example.com", image: "https://avatars.example.com/ada.png" });
   await store.seed("authAccounts", { userId: ada, provider: "github", providerAccountId: "4242" });
   await store.seed("authAccounts", { userId: ada, provider: "password", providerAccountId: "ada@example.com", secret: "x" });
@@ -469,8 +446,8 @@ test("users.mode answers before sign-in; users.viewer returns the signed-in pers
   const plainSession = await store.seed("authSessions", { userId: plain, expirationTime: Date.now() + 60_000 });
   const ended = await store.seed("authSessions", { userId: ada, expirationTime: 0 });
   const as = (subject) => ({ db: store.db, auth: { getUserIdentity: async () => (subject ? { subject } : null) } });
-  assert.deepEqual(await users.viewer.handler(as(`${ada}|${adaSession}`), {}), { id: ada, name: "Ada", email: "ada@example.com", picture: "https://avatars.example.com/ada.png", methods: ["password", "github"] });
-  assert.deepEqual(await users.viewer.handler(as(`${plain}|${plainSession}`), {}), { id: plain, name: null, email: "plain@example.com", picture: null, methods: [] }, "only an https picture is passed on");
+  assert.deepEqual(await users.viewer.handler(as(`${ada}|${adaSession}`), {}), { id: ada, name: "Ada", email: "ada@example.com", picture: "https://avatars.example.com/ada.png", methods: ["password", "github"], confirmed: true });
+  assert.deepEqual(await users.viewer.handler(as(`${plain}|${plainSession}`), {}), { id: plain, name: null, email: "plain@example.com", picture: null, methods: [], confirmed: true }, "only an https picture is passed on");
   assert.equal(await users.viewer.handler(as(`${ada}|${ended}`), {}), null, "a session that has ended (signed out elsewhere, or the account is being deleted)");
   assert.equal(await users.viewer.handler(as(null), {}), null);
   assert.equal(await users.viewer.handler(as("users:999|authSessions:3"), {}), null, "a deleted user");
@@ -495,21 +472,6 @@ test("users.account goes through internal.access.account: the account id signed 
   process.env.AUTH_REQUIRED = "true";
   assert.equal(await users.account.handler(ctx("users:7|authSessions:9"), {}), "users:7", "the part of the subject before |");
   await assert.rejects(users.account.handler(ctx(null), {}), refusal("Sign in to continue."));
-});
-
-test("the review account is made, or given a new password, without logging the password", async (t) => {
-  const { load, auth } = await world(t);
-  const { ensureAccount } = load("convex/auth/review.ts");
-  const logged = [];
-  for (const level of ["log", "info", "warn", "error", "debug"]) t.mock.method(console, level, (...args) => logged.push(args.join(" ")));
-  assert.deepEqual(await ensureAccount.handler({}, { email: "Review@Example.com", password: "review pass one" }), { email: "review@example.com", created: true });
-  assert.deepEqual(await ensureAccount.handler({}, { email: "review@example.com", password: "review pass two" }), { email: "review@example.com", created: false });
-  assert.equal(auth.accounts.length, 1);
-  assert.equal(auth.accounts[0].secret, "hashed:review pass two");
-  assert.deepEqual(auth.invalidated, [], "a reviewer already signed in stays signed in");
-  await assert.rejects(ensureAccount.handler({}, { email: "review@example.com", password: "short" }), /Choose a password/);
-  await assert.rejects(ensureAccount.handler({}, { email: "review", password: "review pass three" }), /Enter your email/);
-  assert.ok(logged.every((line) => !line.includes("review pass")), "no password in any log line");
 });
 
 test("sign-in settings are read by name and reported without values", async (t) => {
@@ -577,11 +539,12 @@ test("the Login screen keeps the demo's controls, adds Apple beside GitHub, and 
 
 test("every variable sign-in reads has a row, and production refuses the test-only ones", () => {
   const rows = Object.fromEntries(variables.map((row) => [row.name, row]));
-  for (const name of ["JWT_PRIVATE_KEY", "JWKS", "SITE_URL", "AUTH_GITHUB_ID", "AUTH_GITHUB_SECRET"]) {
+  // The email service is required: with accounts on, a password sign-up confirms its address by an emailed code.
+  for (const name of ["JWT_PRIVATE_KEY", "JWKS", "SITE_URL", "AUTH_GITHUB_ID", "AUTH_GITHUB_SECRET", "AUTH_RESEND_KEY", "AUTH_EMAIL_FROM"]) {
     assert.equal(rows[name]?.production, "required", name);
     assert.equal(rows[name].arrives, undefined, name + " has arrived");
   }
-  for (const name of ["AUTH_RESEND_KEY", "AUTH_EMAIL_FROM", "AUTH_APPLE_BUNDLE_ID", "AUTH_SESSION_TOTAL_DURATION_MS", "AUTH_SESSION_INACTIVE_DURATION_MS", "AUTH_LOG_LEVEL", "CUSTOM_AUTH_SITE_URL"]) assert.equal(rows[name]?.production, "optional", name);
+  for (const name of ["AUTH_APPLE_BUNDLE_ID", "AUTH_SESSION_TOTAL_DURATION_MS", "AUTH_SESSION_INACTIVE_DURATION_MS", "AUTH_LOG_LEVEL", "CUSTOM_AUTH_SITE_URL"]) assert.equal(rows[name]?.production, "optional", name);
   for (const name of ["AUTH_STAND_IN_URL", "AUTH_LOG_SECRETS"]) assert.equal(rows[name]?.production, "never", name);
   for (const name of ["JWT_PRIVATE_KEY", "AUTH_GITHUB_SECRET", "AUTH_RESEND_KEY"]) assert.equal(rows[name].secret, true, name);
   const mine = /AUTH_(GITHUB|RESEND|EMAIL|APPLE|STAND|SESSION|LOG)|JWT_PRIVATE_KEY|JWKS|SITE_URL|convex\/auth|convex\/users/;

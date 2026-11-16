@@ -27,6 +27,7 @@ const access = load("../convex/access.ts", {
   "convex/values": { ConvexError, v },
   "./_generated/api": { internal: ref("internal") },
   "./_generated/server": { internalQuery: define },
+  "./auth/confirmed": load("../convex/auth/confirmed.ts", {}),
 });
 
 function turnModule({ heard = "approve it", speech = { ok: true, audio: new ArrayBuffer(8) } } = {}) {

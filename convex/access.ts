@@ -2,6 +2,7 @@ import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalQuery, type ActionCtx, type QueryCtx } from "./_generated/server";
+import { addressConfirmed, unconfirmedAccount } from "./auth/confirmed";
 import type { Actor } from "./constants";
 
 declare const process: { env: Record<string, string | undefined> };
@@ -56,6 +57,8 @@ export async function signedInAccount(ctx: AuthCtx): Promise<string | null> {
     const row = await db.get(sessionId);
     if (!row || row.expirationTime <= Date.now()) return null;
   }
+  // Email confirmation, checked here and nowhere else (see "email confirmation" at the end of this file).
+  if (accessEnforced() && !(await addressConfirmed(db, account))) return null;
   return account;
 }
 
@@ -268,4 +271,22 @@ export const caseGuard = internalQuery({
   args: { caseId: v.string(), refusal: v.optional(v.string()) },
   returns: v.string(),
   handler: async (ctx, { caseId, refusal }) => await guardCase(ctx, caseId, refusal),
+});
+
+// ---------------------------------------------------------------------------------------------- email confirmation
+// With accounts on, a password account must confirm its email address before it reaches anything (convex/auth/
+// confirmation.ts). Until then signedInAccount reads it as signed out, so every check above refuses it: it can make no
+// project, connect no GitHub, store no secret, give no AI permission and so spend nothing. Accounts made with Apple or
+// GitHub count as confirmed. Only the "check your email" screen's functions reach an unconfirmed account, through these.
+
+/** The signed-in account while it still has to confirm its email address, or null: signed out, confirmed, or the demo. */
+export async function pendingAccount(ctx: ReadCtx): Promise<string | null> {
+  return accessEnforced() ? await unconfirmedAccount(ctx) : null;
+}
+
+/** pendingAccount for an action. */
+export const pending = internalQuery({
+  args: {},
+  returns: v.union(v.string(), v.null()),
+  handler: async (ctx) => await pendingAccount(ctx),
 });

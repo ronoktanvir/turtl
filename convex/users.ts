@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { action, query } from "./_generated/server";
-import { accessEnforced, signedInAccount } from "./access";
+import { accessEnforced, pendingAccount, signedInAccount } from "./access";
 import { emailService, githubConfigured } from "./auth/settings";
 
 // What the app asks about accounts. `mode` answers before anyone signs in; `viewer` says who is signed in.
@@ -17,7 +17,8 @@ export const mode = query({
   handler: async () => ({ accounts: accessEnforced(), github: githubConfigured(), passwordReset: emailService() !== null }),
 });
 
-/** The signed-in person, or null. Their picture only when it is an https address (GitHub's avatar). */
+/** The signed-in person, or null. Their picture only when it is an https address (GitHub's avatar). `confirmed` is false
+ * for a password account that has not yet confirmed its email address: the app then shows only "Check your email". */
 export const viewer = query({
   args: {},
   returns: v.union(
@@ -28,10 +29,12 @@ export const viewer = query({
       email: v.union(v.string(), v.null()),
       picture: v.union(v.string(), v.null()),
       methods: v.array(vMethod),
+      confirmed: v.boolean(),
     }),
   ),
   handler: async (ctx) => {
-    const account = await signedInAccount(ctx);
+    const confirmed = await signedInAccount(ctx);
+    const account = confirmed ?? (await pendingAccount(ctx));
     const userId = account ? ctx.db.normalizeId("users", account) : null;
     const user = userId ? await ctx.db.get(userId) : null;
     if (!userId || !user) return null;
@@ -43,6 +46,7 @@ export const viewer = query({
       email: user.email ?? null,
       picture: user.image?.startsWith("https://") ? user.image : null,
       methods: methods as Method[],
+      confirmed: confirmed !== null,
     };
   },
 });

@@ -447,7 +447,11 @@ async function seedAccount({ backend, registry, apple, memory }, label, installa
     await seed("case", entry, closedCase);
   }
   for (const entry of registry.projectErasers.filter((row) => row.kind === "rows")) await seed("project", entry, value.project);
-  for (const entry of registry.accountErasers.filter((row) => row.kind === "rows")) await seed("account", entry, user);
+  // A password account still waiting to confirm its address reads as signed out, so it cannot ask to be deleted the way
+  // these tests do; the sweep and "start over" delete one (tests/email-codes.test.mjs). Its hold is added by hold(),
+  // once the request is in, so the job is seen to remove it too.
+  for (const entry of registry.accountErasers.filter((row) => row.kind === "rows" && row.table !== "authUnconfirmed")) await seed("account", entry, user);
+  const hold = async () => await add("authUnconfirmed", { account: user, since: Date.now() });
   // The report form's key and its rate-limit windows, per key and per sender.
   const key = await add("intakeKeys", { appId, key: `key-${label}`, createdAt: Date.now() });
   await add("intakeRateWindows", { bucket: `key-minute:${key}`, windowStart: 1, count: 3 });
@@ -464,7 +468,7 @@ async function seedAccount({ backend, registry, apple, memory }, label, installa
   await db.patch(made.find((id) => id.startsWith("aiConsents:") && backendRow(backend, id)?.account === user), { answer: "allowed", services: [], listVersion: "v", answeredAt: 1 });
   const names = [...registry.namespaces.map((name) => name(appId))];
   for (const name of names) memory.hold(name, 3);
-  return { user, email, session, method, appId, caseId, closedCase, refreshToken, made, names, installationId, identity: { subject: `${user}|${session}` } };
+  return { user, email, session, method, appId, caseId, closedCase, refreshToken, made, names, installationId, hold, identity: { subject: `${user}|${session}` } };
 }
 
 const backendRow = (backend, id) => backend.rows(id.split(":")[0]).find((row) => row._id === id);
@@ -518,6 +522,7 @@ test("deleting an account removes every row of it in every table, its files, and
   const accepted = await backend.call("api.account.deletion.request", {}, alice.identity);
   assert.equal(typeof accepted.requestedAt, "number");
   void request;
+  await alice.hold();
 
   // From the moment it is accepted: the session has ended, nobody can sign in to it, and the AI permission is back.
   await assert.rejects(access.requireAccount(as(alice)), (error) => message(error) === "Sign in to continue.");
@@ -693,7 +698,9 @@ test("the single-owner demo has no account to delete, and a signed-out caller is
 test("an ended session signs nobody in, though its token has not expired; demo and actions are unchanged", async () => {
   const access = createLoader()("convex/access.ts");
   const sessions = { "authSessions:1": { _id: "authSessions:1", expirationTime: Date.now() + 60_000 }, "authSessions:2": { _id: "authSessions:2", expirationTime: 0 } };
-  const db = { normalizeId: (table, id) => (id.startsWith(table + ":") ? id : null), get: async (id) => sessions[id] ?? null };
+  // No account here waits to confirm its email address (authUnconfirmed is empty; tests/email-codes.test.mjs covers that).
+  const noHold = { withIndex: () => ({ first: async () => null }) };
+  const db = { normalizeId: (table, id) => (id.startsWith(table + ":") ? id : null), get: async (id) => sessions[id] ?? null, query: (table) => (assert.equal(table, "authUnconfirmed"), noHold) };
   const as = (subject, withDb = true) => ({ ...(withDb && { db }), auth: { getUserIdentity: async () => ({ subject }) } });
   const saved = process.env.AUTH_REQUIRED;
   process.env.AUTH_REQUIRED = "true";

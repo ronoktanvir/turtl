@@ -6,8 +6,9 @@ import { test } from "node:test";
 import { startAuthStandIn } from "./fixtures/auth-stand-in.mjs";
 import { createLoader, memoryDb, root } from "./fixtures/convex-memory.mjs";
 
-// The codes turtl emails (second security review, finding 14, and the first review's finding 6). Each numbered test
-// below performs the attack or the flow behind one statement of the brief against the real modules in convex/auth, with Convex Auth's
+// The codes turtl emails, and confirming a new password account's address (second security review, findings 12 and 14,
+// and the first review's findings 6 and 7). Each numbered test below performs the attack or the flow behind one
+// statement of the brief against the real modules in convex/auth, convex/access.ts and convex/spend, with Convex Auth's
 // library replaced by a stand-in that keeps users, accounts, sessions and its wrong-password count in the same
 // in-memory database turtl's own functions use, and with every email going to tests/fixtures/auth-stand-in.mjs. Nothing
 // here talks to Resend, Apple or GitHub: any other address fails the test.
@@ -216,9 +217,11 @@ const at = (t, ms) => t.mock.timers.setTime(ms);
 /** A well-formed code nobody was sent. */
 const guess = () => Array.from(randomBytes(20), (byte) => "0123456789ABCDEFGHJKMNPQRSTVWXYZ"[byte & 31]).join("");
 
-/** Signs up with a password, as a new owner does. */
+/** Signs up with a password and confirms the address with the code from the email, as a new owner does. */
 async function confirmedOwner(w, email, secret = "tide pools at dawn") {
-  return await w.password({ flow: "signUp", email, password: secret });
+  const signedUp = await w.password({ flow: "signUp", email, password: secret });
+  await w.call("api.auth.confirmation.confirm", { code: w.standIn.lastCode(email) }, signedUp.identity);
+  return signedUp;
 }
 
 // ---------------------------------------------------------------------------------------------- password reset
@@ -239,7 +242,7 @@ test("1. a stranger who knows the owner's address cannot spoil the owner's reset
   const guesses = [nearMiss, "12345678", "00000000", "", "not a code", ...Array.from({ length: 995 }, guess)];
   for (const code of guesses) await assert.rejects(reset({ code }), refusal(words.wrongCode));
   assert.equal(w.db.rows("authRateLimits").length, 0, "no count of wrong codes exists, for the address or the account");
-  assert.equal(w.emailsTo("owner@example.com").length, 1, "one reset: asking again within a minute sends nothing");
+  assert.equal(w.emailsTo("owner@example.com").length, 2, "the sign-up's confirmation, and one reset: asking again within a minute sends nothing");
   // The owner's code works, pasted however the mail app hands it over.
   const back = await reset({ code: `  ${ownersCode.toLowerCase().replace(/-/g, " ")} `, newPassword: "a new password" });
   assert.ok(back.userId, "the owner is back in");
@@ -361,6 +364,186 @@ test("4. a reset ends every other session of the account, and a code cannot be r
   await assert.rejects(redeem("third password"), refusal(words.wrongCode), "a code works once");
 });
 
+// ---------------------------------------------------------------------------------------------- confirming the address
+
+test("5. a password account cannot make a project, connect GitHub, store a secret or spend until it confirms its address", async (t) => {
+  const w = await world(t, { ...ACCOUNTS, SECRETS_ENCRYPTION_KEY: Buffer.alloc(32, 7).toString("base64") });
+  t.mock.timers.enable({ apis: ["Date"], now: START + 11 * 3_600_000 });
+  const { words } = w;
+  const signedUp = await w.password({ flow: "signUp", email: "new@example.com", password: "tide pools at dawn" });
+  const me = signedUp.identity;
+  const [email] = w.emailsTo("new@example.com");
+  assert.equal(email.subject, "Confirm your email address for turtl");
+  assert.equal((await w.call("api.users.viewer", {}, me)).confirmed, false, "the app shows only Check your email");
+  assert.equal((await w.call("api.auth.confirmation.status", {}, me)).email, "new@example.com");
+  const { LIST_VERSION } = w.load("convex/consent/services.ts");
+  const SIGN_IN = refusal("Sign in to continue.");
+  const attempts = {
+    "make a project": () => w.call("api.onboarding.projects.add", { repoUrl: "https://github.com/new/shop" }, me),
+    "connect GitHub": () => w.call("api.github.connect.finish", { ticket: "a ticket GitHub handed back" }, me),
+    "store a coding agent key": () => w.call("api.secrets.account.setCodingAgentKey", { apiKey: "capy_live_0123456789abcdef" }, me),
+    "give AI permission": () => w.call("api.consent.permission.allow", { listVersion: LIST_VERSION }, me),
+    "register this phone": () => w.call("api.push.devices.register", { token: "ExponentPushToken[new]", platform: "ios" }, me),
+    "ask to be deleted (only Start over does that)": () => w.call("api.account.deletion.request", {}, me),
+  };
+  for (const [what, attempt] of Object.entries(attempts)) await assert.rejects(attempt(), SIGN_IN, what);
+  assert.equal(await w.call("internal.access.account", {}, me).catch((error) => error.data), "Sign in to continue.", "what every action asks");
+  // Spending: every outbound call asks the gate, which needs an AI permission the account could not give.
+  const gate = await w.call("internal.consent.gate.check", { scope: { account: signedUp.userId }, service: "openai", purpose: "send" });
+  assert.equal(gate.ok, false);
+  assert.deepEqual(w.db.rows("apps"), []);
+  assert.deepEqual(w.db.rows("aiConsents"), []);
+  // A wrong code does nothing; the code in the email (the link fills it in) confirms.
+  await assert.rejects(w.call("api.auth.confirmation.confirm", { code: guess() }, me), refusal(words.wrongCode));
+  const link = w.standIn.lastLink("new@example.com");
+  assert.match(link, /^turtl:\/\/confirm-email\?code=[0-9A-Z-]{23}$/);
+  await w.call("api.auth.confirmation.confirm", { code: new URL(link).searchParams.get("code") }, me);
+  assert.equal((await w.call("api.users.viewer", {}, me)).confirmed, true);
+  assert.equal(await w.call("api.auth.confirmation.status", {}, me), null);
+  assert.ok((await w.call("api.onboarding.projects.add", { repoUrl: "https://github.com/new/shop" }, me)).projectId, "now it can");
+  await w.call("api.consent.permission.allow", { listVersion: LIST_VERSION }, me);
+  await assert.rejects(w.call("api.github.connect.finish", { ticket: "a ticket GitHub handed back" }, me), (error) => !SIGN_IN(error), "past the account check");
+  assert.equal((await w.call("api.secrets.account.setCodingAgentKey", { apiKey: "capy_live_0123456789abcdef" }, me)).setAt > 0, true);
+  // A second tap on Confirm, after it worked, is not an error.
+  assert.equal(await w.call("api.auth.confirmation.confirm", { code: guess() }, me), null);
+});
+
+test("5. accounts made with Sign in with Apple or GitHub count as confirmed", async (t) => {
+  const w = await world(t, ACCOUNTS);
+  const access = w.load("convex/access.ts");
+  const as = (identity) => ({ db: w.db, auth: { getUserIdentity: async () => identity } });
+  const apple = await w.signInWithApple("001234.apple-person.0001");
+  const github = await w.signInWithGitHub(4242);
+  for (const person of [apple, github]) {
+    assert.equal(await access.requireAccount(as(person.identity)), person.userId);
+    assert.equal((await w.call("api.users.viewer", {}, person.identity)).confirmed, true);
+  }
+  assert.deepEqual(w.db.rows("authUnconfirmed"), []);
+  assert.equal(w.standIn.emails.length, 0, "no email to confirm");
+});
+
+test("5. with accounts on and no email service, there is no password sign-up, since the code could not be sent", async (t) => {
+  const w = await world(t, { AUTH_REQUIRED: "true" });
+  await assert.rejects(w.password({ flow: "signUp", email: "new@example.com", password: "tide pools at dawn" }), refusal(w.words.signUpOff));
+  assert.deepEqual(w.db.rows("users"), []);
+});
+
+test("7. confirmation emails are limited per address per day, and a stranger who took the address cannot spoil its codes", async (t) => {
+  const w = await world(t, ACCOUNTS);
+  let now = START + 14 * 3_600_000;
+  t.mock.timers.enable({ apis: ["Date"], now });
+  const { words } = w;
+  const later = (ms) => at(t, (now += ms));
+  // Mallory signs up with Alice's address, asks for the email again and again, and guesses at the code.
+  let mallory = await w.password({ flow: "signUp", email: "alice@example.com", password: "mallory's pass" });
+  const answers = [];
+  for (let n = 0; n < 8; n++) {
+    later(2 * 60_000);
+    answers.push(await w.call("api.auth.confirmation.resend", {}, mallory.identity));
+  }
+  assert.deepEqual(answers.map((answer) => answer.sent), [true, true, true, true, false, false, false, false], "five emails in all, the sign-up's included");
+  assert.match(answers.at(-1).message, /The newest one still works/);
+  later(10_000);
+  assert.equal((await w.call("api.auth.confirmation.resend", {}, mallory.identity)).sent, false);
+  for (let n = 0; n < 200; n++) await assert.rejects(w.call("api.auth.confirmation.confirm", { code: guess() }, mallory.identity), refusal(words.wrongCode));
+  // Throwing the account away and signing up again does not reset the address's limit.
+  await w.call("api.auth.confirmation.startOver", {}, mallory.identity);
+  later(60_000);
+  mallory = await w.password({ flow: "signUp", email: "alice@example.com", password: "mallory's pass" });
+  assert.equal(w.emailsTo("alice@example.com").length, 5, "still five");
+  // Alice, who only has her inbox: "There's already an account", so she resets the password and gets in...
+  await assert.rejects(w.password({ flow: "signUp", email: "alice@example.com", password: "alice's own pass" }), refusal(words.accountExists));
+  await w.password({ flow: "reset", email: "alice@example.com" });
+  const alice = await w.password({ flow: "reset-verification", email: "alice@example.com", code: w.standIn.lastCode("alice@example.com"), newPassword: "alice's own pass" });
+  const access = w.load("convex/access.ts");
+  await assert.rejects(access.requireAccount({ db: w.db, auth: { getUserIdentity: async () => mallory.identity } }), refusal("Sign in to continue."), "Mallory is signed out");
+  // ...and confirms with a code from her inbox: one Mallory made turtl send, after all of Mallory's guesses.
+  const inbox = w.emailsTo("alice@example.com").filter((email) => email.subject === "Confirm your email address for turtl");
+  const code = inbox.at(-1).text.match(/^([0-9A-Z]{5}(?:-[0-9A-Z]{5}){3})$/m)[1];
+  await w.call("api.auth.confirmation.confirm", { code }, alice.identity);
+  assert.equal((await w.call("api.users.viewer", {}, alice.identity)).confirmed, true);
+});
+
+test("8. an account that never confirms is deleted seven days after sign-up; Start over deletes one at once", async (t) => {
+  const w = await world(t, ACCOUNTS);
+  t.mock.timers.enable({ apis: ["Date"], now: START });
+  const left = await w.password({ flow: "signUp", email: "left@example.com", password: "tide pools at dawn" });
+  const confirmed = await confirmedOwner(w, "kept@example.com");
+  at(t, START + 6 * DAY);
+  assert.equal(await w.call("internal.auth.confirmation.sweep"), 0, "not yet");
+  at(t, START + 7 * DAY + 3_600_000);
+  assert.equal(await w.call("internal.auth.confirmation.sweep"), 1);
+  const [deletion] = w.db.rows("accountDeletions");
+  assert.equal(deletion.account, left.userId, "account deletion's job, which removes everything (convex/account)");
+  assert.ok(w.scheduled.some((job) => job.path === "internal.account.deletion.run"));
+  assert.ok(w.db.rows("authSessions").filter((session) => session.userId === left.userId).every((session) => session.expirationTime === 0), "its sessions ended");
+  assert.deepEqual(w.db.rows("authAccounts").filter((row) => row.userId === left.userId), [], "its address is free at once");
+  assert.ok(w.db.rows("authAccounts").some((row) => row.userId === confirmed.userId), "a confirmed account is never swept");
+  const { accountErasers } = w.load("convex/account/registry.ts");
+  assert.ok(accountErasers.some((entry) => entry.table === "authUnconfirmed"), "the job removes the hold with the account");
+  assert.equal(await w.call("internal.auth.confirmation.sweep"), 1, "a second sweep finds the same deletion, and starts nothing new");
+  assert.equal(w.db.rows("accountDeletions").length, 1);
+  // Start over: the wrong address, thrown away by its owner, and the address free for anyone.
+  const typo = await w.password({ flow: "signUp", email: "owner@exmaple.com", password: "tide pools at dawn" });
+  await w.call("api.auth.confirmation.startOver", {}, typo.identity);
+  assert.deepEqual(w.db.rows("authAccounts").filter((row) => row.userId === typo.userId), []);
+  await assert.rejects(w.call("api.auth.confirmation.startOver", {}, confirmed.identity), refusal("Sign in to continue."), "a confirmed account cannot be thrown away like this");
+});
+
+test("9. the operator confirms one account from the command line; the review account is confirmed when it is made", async (t) => {
+  const w = await world(t, ACCOUNTS);
+  t.mock.timers.enable({ apis: ["Date"], now: START + 10 * 3_600_000 });
+  const waiting = await w.password({ flow: "signUp", email: "Someone@Example.com", password: "tide pools at dawn" });
+  assert.deepEqual(await w.call("internal.auth.confirmation.markConfirmed", { email: " someone@example.COM " }), { email: "someone@example.com", wasWaiting: true });
+  assert.equal((await w.call("api.users.viewer", {}, waiting.identity)).confirmed, true);
+  await assert.rejects(w.call("internal.auth.confirmation.markConfirmed", { email: "nobody@example.com" }), refusal("There's no account with a password for nobody@example.com."));
+  // The App Review account: made and confirmed in one command, with no email needed.
+  const logged = [];
+  for (const level of ["log", "info", "warn", "error", "debug"]) t.mock.method(console, level, (...args) => logged.push(args.join(" ")));
+  const { ensureAccount } = w.load("convex/auth/review.ts");
+  const review = (args) => ensureAccount.handler({ runMutation: (fn, a) => w.call(fn.path, a) }, args);
+  assert.deepEqual(await review({ email: "Review@Example.com", password: "review pass one" }), { email: "review@example.com", created: true });
+  const reviewer = await w.password({ flow: "signIn", email: "review@example.com", password: "review pass one" });
+  assert.equal((await w.call("api.users.viewer", {}, reviewer.identity)).confirmed, true);
+  assert.equal(w.emailsTo("review@example.com").length, 0, "no email to the review address");
+  assert.deepEqual(await review({ email: "review@example.com", password: "review pass two" }), { email: "review@example.com", created: false });
+  assert.ok((await w.password({ flow: "signIn", email: "review@example.com", password: "review pass two" })).userId);
+  assert.equal(w.db.rows("users").filter((user) => user.email === "review@example.com").length, 1);
+  assert.equal((await w.call("api.users.viewer", {}, reviewer.identity)).confirmed, true, "a reviewer already signed in stays signed in");
+  await assert.rejects(review({ email: "review@example.com", password: "short" }), /Choose a password/);
+  await assert.rejects(review({ email: "review", password: "review pass three" }), /Enter your email/);
+  assert.ok(logged.every((line) => !line.includes("review pass")), "no password in any log line");
+  assert.equal(w.db.rows("deploymentTotals").find((row) => row.name === "confirmations_day"), undefined, "the operator's confirmations count against no ceiling");
+});
+
+test("10. accounts made before confirmation existed count as confirmed", async (t) => {
+  const w = await world(t, ACCOUNTS);
+  const userId = await w.db.insert("users", { email: "early@example.com" });
+  await w.db.insert("authAccounts", { userId, provider: "password", providerAccountId: "early@example.com", secret: "hashed:tide pools at dawn" });
+  const early = await w.password({ flow: "signIn", email: "early@example.com", password: "tide pools at dawn" });
+  const access = w.load("convex/access.ts");
+  assert.equal(await access.requireAccount({ db: w.db, auth: { getUserIdentity: async () => early.identity } }), userId);
+  assert.equal((await w.call("api.users.viewer", {}, early.identity)).confirmed, true);
+  assert.equal(await w.call("internal.auth.confirmation.sweep"), 0, "nothing to sweep");
+});
+
+test("the single-owner demo is unchanged: no hold, no email, nothing read", async (t) => {
+  const w = await world(t, { AUTH_RESEND_KEY: "stand-in-key", AUTH_EMAIL_FROM: "turtl <no-reply@example.com>", CONVEX_CLOUD_URL: undefined });
+  const signedUp = await w.password({ flow: "signUp", email: "demo@example.com", password: "tide pools at dawn" });
+  assert.deepEqual(w.db.rows("authUnconfirmed"), []);
+  assert.equal(w.standIn.emails.length, 0, "no confirmation email in the demo");
+  const access = w.load("convex/access.ts");
+  const ctx = { db: w.db, auth: { getUserIdentity: async () => signedUp.identity } };
+  w.db.reads.length = 0;
+  assert.equal(await access.requireAccount(ctx), "solo-owner");
+  assert.equal(await access.pendingAccount(ctx), null);
+  await access.signedInAccount(ctx);
+  assert.ok(!w.db.reads.some(([, table]) => table === "authUnconfirmed"), "the demo never reads the hold");
+  assert.equal(await w.call("api.auth.confirmation.status", {}, signedUp.identity), null);
+  assert.equal(await w.call("internal.auth.confirmation.sweep"), 0);
+  assert.deepEqual(w.db.rows("deploymentTotals"), [], "and counts nothing");
+});
+
 // ---------------------------------------------------------------------------------------------- the emails and the codes
 
 test("the emails are short and plain, say what to do and that they can be ignored, carry a link and the code, and never a password", async (t) => {
@@ -415,13 +598,13 @@ test("a refused send takes its code back, so it neither works nor counts, and th
   delete process.env.AUTH_EMAIL_FROM;
   assert.equal(w.load("convex/auth/settings.ts").emailService(), null);
   await assert.rejects(w.password({ flow: "reset", email: "owner@example.com" }), refusal(w.words.resetOff));
+  await assert.rejects(w.password({ flow: "signUp", email: "new@example.com", password: "tide pools at dawn" }), refusal(w.words.signUpOff));
 });
 
 test("emailed codes are forgotten a day after they were sent", async (t) => {
   const w = await world(t, ACCOUNTS);
   t.mock.timers.enable({ apis: ["Date"], now: START });
   await w.password({ flow: "signUp", email: "one@example.com", password: "tide pools at dawn" });
-  await w.password({ flow: "reset", email: "one@example.com" });
   at(t, START + DAY - 1);
   assert.equal(await w.call("internal.auth.codes.prune"), 0);
   at(t, START + DAY + 1);
