@@ -707,6 +707,24 @@ test("fleet: six projects that all stop answering in the same minutes get no cas
   assert.ok(ids.every((appId) => counts(w, appId)[0] === 0));
 });
 
+test("fleet: a hold lasts about half an hour; once the other projects' last answers are over 30 minutes old, each case opens", async (t) => {
+  const w = world(t, { ...ACCOUNTS, CONVEX_SITE_URL: SITE });
+  // The whole fleet goes quiet together at minute 1 (a shared host down, or turtl itself: from inside, the same).
+  const sent = network(t, (host) => (host === SITE_HOST ? turtlSite404 : host.endsWith(".example") ? () => (Date.now() >= at(1) ? down() : json(passed)) : null));
+  const warnings = warningsOf(t);
+  const ids = await fleet(w, 6);
+  // Checked at 1, 2, 4, 8, 16 and 31: held at 4, 8 and 16, while the others' last answers (minute 0) are recent.
+  await minutes(t, w, 0, 30);
+  assert.deepEqual([notAnswering(w), events(w)], [[], []], "held in its first half hour");
+  assert.ok(warnings.length >= 6 && warnings.every((line) => /other projects/.test(line)));
+  assert.equal(sent.filter((request) => request.host === SITE_HOST).length, 0);
+  // At minute 31 those answers are 31 minutes old: no longer evidence, so turtl asks its own site, which answers.
+  await minutes(t, w, 30, 40);
+  assert.deepEqual(notAnswering(w).map((row) => row.appId).sort(), [...ids].sort());
+  assert.ok(notAnswering(w).every((row) => row.status === "waiting_for_app"));
+  assert.ok(sent.filter((request) => request.host === SITE_HOST).length >= 6, "turtl asked its own site before each opened");
+});
+
 test("fleet: with one other project still answering, each quiet project gets its case", async (t) => {
   const w = world(t, { ...ACCOUNTS, CONVEX_SITE_URL: SITE });
   network(t, (host) => (host === SITE_HOST ? turtlSite404 : host === "shop6.example" ? () => json(passed) : host.endsWith(".example") ? () => (Date.now() >= at(1) ? down() : json(passed)) : null));
