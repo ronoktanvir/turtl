@@ -2,6 +2,9 @@ import { v } from "convex/values";
 import { internalMutation } from "../_generated/server";
 import { joinSnapshots } from "./snapshots";
 
+/** How a gather step's copy of earlier evidence names its source, before the original's own source. */
+export const COPIED_FROM = "Copied from an earlier step: ";
+
 export const projectEvidence = internalMutation({
   args: { attemptId: v.id("stepAttempts") },
   handler: async (ctx, { attemptId }) => {
@@ -26,8 +29,11 @@ export const projectEvidence = internalMutation({
     const refs = [];
     for (const ref of consumed.refs) {
       const original = evidence.find((entry) => entry._id === ref.id)!;
-      const sourceRef = `Derived from evidence/${original._id}; stepAttempts/${original.stepAttemptId}; ${original.sourceRef}`;
-      const existing = projections.filter((entry) => entry.sourceRef === sourceRef);
+      // Where it came from, in the original's words; the link to the original is copyOf, never an id in the text.
+      const sourceRef = `${COPIED_FROM}${original.sourceRef}`;
+      // Copies made before copyOf existed carried the ids in their sourceRef.
+      const legacyRef = `Derived from evidence/${original._id}; stepAttempts/${original.stepAttemptId}; ${original.sourceRef}`;
+      const existing = projections.filter((entry) => entry.copyOf === original._id || entry.sourceRef === legacyRef);
       if (existing.length > 1) throw new Error("Duplicate gather evidence projections already exist.");
       const projection = {
         caseId: row._id,
@@ -38,6 +44,7 @@ export const projectEvidence = internalMutation({
         ...(original.body !== undefined && { body: original.body }),
         ...(original.url !== undefined && { url: original.url }),
         sourceRef,
+        copyOf: original._id,
         observedAt: original.observedAt,
         environment: original.environment,
         revision: original.revision,

@@ -316,6 +316,8 @@ export const vEvidence = v.object({
   body: v.optional(v.string()),
   url: v.optional(v.string()),
   sourceRef: v.optional(v.string()),
+  // Set on a gather step's copy of evidence an earlier step recorded: the original row. Screens show the original once.
+  copyOf: v.optional(v.id("evidence")),
   observedAt: v.number(),
   environment: v.string(),
   revision: vRevision,

@@ -314,3 +314,34 @@ test("a missing model key reads as no model connected, and customer cases are ma
   assert.equal(map(cards({ case: row({ raisedBy: "customer" }) })).raisedByCustomers, true);
   assert.equal("raisedByCustomers" in map(cards()), false);
 });
+
+test("Logs say where evidence came from in plain words, with no ids, and show a gather step's copy once", () => {
+  const original = evidence({ _id: "ms76original", stepAttemptId: "r177attempt", kind: "health", title: "The booking app reports health ok is true.", sourceRef: "GET /health" });
+  const copy = evidence({ _id: "ms76copy", stepAttemptId: "gather-1", kind: "health", title: original.title, sourceRef: "Copied from an earlier step: GET /health", copyOf: "ms76original" });
+  const legacy = evidence({ _id: "ms76legacy", stepAttemptId: "gather-0", kind: "health", title: original.title, sourceRef: "Derived from evidence/ms76original; stepAttempts/r177attempt; GET /health" });
+  const detail = map(cards({ evidence: [original, copy, legacy] }));
+  const lines = detail.logs.filter((log) => log.source.startsWith("Evidence"));
+  assert.equal(lines.length, 1);
+  assert.equal(lines[0].text, "The booking app says it is healthy.\nFrom the app's health check.");
+  const all = detail.logs.map((log) => log.source + "\n" + log.text).join("\n") + content(detail);
+  for (const raw of ["ms76", "r177", "stepAttempts", "Derived from", "GET /", "health ok"]) assert.ok(!all.includes(raw), raw);
+  assert.equal(content(detail).split("\n").filter((line) => line === "The booking app says it is healthy.").length, 1);
+  // A citation of either copy opens the original's line.
+  for (const id of ["ms76copy", "ms76legacy"]) assert.deepEqual(detail.citations.find((c) => c.id === id), { id, kind: "log", logId: "ms76original" });
+});
+
+test("a copy whose original is not on the case is still shown, and unknown sources with ids are left out", () => {
+  const copy = evidence({ _id: "e-copy", sourceRef: "Copied from an earlier step: POST /journey-check (v1)", copyOf: "gone" });
+  const odd = evidence({ _id: "e-odd", title: "Something odd.", sourceRef: "widgets/k57abcdefghijklmnopq" });
+  const texts = map(cards({ evidence: [copy, odd] })).logs.map((log) => log.text);
+  assert.ok(texts.includes("The check failed.\nFrom turtl's check of the journey."));
+  assert.ok(texts.includes("Something odd."));
+});
+
+test("an error code in brackets is not shown to the owner", () => {
+  const check = evidence({ title: 'The booking check failed at the "recommendations" step (RECOMMENDATIONS_TIMEOUT), so no booking was saved.' });
+  const done = step({ currentAttempt: attempt({ summary: 'Reproduced before any change: The booking check failed at the "recommendations" step (RECOMMENDATIONS_TIMEOUT), so no booking was saved.' }) });
+  const detail = map(cards({ evidence: [check], steps: [done] }));
+  assert.ok(!JSON.stringify(detail).includes("RECOMMENDATIONS_TIMEOUT"));
+  assert.ok(content(detail).includes('failed at the "recommendations" step, so no booking was saved.'));
+});

@@ -397,7 +397,9 @@ test("collector-backed reader projects original provenance without replacement r
     const projection = h.rows[i];
     assert.equal(projection.stepId, h.input.step._id);
     assert.equal(projection.stepAttemptId, h.input.attempt._id);
-    assert.equal(projection.sourceRef, `Derived from evidence/${original._id}; stepAttempts/${original.stepAttemptId}; ${original.sourceRef}`);
+    assert.equal(projection.sourceRef, `Copied from an earlier step: ${original.sourceRef}`);
+    assert.equal(projection.copyOf, original._id);
+    assert.doesNotMatch(projection.sourceRef, new RegExp(`${original._id}|${original.stepAttemptId}`));
     for (const key of ["kind", "title", "body", "url", "observedAt", "environment", "revision"]) assert.deepEqual(projection[key], original[key]);
   }
   assert.deepEqual(h.context.evidence, originals);

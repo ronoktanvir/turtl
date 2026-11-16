@@ -50,7 +50,7 @@ export async function readAppState(input: HandlerInput, base: string): Promise<R
   if (revision.ok) facts["app.revision"] = revision.value.revision;
   else missing.push(`the app's revision (${revision.reason})`);
   const observations = [
-    { read: health, kind: "health", sourceRef: "GET /health", title: health.ok ? `The booking app reports health ok is ${health.value.ok}.` : `Could not read health: ${health.reason}.` },
+    { read: health, kind: "health", sourceRef: "GET /health", title: health.ok ? `The booking app says it is ${health.value.ok ? "healthy" : "not healthy"}.` : `Could not read health: ${health.reason}.` },
     { read: flags, kind: "flags", sourceRef: "GET /flags", title: flags.ok ? `Recommendations are turned ${flags.value.recommendationsEnabled ? "on" : "off"}.` : `Could not read the recommendations flag: ${flags.reason}.` },
     { read: revision, kind: "revision", sourceRef: "GET /revision", title: revision.ok ? `The booking app reports revision ${revision.value.revision}.` : `Could not read the app's revision: ${revision.reason}.` },
   ];
