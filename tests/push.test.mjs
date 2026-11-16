@@ -218,7 +218,8 @@ test("a notification names the project, says a case needs the owner, and carries
   assert.deepEqual(message, { title: "Booking app", body: "A case needs your decision. Open it to approve or decline a fix.", data: { caseId: CASE } });
   assert.deepEqual(expoMessages(message, [TOKEN("a")]), [{ to: TOKEN("a"), title: "Booking app", body: message.body, data: { caseId: CASE }, sound: "default", priority: "high" }]);
   assert.match(pushMessage({ projectName: "Booking app", caseId: CASE, event: "handled_under_permission" }).body, /fix you allowed ran/);
-  assert.deepEqual(Object.keys(PUSH_BODIES).sort(), ["handled_under_permission", "needs_decision"]);
+  // An app that stops answering turtl's checks is told on the phone, and so is its answering again (not-answering cases).
+  assert.deepEqual(Object.keys(PUSH_BODIES).sort(), ["answering_again", "handled_under_permission", "needs_decision", "not_answering"]);
   assert.equal(sendsPush("opened"), false, "a new case does not interrupt the owner; a decision follows if one is needed");
   assert.equal(pushMessage({ projectName: "Booking app", caseId: CASE, event: "opened" }), null);
   assert.equal(pushMessage({ projectName: "Booking app", caseId: CASE, event: "toString" }), null);
@@ -264,6 +265,28 @@ test("an owner notice schedules a push only for events where the owner must act,
   ]);
   assert.equal(await w.call("internal.notices.notifyOwner", { caseId, event: "needs_decision", text: "again" }), null, "a case event notifies once");
   assert.equal(w.backend.scheduled.length, 2);
+});
+
+test("an app that stops answering turtl's checks, and answers again, each send one fixed sentence to the phone, once per case", async (t) => {
+  const { pushMessage, PUSH_BODIES } = createLoader()("convex/push/message.ts");
+  assert.equal(PUSH_BODIES.not_answering, "Your app is not answering turtl's checks. Open the case to see what turtl saw.");
+  assert.equal(PUSH_BODIES.answering_again, "Your app is answering turtl's checks again.");
+  for (const event of ["not_answering", "answering_again"]) {
+    assert.deepEqual(pushMessage({ projectName: "Booking app", caseId: CASE, event, text: "TypeError: fetch failed at 10.0.0.1" }), { title: "Booking app", body: PUSH_BODIES[event], data: { caseId: CASE } });
+  }
+  const w = await world(t);
+  w.as("solo-owner");
+  await w.call("api.push.devices.register", { token: TOKEN("phone"), platform: "ios" });
+  w.as(null);
+  const { caseId } = await w.seed("Booking app", "solo-owner");
+  for (const event of ["not_answering", "answering_again", "not_answering"]) {
+    await w.call("internal.notices.notifyOwner", { caseId, event, text: "Booking app is not answering turtl's checks." });
+  }
+  assert.deepEqual(w.backend.rows("ownerNotices").map((row) => row.event), ["not_answering", "answering_again"]);
+  const jobs = w.backend.scheduled.filter((job) => job.path === "internal.push.deliver.forNotice");
+  assert.deepEqual(jobs.map((job) => job.args.event), ["not_answering", "answering_again"]);
+  for (const job of jobs) assert.equal(await w.call(job.path, job.args), "sent");
+  assert.deepEqual(w.stub.sends().map((send) => send.body.map((message) => message.body)), [[PUSH_BODIES.not_answering], [PUSH_BODIES.answering_again]]);
 });
 
 // ——— Phones: register, refresh, remove, read; each asks convex/access.ts ———

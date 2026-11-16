@@ -117,6 +117,8 @@ const RESTORED_COLOR = "#12A594";
 
 export const CASE_STATUS_COLORS: Record<CaseStatus, string> = {
   open: CARD_STATUS_COLORS.in_progress,
+  // Placeholder (not-answering cases, backend half): the screens decide this case's colour.
+  waiting_for_app: CARD_STATUS_COLORS.failed,
   investigating: CARD_STATUS_COLORS.in_progress,
   waiting_for_owner: CARD_STATUS_COLORS.waiting,
   executing: CARD_STATUS_COLORS.in_progress,

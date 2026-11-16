@@ -54,7 +54,7 @@ export const controlBase = () => process.env.PROTECTED_APP_URL?.replace(/\/+$/, 
 export type CallResult =
   | { kind: "response"; status: number; body: unknown; durationMs: number }
   | { kind: "not_sent"; reason: string }
-  | { kind: "no_response"; reason: string; durationMs: number };
+  | { kind: "no_response"; reason: string; durationMs: number; timedOut: boolean };
 
 export type TokenRead = { ok: true; token: string } | { ok: false; reason: string };
 
@@ -140,10 +140,30 @@ export async function call(url: string, options: CallOptions = { app: DEMO_APP }
         ? `no response within ${timeoutMs / 1000} s`
         : `the request failed (${error instanceof Error ? error.name : "unknown error"})`,
       durationMs: Date.now() - started,
+      timedOut,
     };
   } finally {
     clearTimeout(timer);
   }
+}
+
+/** turtl's own site, asked with no token: it refuses no address, sends nothing secret and follows no redirect. */
+const OWN_SITE: WatchedApp = {
+  refuse: () => null,
+  token: async () => ({ ok: false, reason: "turtl sends no token to its own site" }),
+  followRedirects: false,
+};
+
+/**
+ * Whether turtl's own requests are getting out: one request to turtl's own site address (CONVEX_SITE_URL). Any HTTP
+ * reply at all, an error page included, says yes; no reply says no. True when no site address is set. Asked only
+ * before a not-answering case would open (convex/protectedApp/notAnswering.ts), never on every round. A best-effort
+ * guard: whether such a request leaves Convex's own network on a hosted deployment has not been examined.
+ */
+export async function turtlReachable(): Promise<boolean> {
+  const site = process.env.CONVEX_SITE_URL?.replace(/\/+$/, "");
+  if (!site) return true;
+  return (await call(`${site}/`, { app: OWN_SITE, timeoutMs: REQUEST_TIMEOUT_MS })).kind === "response";
 }
 
 export const describeFailure = (result: CallResult) =>
@@ -168,9 +188,19 @@ export type JourneyResult = {
   completedAt: number;
 };
 
+/**
+ * A check with no result says which of three things happened (convex/protectedApp/notAnswering.ts counts only the last
+ * two, and only from the monitor's own rounds):
+ * - not_sent: turtl refused to send it (an address rule, a credential rule, a missing token). The app was not asked.
+ * - no_response: the request went out and nothing came back (timedOut: within the time limit; else the connection failed).
+ * - no_result: a reply came back without a check result (anything but a 200 or 503 that carries a verdict).
+ * `reason` is the same fragment as before, for the evidence and step summaries that quote it.
+ */
 export type JourneyOutcome =
   | { ok: true; httpStatus: number; result: JourneyResult }
-  | { ok: false; reason: string };
+  | { ok: false; kind: "not_sent"; reason: string }
+  | { ok: false; kind: "no_response"; timedOut: boolean; reason: string }
+  | { ok: false; kind: "no_result"; status: number; reason: string };
 
 // POST /journey-check: 200 means passed, 503 means failed; both carry the result.
 export async function runJourneyCheck(config: { url: string; credentialRef?: string }, app: WatchedApp): Promise<JourneyOutcome> {
@@ -180,10 +210,11 @@ export async function runJourneyCheck(config: { url: string; credentialRef?: str
     credentialRef: config.credentialRef,
     timeoutMs: 30_000,
   });
-  if (response.kind !== "response") return { ok: false, reason: response.reason };
+  if (response.kind === "not_sent") return { ok: false, kind: "not_sent", reason: response.reason };
+  if (response.kind === "no_response") return { ok: false, kind: "no_response", timedOut: response.timedOut === true, reason: response.reason };
   const raw = response.body as Partial<JourneyResult> | null;
   if ((response.status !== 200 && response.status !== 503) || !raw || !raw.verdict) {
-    return { ok: false, reason: `the booking check returned HTTP ${response.status} with no verdict` };
+    return { ok: false, kind: "no_result", status: response.status, reason: `the booking check returned HTTP ${response.status} with no verdict` };
   }
   return {
     ok: true,
