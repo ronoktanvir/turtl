@@ -1,0 +1,80 @@
+import { useLocalSearchParams } from "expo-router";
+import { useRef, useState, type ComponentRef } from "react";
+import { KeyboardAvoidingView, Platform, ScrollView, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { AskBar } from "../../../components/execution/AskBar";
+import { ApproveSheet, FixCard } from "../../../components/fix/FixCard";
+import { Button, devToolsOn, Header, Reveal, Screen, T, Turtle, useReducedMotion } from "../../../components/ui";
+import { useCase, useChat } from "../../../data";
+import type { FixOption } from "../../../data/types";
+import { useTheme } from "../../../theme";
+
+export default function InvestigateFurther() {
+  const { caseId } = useLocalSearchParams<{ caseId: string }>();
+  const c = useCase(caseId);
+  const chat = useChat({ kind: "case", caseId });
+  const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
+  const reducedMotion = useReducedMotion();
+  const list = useRef<ComponentRef<typeof ScrollView>>(null);
+  const [text, setText] = useState("");
+  const [approving, setApproving] = useState<FixOption | null>(null);
+  const send = () => {
+    if (!text.trim() || chat.busy) return;
+    chat.send(text.trim());
+    setText("");
+  };
+  const active = !!c?.enactment && c.enactment.state !== "stopped";
+
+  return (
+    <Screen testID="chat">
+      <Header title="Investigate further" fallback={("/review/" + caseId) as never} testID="chat-title" />
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+        <ScrollView
+          ref={list}
+          onContentSizeChange={() => list.current?.scrollToEnd({ animated: !reducedMotion })}
+          keyboardShouldPersistTaps="handled"
+          contentContainerStyle={{ padding: 20, gap: 28, paddingBottom: 28 }}
+          testID="chat-messages"
+        >
+          <Reveal>
+            <View style={{ gap: 16, paddingBottom: 20, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+              {c && <T variant="title">{c.title}</T>}
+              <View style={{ flexDirection: "row", gap: 16, alignItems: "center" }}>
+                {c && <T variant="small" color="textMuted" style={{ flex: 1 }}>{(c.type === "feature" ? "Request #" : "Error #") + c.number}</T>}
+                <Button label="New fix" icon="Plus" kind="outline" disabled={chat.busy || !chat.requestNewFix} onPress={() => chat.requestNewFix?.()} testID="chat-new-fix" style={{ minHeight: 44, paddingHorizontal: 14 }} />
+              </View>
+            </View>
+          </Reveal>
+          {chat.messages.map((m) => (
+            <View key={m.id} testID={"chat-message-" + m.id} style={{ gap: 12 }}>
+              {m.role === "owner" ? (
+                <View style={{ alignSelf: "flex-end", maxWidth: "90%", backgroundColor: colors.surfaceRaised, borderRadius: 20, borderBottomRightRadius: 6, padding: 16, gap: 4 }}>
+                  <T variant="small" color="textMuted">You</T>
+                  <T>{m.text}</T>
+                </View>
+              ) : (
+                <View style={{ gap: 10 }}>
+                  <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
+                    <Turtle health="clear" size={30} />
+                    <T variant="strong">turtl</T>
+                  </View>
+                  <T>{m.text}</T>
+                </View>
+              )}
+              {m.proposedFix && c && <FixCard fix={m.proposedFix} number={c.fixes.findIndex((f) => f.key === m.proposedFix?.key) + 1 || undefined} sources={{ citations: c.citations, logs: c.logs, code: c.code }} defaultOpen approveDisabled={active} onApprove={setApproving} prefix="proposal" />}
+            </View>
+          ))}
+          {chat.busy && <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+            <Turtle health="working" size={30} />
+            <T color="textMuted" testID="chat-busy">turtl is thinking…</T>
+          </View>}
+        </ScrollView>
+        <View style={{ paddingHorizontal: 20, paddingTop: 12, paddingBottom: insets.bottom + (devToolsOn ? 76 : 16), borderTopWidth: 1, borderTopColor: colors.border, backgroundColor: colors.bg }}>
+          <AskBar value={text} onChangeText={setText} onSend={send} busy={chat.busy} placeholder="Ask about this case…" inputID="chat-input" sendID="chat-send" />
+        </View>
+      </KeyboardAvoidingView>
+      {c && <ApproveSheet caseId={c.id} fix={approving} onClose={() => setApproving(null)} />}
+    </Screen>
+  );
+}

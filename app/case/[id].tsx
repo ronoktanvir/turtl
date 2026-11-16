@@ -68,7 +68,7 @@ export default function CaseScreen() {
 
   return (
     <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
-      <Link href="/" asChild>
+      <Link href="/live" asChild>
         <Pressable style={styles.back} testID="back-to-cases" accessibilityRole="button">
           <Text style={styles.backText}>‹ Cases</Text>
         </Pressable>

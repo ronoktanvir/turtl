@@ -1,55 +1,33 @@
-import { useQuery } from "convex/react";
-import { useEffect, useState } from "react";
-import { FlatList, StyleSheet, Text, View } from "react-native";
+import { useRouter } from "expo-router";
+import { Pressable, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { api } from "../convex/_generated/api";
-import { CaseRow } from "../components/feed/CaseRow";
+import { BrandIcon, Button, Logo, Reveal, Screen, T } from "../components/ui";
+import { useTheme } from "../theme";
 
-export default function Home() {
-  const rows = useQuery(api.cases.listWithSteps);
-  const cases =
-    rows &&
-    [...rows].sort(
-      (a, b) => Number(b.status === "waiting_for_owner") - Number(a.status === "waiting_for_owner"),
-    );
+export default function Login() {
+  const router = useRouter();
+  const { colors } = useTheme();
   const insets = useSafeAreaInsets();
-  const [now, setNow] = useState(() => Date.now());
-
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 30_000);
-    return () => clearInterval(timer);
-  }, []);
-
+  const enter = () => router.replace("/projects");
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
-      <Text style={styles.title}>turtl</Text>
-      {cases === undefined ? (
-        <Text style={styles.note} testID="home-loading">
-          Loading…
-        </Text>
-      ) : cases.length === 0 ? (
-        <View style={styles.empty} testID="home-empty">
-          <Text style={styles.emptyTitle}>No cases</Text>
-          <Text style={styles.note}>When something breaks, it will show up here.</Text>
+    <Screen testID="login">
+      <ScrollView contentContainerStyle={{ flexGrow: 1, padding: 20, paddingBottom: insets.bottom + 24 }}>
+        <View style={{ flex: 1, minHeight: 340, alignItems: "center", justifyContent: "center", paddingVertical: 28 }}>
+          <Reveal><Logo health="clear" width={240} /></Reveal>
         </View>
-      ) : (
-        <FlatList
-          data={cases}
-          keyExtractor={(row) => row._id}
-          renderItem={({ item }) => <CaseRow item={item} now={now} />}
-          contentContainerStyle={[styles.list, { paddingBottom: insets.bottom + 16 }]}
-          testID="case-list"
-        />
-      )}
-    </View>
+        <Reveal delay={100} style={{ gap: 12, width: "100%", maxWidth: 400, alignSelf: "center" }}>
+          <Button label="Login" testID="login-enter" onPress={enter} style={{ minHeight: 52, borderRadius: 16 }} />
+          <View style={{ flexDirection: "row", gap: 12 }}>
+            {(["github", "google"] as const).map((provider) => (
+              <Pressable key={provider} testID={`login-${provider}`} accessibilityRole="button" accessibilityLabel={provider === "github" ? "Login with GitHub" : "Login with Google"} onPress={enter} style={({ pressed }) => ({ flex: 1, minHeight: 50, borderWidth: 1, borderColor: colors.border, borderRadius: 16, flexDirection: "row", gap: 10, justifyContent: "center", alignItems: "center", backgroundColor: pressed ? colors.surfaceRaised : colors.surface })}>
+                <BrandIcon name={provider} size={20} />
+                <T variant="strong">{provider === "github" ? "GitHub" : "Google"}</T>
+              </Pressable>
+            ))}
+          </View>
+          <Button label="Sign up" kind="plain" testID="login-signup" onPress={enter} style={{ minHeight: 50, borderRadius: 16, backgroundColor: colors.bg, borderColor: colors.bg }} />
+        </Reveal>
+      </ScrollView>
+    </Screen>
   );
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#F2F2F7" },
-  title: { fontSize: 32, fontWeight: "700", paddingHorizontal: 16, paddingVertical: 12, color: "#111111" },
-  list: { paddingHorizontal: 16, gap: 12 },
-  empty: { flex: 1, alignItems: "center", justifyContent: "center", gap: 8, padding: 24 },
-  emptyTitle: { fontSize: 20, fontWeight: "600", color: "#111111" },
-  note: { fontSize: 16, color: "#555555", textAlign: "center", paddingHorizontal: 16 },
-});
