@@ -80,7 +80,9 @@ async function dispatch(
 async function askOwner(ctx: MutationCtx, row: Doc<"cases">) {
   const app = await ctx.db.get(row.appId);
   const recommended = (await latestProposal(ctx, row._id))?.options.find((o) => o.recommended);
-  await ctx.scheduler.runAfter(0, internal.keiki.notifyOwner, {
+  await ctx.scheduler.runAfter(0, internal.notices.notifyOwner, {
+    caseId: row._id,
+    event: "needs_decision",
     text: recommended
       ? `turtl needs your decision on ${app?.name ?? "your app"}: it recommends "${recommended.title}" to restore service. Open turtl to approve or decline.`
       : `turtl needs your decision on ${app?.name ?? "your app"}. Open turtl to review its proposal.`,

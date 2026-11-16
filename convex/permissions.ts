@@ -229,7 +229,9 @@ export async function settlePermissionRun(
   if (!permission || !row) return;
   if (outcome.status === "restored") {
     const uses = await usesOf(ctx, permission._id);
-    await ctx.scheduler.runAfter(0, internal.keiki.notifyOwner, {
+    await ctx.scheduler.runAfter(0, internal.notices.notifyOwner, {
+      caseId,
+      event: "handled_under_permission",
       text: `turtl handled "${row.title}" on its own under your permission (use ${uses.indexOf(action.idempotencyKey) + 1} of ${permission.maxAttempts}). What it did: ${(action.result ?? action.type).replace(/\.$/, "")}. The check afterwards: ${outcome.check}`,
     });
     return;

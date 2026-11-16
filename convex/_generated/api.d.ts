@@ -41,6 +41,7 @@ import type * as memory_records from "../memory/records.js";
 import type * as memory_reset from "../memory/reset.js";
 import type * as memory_service from "../memory/service.js";
 import type * as monitor from "../monitor.js";
+import type * as notices from "../notices.js";
 import type * as permissions from "../permissions.js";
 import type * as prTracking_capy from "../prTracking/capy.js";
 import type * as prTracking_catalog from "../prTracking/catalog.js";
@@ -112,6 +113,7 @@ declare const fullApi: ApiFromModules<{
   "memory/reset": typeof memory_reset;
   "memory/service": typeof memory_service;
   monitor: typeof monitor;
+  notices: typeof notices;
   permissions: typeof permissions;
   "prTracking/capy": typeof prTracking_capy;
   "prTracking/catalog": typeof prTracking_catalog;

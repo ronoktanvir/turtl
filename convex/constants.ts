@@ -123,6 +123,28 @@ export type StepStatus = Infer<typeof vStepStatus>;
 export type StepKind = Infer<typeof vStepKind>;
 export type AttemptStatus = Infer<typeof vAttemptStatus>;
 
+export const vNoticeEvent = v.union(
+  v.literal("opened"),
+  v.literal("needs_decision"),
+  v.literal("handled_under_permission"),
+);
+
+export const vNoticeOutcome = v.union(
+  v.literal("ran"),
+  v.literal("queued"),
+  v.literal("unavailable"),
+  v.literal("not_configured"),
+  v.literal("failed"),
+);
+
+export const vOwnerNotice = v.object({
+  caseId: v.id("cases"),
+  event: vNoticeEvent,
+  outcome: v.union(v.literal("pending"), vNoticeOutcome),
+  status: v.optional(v.number()),
+  observedAt: v.number(),
+});
+
 export const vActor = v.object({
   kind: v.union(
     v.literal("owner"),
