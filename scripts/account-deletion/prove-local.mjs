@@ -75,6 +75,8 @@ const fromFile = {
   JWKS: JSON.stringify({ keys: [{ use: "sig", ...(await exportJWK(signing.publicKey)) }] }),
   AUTH_APPLE_PRIVATE_KEY: apple.appleClient.privateKey.trimEnd().replace(/\n/g, " "),
   GITHUB_APP_PRIVATE_KEY: githubKeys.privateKey.export({ type: "pkcs8", format: "pem" }),
+  // Seals the Apple refresh token kept at sign-in (convex/auth/appleTokens.ts); without it none is kept to revoke.
+  SECRETS_ENCRYPTION_KEY: randomBytes(32).toString("base64"),
 };
 const plain = {
   AUTH_REQUIRED: "true",
@@ -222,6 +224,8 @@ try {
   await step("an account made with Sign in with Apple has its Apple token kept at sign-in and revoked on deletion", async () => {
     const kept = [...apple.appleRefreshTokens.keys()];
     assert.equal(kept.length, 1, "the sign-in traded Apple's code for a refresh token");
+    const held = JSON.stringify(accounts.carol.before.rows.authAppleTokens ?? []);
+    assert.ok(held.includes("sealedToken") && !held.includes(kept[0]), "turtl keeps it sealed, never in the clear");
     await deleteAndWait(accounts.carol);
     assert.deepEqual(apple.appleRevoked, [{ token: kept[0], hint: "refresh_token" }]);
     const after = await admin.query(ref("account/localProof:find"), { markers: accounts.carol.markers });
