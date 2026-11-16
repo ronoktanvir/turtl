@@ -544,13 +544,21 @@ function phone({ permission = "undetermined", answer = "granted", token = TOKEN(
   return { device, calls, state };
 }
 
-function controllerWith(device, { memory = {}, failRemove = false } = {}) {
+// refreshes: false stands for a backend that no longer files the token under the signed-in account (a refresh never
+// registers a phone: only turning notifications on does).
+function controllerWith(device, { memory = {}, failRemove = false, refreshes = true } = {}) {
   const { createPushController } = createLoader()("data/push/controller.ts");
   const server = { calls: [], tokens: new Set() };
   const backend = {
     useStatus: () => undefined,
     register: async (token, platform) => { server.calls.push(["register", token, platform]); server.tokens.add(token); },
-    refresh: async (token, platform, previous) => { server.calls.push(["refresh", token, previous]); if (previous) server.tokens.delete(previous); server.tokens.add(token); },
+    refresh: async (token, platform, previous) => {
+      server.calls.push(["refresh", token, previous]);
+      if (!refreshes) return false;
+      if (previous) server.tokens.delete(previous);
+      server.tokens.add(token);
+      return true;
+    },
     remove: async (token) => { server.calls.push(["remove", token]); if (failRemove) throw new Error("Sign in to continue."); server.tokens.delete(token); },
   };
   const stored = { value: structuredClone(memory) };
@@ -643,6 +651,15 @@ test("at launch a changed token replaces the old one, and a phone whose notifica
   const never = controllerWith(phone({ permission: "granted" }).device);
   await never.controller.keepFresh();
   assert.deepEqual(never.server.calls, [], "a phone that never turned notifications on registers nothing on its own");
+});
+
+test("ATTACK (finding 18, sessions): at launch, a kept token the backend no longer files under this account is forgotten, so the next account turns notifications on itself", async () => {
+  const p = phone({ permission: "granted", token: TOKEN("kept") });
+  const { controller, server, stored } = controllerWith(p.device, { memory: { token: TOKEN("kept"), offered: true }, refreshes: false });
+  await controller.keepFresh();
+  assert.deepEqual(server.calls, [["refresh", TOKEN("kept"), undefined]], "it only asked; it registered nothing");
+  assert.deepEqual(stored.value, { offered: true }, "the phone forgets the token, so its notifications read as off");
+  assert.equal(server.tokens.size, 0);
 });
 
 test("a tapped notification opens only a case id", () => {

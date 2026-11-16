@@ -26,7 +26,8 @@ export type PushBackend = {
   /** undefined while loading; null when the backend cannot say (it has no convex/push yet). */
   useStatus(token: string | undefined, ready: boolean): PushStatus | null | undefined;
   register(token: string, platform: PushPlatform): Promise<void>;
-  refresh(token: string, platform: PushPlatform, previousToken?: string): Promise<void>;
+  /** False when the backend no longer files this phone under the signed-in account; it then registered nothing. */
+  refresh(token: string, platform: PushPlatform, previousToken?: string): Promise<boolean>;
   remove(token: string): Promise<void>;
 };
 
