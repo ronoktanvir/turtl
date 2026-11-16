@@ -46,7 +46,7 @@ function describeImpact(
   countsReason: string | null,
   practice = false,
 ) {
-  const check = `The booking check fails at the "${failedStep}" step, so a booking cannot be completed.`;
+  const check = `The booking check fails at the "${failedStep.replace(/_/g, " ")}" step, so a booking cannot be completed.`;
   // A practice app (convex/practice) has no customers: only turtl's test booking ever fails on it.
   if (practice) return { title: "Booking is failing", impact: `${check} This is your practice app, which has no customers, so only turtl's test booking failed.` };
   if (!counts) {
@@ -112,7 +112,7 @@ export const openCase = internalMutation({
     const { title, impact } = journey.preventionFindingId
       ? {
           title: `A prevention check failed: ${journey.name}`,
-          impact: `${journey.description} It failed at the "${failedStep}" step. ${counts ? `${counts.failedBookings} of ${counts.totalBookings} customer booking attempts failed in the last 15 minutes.` : `Customer booking counts could not be read (${countsReason ?? "unknown reason"}).`}`,
+          impact: `${journey.description} It failed at the "${failedStep.replace(/_/g, " ")}" step. ${counts ? `${counts.failedBookings} of ${counts.totalBookings} customer booking attempts failed in the last 15 minutes.` : `Customer booking counts could not be read (${countsReason ?? "unknown reason"}).`}`,
         }
       : describeImpact(failedStep, counts, countsReason, (await ctx.db.get(journey.appId))?.practice === true);
     const caseId = await startCaseRun(ctx, {

@@ -210,7 +210,7 @@ export function describeJourney(result: JourneyResult) {
     return "The booking check passed: a test booking was saved and matched its confirmation.";
   }
   return result.failedStep
-    ? `The booking check failed at the "${result.failedStep}" step, so no booking was saved.`
+    ? `The booking check failed at the "${result.failedStep.replace(/_/g, " ")}" step, so no booking was saved.`
     : "The booking check failed, so no booking was saved.";
 }
 

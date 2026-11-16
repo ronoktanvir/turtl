@@ -103,3 +103,14 @@ test("a setting change is reported with the setting's name in words", () => {
   assert.match(source, /Turned \$\{settingName\(flag\)\} \$\{value \? "on" : "off"\}, and the booking app confirmed the change\./);
   assert.doesNotMatch(source, /label: action\.type \}/);
 });
+
+test("a booking step is named in words, never by its id, wherever the owner reads where a check stopped", () => {
+  const { describeJourney } = createLoader({ "convex/protectedApp/watched": {} })("convex/protectedApp/client.ts");
+  const failed = { verdict: "failed", failedStep: "submit_booking", steps: [], cleanup: { ok: true, deletedBookings: 0 } };
+  assert.equal(describeJourney(failed), 'The booking check failed at the "submit booking" step, so no booking was saved.');
+  const { failedRunWords } = createLoader()("convex/structural/checks.ts");
+  assert.equal(failedRunWords("submit_booking"), 'Its first run failed at the "submit booking" step.');
+  const monitor = read("convex/monitor.ts");
+  assert.match(monitor, /The booking check fails at the "\$\{failedStep\.replace\(\/_\/g, " "\)\}" step/);
+  assert.match(monitor, /It failed at the "\$\{failedStep\.replace\(\/_\/g, " "\)\}" step\./);
+});
