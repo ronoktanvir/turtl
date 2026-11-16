@@ -7,6 +7,7 @@ import { DevTools } from "../components/dev/DevTools";
 import { ThemeProvider, useTheme } from "../theme";
 import { useReducedMotion } from "../components/ui/motion";
 import { useFonts, Capriola_400Regular } from "@expo-google-fonts/capriola";
+import { Righteous_400Regular } from "@expo-google-fonts/righteous";
 import { backendClient as convex, isLiveData, useDataStatus } from "../data";
 import OwnerPasscodePrompt from "../components/ui/OwnerPasscodePrompt";
 
@@ -30,7 +31,7 @@ function Screens() {
 
 export default function RootLayout() {
   const first: string | undefined = useSegments()[0];
-  const [fontsLoaded, fontError] = useFonts({ Capriola_400Regular });
+  const [fontsLoaded, fontError] = useFonts({ Capriola_400Regular, Righteous_400Regular });
   useEffect(() => {
     if (fontsLoaded || fontError) void SplashScreen.hideAsync();
   }, [fontsLoaded, fontError]);

@@ -60,7 +60,7 @@ export function PlanGraph({ steps, pullRequest, now }: { steps: PlanStep[]; pull
                   <Icon name={look.icon} color={look.color} size={18} />
                 </View>
                 <View style={{ flex: 1, gap: 2 }}>
-                  <T variant="strong">{step.title}</T>
+                  <T variant="strong" font="title">{step.title}</T>
                   <T variant="small" color={look.color} testID={"plan-step-status-" + step.key}>{look.label}</T>
                 </View>
                 <T variant="mono" color="textMuted">{String(index + 1).padStart(2, "0")}</T>
@@ -98,7 +98,7 @@ export function PlanGraph({ steps, pullRequest, now }: { steps: PlanStep[]; pull
                             <Icon name={run.status === "passed" ? "ShieldCheck" : run.status === "failed" ? "TriangleAlert" : "Terminal"} size={18} color={tone} />
                             <Icon name={checkOpen ? "ChevronDown" : "ChevronRight"} size={14} color="textMuted" />
                           </View>
-                          <T variant="strong">{run.name}</T>
+                          <T variant="strong" font="title">{run.name}</T>
                           <T variant="small" color={tone}>{run.status === "passed" ? "Passed" : run.status === "failed" ? "Failed" : "Pending"}</T>
                           {checkOpen && <T variant="small" color="textMuted">{run.status === "passed" ? "Passed on commit " : run.status === "failed" ? "Failed on commit " : "Awaiting a result for commit "}{pullRequest?.headSha.slice(0, 7)}</T>}
                         </Pressable>
@@ -120,7 +120,7 @@ export function PlanGraph({ steps, pullRequest, now }: { steps: PlanStep[]; pull
                       >
                         <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
                           <Icon name={run.status === "passed" ? "ShieldCheck" : run.status === "failed" ? "TriangleAlert" : "Terminal"} size={18} color={tone} />
-                          <T variant="strong" style={{ flex: 1 }}>{run.name}</T>
+                          <T variant="strong" font="title" style={{ flex: 1 }}>{run.name}</T>
                           <Icon name={checkOpen ? "ChevronDown" : "ChevronRight"} size={14} color="textMuted" />
                         </View>
                         <T variant="small" color={tone}>{run.status === "passed" ? "Passed" : run.status === "failed" ? "Failed" : "Pending"}</T>

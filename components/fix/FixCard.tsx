@@ -52,7 +52,7 @@ export function FixCard({
         >
           <View style={{ paddingTop: 3 }}><Icon name={open ? "ChevronDown" : "ChevronRight"} size={18} color="textMuted" /></View>
           <View style={{ flex: 1, gap: 6 }}>
-            <T variant="strong">{(number ? number + ". " : "") + fix.title}</T>
+            <T variant="strong" font="title">{(number ? number + ". " : "") + fix.title}</T>
             <T variant="small" color="textMuted">{kindLabel[fix.kind]}</T>
           </View>
         </Pressable>
