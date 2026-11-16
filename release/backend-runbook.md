@@ -114,7 +114,9 @@ This is every variable the backend reads, taken from the code. "Required" stops 
 
 The table's source is `backend-env.mjs`. After changing it, run `node release/check-backend-env.mjs --write-table`.
 
-The six GitHub App values are one app: turtl#54 reads its id, private key, slug, and webhook secret, and sign-in reads its client id and secret. `convex/github/README.md` says where each comes from once turtl#54 has merged. Sign-in may add more variables of its own; until they have rows, the check below reports them as unlisted.
+The six GitHub App values are one app: `convex/github/` reads its id, private key, slug, and webhook secret, and Sign in with GitHub and Connect GitHub read its client id and secret. `convex/github/README.md` says where each comes from. A variable the code reads that has no row is reported by the check below as unlisted.
+
+Size `PASSWORD_SIGNUPS_PER_DAY` to the email plan. Every password sign-up gets a confirmation email, and one address gets at most five emails of each kind (confirmation, reset) a day, but nothing caps the deployment's emails as a whole: a day of password sign-ups (200 by default) times those five can exceed a small plan. Resend's free plan allows 100 emails a day.
 
 ## 3. Check the names
 
@@ -141,6 +143,11 @@ CONVEX_DEPLOY_KEY='the production deploy key' npx convex deploy
 
 `npx convex deploy` typechecks `convex/`, pushes the functions, schema, and indexes, and stops before changing anything if the schema does not fit the data already stored. Schema changes in this repository are additive, so a deploy does not rewrite rows. A new production deployment starts empty and needs no setup calls.
 
+Two checks on a deployment that is not new:
+
+- On a deployment that kept Sign in with Apple tokens before they were sealed, run `npx convex run auth/appleTokens:sealKept` once after deploying (with `SECRETS_ENCRYPTION_KEY` set), and again while it answers `more: true`. It seals each token kept in the clear.
+- Before deploying to the single-owner demo, check in its dashboard that its `authAccounts` table is empty. The demo refuses every call while it holds any account.
+
 ## 5. Go back
 
 Convex keeps no "previous version" button. To undo a deploy, revert the commit on `main` and run the release workflow again with "Send" off, or deploy an older commit by hand as in step 4. Take a backup before a risky deploy: the dashboard's **Backups** page, or `npx convex export --path backup.zip` with the deploy key set.
@@ -149,11 +156,13 @@ Convex keeps no "previous version" button. To undo a deploy, revert the commit o
 
 App Review signs in with an email-and-password account and expects one project with a case already open (`store/review-notes.txt`, checklist RC-02). That project is the account's practice project: a small booking app the backend serves itself, under `/practice/<project id>/` on its own `.convex.site` address, which only that account's breaks and fixes touch (`convex/practice/`). It needs `AUTH_REQUIRED=true` and `SECRETS_ENCRYPTION_KEY`, which production has anyway, and nothing else.
 
-1. Make the review account, if it does not exist yet: sign up with its email and password in the app, or from a terminal with the password typed there and never saved in a file:
+1. Make the review account from a terminal, with the password typed there and never saved in a file:
 
    ```sh
    CONVEX_DEPLOY_KEY='the production deploy key' npx convex run auth/review:ensureAccount '{"email":"the review email","password":"the review password"}'
    ```
+
+   It creates the account, or sets a new password on one that exists, and marks its address confirmed, so the address need not be a real mailbox and the reviewer never sees "Check your email". Signing up in the app instead would wait for the emailed code. To confirm any other one account without a code: `npx convex run auth/confirmation:markConfirmed '{"email":"…"}'`.
 
 2. Give it its practice project with a case open:
 
@@ -172,8 +181,8 @@ After the review account approves a fix, the reviewer can break the practice app
 These are limits of the product today, not of this runbook. Each is why a row above says "Never set".
 
 - **It never watches the booking demo.** The booking demo is wired through the `PROTECTED_APP_*` variables for the whole deployment, and production leaves them unset. It watches each account's own projects, each with its own control token, and each account's practice app, which it serves itself.
-- **It alerts nobody by text.** `KEIKI_OWNER_CONTACT` is one phone number for every case in the deployment. Production leaves it unset until alerts go to each account's owner.
+- **It alerts nobody by text.** `KEIKI_OWNER_CONTACT` is one phone number for every case in the deployment, so Keiki is the single-owner demo's alone: with accounts on the number reads as unset and the AI permission refuses Keiki. Alerts reach each account's owner by push.
 - **The booking demo ships inside it.** `convex/bookingDemo/` deploys with the rest. Its control routes answer 503 while `PROTECTED_APP_CONTROL_SECRET_SHA256` is unset, but its public functions (`bookingDemo/booking:getCatalog`, `getFlags`, `recommendations`, `submit`) and the routes `/booking-demo/health` and `/booking-demo/revision` answer anyone.
 - **Every account's practice app answers on its own site address.** `/practice/<project id>/health` and `/revision` answer anyone; every other practice route answers only to that project's own control token, which turtl made and keeps sealed, and none of them breaks a practice app (only its owner does, from the app).
-- **It reaches GitHub only through the GitHub App.** `GITHUB_TOKEN` is the demo's one token for every repository, and production never sets it. Until turtl#54 has merged, that leaves a production backend unable to read or merge a pull request or to fetch a repository for the code map.
-- **One Capy key serves every account**, if `CAPY_API_KEY` is set.
+- **It reaches GitHub only through the GitHub App.** `GITHUB_TOKEN` is the demo's one token for every repository, and production never sets it.
+- **It has no coding agent of its own.** `CAPY_API_KEY` is the demo's; with accounts on each account connects its own Capy key in Settings, and code changes wait until it does.
