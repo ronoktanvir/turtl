@@ -20,6 +20,7 @@ import type { Health } from "../../data/types";
 import { healthToken, healthWord, useTheme, type TokenName } from "../../theme";
 import { Icon, type IconName } from "./Icon";
 import { Reveal, ZoomPressable } from "./motion";
+import { PulseArrival } from "./pulse";
 import { useSheetCover } from "./sheetCover";
 export { Icon, type IconName } from "./Icon";
 export { Reveal, ZoomPressable, useReducedMotion } from "./motion";
@@ -75,6 +76,7 @@ export function Screen({ children, testID }: { children: ReactNode; testID?: str
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg, paddingTop: insets.top }} testID={testID}>
       <Reveal style={{ flex: 1 }} progress>{children}</Reveal>
+      <PulseArrival />
     </View>
   );
 }
