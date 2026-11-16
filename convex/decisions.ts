@@ -1,10 +1,10 @@
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { mutation, type MutationCtx } from "./_generated/server";
-import type { Actor, ParameterConstraint, Parameters } from "./constants";
+import { CLOSED_CASE_STATUSES, type Actor, type ParameterConstraint, type Parameters } from "./constants";
 import { revisionOf } from "./protectedApp/client";
 import { approveCase, declineCase } from "./runner/run";
-import { loadSteps } from "./workflow";
+import { finishAttempt, loadSteps, setCaseStatus, skipStep } from "./workflow";
 
 // There is no sign-in yet: every decision is recorded as the one solo owner, and anyone who has
 // the deployment URL can call these two mutations.
@@ -134,5 +134,56 @@ export const decline = mutation({
       decidedAt: Date.now(),
     });
     await declineCase(ctx, proposal.caseId);
+  },
+});
+
+export const stop = mutation({
+  args: { caseId: v.id("cases") },
+  handler: async (ctx, { caseId }): Promise<{ stopped: true; summary: string } | { stopped: false; reason: string }> => {
+    const row = await ctx.db.get(caseId);
+    if (!row) return { stopped: false, reason: "This case no longer exists." };
+    const action = await ctx.db.query("actions").withIndex("by_case", (q) => q.eq("caseId", caseId)).order("desc").first();
+    if (!action) return { stopped: false, reason: "No approved action is running. You can decline the proposal instead." };
+    if (action.status === "cancelled") return { stopped: true, summary: action.result ?? "The owner already stopped this action." };
+    if ((CLOSED_CASE_STATUSES as readonly string[]).includes(row.status)) {
+      return { stopped: false, reason: "This case has already finished." };
+    }
+    const pulls = await ctx.db.query("pullRequests").withIndex("by_action", (q) => q.eq("actionId", action._id)).collect();
+    const codeChange = action.executionPayload.config.kind === "capy";
+    if (codeChange && (action.status === "completed" || pulls.some((p) => p.mergedAt !== undefined || p.snapshot?.state === "merged" || p.mergeRequestedAt !== undefined))) {
+      return { stopped: false, reason: "The pull request was already merged or its merge was requested. Stopping cannot undo it; deployment tracking and verification will continue." };
+    }
+    if (!codeChange && action.status !== "pending") {
+      return { stopped: false, reason: "The change has already started sending to the live app and may have taken effect. Stopping cannot undo it; verification will continue." };
+    }
+    const now = Date.now();
+    const pull = pulls[0];
+    const left = codeChange && action.status !== "pending"
+      ? pull?.number !== undefined
+        ? ` Pull request #${pull.number} remains on GitHub. turtl will not follow or merge it; close it on GitHub if you no longer want it.`
+        : " Capy may still be writing a pull request. turtl will not follow or merge it; any branch or pull request it creates remains on GitHub."
+      : " Nothing was sent to the live app.";
+    const summary = `The owner stopped this action.${left}`;
+    await ctx.db.patch(action._id, { status: "cancelled", cancelledBy: SOLO_OWNER, cancelledAt: now, completedAt: now, result: summary });
+    for (const pending of pulls) await ctx.db.patch(pending._id, { settledAt: now, openError: summary, syncError: undefined });
+    const steps = await loadSteps(ctx, caseId);
+    const ids = new Set<string>([caseId, action._id, ...steps.flatMap((s) => s.currentAttemptId ? [s.currentAttemptId] : []), ...pulls.map((p) => p._id)]);
+    const scheduled = await ctx.db.system.query("_scheduled_functions").collect();
+    for (const job of scheduled) {
+      const args = job.args[0] as Record<string, unknown> | undefined;
+      if (job.state.kind === "pending" && args && Object.values(args).some((value) => typeof value === "string" && ids.has(value))) {
+        await ctx.scheduler.cancel(job._id);
+      }
+    }
+    for (const step of steps) {
+      if ((step.status === "running" || step.status === "waiting") && step.currentAttemptId) {
+        await finishAttempt(ctx, step.currentAttemptId, { status: "done", summary });
+      }
+    }
+    await setCaseStatus(ctx, caseId, "declined");
+    for (const step of steps) {
+      if (step.status === "pending" || step.status === "failed") await skipStep(ctx, step._id, summary);
+    }
+    return { stopped: true, summary };
   },
 });
