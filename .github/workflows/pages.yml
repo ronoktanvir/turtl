@@ -1,0 +1,60 @@
+name: Pages
+
+# Builds turtl's privacy policy, terms of use, and support page from site/ and publishes them with
+# GitHub Pages. Publishing needs one repository setting: Settings → Pages → Source: GitHub Actions.
+
+on:
+  push:
+    branches: [main]
+    paths: ["site/**", ".github/workflows/pages.yml"]
+  pull_request:
+    paths: ["site/**", ".github/workflows/pages.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages-${{ github.event_name == 'pull_request' && github.ref || 'publish' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/jekyll-build-pages@v1
+        with:
+          source: ./site
+          destination: ./_site
+      - name: Check the three pages were built
+        run: |
+          for page in privacy terms support; do
+            test -s "_site/$page/index.html" || { echo "::error::_site/$page/index.html was not built."; exit 1; }
+          done
+      - if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: ./_site
+
+  publish:
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Check GitHub Pages is switched on
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "$(gh api "repos/${{ github.repository }}/pages" --jq .build_type 2>/dev/null)" != "workflow" ]; then
+            echo "::error::GitHub Pages is not set to publish from GitHub Actions. In the repository, open Settings → Pages, set Source to GitHub Actions, then run this workflow again."
+            exit 1
+          fi
+      - id: deployment
+        uses: actions/deploy-pages@v5
