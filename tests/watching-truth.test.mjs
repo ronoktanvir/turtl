@@ -88,7 +88,7 @@ test("an empty Fix list with a check still failing says so, why no issue is open
   const failing = { id: "j1", kind: "journey", name: "Book an appointment", state: "failing", closedAs: "declined" };
   assert.deepEqual(stillBroken([failing], true), {
     empty: "Book an appointment: not passing.",
-    note: "No issue is open for it, because the last one closed when its fixes were declined. Put it back from the Break it tile on the project, then break it again if you like.",
+    note: "No issue is open for it, because the last one closed when its fixes were declined. Put it back from the Break it tile on the project.",
   });
   assert.equal(stillBroken([{ ...failing, closedAs: "unresolved" }], false).note, "No issue is open for it, because the last one closed when turtl could not fix it. turtl opens a new one if the check passes and then fails again, and a customer's report opens one too.");
   assert.equal(stillBroken([{ ...failing, closedAs: undefined }], false), null, "failing with an issue open: the list is not empty");

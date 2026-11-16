@@ -40,7 +40,7 @@ export function stillBroken(checks: WatchedCheck[] | undefined, practice: boolea
   return {
     empty: `${check.name}: not passing.`,
     note: practice
-      ? `No issue is open for it, because the last one closed when ${why}. Put it back from the Break it tile on the project, then break it again if you like.`
+      ? `No issue is open for it, because the last one closed when ${why}. Put it back from the Break it tile on the project.`
       : `No issue is open for it, because the last one closed when ${why}. turtl opens a new one if the check passes and then fails again, and a customer's report opens one too.`,
   };
 }
