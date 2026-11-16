@@ -63,9 +63,26 @@ export const spendTables = {
     day: v.string(),
     floorUsd: v.number(),
     heldUsd: v.number(),
+    // The part of heldUsd held for calls on a floor; the rest is held in the shared day, and counts against its ceiling.
+    // Missing on a row from before it was kept: nothing yet.
+    floorHeldUsd: v.optional(v.number()),
     stopLoggedAt: v.optional(v.number()),
     updatedAt: v.number(),
   }).index("by_day", ["day"]),
+  // One row per model call the gate let through whose cost has not come back yet (fifth review, finding 26): whose
+  // account, which share and day it was held on, what it is held at, and when the hold runs out (MODEL_CALL_HOLD_MS).
+  // Its cost replaces it; an error status from the vendor releases it at nothing; past expiresAt the sweep counts it at
+  // its hold. Rows last minutes, and go with the account (counted at their holds in the deployment's day).
+  modelCallHolds: defineTable({
+    account: v.string(),
+    day: v.string(),
+    share: v.union(v.literal("own"), v.literal("intake"), v.literal("practice"), v.literal("floor")),
+    appId: v.optional(v.id("apps")),
+    heldUsd: v.number(),
+    expiresAt: v.number(),
+  })
+    .index("by_expires", ["expiresAt"])
+    .index("by_account_and_expires", ["account", "expiresAt"]),
   // Deployment-wide running totals that belong to no account (finding 7): new accounts per clock hour and per day (Apple
   // and GitHub sign-ups, password sign-ups, and password accounts confirming their address, each counted apart), and
   // every account's model spend per day. `window` is the hour ("2026-11-15T12") or the day ("2026-11-15"), UTC. Older

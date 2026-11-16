@@ -156,8 +156,11 @@ test("what customer reports cost lands on the project's day, never on the accoun
     assert.equal((await triage.open("openai")).ok, true);
     await triage.spent(0.3);
     await triage.spent(0.25);
-    // The first cost takes the place of the one call's hold; the second has none left to release.
-    assert.deepEqual(wrote.map(([, args]) => args), [{ account: ADA, costUsd: 0.3, appId: "apps:1", held: limits.MODEL_CALL_HOLD_USD }, { account: ADA, costUsd: 0.25, appId: "apps:1" }]);
+    // The first cost takes the place of the one call's hold (its own row, finding 26); the second has none left to release.
+    assert.match(wrote[0][1].holdId, /^modelCallHolds:/);
+    const withoutRow = ({ holdId, ...args }) => args;
+    assert.deepEqual(wrote.map(([, args]) => withoutRow(args)), [{ account: ADA, costUsd: 0.3, appId: "apps:1", held: limits.MODEL_CALL_HOLD_USD }, { account: ADA, costUsd: 0.25, appId: "apps:1" }]);
+    assert.deepEqual(db.rows("modelCallHolds"), [], "the hold's row went with its cost");
     assert.equal(await ledger.monthSpend({ db }, ADA, Date.now()), 0, "the owner's month is untouched");
     assert.equal((await ledger.intakeSpendToday({ db }, "apps:1", Date.now())).toFixed(2), "0.55");
     assert.deepEqual(db.rows("intakeDays").map(({ day, calls }) => [day, calls]), [["2026-11-15", 2]], "an earlier day's row is dropped when a new day starts");
@@ -166,7 +169,7 @@ test("what customer reports cost lands on the project's day, never on the accoun
     const diagnosis = gates.gateFor(ctx, { appId: "apps:1" });
     assert.equal((await diagnosis.open("openai")).ok, true);
     await diagnosis.spent(0.1);
-    assert.deepEqual(wrote.at(-1)[1], { account: ADA, costUsd: 0.1, held: limits.MODEL_CALL_HOLD_USD });
+    assert.deepEqual(withoutRow(wrote.at(-1)[1]), { account: ADA, costUsd: 0.1, held: limits.MODEL_CALL_HOLD_USD });
     assert.equal(await ledger.monthSpend({ db }, ADA, Date.now()), 0.1);
   });
 });

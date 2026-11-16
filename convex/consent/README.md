@@ -41,6 +41,8 @@ Scheduled actions and crons carry no identity, so the gate reads the owner from 
 
 On a no the helper returns what it returns when its key is missing: `callModel`, `askJson` and the voice calls return the reason, so the diagnosis, the fix options, triage and the chat fall back to their rules or a plain refusal and record the reason; `respond` and the Supermemory functions throw `Refused`, whose message is the reason as a sentence; Capy returns it as its message; Keiki (demo only) reports `not_configured`. Callers that already checked `SUPERMEMORY_API_KEY` or `OPENAI_API_KEY` up front also ask `gate.blocked(service)` there, so the step's summary says why.
 
+The fetch `open` hands back also watches how the vendor answers a model call: an error status gives the call's hold back at once, since nothing is billed for it, and a call whose cost never comes back is counted at its hold ten minutes on (convex/spend/README.md, "Calls that fail, time out or never report a cost").
+
 The gate asks again on every call, so taking permission back stops the next call. Long uploads (the code map's documents, 20 at a time) ask before each batch. Deleting a document at Supermemory (`deleteDocuments`) goes through with no permission, since it sends nothing but the ids to remove.
 
 ## Adding an outbound call
