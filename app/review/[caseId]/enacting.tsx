@@ -16,7 +16,7 @@ const states: Record<Enactment["state"], { word: string; health: Health }> = {
   running: { word: "turtl is working", health: "working" },
   needs_you: { word: "Stopped: turtl needs your decision", health: "needs_you" },
   waiting_for_merge: { word: "Ready for you to merge", health: "needs_you" },
-  merged: { word: "Merged. turtl is checking the live app", health: "working" },
+  merged: { word: "Pull request merged", health: "working" },
   done: { word: "Done", health: "clear" },
   stopped: { word: "Stopped by you", health: "needs_you" },
   failed: { word: "This did not work", health: "affected" },
@@ -60,7 +60,7 @@ export default function Enacting() {
   const state = states[e.state];
   const passed = pr?.checkRuns.filter((r) => r.status === "passed").length ?? 0;
   const ci = !pr
-    ? e.steps.some((s) => s.key === "open_pr") ? "No pull request yet" : "This fix has nothing to merge"
+    ? !fix ? "Pull request details not available yet" : fix.delivery === "pull_request" ? "No pull request yet" : "This fix has nothing to merge"
     : pr.state === "merged" ? "Merged"
       : pr.state === "closed" ? "Pull request closed"
         : pr.checks === "passing" ? "Checks passed"
@@ -68,7 +68,7 @@ export default function Enacting() {
             : pr.checks === "none" ? "No checks reported"
               : "Checks running: " + passed + " of " + pr.checkRuns.length + " passed";
   const canStop = e.state === "running" || e.state === "needs_you" || e.state === "waiting_for_merge";
-  const canMerge = e.state === "waiting_for_merge" && pr?.state === "open" && pr.checks === "passing" && pr.mergeable;
+  const canMerge = fix?.delivery === "pull_request" && e.state === "waiting_for_merge" && pr?.state === "open" && pr.checks === "passing" && pr.mergeable;
   const completed = e.steps.filter((step) => step.status === "done").length;
   const remaining = remainingDuration(e.steps, now);
   const remainingLabel = e.state === "done" ? "Complete"
