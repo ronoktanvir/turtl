@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import {
   Image,
   Modal,
+  ScrollView,
   Platform,
   Pressable,
   Text,
@@ -15,6 +16,9 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { Health } from "../../data/types";
 import { healthToken, healthWord, useTheme, type TokenName } from "../../theme";
+import { Icon } from "./Icon";
+export { Icon, type IconName } from "./Icon";
+export { Reveal, useReducedMotion } from "./motion";
 
 export const devToolsOn =
   !!process.env.EXPO_PUBLIC_CONVEX_URL && (__DEV__ || process.env.EXPO_PUBLIC_DEV_TOOLS === "1");
@@ -34,8 +38,8 @@ const logos: Record<Health, number> = {
 };
 
 const variants = {
-  display: { fontSize: 30, lineHeight: 36, fontWeight: "700" },
-  title: { fontSize: 22, lineHeight: 28, fontWeight: "700" },
+  display: { fontSize: 32, lineHeight: 38, fontWeight: "700", letterSpacing: -1.1 },
+  title: { fontSize: 24, lineHeight: 30, fontWeight: "700", letterSpacing: -0.6 },
   heading: { fontSize: 18, lineHeight: 24, fontWeight: "700" },
   body: { fontSize: 16, lineHeight: 24, fontWeight: "400" },
   strong: { fontSize: 16, lineHeight: 24, fontWeight: "600" },
@@ -62,6 +66,9 @@ export function Screen({ children, testID }: { children: ReactNode; testID?: str
   const insets = useSafeAreaInsets();
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg, paddingTop: insets.top }} testID={testID}>
+      <View style={{ paddingHorizontal: 20, paddingTop: 5, paddingBottom: 5, alignItems: "flex-end" }}>
+        <Text style={{ color: colors.textMuted, fontSize: 10, letterSpacing: 1.6, fontWeight: "600" }}>EXAMPLE DATA</Text>
+      </View>
       {children}
     </View>
   );
@@ -101,9 +108,7 @@ export function Header({
           hitSlop={8}
           style={{ width: 40, height: 44, alignItems: "center", justifyContent: "center" }}
         >
-          <T variant="display" color="textMuted" style={{ lineHeight: 34 }}>
-            ‹
-          </T>
+          <Icon name="ArrowLeft" color="textMuted" />
         </Pressable>
       )}
       <T variant="heading" style={{ flex: 1 }} numberOfLines={2} testID={testID} accessibilityRole="header">
@@ -148,7 +153,7 @@ export function Button({
           minHeight: 48,
           paddingHorizontal: 18,
           borderRadius: 12,
-          borderWidth: 2,
+          borderWidth: 1,
           alignItems: "center",
           justifyContent: "center",
           backgroundColor: look[kind].bg,
@@ -202,8 +207,8 @@ export function Card({
     backgroundColor: colors.surface,
     borderColor: colors.border,
     borderWidth: 1,
-    borderRadius: 16,
-    padding: 16,
+    borderRadius: 20,
+    padding: 20,
   };
   if (!onPress) {
     return (
@@ -297,10 +302,12 @@ export function Sheet({
             padding: 20,
             paddingBottom: insets.bottom + 20,
             gap: 16,
+            maxHeight: "90%",
           }}
         >
+          <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: colors.border, alignSelf: "center" }} />
           <T variant="title">{title}</T>
-          {children}
+          <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 20 }}>{children}</ScrollView>
         </View>
       </View>
     </Modal>

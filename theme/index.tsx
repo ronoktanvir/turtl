@@ -3,6 +3,7 @@ import { useColorScheme } from "react-native";
 import { dark, light, type Tokens } from "./tokens";
 
 export * from "./tokens";
+export * from "./design";
 
 export type ThemeMode = "system" | "dark" | "light";
 

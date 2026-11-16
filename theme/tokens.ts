@@ -1,12 +1,12 @@
 import type { Health } from "../data/types";
 
 export const dark = {
-  bg: "#22272e",
-  surface: "#2d333b",
-  surfaceRaised: "#373e47",
-  border: "#444c56",
-  text: "#cdd9e5",
-  textMuted: "#768390",
+  bg: "#20262b",
+  surface: "#293137",
+  surfaceRaised: "#323d44",
+  border: "#3c484f",
+  text: "#edf2ef",
+  textMuted: "#a0adaf",
   link: "#539bf5",
   statusAffected: "#e5534b",
   statusNeedsYou: "#c69026",
@@ -23,10 +23,10 @@ export type TokenName = keyof typeof dark;
 export type Tokens = Record<TokenName, string>;
 
 export const light: Tokens = {
-  bg: "#ffffff",
-  surface: "#f6f8fa",
-  surfaceRaised: "#eaeef2",
-  border: "#d0d7de",
+  bg: "#f7f8f4",
+  surface: "#ffffff",
+  surfaceRaised: "#edf1eb",
+  border: "#dce3da",
   text: "#1f2328",
   textMuted: "#656d76",
   link: "#0969da",
