@@ -20,12 +20,14 @@ export const intakeTables = {
     windowStart: v.number(),
     count: v.number(),
   }).index("by_bucket_and_window", ["bucket", "windowStart"]),
-  // One triage per report: what it was judged to be, how, and where it landed. Contact details stay here, never in a prompt.
+  // One triage per report: what it was judged to be, how, and where it landed.
   reportTriage: defineTable({
     reportId: v.id("reports"),
     appId: v.id("apps"),
     fingerprint: v.string(),
     hint: v.optional(vReportHint),
+    // Legacy: a customer's contact as written. No longer stored (only a hash reaches the report's fromRef);
+    // intake/records:forgetStoredContacts clears old rows. Drop the field once that has run everywhere.
     contact: v.optional(v.string()),
     status: v.union(v.literal("pending"), v.literal("done")),
     verdict: v.optional(vTriageVerdict),

@@ -14,6 +14,7 @@ export const variables = [
   { name: "VOICE_TRANSCRIBE_MODEL", production: "optional", what: "Model that transcribes a voice clip. Default gpt-4o-mini-transcribe." },
   { name: "VOICE_SPEECH_MODEL", production: "optional", what: "Model that speaks a reply. Default gpt-4o-mini-tts." },
   { name: "CODE_NETWORK_CHAT_ENABLED", production: "optional", what: "\"true\" lets the Investigate screen answer questions about the code. Each question spends OpenAI and Supermemory credits." },
+  { name: "INTAKE_CONTACT_KEY", production: "required", secret: true, what: "Key for the keyed hash a customer's contact on the report form becomes, so turtl can count one person once without keeping the address. Use at least 32 random characters and never change it: a new key counts returning customers as new people. Without it the contact becomes a plain hash, which someone holding the database could match against a guessed address." },
   { name: "INTAKE_NAMESPACE_PREFIX", production: "optional", what: "Prefix for the Supermemory namespaces that hold customer reports. It keeps a test deployment's reports apart; leave it unset in production." },
   { name: "GITHUB_APP_ID", production: "required", arrives: "turtl#54", what: "The GitHub App's id. turtl reaches each account's repositories with a token of the app's installation on them, and with nothing else." },
   { name: "GITHUB_APP_PRIVATE_KEY", production: "required", secret: true, arrives: "turtl#54", what: "The GitHub App's private key (the .pem file), which signs the request for an installation token." },
