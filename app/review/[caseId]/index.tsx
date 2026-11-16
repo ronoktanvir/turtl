@@ -3,12 +3,13 @@ import { useRef, useState, type ComponentRef } from "react";
 import { Pressable, ScrollView, View } from "react-native";
 import { CasePage } from "../../../components/fix/CasePage";
 import { Header, Icon, Screen, T } from "../../../components/ui";
-import { setStarred, useCase, useCases, useProject } from "../../../data";
+import { isLiveData, setStarred, useCase, useCases, useDataStatus, useProject } from "../../../data";
 import { useTheme } from "../../../theme";
 
 export default function Review() {
   const { caseId } = useLocalSearchParams<{ caseId: string }>();
   const first = useCase(caseId);
+  const { errors } = useDataStatus();
   const list = useCases(first?.projectId ?? "", first?.type ?? "fix");
   const project = useProject(first?.projectId ?? "");
   const { colors } = useTheme();
@@ -23,11 +24,28 @@ export default function Review() {
   const [index, setIndex] = useState(-1);
   const page = index === -1 ? Math.max(0, ids.indexOf(caseId)) : index;
   const current = useCase(ids[page] ?? caseId);
+  const starPending = useRef(false);
+  const [starring, setStarring] = useState(false);
+  const [starError, setStarError] = useState<string | null>(null);
+  const toggleStar = async () => {
+    if (!current || isLiveData || starPending.current) return;
+    starPending.current = true;
+    setStarring(true);
+    setStarError(null);
+    try {
+      await setStarred(current.id, !current.starred);
+    } catch (error) {
+      setStarError(error instanceof Error ? error.message : "Could not update this star. Please try again.");
+    } finally {
+      starPending.current = false;
+      setStarring(false);
+    }
+  };
 
-  if (first === undefined || list === undefined) {
+  if (first === undefined || (first && list === undefined) || current === undefined) {
     return (
       <Screen>
-        <T style={{ padding: 16 }}>Loading…</T>
+        {errors.length === 0 && <T style={{ padding: 16 }}>Loading…</T>}
       </Screen>
     );
   }
@@ -49,15 +67,16 @@ export default function Review() {
   return (
     <Screen testID="review">
       <Header
-        title={(project?.name ?? "") + (feature ? ": request #" : ": error #") + current.number}
+        title={(project?.name ?? "") + (current.number > 0 ? (feature ? ": request #" : ": error #") + current.number : feature ? ": Request" : ": Case")}
         fallback={("/project/" + current.projectId + (feature ? "/features" : "/fix")) as never}
         testID="review-title"
         right={
           <Pressable
-            onPress={() => setStarred(current.id, !current.starred)}
+            onPress={() => void toggleStar()}
+            disabled={isLiveData || starring}
             accessibilityRole="button"
-            accessibilityLabel={current.starred ? "Starred. Tap to remove the star" : "Star this to look at later"}
-            accessibilityState={{ selected: !!current.starred }}
+            accessibilityLabel={isLiveData ? "Stars are not available on this backend yet" : current.starred ? "Starred. Tap to remove the star" : "Star this to look at later"}
+            accessibilityState={{ selected: !!current.starred, disabled: isLiveData || starring, busy: starring }}
             testID="case-star"
             hitSlop={8}
             style={{ alignItems: "center", justifyContent: "center", width: 44, height: 44 }}
@@ -66,6 +85,8 @@ export default function Review() {
           </Pressable>
         }
       />
+      {isLiveData && <T variant="small" color="textMuted" testID="case-star-unavailable" style={{ paddingHorizontal: 20, paddingVertical: 8 }}>Stars are not available on this backend yet</T>}
+      {starError && <T color="statusAffected" accessibilityRole="alert" testID="case-star-error" style={{ paddingHorizontal: 20, paddingVertical: 8 }}>{starError}</T>}
       {ids.length > 1 && (
         <View
           style={{

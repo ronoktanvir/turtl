@@ -2,7 +2,7 @@ import { useRouter } from "expo-router";
 import { useEffect, useRef, useState, type ComponentRef } from "react";
 import { Image, Pressable, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useCase } from "../../data";
+import { useCase, useDataStatus } from "../../data";
 import type { FixOption, Screenshot } from "../../data/types";
 import { useTheme } from "../../theme";
 import { ago, Button, Card, Chip, devToolsOn, HealthWord, Icon, Reveal, T, Turtle } from "../ui";
@@ -15,6 +15,7 @@ const phases: Record<Screenshot["phase"], string> = { failure: "When it failed",
 
 export function CasePage({ caseId, current }: { caseId: string; current: boolean }) {
   const c = useCase(caseId);
+  const { errors } = useDataStatus();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -31,7 +32,7 @@ export function CasePage({ caseId, current }: { caseId: string; current: boolean
     setAtFixes(fixesY > 0 && offset.current + height > fixesY + 120);
   }, [fixesY, height]);
 
-  if (c === undefined) return <T style={{ padding: 16 }}>Loading…</T>;
+  if (c === undefined) return errors.length === 0 ? <T style={{ padding: 16 }}>Loading…</T> : null;
   if (c === null) return <T style={{ padding: 16 }}>This case could not be found.</T>;
 
   const sources = { citations: c.citations, logs: c.logs, code: c.code };
@@ -92,7 +93,7 @@ export function CasePage({ caseId, current }: { caseId: string; current: boolean
                   </View>
                   <View style={{ flexDirection: "row", gap: 12, alignItems: "center" }}>
                     {c.status === "new" ? <Image source={require("../../assets/turtle/new.png")} style={{ width: 44, height: 44 }} accessibilityLabel="New issue" /> : <Turtle health={c.health} size={44} />}
-                    <T variant="strong" style={{ flex: 1 }} testID={id("case-summary")}>{c.summary}</T>
+                    <T variant="strong" style={{ flex: 1 }} testID={id("case-summary")}>{c.summary || "No summary has been recorded yet."}</T>
                   </View>
                     {!!c.reportCount && (
                       <T variant="small" color="textMuted" style={{ paddingLeft: 56 }}>
@@ -101,6 +102,7 @@ export function CasePage({ caseId, current }: { caseId: string; current: boolean
                     )}
                 </View>
               </Reveal>
+              {c.overview.length === 0 && <T color="textMuted" testID={id("overview-empty")}>No overview evidence has been collected yet.</T>}
               {c.overview.map((block, i) =>
                 block.kind === "paragraph" ? (
                   <SpanText key={i} spans={block.spans} sources={sources} prefix={"overview-" + i} />
@@ -135,6 +137,7 @@ export function CasePage({ caseId, current }: { caseId: string; current: boolean
           )}
           {tab === "Logs" && (
             <>
+              {c.logs.length === 0 && <T color="textMuted" testID={id("logs-empty")}>No logs have been collected yet.</T>}
               <View style={{ gap: 20 }}>
               {c.logs.map((line) => (
                 <View key={line.id} style={{ paddingBottom: 20, borderBottomWidth: 1, borderBottomColor: colors.border }}>
@@ -146,6 +149,7 @@ export function CasePage({ caseId, current }: { caseId: string; current: boolean
           )}
           {tab === "Code" && (
             <>
+              {c.code.length === 0 && <T color="textMuted" testID={id("code-empty")}>No code evidence has been collected yet.</T>}
               {c.code.map((code) => (
                 <View key={code.id}>
                   <CodeBox code={code} />
@@ -181,6 +185,8 @@ export function CasePage({ caseId, current }: { caseId: string; current: boolean
                     ? "Fix " + activeNumber + " is ready for you to merge."
                     : e.state === "needs_you"
                       ? "Fix " + activeNumber + " stopped and needs your decision."
+                      : e.state === "failed"
+                        ? "Fix " + activeNumber + " did not work."
                       : "turtl is working on Fix " + activeNumber + "."}
               </T>
               <Button label="See the plan" kind="plain" onPress={openEnacting} testID={id("fixes-open-enacting")} />

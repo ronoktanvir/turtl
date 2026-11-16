@@ -67,6 +67,8 @@ import type * as runner_handlers_learn from "../runner/handlers/learn.js";
 import type * as runner_handlers_plan from "../runner/handlers/plan.js";
 import type * as runner_handlers_verify from "../runner/handlers/verify.js";
 import type * as runner_run from "../runner/run.js";
+import type * as screens_network from "../screens/network.js";
+import type * as screens_projects from "../screens/projects.js";
 import type * as supermemory from "../supermemory.js";
 import type * as workflow from "../workflow.js";
 
@@ -136,6 +138,8 @@ declare const fullApi: ApiFromModules<{
   "runner/handlers/plan": typeof runner_handlers_plan;
   "runner/handlers/verify": typeof runner_handlers_verify;
   "runner/run": typeof runner_run;
+  "screens/network": typeof screens_network;
+  "screens/projects": typeof screens_projects;
   supermemory: typeof supermemory;
   workflow: typeof workflow;
 }>;

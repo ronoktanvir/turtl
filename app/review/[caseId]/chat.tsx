@@ -19,10 +19,39 @@ export default function InvestigateFurther() {
   const list = useRef<ComponentRef<typeof ScrollView>>(null);
   const [text, setText] = useState("");
   const [approving, setApproving] = useState<FixOption | null>(null);
-  const send = () => {
-    if (!text.trim() || chat.busy) return;
-    chat.send(text.trim());
-    setText("");
+  const pending = useRef(false);
+  const [submitting, setSubmitting] = useState<"send" | "new_fix" | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const busy = chat.busy || submitting !== null;
+  const send = async () => {
+    const value = text.trim();
+    if (!value || chat.busy || pending.current) return;
+    pending.current = true;
+    setSubmitting("send");
+    setError(null);
+    try {
+      await chat.send(value);
+      setText((current) => current.trim() === value ? "" : current);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "That question could not be sent. Please try again.");
+    } finally {
+      pending.current = false;
+      setSubmitting(null);
+    }
+  };
+  const newFix = async () => {
+    if (!chat.requestNewFix || chat.busy || pending.current) return;
+    pending.current = true;
+    setSubmitting("new_fix");
+    setError(null);
+    try {
+      await chat.requestNewFix();
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Could not request a new fix. Please try again.");
+    } finally {
+      pending.current = false;
+      setSubmitting(null);
+    }
   };
   const active = !!c?.enactment && c.enactment.state !== "stopped";
 
@@ -41,8 +70,8 @@ export default function InvestigateFurther() {
             <View style={{ gap: 16, paddingBottom: 20, borderBottomWidth: 1, borderBottomColor: colors.border }}>
               {c && <T variant="title">{c.title}</T>}
               <View style={{ flexDirection: "row", gap: 16, alignItems: "center" }}>
-                {c && <T variant="small" color="textMuted" style={{ flex: 1 }}>{(c.type === "feature" ? "Request #" : "Error #") + c.number}</T>}
-                <Button label="New fix" icon="Plus" kind="outline" disabled={chat.busy || !chat.requestNewFix} onPress={() => chat.requestNewFix?.()} testID="chat-new-fix" style={{ minHeight: 44, paddingHorizontal: 14 }} />
+                {c && <T variant="small" color="textMuted" style={{ flex: 1 }}>{c.number > 0 ? (c.type === "feature" ? "Request #" : "Error #") + c.number : c.type === "feature" ? "Request" : "Case"}</T>}
+                <Button label={submitting === "new_fix" ? "Requesting…" : "New fix"} icon="Plus" kind="outline" disabled={busy || !chat.requestNewFix} onPress={() => void newFix()} testID="chat-new-fix" style={{ minHeight: 44, paddingHorizontal: 14 }} />
               </View>
             </View>
           </Reveal>
@@ -65,13 +94,14 @@ export default function InvestigateFurther() {
               {m.proposedFix && c && <FixCard fix={m.proposedFix} number={c.fixes.findIndex((f) => f.key === m.proposedFix?.key) + 1 || undefined} sources={{ citations: c.citations, logs: c.logs, code: c.code }} defaultOpen approveDisabled={active} onApprove={setApproving} prefix="proposal" />}
             </View>
           ))}
-          {chat.busy && <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+          {busy && <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
             <Turtle health="working" size={30} />
             <T color="textMuted" testID="chat-busy">turtl is thinking…</T>
           </View>}
         </ScrollView>
         <View style={{ paddingHorizontal: 20, paddingTop: 12, paddingBottom: insets.bottom + (devToolsOn ? 76 : 16), borderTopWidth: 1, borderTopColor: colors.border, backgroundColor: colors.bg }}>
-          <AskBar value={text} onChangeText={setText} onSend={send} busy={chat.busy} placeholder="Ask about this case…" inputID="chat-input" sendID="chat-send" />
+          {error && <T color="statusAffected" accessibilityRole="alert" testID="chat-error" style={{ marginBottom: 8 }}>{error}</T>}
+          <AskBar value={text} onChangeText={setText} onSend={() => void send()} busy={busy} placeholder="Ask about this case…" inputID="chat-input" sendID="chat-send" />
         </View>
       </KeyboardAvoidingView>
       {c && <ApproveSheet caseId={c.id} fix={approving} onClose={() => setApproving(null)} />}
