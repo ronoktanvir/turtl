@@ -26,8 +26,9 @@ export const seed = internalMutation({
     label: v.string(),
     mode: v.union(v.literal("parallel"), v.literal("legacy"), v.literal("sample"), v.literal("no_journey")),
     paused: v.optional(v.boolean()),
+    includeContext: v.optional(v.boolean()),
   },
-  handler: async (ctx, { base, label, mode, paused }) => {
+  handler: async (ctx, { base, label, mode, paused, includeContext }) => {
     requireLocalProof();
     const url = new URL(base);
     if (url.protocol !== "http:" || !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname) ||
@@ -38,6 +39,24 @@ export const seed = internalMutation({
       name: `Local evidence proof: ${label}`,
       productionUrl: base,
       ownerId: "solo-owner",
+    });
+    if (includeContext) await ctx.db.insert("codeNetworks", {
+      projectId: appId,
+      repo: "local/evidence-proof",
+      ref: "local-evidence-v1",
+      namespace: `local_${appId}`,
+      source: "seed",
+      generatedAt: Date.now(),
+      clusters: [{ id: "fixture", name: "Local fixture", summary: "Synthetic local context, not observed app evidence." }],
+      nodes: ["recommendations", "profile", "calendar", "settings", "assets"].map((name) => ({
+        id: name,
+        clusterId: "fixture",
+        label: `Fixture ${name}`,
+        kind: "module" as const,
+        path: `fixtures/${name}.ts`,
+        summary: name === "recommendations" ? "Local fixture recommendations timeout handling." : `Unrelated fixture ${name}.`,
+      })),
+      edges: [],
     });
     const journeyId = mode === "no_journey" ? undefined : await ctx.db.insert("journeys", {
       appId,
@@ -92,6 +111,7 @@ export const snapshot = internalQuery({
       proposals: await ctx.db.query("proposals").withIndex("by_case", (q) => q.eq("caseId", caseId)).collect(),
       verifications: await ctx.db.query("verifications").withIndex("by_case", (q) => q.eq("caseId", caseId)).collect(),
       memories: await ctx.db.query("recoveryMemories").withIndex("by_source_case", (q) => q.eq("sourceCaseId", caseId)).collect(),
+      contextUses: await ctx.db.query("contextUses").withIndex("by_case", (q) => q.eq("caseId", caseId)).collect(),
       notices: await ctx.db.query("ownerNotices").withIndex("by_case_and_event", (q) => q.eq("caseId", caseId)).collect(),
     };
   },

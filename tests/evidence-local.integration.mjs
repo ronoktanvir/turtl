@@ -36,8 +36,8 @@ async function until(caseId, predicate, label, timeout = 35_000) {
 test("real local Convex evidence fork/join", { timeout: 240_000 }, async (t) => {
   const server = await evidenceServer();
   t.after(() => server.close());
-  const seed = async (scenario, mode = "parallel", paused = false) => {
-    const created = await mutation("evidence/localProof:seed", { base: scenario.base, label: scenario.name, mode, paused });
+  const seed = async (scenario, mode = "parallel", paused = false, includeContext = false) => {
+    const created = await mutation("evidence/localProof:seed", { base: scenario.base, label: scenario.name, mode, paused, includeContext });
     records.push({ name: scenario.name, ...created });
     return created.caseId;
   };
@@ -45,7 +45,7 @@ test("real local Convex evidence fork/join", { timeout: 240_000 }, async (t) => 
 
   await t.test("two independent HTTP collectors overlap, gate the join and retain exact provenance", async () => {
     const source = server.add("overlap", { holdFlags: true, holdErrors: true });
-    const caseId = await seed(source);
+    const caseId = await seed(source, "parallel", false, true);
     const running = await until(caseId, (data) => ["collect_app_state", "collect_error_window"].every((key) => step(data, key).status === "running"), "collectors did not overlap");
     assert.equal(step(running, "gather_context").status, "pending");
     assert.equal(attempts(running, "gather_context").length, 0);
@@ -71,6 +71,13 @@ test("real local Convex evidence fork/join", { timeout: 240_000 }, async (t) => 
     assert.equal(join.output.facts["flags.recommendationsEnabled"], true);
     assert.equal(join.output.facts["errors.failedBookings"], 3);
     assert.ok(join.output.recall);
+    assert.ok(join.output.context.uses.length > 0, "canonical context augmentation was lost");
+    assert.ok(join.output.context.uses.some((use) => use.sourceRef === "code:fixtures/recommendations.ts"));
+    assert.ok(data.contextUses.some((use) => use.stepAttemptId === join._id));
+    assert.deepEqual(Object.keys(join.output.facts).sort(), [
+      "health.ok", "flags.recommendationsEnabled", "app.revision", "errors.totalBookings", "errors.failedBookings", "errors.errorRate", "errors.topCode",
+      "journey.verdict", "journey.failedStep", "journey.errorCode",
+    ].sort(), "context must remain separate from observations");
     assert.equal(source.errorReads, 1, "the join reread /errors");
     assert.equal(source.events.filter((event) => event.resource === "flags").length, 1, "the join reread /flags");
     assert.equal(data.actions.length, 0);
@@ -215,7 +222,13 @@ test("real local Convex evidence fork/join", { timeout: 240_000 }, async (t) => 
     const verification = finished.verifications.find((row) => row.phase === "after_fix");
     assert.ok(verification.criterionResults.some((row) => row.criterionId === "booking_journey_passes" && row.status === "passed"));
     assert.ok(verification.criterionResults.some((row) => row.criterionId === "booking_screen_on_device" && row.status === "uncovered"));
-    assert.equal(finished.memories.length, 0, "uncovered required device proof must not become verified recovery memory");
+    assert.equal(finished.memories.length, 1);
+    assert.equal(finished.memories[0].verificationId, verification._id);
+    assert.equal(finished.memories[0].timesVerified, 1);
+    assert.ok(finished.memories[0].criterionResults.some((row) => row.criterionId === "booking_journey_passes" && row.status === "passed"));
+    assert.ok(finished.memories[0].criterionResults.some((row) => row.criterionId === "booking_screen_on_device" && row.status === "uncovered"));
+    assert.equal(verification.coverage.coveredCriterionIds.includes("booking_screen_on_device"), false);
+    await assert.rejects(mutation("permissions:grant", { memoryId: finished.memories[0]._id }), /at least 2/);
     assert.equal(source.events.filter((event) => event.resource === "flags" && event.method === "POST").length, 1);
     records.at(-1).disconnected = { beforeApproval: data.case.status, afterApproval: finished.case.status, verificationCoverage: verification.coverage };
   });
