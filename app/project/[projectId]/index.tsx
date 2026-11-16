@@ -38,7 +38,7 @@ export default function ProjectHome() {
   // Nothing open yet (or any more): show what turtl is watching, so a new project is not an empty page.
   const quiet = project ? project.bugCount === 0 && project.featureCount === 0 : false;
   if (project === undefined) return <Screen testID="project-home">{errors.length === 0 && <T style={{ padding: 20 }}>Loading…</T>}</Screen>;
-  if (project === null) return <Screen testID="project-home"><Header title="Project not found" fallback="/projects" /><View style={{ padding: 20, gap: 16 }}><T>This project is no longer available.</T><Button label="Back to projects" onPress={() => router.replace("/projects")} testID="project-not-found-back" /></View></Screen>;
+  if (project === null) return <Screen testID="project-home"><Header title="Project not found" fallback="/projects" /><View style={{ padding: 20, gap: 16 }}><T>This project is no longer available.</T><Button label="Back to Projects" onPress={() => router.replace("/projects")} testID="project-not-found-back" /></View></Screen>;
 
   return (
     <Screen testID="project-home">

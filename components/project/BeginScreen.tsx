@@ -44,7 +44,7 @@ export default function BeginScreen({ type }: { type: CaseType }) {
       </Pressable>
       <T variant="heading" accessibilityRole="header" style={{ textAlign: "center", marginTop: 8, marginBottom: 16 }}>{type === "fix" ? "Current issues" : labels.features}</T>
       {project === null ? (
-        <View style={{ padding: 20, gap: 16 }}><T>Project not found</T><Button label="Back to projects" onPress={() => router.replace("/projects" as Href)} testID="begin-not-found-back" /></View>
+        <View style={{ padding: 20, gap: 16 }}><T>Project not found</T><Button label="Back to Projects" onPress={() => router.replace("/projects" as Href)} testID="begin-not-found-back" /></View>
       ) : cases === undefined || project === undefined ? (
         <View>{errors.length === 0 && <T color="textMuted" style={{ textAlign: "center", padding: 20 }}>Loading…</T>}</View>
       ) : cases.length === 0 ? (

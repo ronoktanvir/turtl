@@ -39,7 +39,7 @@ export default function Prepare() {
         <Header title="Project not found" fallback="/projects" />
         <View style={{ padding: 20, gap: 16 }}>
           <T testID="prepare-not-found">This project is no longer available.</T>
-          <Button label="Back to projects" onPress={() => router.replace("/projects")} testID="prepare-not-found-back" />
+          <Button label="Back to Projects" onPress={() => router.replace("/projects")} testID="prepare-not-found-back" />
         </View>
       </Screen>
     );
