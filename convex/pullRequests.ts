@@ -117,7 +117,9 @@ export const merge = action({
     await ctx.runMutation(internal.prTracking.records.beginMerge, { id: row._id, by: SOLO_OWNER });
     const merged = await mergePullRequest(token, row.repo, row.number, headSha);
     if (!merged.ok || !merged.body.merged) {
-      await ctx.runMutation(internal.prTracking.records.clearMergeRequest, { id: row._id });
+      if (merged.ok || merged.status !== undefined) {
+        await ctx.runMutation(internal.prTracking.records.clearMergeRequest, { id: row._id });
+      }
       if (merged.ok) return refused(`GitHub did not merge it: ${merged.body.message}`);
       if (merged.status === 405 || merged.status === 409) return refused(`GitHub did not merge it. ${merged.message}`);
       return { outcome: "failed", message: merged.message };
