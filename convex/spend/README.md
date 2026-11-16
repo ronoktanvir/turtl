@@ -27,7 +27,13 @@ The daily ceiling is one pool every account shares, so without more one account 
 
 Both live in `accountSpendDays` (one row per account per day; older days are deleted as a new one starts; the rows go with the account). A call is counted from the moment the gate lets it through: `internal.consent.gate.admit` holds the caller's estimate of its cost (`callEstimate(model, promptChars, maxOutputTokens)`, or $0.10 when it gives none) in the same transaction as the check, and `addModelSpend` replaces the hold with what the call cost. So calls started together are counted one after another and a burst stops at the share; the day can pass the share by at most the last call let through. A call that fails before reporting its cost keeps its hold until the day ends.
 
-With the defaults one account can put at most about $3.50 (plus one call each side) into the deployment's $25.00 day, so it takes at least eight accounts acting together to reach the ceiling.
+With the defaults one account can put at most about $3.50 (plus one call each side) into the deployment's $25.00 day, so without more it would take eight accounts acting together to reach the ceiling.
+
+## The part of the day kept for outages
+
+The last `OUTAGE_RESERVE_PERCENT` of the day (default 40%, $10 of the default $25) is kept for finding the cause of outages the monitor found: investigate and plan on a case the monitor raised (the case's own gate, `gateFor(ctx, { caseId }, "outage")`, which the gate checks against the case), and the council that investigate may call. Once the day's total passes the ceiling less the reserve, every other model call waits until the next day with the reason "turtl is keeping the rest of today's AI for finding the cause of outages", and an outage's diagnosis passes only for an account whose own calls cost less than `OUTAGE_RESERVE_ACCOUNT_USD` today (default $0.50).
+
+That second rule is what makes the reserve worth having. Any account can make the monitor raise cases at will (its own app, or its practice app, which it may break ten times a day), so a reserve every account could draw on up to its whole share would empty as fast as the rest: it takes eight accounts to stop another owner's diagnosis with no reserve, and nine with that one. With each account drawing at most about $0.50 (plus one call), the $15 before the reserve takes five accounts and the $10 reserve about twenty more: `tests/shared-spend.test.mjs` counts 24. Accounts are capped at 20 new an hour and 100 a day, and an account that has not confirmed its email cannot spend, so that is at least 24 confirmed addresses, and the honest owner who has used little that day still gets their outage diagnosed until all of them have.
 
 In the single-owner demo there is no limit and nothing is recorded.
 

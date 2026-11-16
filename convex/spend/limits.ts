@@ -25,6 +25,13 @@ export const DEFAULT_INTAKE_KEYS_PER_PROJECT = 3;
 // separate shares, so a customer cannot use up what diagnosing the owner's outages needs.
 export const DEFAULT_ACCOUNT_MODEL_SPEND_PER_DAY_USD = 2.5;
 export const DEFAULT_ACCOUNT_INTAKE_SPEND_PER_DAY_USD = 1;
+// The last part of the deployment's day is kept for finding the cause of outages the monitor found, and only for
+// accounts that have used little of the day (finding 12). Any account can make the monitor raise cases at will (its own
+// app, or its practice app), so a part kept for those cases alone would empty as fast as the rest; what makes it last
+// is that each account may draw on it only while its own day is under DEFAULT_OUTAGE_RESERVE_ACCOUNT_USD. The part is a
+// percentage of the ceiling, so it keeps its proportion when the operator moves the ceiling ($10 of the default $25).
+export const DEFAULT_OUTAGE_RESERVE_PERCENT = 40;
+export const DEFAULT_OUTAGE_RESERVE_ACCOUNT_USD = 0.5;
 /**
  * What a model call counts for from the moment the gate lets it through until its cost comes back, when its caller
  * gives no estimate of its own (callEstimate). Without a hold a burst of calls started together would each pass the
@@ -74,6 +81,17 @@ export const accountModelSpendPerDayUsd = () => positive(process.env.ACCOUNT_MOD
 
 /** Estimated model spend on the customer reports of all one account's projects together in one calendar day (UTC). */
 export const accountIntakeSpendPerDayUsd = () => positive(process.env.ACCOUNT_INTAKE_SPEND_PER_DAY_USD, DEFAULT_ACCOUNT_INTAKE_SPEND_PER_DAY_USD, false);
+
+/** The percentage of the deployment's day, at its end, kept for finding the cause of outages the monitor found. 0 keeps
+ * none, 100 keeps the whole day for them. */
+export const outageReservePercent = () => {
+  const raw = process.env.OUTAGE_RESERVE_PERCENT;
+  const value = Number(raw);
+  return raw !== undefined && raw.trim() !== "" && Number.isFinite(value) && value >= 0 && value <= 100 ? value : DEFAULT_OUTAGE_RESERVE_PERCENT;
+};
+
+/** Only an account whose own calls cost less than this today may draw on the outage reserve. */
+export const outageReserveAccountUsd = () => positive(process.env.OUTAGE_RESERVE_ACCOUNT_USD, DEFAULT_OUTAGE_RESERVE_ACCOUNT_USD, false);
 
 /** Projects one account may have. */
 export const projectsPerAccount = () => positive(process.env.PROJECTS_PER_ACCOUNT, DEFAULT_PROJECTS_PER_ACCOUNT, true);
@@ -137,6 +155,9 @@ export const spendRefusal = {
     `this account has used today's ${dollars(limitUsd)} of AI, the most one account uses in a day, so no model was asked; it starts again tomorrow`,
   accountIntakeSpent: (limitUsd: number) =>
     `this account's projects have used today's ${dollars(limitUsd)} of AI for reading customer reports, so no model was asked; it starts again tomorrow`,
+  reserveKept: () => "turtl is keeping the rest of today's AI for finding the cause of outages, so no model was asked; it starts again tomorrow",
+  reserveUsed: (underUsd: number) =>
+    `turtl is keeping the rest of today's AI for outages on accounts that have used less than ${dollars(underUsd)} of it today, and this account has used more, so no model was asked; it starts again tomorrow`,
 };
 
 /** What a person reads when a deployment-wide ceiling or a cap refuses them. Shown as written, so whole sentences. */

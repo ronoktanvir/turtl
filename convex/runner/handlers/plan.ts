@@ -203,7 +203,7 @@ export const handler: StepHandler = {
       preferences: applied.preferences,
       feedback: { turnedDown: feedback.turnedDown, conditionsText: conditions.text, recent: feedback.recent },
       context,
-    }, gateFor(ctx, { appId: input.case.appId }));
+    }, gateFor(ctx, { caseId: input.case._id }, "outage"));
     if (agentRunId) {
       await ctx.runMutation(internal.learning.runs.finish, {
         agentRunId,

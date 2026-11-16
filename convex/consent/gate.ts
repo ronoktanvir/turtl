@@ -3,16 +3,19 @@ import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { internalMutation, internalQuery, type ActionCtx, type QueryCtx } from "../_generated/server";
 import { accessEnforced, SOLO_ACCOUNT } from "../access";
-import { deploymentSpendReached } from "../spend/ceilings";
+import { deploymentSpendToday } from "../spend/ceilings";
 import { accountDay, holdModelCall, intakeSpendToday, monthSpend, threadsToday } from "../spend/ledger";
 import {
   accountIntakeSpendPerDayUsd,
   accountModelSpendPerDayUsd,
   codingThreadsPerDay,
+  deploymentModelSpendPerDayUsd,
   intakeSpendPerDayUsd,
   MAX_CALL_HOLD_USD,
   MODEL_CALL_HOLD_USD,
   modelSpendLimitUsd,
+  outageReserveAccountUsd,
+  outageReservePercent,
   spendRefusal,
 } from "../spend/limits";
 import { sendTo } from "./outbound";
@@ -34,8 +37,10 @@ export type Scope = { appId: string } | { caseId: string } | { account: string }
  * Whose allowance a model call spends. "account" (the default): the owner's monthly allowance, which diagnosis needs.
  * "intake": the project's daily allowance for its customers' reports (triage, and reading the cases they open), so
  * whatever a customer posts cannot spend the owner's allowance and stop turtl diagnosing their outages.
+ * "outage": the owner's allowance, for investigating or planning a case the monitor raised (the scope must be that
+ * case). Such a call may also use the last part of the deployment's day, kept for outages (convex/spend/README.md).
  */
-export type Allowance = "account" | "intake";
+export type Allowance = "account" | "intake" | "outage";
 
 /**
  * send: an ordinary call. start_thread: starting a coding agent, which also counts against the daily limit.
@@ -59,17 +64,23 @@ export interface Gate {
 
 const vScope = v.union(v.object({ appId: v.string() }), v.object({ caseId: v.string() }), v.object({ account: v.string() }));
 const vPurpose = v.union(v.literal("send"), v.literal("start_thread"), v.literal("erase"));
-const vAllowance = v.union(v.literal("account"), v.literal("intake"));
+const vAllowance = v.union(v.literal("account"), v.literal("intake"), v.literal("outage"));
 
-async function ownerOf(ctx: Pick<QueryCtx, "db">, scope: Scope): Promise<{ account: string | null; appId: Id<"apps"> | null }> {
-  if ("account" in scope) return { account: scope.account || null, appId: null };
+async function ownerOf(
+  ctx: Pick<QueryCtx, "db">,
+  scope: Scope,
+): Promise<{ account: string | null; appId: Id<"apps"> | null; raisedByMonitor: boolean }> {
+  if ("account" in scope) return { account: scope.account || null, appId: null, raisedByMonitor: false };
   let appId = "appId" in scope ? ctx.db.normalizeId("apps", scope.appId) : null;
+  let raisedByMonitor = false;
   if ("caseId" in scope) {
     const caseId = ctx.db.normalizeId("cases", scope.caseId);
-    appId = caseId ? ((await ctx.db.get(caseId))?.appId ?? null) : null;
+    const row = caseId ? await ctx.db.get(caseId) : null;
+    appId = row?.appId ?? null;
+    raisedByMonitor = row?.raisedBy === "monitor";
   }
   const app = appId ? await ctx.db.get(appId) : null;
-  return { account: app?.ownerId ?? null, appId: app ? app._id : null };
+  return { account: app?.ownerId ?? null, appId: app ? app._id : null, raisedByMonitor };
 }
 
 type Args = { scope: Scope; service: string; purpose: Purpose; allowance?: Allowance; estimateUsd?: number };
@@ -82,7 +93,7 @@ const isModelCall = (service: string, purpose: Purpose) => purpose === "send" &&
 async function decide(ctx: Pick<QueryCtx, "db">, { scope, service, purpose, allowance = "account" }: Args): Promise<Decision> {
   const no = (reason: string): Decision => ({ answer: { ok: false, reason }, hold: null });
   if (!accessEnforced()) return { answer: { ok: true, account: SOLO_ACCOUNT }, hold: null };
-  const { account, appId } = await ownerOf(ctx, scope);
+  const { account, appId, raisedByMonitor } = await ownerOf(ctx, scope);
   if (purpose === "erase") return { answer: { ok: true, account: account ?? "" }, hold: null };
   if (!account) return no(refusal.noOwner(serviceName(service)));
   // A customer-report call is billed to its project, so it must name one.
@@ -93,10 +104,13 @@ async function decide(ctx: Pick<QueryCtx, "db">, { scope, service, purpose, allo
   let hold: Decision["hold"] = null;
   if (isModelCall(service, purpose)) {
     // The deployment's own daily ceiling comes first: however many accounts there are, the day's total is bounded.
-    if (await deploymentSpendReached(ctx, now)) return no(spendRefusal.deploymentSpent());
+    const ceiling = deploymentModelSpendPerDayUsd();
+    const total = await deploymentSpendToday(ctx, now);
+    if (total >= ceiling) return no(spendRefusal.deploymentSpent());
     // Then the account's share of that day, so one account (its own calls, or its customers' reports) cannot reach the
     // ceiling alone and stop every other owner's diagnosis (finding 12). Calls still running count at their hold.
     const day = await accountDay(ctx, account, now);
+    const own = day.ownUsd + day.ownHeldUsd;
     if (allowance === "intake") {
       const limit = intakeSpendPerDayUsd();
       if ((await intakeSpendToday(ctx, appId!, now)) >= limit) return no(spendRefusal.intakeSpent(limit));
@@ -107,8 +121,16 @@ async function decide(ctx: Pick<QueryCtx, "db">, { scope, service, purpose, allo
       const limit = modelSpendLimitUsd();
       if ((await monthSpend(ctx, account, now)) >= limit) return no(spendRefusal.overLimit(limit, now));
       const share = accountModelSpendPerDayUsd();
-      if (day.ownUsd + day.ownHeldUsd >= share) return no(spendRefusal.accountDaySpent(share));
+      if (own >= share) return no(spendRefusal.accountDaySpent(share));
       hold = "own";
+    }
+    // The last part of the day is kept for finding the cause of outages the monitor found, on accounts that have used
+    // little of the day: a few accounts that used their whole shares cannot reach it, and each other account draws on
+    // it only until its own day passes outageReserveAccountUsd().
+    if (total >= ceiling * (1 - outageReservePercent() / 100)) {
+      if (allowance !== "outage" || !raisedByMonitor) return no(spendRefusal.reserveKept());
+      const under = outageReserveAccountUsd();
+      if (own >= under) return no(spendRefusal.reserveUsed(under));
     }
   }
   if (purpose === "start_thread") {
@@ -166,7 +188,7 @@ export function gateFor(ctx: Runner, scope: Scope, allowance: Allowance = "accou
     if (!enforced) return { ok: true, account: SOLO_ACCOUNT };
     // Deleting the owner's copies at a vendor needs no permission: it sends nothing but the ids to remove.
     if (purpose === "erase") return { ok: true, account: account ?? "" };
-    const args = { scope, service, purpose, ...(allowance === "intake" && { allowance }) };
+    const args = { scope, service, purpose, ...(allowance !== "account" && { allowance }) };
     const answer: Answer = admitting && isModelCall(service, purpose)
       ? await ctx.runMutation(internal.consent.gate.admit, { ...args, ...(admitting.estimateUsd !== undefined && { estimateUsd: admitting.estimateUsd }) })
       : await ctx.runQuery(internal.consent.gate.check, args);

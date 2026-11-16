@@ -101,6 +101,31 @@ const READING = { estimate: limits.callEstimate("gpt-6-luna", 60_000, 12_000), c
 const VOICE = { estimate: limits.VOICE_CALL_ESTIMATE_USD, cost: limits.VOICE_CALL_ESTIMATE_USD };
 // A customer report read on a project's own allowance.
 const TRIAGE = { estimate: limits.callEstimate("gpt-5.4-mini", 8_000), cost: limits.callEstimate("gpt-5.4-mini", 8_000) * 0.8, allowance: "intake" };
+// Investigating a case the monitor raised: the careful configuration's model, a long evidence prompt.
+const DIAGNOSIS = { estimate: limits.callEstimate("gpt-6.1-sol", 20_000, 4_000), cost: limits.callEstimate("gpt-6.1-sol", 20_000, 4_000) * 0.7, allowance: "outage" };
+
+/**
+ * Accounts acting together, each doing everything it may in a day: diagnosis of cases the monitor raised on its own
+ * projects (its practice app breaks at will), in bursts, then its customers' reports on every project. Returns how
+ * many accounts it took before the gate refused Alice's diagnosis of an outage on her app.
+ */
+async function accountsToStopAlice(t, env) {
+  t.mock.timers.reset();
+  t.mock.timers.enable({ apis: ["Date"], now: NOV_16 });
+  return await withEnv({ ...ACCOUNTS, ...env }, async () => {
+    const attackers = Array.from({ length: 60 }, (_, n) => `mallory${n}`);
+    const db = world({ alice: 1, ...Object.fromEntries(attackers.map((name) => [name, 10])) });
+    const ctx = actions(db);
+    const alice = () => gates.check.handler({ db }, { scope: { caseId: "cases:alice-0" }, service: "openai", purpose: "send", allowance: "outage" });
+    for (const [n, name] of attackers.entries()) {
+      await spendAll(ctx, { caseId: `cases:${name}-10` }, DIAGNOSIS, 20);
+      for (let p = 0; p <= 10; p++) await spendAll(ctx, { appId: `apps:${name}-${p}` }, TRIAGE, 20);
+      const answer = await alice();
+      if (!answer.ok) return { accounts: n + 1, refusal: answer.reason, total: await ceilings.deploymentSpendToday({ db }, Date.now()) };
+    }
+    assert.fail("60 accounts did not stop Alice's diagnosis");
+  });
+}
 
 test("ATTACK (finding 12): one account spends everything it may in a day, in bursts, and another owner's diagnosis still passes", async (t) => {
   t.mock.timers.enable({ apis: ["Date"], now: NOV_16 });
@@ -161,6 +186,74 @@ test("customers cannot use up the owner's own share: past the customer-report sh
     for (let n = 0; n <= 10; n++) await spendAll(ctx, { appId: `apps:ada-${n}` }, TRIAGE, 10);
     assert.equal((await modelCall(ctx, { appId: "apps:ada-4" }, TRIAGE)).reason, limits.spendRefusal.accountIntakeSpent(1));
     assert.equal((await modelCall(ctx, { caseId: "cases:ada-0" }, CHAT)).ok, true, "the owner's own diagnosis is on another share");
+  });
+});
+
+// Statement 2: a part of the day kept for outages. Any account can make the monitor raise cases at will (its own app,
+// or its practice app), so a part kept for those cases alone empties as fast as the rest. What makes it last is that an
+// account may draw on it only while it has used little of the day.
+test("ATTACK (finding 12): accounts acting together; the part of the day kept for outages multiplies how many it takes", async (t) => {
+  const none = await accountsToStopAlice(t, { OUTAGE_RESERVE_PERCENT: "0" });
+  const plain = await accountsToStopAlice(t, { OUTAGE_RESERVE_ACCOUNT_USD: "2.5" });
+  const kept = await accountsToStopAlice(t, {});
+  // With no reserve: $25 / about $3.50 an account. A reserve any account may draw on up to its whole share (the
+  // reviewer's first suggestion) adds about one account. The reserve as built ($10, only while under $0.50 today)
+  // takes the general $15 (five accounts) and then about $0.50 an account for the $10: more than twice as many.
+  assert.equal(none.accounts, 8, JSON.stringify(none));
+  assert.ok(plain.accounts <= none.accounts + 1, JSON.stringify(plain));
+  assert.ok(kept.accounts >= 20, JSON.stringify(kept));
+  assert.equal(none.refusal, limits.spendRefusal.deploymentSpent());
+  assert.equal(kept.refusal, limits.spendRefusal.deploymentSpent());
+  console.log(`accounts it takes to stop another owner's diagnosis: no reserve ${none.accounts}, plain reserve ${plain.accounts}, the reserve as built ${kept.accounts}`);
+});
+
+test("once only the reserve is left, the case chat and customer reports wait, and an outage on an account that used little is still diagnosed", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: NOV_16 });
+  await withEnv(ACCOUNTS, async () => {
+    const db = world({ alice: 1, mallory: 1 });
+    // $15.20 of the $25 day is used: only the $10 kept for outages is left (and $0.20 of it is gone).
+    await db.insert("deploymentTotals", { name: "model_usd_day", window: "2026-11-16", value: 15.2, updatedAt: 1 });
+    const ctx = actions(db);
+    assert.equal((await modelCall(ctx, { caseId: "cases:alice-0" }, CHAT)).reason, limits.spendRefusal.reserveKept(), "the chat waits");
+    assert.equal((await modelCall(ctx, { appId: "apps:alice-0" }, TRIAGE)).reason, limits.spendRefusal.reserveKept(), "customer reports wait");
+    assert.equal((await modelCall(ctx, { appId: "apps:alice-0" }, DIAGNOSIS)).reason, limits.spendRefusal.reserveKept(), "only a case the monitor raised qualifies");
+    await db.patch("cases:alice-1", { raisedBy: "customer", kind: "bug_report" });
+    assert.equal((await modelCall(ctx, { caseId: "cases:alice-1" }, DIAGNOSIS)).reason, limits.spendRefusal.reserveKept(), "a customer's case does not");
+    assert.equal((await modelCall(ctx, { caseId: "cases:alice-0" }, DIAGNOSIS)).ok, true, "her outage is diagnosed");
+    // Mallory used her share earlier today: the reserve is not hers to draw on.
+    await db.insert("accountSpendDays", { account: "mallory", day: "2026-11-16", ownUsd: 2.5, ownHeldUsd: 0, intakeUsd: 0, intakeHeldUsd: 0, calls: 50, updatedAt: 1 });
+    assert.equal((await modelCall(ctx, { caseId: "cases:mallory-0" }, DIAGNOSIS)).reason, limits.spendRefusal.accountDaySpent(2.5));
+    await db.patch(db.rows("accountSpendDays").find((row) => row.account === "mallory")._id, { ownUsd: 0.6 });
+    assert.equal((await modelCall(ctx, { caseId: "cases:mallory-0" }, DIAGNOSIS)).reason, limits.spendRefusal.reserveUsed(0.5));
+    assert.equal(
+      limits.spendRefusal.reserveUsed(0.5),
+      "turtl is keeping the rest of today's AI for outages on accounts that have used less than $0.50 of it today, and this account has used more, so no model was asked; it starts again tomorrow",
+    );
+  });
+});
+
+test("the reserve's settings: defaults, 0 keeps none, 100 keeps the whole day, and it keeps its proportion of the ceiling", async (t) => {
+  await withEnv({ OUTAGE_RESERVE_PERCENT: undefined, OUTAGE_RESERVE_ACCOUNT_USD: undefined }, () => {
+    assert.deepEqual([limits.outageReservePercent(), limits.outageReserveAccountUsd()], [40, 0.5]);
+  });
+  await withEnv({ OUTAGE_RESERVE_PERCENT: "0", OUTAGE_RESERVE_ACCOUNT_USD: "1" }, () => assert.deepEqual([limits.outageReservePercent(), limits.outageReserveAccountUsd()], [0, 1]));
+  for (const nonsense of ["-2", "101", "lots", ""]) {
+    await withEnv({ OUTAGE_RESERVE_PERCENT: nonsense, OUTAGE_RESERVE_ACCOUNT_USD: "0" }, () => assert.deepEqual([limits.outageReservePercent(), limits.outageReserveAccountUsd()], [40, 0.5], nonsense));
+  }
+  t.mock.timers.enable({ apis: ["Date"], now: NOV_16 });
+  const ask = (db, allowance) => gates.check.handler({ db }, { scope: { caseId: "cases:alice-0" }, service: "openai", purpose: "send", allowance });
+  await withEnv({ ...ACCOUNTS, OUTAGE_RESERVE_PERCENT: "100" }, async () => {
+    const db = world({ alice: 1 });
+    assert.equal((await ask(db, "account")).reason, limits.spendRefusal.reserveKept());
+    assert.equal((await ask(db, "outage")).ok, true);
+  });
+  // A $100 ceiling keeps its last $40; $59 into it, the chat still passes.
+  await withEnv({ ...ACCOUNTS, DEPLOYMENT_MODEL_SPEND_PER_DAY_USD: "100" }, async () => {
+    const db = world({ alice: 1 });
+    await db.insert("deploymentTotals", { name: "model_usd_day", window: "2026-11-16", value: 59, updatedAt: 1 });
+    assert.equal((await ask(db, "account")).ok, true);
+    await db.patch(db.rows("deploymentTotals")[0]._id, { value: 60 });
+    assert.equal((await ask(db, "account")).reason, limits.spendRefusal.reserveKept());
   });
 });
 

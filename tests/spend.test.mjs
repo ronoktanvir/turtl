@@ -190,7 +190,8 @@ test("customer reports open at most so many cases on a project a day", async (t)
 // ceiling on model spend, across every account and allowance.
 test("past the deployment's daily ceiling no account's model is asked, whatever its own allowance says", async (t) => {
   t.mock.timers.enable({ apis: ["Date"], now: NOV_15 });
-  await withEnv({ ...ACCOUNTS, DEPLOYMENT_MODEL_SPEND_PER_DAY_USD: "1" }, async () => {
+  // The ceiling alone: the part of the day kept for outages is tests/shared-spend.test.mjs's subject.
+  await withEnv({ ...ACCOUNTS, DEPLOYMENT_MODEL_SPEND_PER_DAY_USD: "1", OUTAGE_RESERVE_PERCENT: "0" }, async () => {
     const db = world();
     const check = (allowance) => gates.check.handler({ db }, { scope: { appId: "apps:1" }, service: "openai", purpose: "send", ...(allowance && { allowance }) });
     assert.equal((await check()).ok, true);

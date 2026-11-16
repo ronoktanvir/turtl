@@ -121,7 +121,8 @@ export const handler: StepHandler = {
       };
     }
     const started = input.attempt.startedAt ?? Date.now();
-    const gate = gateFor(ctx, { appId: input.case.appId });
+    // Diagnosis of an outage the monitor found may use the part of the day kept for outages (convex/spend/README.md).
+    const gate = gateFor(ctx, { caseId: input.case._id }, "outage");
     const loaded = await loadJourneyContext(ctx, input);
     if (!loaded.ok) return { status: "failed", error: loaded.reason };
     const { base, evidence, catalog } = loaded.context;
