@@ -58,3 +58,13 @@ test("a check whose break was declined or left unresolved stays failing until it
   assert.equal((await overviewQuery([{ _id: "c1", _creationTime: 2_000, status: "investigating" }], journey)).checks[0].state, "failing");
   assert.equal((await overviewQuery([{ _id: "c1", _creationTime: 2_000, status: "restored" }], journey)).checks[0].state, "passing");
 });
+
+test("a broken practice app is not said to have users affected", async () => {
+  const { readFileSync } = await import("node:fs");
+  const read = (path) => readFileSync(new URL("../" + path, import.meta.url), "utf8");
+  const ui = read("components/ui/index.tsx");
+  assert.match(ui, /return practice && health === "affected" \? "Practice app broken" : healthWord\[health\];/);
+  assert.match(read("app/projects.tsx"), /<HealthWord health=\{p\.health\} practice=\{!!p\.practice\} \/>/);
+  assert.match(read("app/project/[projectId]/index.tsx"), /<HealthWord health=\{shown\} practice=\{!!project\.practice\}/);
+  assert.match(read("components/fix/CasePage.tsx"), /<HealthWord health=\{c\.health\} practice=\{practice\}/);
+});

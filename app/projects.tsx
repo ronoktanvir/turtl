@@ -46,7 +46,7 @@ export default function Projects() {
                     <View style={{ flex: 1, gap: 3 }}>
                       <T variant="heading" numberOfLines={2} style={{ fontSize: nameSize(p.name, nameColumn), lineHeight: nameSize(p.name, nameColumn) + 6 }} testID={`project-name-${p.id}`}>{p.name}</T>
                       <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: 10, rowGap: 4 }}>
-                        <HealthWord health={p.health} />
+                        <HealthWord health={p.health} practice={!!p.practice} />
                         {p.practice && <Chip label="Practice" tone="brandDeep" testID={`project-practice-${p.id}`} />}
                       </View>
                     </View>
