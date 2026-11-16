@@ -4,7 +4,7 @@ import type { Id } from "../_generated/dataModel";
 import { internalMutation, internalQuery, type ActionCtx, type QueryCtx } from "../_generated/server";
 import { accessEnforced, SOLO_ACCOUNT } from "../access";
 import { deploymentSpendToday } from "../spend/ceilings";
-import { accountDay, holdModelCall, intakeSpendToday, monthSpend, threadsToday } from "../spend/ledger";
+import { accountDay, holdModelCall, intakeSpendToday, monthSpend, threadsToday, type Share } from "../spend/ledger";
 import {
   accountIntakeSpendPerDayUsd,
   accountModelSpendPerDayUsd,
@@ -18,6 +18,7 @@ import {
   outageReserveAccountAgeMs,
   outageReservePercent,
   outageReserveSteadyMs,
+  practiceAiPerDayUsd,
   spendRefusal,
 } from "../spend/limits";
 import { sendTo } from "./outbound";
@@ -50,7 +51,7 @@ export type Allowance = "account" | "intake" | "outage";
  */
 export type Purpose = "send" | "start_thread" | "erase";
 
-type Answer = { ok: true; account: string; appId?: Id<"apps">; held?: number } | { ok: false; reason: string };
+type Answer = { ok: true; account: string; appId?: Id<"apps">; held?: number; practice?: boolean } | { ok: false; reason: string };
 
 export interface Gate {
   /** Null when turtl may send to this service now, otherwise the plain reason it may not. */
@@ -101,7 +102,7 @@ async function accountMadeAt(ctx: Pick<QueryCtx, "db">, account: string): Promis
 }
 
 type Args = { scope: Scope; service: string; purpose: Purpose; allowance?: Allowance; estimateUsd?: number };
-type Decision = { answer: Answer; hold: "own" | "intake" | null };
+type Decision = { answer: Answer; hold: Share | null };
 
 const isModelCall = (service: string, purpose: Purpose) => purpose === "send" && (MODEL_SERVICES as readonly string[]).includes(service);
 
@@ -137,9 +138,17 @@ async function decide(ctx: Pick<QueryCtx, "db">, { scope, service, purpose, allo
     } else {
       const limit = modelSpendLimitUsd();
       if ((await monthSpend(ctx, account, now)) >= limit) return no(spendRefusal.overLimit(limit, now));
-      const share = accountModelSpendPerDayUsd();
-      if (own >= share) return no(spendRefusal.accountDaySpent(share));
-      hold = "own";
+      if (practice) {
+        // A practice app's cases have their own small allowance, enough for its ten breaks a day explained by AI, so
+        // breaking it neither uses up the owner's share nor reaches the part of the day kept for outages (finding 19).
+        const allowed = practiceAiPerDayUsd();
+        if (day.practiceUsd + day.practiceHeldUsd >= allowed) return no(spendRefusal.practiceSpent(allowed));
+        hold = "practice";
+      } else {
+        const share = accountModelSpendPerDayUsd();
+        if (own >= share) return no(spendRefusal.accountDaySpent(share));
+        hold = "own";
+      }
     }
     // The last part of the day is kept for finding the cause of outages the monitor found, on accounts that have used
     // little of the day: a few accounts that used their whole shares cannot reach it, and each other account draws on
@@ -161,7 +170,10 @@ async function decide(ctx: Pick<QueryCtx, "db">, { scope, service, purpose, allo
     const cap = codingThreadsPerDay();
     if ((await threadsToday(ctx, account, now)) >= cap) return no(spendRefusal.threadCap(cap));
   }
-  return { answer: allowance === "intake" ? { ok: true, account, appId: appId! } : { ok: true, account }, hold };
+  return {
+    answer: allowance === "intake" ? { ok: true, account, appId: appId! } : { ok: true, account, ...(hold === "practice" && { practice: true }) },
+    hold,
+  };
 }
 
 const vArgs = { scope: vScope, service: v.string(), purpose: vPurpose, allowance: v.optional(vAllowance), estimateUsd: v.optional(v.number()) };
@@ -170,7 +182,7 @@ const vArgs = { scope: vScope, service: v.string(), purpose: vPurpose, allowance
 const holdFor = (estimateUsd: number | undefined) =>
   estimateUsd !== undefined && Number.isFinite(estimateUsd) && estimateUsd > 0 ? Math.min(estimateUsd, MAX_CALL_HOLD_USD) : MODEL_CALL_HOLD_USD;
 const vAnswer = v.union(
-  v.object({ ok: v.literal(true), account: v.string(), appId: v.optional(v.id("apps")), held: v.optional(v.number()) }),
+  v.object({ ok: v.literal(true), account: v.string(), appId: v.optional(v.id("apps")), held: v.optional(v.number()), practice: v.optional(v.boolean()) }),
   v.object({ ok: v.literal(false), reason: v.string() }),
 );
 
@@ -204,6 +216,8 @@ export function gateFor(ctx: Runner, scope: Scope, allowance: Allowance = "accou
   const enforced = accessEnforced();
   let account: string | null = enforced ? null : SOLO_ACCOUNT;
   let intakeApp: Id<"apps"> | null = null;
+  // The project is a practice app: its calls count against the account's practice allowance.
+  let practice = false;
   // The holds of the model calls this gate let through whose cost has not come back yet, oldest first.
   const holds: number[] = [];
 
@@ -219,6 +233,7 @@ export function gateFor(ctx: Runner, scope: Scope, allowance: Allowance = "accou
     if (answer.ok) {
       account = answer.account;
       intakeApp = answer.appId ?? intakeApp;
+      practice ||= answer.practice === true;
       if (answer.held) holds.push(answer.held);
     }
     return answer;
@@ -245,6 +260,7 @@ export function gateFor(ctx: Runner, scope: Scope, allowance: Allowance = "accou
           costUsd: costUsd > 0 ? costUsd : 0,
           ...(intakeApp && { appId: intakeApp }),
           ...(release > 0 && { held: release }),
+          ...(practice && { practice: true }),
         });
       } catch {
         console.error("Recording model spend failed");

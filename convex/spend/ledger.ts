@@ -53,16 +53,23 @@ async function addToIntakeDay(ctx: MutationCtx, appId: Id<"apps">, add: { costUs
   await ctx.db.insert("intakeDays", { appId, day, ...add, updatedAt: now });
 }
 
-export type AccountDay = { ownUsd: number; ownHeldUsd: number; intakeUsd: number; intakeHeldUsd: number };
+export type AccountDay = { ownUsd: number; ownHeldUsd: number; intakeUsd: number; intakeHeldUsd: number; practiceUsd: number; practiceHeldUsd: number };
 type AccountDayAdd = Partial<AccountDay> & { calls?: number };
 
 const accountDayRow = (ctx: Reader, account: string, day: string) =>
   ctx.db.query("accountSpendDays").withIndex("by_account_and_day", (q) => q.eq("account", account).eq("day", day)).unique();
 
-/** What the account's own calls and its projects' customer reports cost today (UTC), and what is still held. */
+/** What the account's own calls, its practice app and its projects' customer reports cost today (UTC), and what is held. */
 export async function accountDay(ctx: Reader, account: string, at: number): Promise<AccountDay> {
   const row = await accountDayRow(ctx, account, dayKey(at));
-  return { ownUsd: row?.ownUsd ?? 0, ownHeldUsd: row?.ownHeldUsd ?? 0, intakeUsd: row?.intakeUsd ?? 0, intakeHeldUsd: row?.intakeHeldUsd ?? 0 };
+  return {
+    ownUsd: row?.ownUsd ?? 0,
+    ownHeldUsd: row?.ownHeldUsd ?? 0,
+    intakeUsd: row?.intakeUsd ?? 0,
+    intakeHeldUsd: row?.intakeHeldUsd ?? 0,
+    practiceUsd: row?.practiceUsd ?? 0,
+    practiceHeldUsd: row?.practiceHeldUsd ?? 0,
+  };
 }
 
 const cents = (value: number) => Math.max(0, Math.round(value * 1e6) / 1e6);
@@ -73,7 +80,16 @@ async function addToAccountDay(ctx: MutationCtx, account: string, add: AccountDa
   const day = dayKey(now);
   const row = await accountDayRow(ctx, account, day);
   const next = (field: keyof AccountDay) => cents((row?.[field] ?? 0) + (add[field] ?? 0));
-  const fields = { ownUsd: next("ownUsd"), ownHeldUsd: next("ownHeldUsd"), intakeUsd: next("intakeUsd"), intakeHeldUsd: next("intakeHeldUsd"), calls: (row?.calls ?? 0) + (add.calls ?? 0), updatedAt: now };
+  const fields = {
+    ownUsd: next("ownUsd"),
+    ownHeldUsd: next("ownHeldUsd"),
+    intakeUsd: next("intakeUsd"),
+    intakeHeldUsd: next("intakeHeldUsd"),
+    practiceUsd: next("practiceUsd"),
+    practiceHeldUsd: next("practiceHeldUsd"),
+    calls: (row?.calls ?? 0) + (add.calls ?? 0),
+    updatedAt: now,
+  };
   if (row) {
     await ctx.db.patch(row._id, fields);
     return;
@@ -85,9 +101,12 @@ async function addToAccountDay(ctx: MutationCtx, account: string, add: AccountDa
 }
 
 /** Counts a model call the gate just let through at MODEL_CALL_HOLD_USD until its cost comes back (addModelSpend). */
-export async function holdModelCall(ctx: MutationCtx, account: string, share: "own" | "intake", holdUsd: number) {
-  await addToAccountDay(ctx, account, share === "own" ? { ownHeldUsd: holdUsd } : { intakeHeldUsd: holdUsd });
+export async function holdModelCall(ctx: MutationCtx, account: string, share: Share, holdUsd: number) {
+  await addToAccountDay(ctx, account, share === "own" ? { ownHeldUsd: holdUsd } : share === "practice" ? { practiceHeldUsd: holdUsd } : { intakeHeldUsd: holdUsd });
 }
+
+/** Which of the account's day shares a model call counts against. */
+export type Share = "own" | "intake" | "practice";
 
 /** Counts a case opened from customer reports today, or says no when the project's daily cap is reached. */
 export async function openIntakeCase(ctx: MutationCtx, appId: Id<"apps">): Promise<boolean> {
@@ -100,17 +119,24 @@ export async function openIntakeCase(ctx: MutationCtx, appId: Id<"apps">): Promi
 // With appId the call read a project's customer reports and counts against that project's day (the intake
 // allowance); without it, against the account's month. Either way it counts against the account's day, in place of
 // the hold (`held`) the gate counted it at when it let the call through.
+// `practice`: the call was for the account's practice app: it counts against the day's practice allowance instead of
+// the account's own share, and against the month as an own call does.
 export const addModelSpend = internalMutation({
-  args: { account: v.string(), costUsd: v.number(), appId: v.optional(v.id("apps")), held: v.optional(v.number()) },
+  args: { account: v.string(), costUsd: v.number(), appId: v.optional(v.id("apps")), held: v.optional(v.number()), practice: v.optional(v.boolean()) },
   returns: v.null(),
-  handler: async (ctx, { account, costUsd, appId, held }) => {
+  handler: async (ctx, { account, costUsd, appId, held, practice }) => {
     const cost = Number.isFinite(costUsd) && costUsd > 0 ? costUsd : 0;
     const release = held !== undefined && Number.isFinite(held) && held > 0 ? held : 0;
     if (cost > 0 || release > 0) {
+      const calls = cost > 0 ? 1 : 0;
       await addToAccountDay(
         ctx,
         account,
-        appId ? { intakeUsd: cost, intakeHeldUsd: -release, calls: cost > 0 ? 1 : 0 } : { ownUsd: cost, ownHeldUsd: -release, calls: cost > 0 ? 1 : 0 },
+        appId
+          ? { intakeUsd: cost, intakeHeldUsd: -release, calls }
+          : practice
+            ? { practiceUsd: cost, practiceHeldUsd: -release, calls }
+            : { ownUsd: cost, ownHeldUsd: -release, calls },
       );
     }
     if (cost === 0) return null;

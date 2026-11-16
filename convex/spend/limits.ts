@@ -45,6 +45,12 @@ export const DEFAULT_OUTAGE_RESERVE_ACCOUNT_USD = 0.5;
 export const DEFAULT_OUTAGE_RESERVE_STEADY_HOURS = 24;
 export const DEFAULT_OUTAGE_RESERVE_ACCOUNT_AGE_DAYS = 14;
 /**
+ * What finding the cause of practice-app cases may cost one account in a day, apart from its own share: a practice app
+ * has no customers and nothing is down. Enough for the ten breaks a day the practice app allows, each explained by AI
+ * (a diagnosis, the fixes on offer and a look for a broader cause, about $0.15 to $0.20), and no more.
+ */
+export const DEFAULT_PRACTICE_AI_PER_DAY_USD = 2;
+/**
  * What a model call counts for from the moment the gate lets it through until its cost comes back, when its caller
  * gives no estimate of its own (callEstimate). Without a hold a burst of calls started together would each pass the
  * check before any was counted, and one account could pass its share by as many calls as it can start at once. A call
@@ -127,6 +133,9 @@ export const outageReserveSteadyMs = () => positive(process.env.OUTAGE_RESERVE_S
 /** How old an account must be for its outages to draw on the outage reserve. */
 export const outageReserveAccountAgeMs = () => positive(process.env.OUTAGE_RESERVE_ACCOUNT_AGE_DAYS, DEFAULT_OUTAGE_RESERVE_ACCOUNT_AGE_DAYS, false) * 86_400_000;
 
+/** What one account's practice-app cases may spend on models in a calendar day (UTC). */
+export const practiceAiPerDayUsd = () => positive(process.env.PRACTICE_AI_PER_DAY_USD, DEFAULT_PRACTICE_AI_PER_DAY_USD, false);
+
 /** Projects one account may have. */
 export const projectsPerAccount = () => positive(process.env.PROJECTS_PER_ACCOUNT, DEFAULT_PROJECTS_PER_ACCOUNT, true);
 
@@ -196,6 +205,8 @@ export const spendRefusal = {
     `turtl is keeping the rest of today's AI for outages on apps whose checks had been passing for ${hours === 24 ? "a day" : `${hours} hours`} before they failed, and this one's had not, so no model was asked; it starts again tomorrow`,
   reserveNewAccount: (days: number) =>
     `turtl is keeping the rest of today's AI for outages on accounts more than ${days} days old, so no model was asked; it starts again tomorrow`,
+  practiceSpent: (limitUsd: number) =>
+    `this account has used today's ${dollars(limitUsd)} of AI for its practice app, so no model was asked; it starts again tomorrow`,
 };
 
 /** What a person reads when a deployment-wide ceiling or a cap refuses them. Shown as written, so whole sentences. */

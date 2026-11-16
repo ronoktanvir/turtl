@@ -41,7 +41,9 @@ And the reserve is only for real outages on established projects (third review, 
 - its check had been passing for `OUTAGE_RESERVE_STEADY_HOURS` (default 24) before this failure. The monitor keeps, on each check, since when it has passed every time (`journeys.passingSince`; a failure or a check that got no answer clears it), and the case records how long that was (`cases.passingForMs`). A check from before this was kept starts counting at its next pass;
 - its account is at least `OUTAGE_RESERVE_ACCOUNT_AGE_DAYS` old (default 14).
 
-Each refusal says which rule in plain words. Accounts made for an attack cannot reach the reserve for two weeks, and then only through real projects whose live apps pass turtl's checks for a day before each failure, one such failure per project per day.
+Each refusal says which rule in plain words.
+
+A practice app's cases (convex/practice) have their own small allowance instead, `PRACTICE_AI_PER_DAY_USD` (default $2.00 an account a day, apart from its own share; it counts toward the month as its own calls do). One break, explained (a quick diagnosis, a careful one when that is unsure, the fixes on offer and a look for a broader cause), costs about $0.13 with the default models, so the ten breaks a day the practice app allows fit, and asking about it again and again stops there: "this account has used today's $2.00 of AI for its practice app". The case still opens and turtl explains it with its own rules. Accounts made for an attack cannot reach the reserve for two weeks, and then only through real projects whose live apps pass turtl's checks for a day before each failure, one such failure per project per day.
 
 In the single-owner demo there is no limit and nothing is recorded.
 

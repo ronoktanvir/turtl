@@ -221,11 +221,13 @@ test("ATTACK (finding 12): accounts acting together; the part of the day kept fo
   const none = await accountsToStopAlice(t, { OUTAGE_RESERVE_PERCENT: "0" });
   const plain = await accountsToStopAlice(t, { OUTAGE_RESERVE_ACCOUNT_USD: "2.5" });
   const kept = await accountsToStopAlice(t, {});
-  // With no reserve: $25 / about $3.50 an account. A reserve any account may draw on up to its whole share (the
-  // reviewer's first suggestion) adds about one account. The reserve as built ($10, only while under $0.50 today)
-  // takes the general $15 (five accounts) and then about $0.50 an account for the $10: more than twice as many.
-  assert.equal(none.accounts, 8, JSON.stringify(none));
-  assert.ok(plain.accounts <= none.accounts + 1, JSON.stringify(plain));
+  // Accounts a month old, each with a real project whose check had passed for days (the hardest kind to get). With no
+  // reserve: $25 / about $5.50 an account (its own $2.50, its practice app's $2, its customers' $1). A reserve any such
+  // account may draw on up to its whole share (the reviewer's first suggestion) adds two accounts ($10 / $2.50 each,
+  // less what they left of the general part). The reserve as built ($10, only while under $0.50 today) takes the
+  // general $15 (three accounts) and then about $0.50 an account for the $10: four times as many.
+  assert.equal(none.accounts, 5, JSON.stringify(none));
+  assert.ok(plain.accounts <= none.accounts + 2, JSON.stringify(plain));
   assert.ok(kept.accounts >= 20, JSON.stringify(kept));
   assert.equal(none.refusal, limits.spendRefusal.deploymentSpent());
   assert.equal(kept.refusal, limits.spendRefusal.deploymentSpent());
@@ -241,6 +243,62 @@ test("ATTACK (finding 19): 40 fresh accounts breaking practice apps and spending
 
 test("ATTACK (finding 19): accounts a month old whose projects' checks had only just started passing cannot drain the reserve either", async (t) => {
   assert.equal(await accountsToStopAlice(t, {}, { steady: false, count: 40 }), null);
+});
+
+// What finding the cause of one practice-app break costs, call by call, with the default models: a quick diagnosis, a
+// careful one when the quick one is unsure, the fixes on offer, and a look for a broader cause. English prompts of
+// these lengths, about four characters to a token; each call is held at its estimate until its cost comes back.
+const PRACTICE_CASE = [
+  { model: "gpt-5.4-mini", prompt: 15_000, max: 2_000, out: 1_500, allowance: "outage" },
+  { model: "gpt-6.1-sol", prompt: 30_000, max: 12_000, out: 6_000, allowance: "outage" },
+  { model: "gpt-5.4-mini", prompt: 20_000, max: undefined, out: 1_000, allowance: "outage" },
+  { model: "gpt-5.4", prompt: 30_000, max: undefined, out: 1_500, allowance: undefined },
+].map(({ model, prompt, max, out, allowance }) => ({
+  estimate: limits.callEstimate(model, "x".repeat(prompt), max),
+  cost: limits.modelCost(model, { inputTokens: prompt / 4, outputTokens: out }),
+  allowance,
+}));
+
+test("a practice app's cases have their own allowance: ten breaks a day explained by AI fit, then it stops, with a plain sentence", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: NOV_16 });
+  await withEnv({ ...ACCOUNTS, PRACTICE_AI_PER_DAY_USD: undefined }, async () => {
+    const db = world({ ada: 1 });
+    const ctx = actions(db);
+    const practiceCase = { caseId: "cases:ada-1" };
+    const perBreak = PRACTICE_CASE.reduce((sum, call) => sum + call.cost, 0);
+    assert.ok(perBreak > 0.1 && perBreak < 0.2, `one break costs $${perBreak.toFixed(3)}`);
+    // The ten breaks the practice app allows in a day, each explained.
+    for (let n = 0; n < 10; n++) {
+      for (const call of PRACTICE_CASE) assert.equal((await modelCall(ctx, practiceCase, call)).ok, true, `break ${n + 1}`);
+    }
+    let day = await ledger.accountDay({ db }, "users:ada", Date.now());
+    assert.ok(Math.abs(day.practiceUsd - 10 * perBreak) < 1e-4, `${day.practiceUsd} for ${10 * perBreak}`);
+    assert.equal(day.ownUsd, 0, "the owner's own share is untouched");
+    assert.ok((await ledger.monthSpend({ db }, "users:ada", Date.now())) > 0, "it counts toward the month like the owner's own calls");
+    // And no more: asking about it again and again stops at the allowance.
+    const more = await spendAll(ctx, practiceCase, CHAT, 20);
+    assert.equal(more.refusal, limits.spendRefusal.practiceSpent(2));
+    day = await ledger.accountDay({ db }, "users:ada", Date.now());
+    assert.ok(day.practiceUsd <= 2 + CHAT.estimate, `the practice app's day stopped at $${day.practiceUsd.toFixed(2)}`);
+    // The owner's real project is diagnosed as before.
+    assert.equal((await modelCall(ctx, { caseId: "cases:ada-0" }, DIAGNOSIS)).ok, true);
+    assert.equal(
+      limits.spendRefusal.practiceSpent(2),
+      "this account has used today's $2.00 of AI for its practice app, so no model was asked; it starts again tomorrow",
+    );
+  });
+  await withEnv({ PRACTICE_AI_PER_DAY_USD: undefined }, () => assert.equal(limits.practiceAiPerDayUsd(), 2));
+  await withEnv({ PRACTICE_AI_PER_DAY_USD: "5" }, () => assert.equal(limits.practiceAiPerDayUsd(), 5));
+});
+
+test("a practice app never draws on the part of the day kept for outages", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: NOV_16 });
+  await withEnv(ACCOUNTS, async () => {
+    const db = world({ ada: 1 });
+    await db.insert("deploymentTotals", { name: "model_usd_day", window: "2026-11-16", value: 15.2, updatedAt: 1 });
+    assert.equal((await modelCall(actions(db), { caseId: "cases:ada-1" }, DIAGNOSIS)).reason, limits.spendRefusal.reserveKept());
+    assert.equal((await modelCall(actions(db), { caseId: "cases:ada-0" }, DIAGNOSIS)).ok, true);
+  });
 });
 
 test("the reserve admits only an outage the monitor raised on a real project whose check had passed for a day, of an account over 14 days old", async (t) => {
@@ -332,7 +390,7 @@ test("ATTACK: a case a customer raised examines broader causes on the project's 
   const examine = load("convex/structural/examine.ts");
   const context = { skip: null, prompt: { availableChecks: [] }, known: {}, relatedCaseIds: ["cases:x", "cases:y"], triggerSummary: "two related cases.", reason: "related_history", seededCaseCount: 0 };
   await withEnv({ ...ACCOUNTS, OPENAI_API_KEY: "sk-test-stand-in" }, async () => {
-    const db = world({ alice: 1 });
+    const db = world({ alice: 2 });
     await db.patch("cases:alice-0", { raisedBy: "customer", kind: "bug_report" });
     const base = actions(db);
     const ctx = {

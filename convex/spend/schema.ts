@@ -43,6 +43,10 @@ export const spendTables = {
     ownHeldUsd: v.number(),
     intakeUsd: v.number(),
     intakeHeldUsd: v.number(),
+    // What finding the cause of its practice app's cases cost, apart from its own calls (PRACTICE_AI_PER_DAY_USD).
+    // Missing on a row from before it was kept: nothing yet.
+    practiceUsd: v.optional(v.number()),
+    practiceHeldUsd: v.optional(v.number()),
     calls: v.number(),
     updatedAt: v.number(),
   }).index("by_account_and_day", ["account", "day"]),

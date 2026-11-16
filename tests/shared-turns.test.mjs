@@ -497,6 +497,23 @@ test("a case the monitor opens records how long its check had been passing; a fa
   assert.equal(w.rows("journeys").find((row) => row.appId === appId).passingSince, undefined, "the failure ended the run");
 });
 
+test("with its practice allowance used up, a broken practice app still opens its case, and the gate says why no model is asked", async (t) => {
+  const w = world(t, { ...ACCOUNTS, OPENAI_API_KEY: "sk-test-stand-in" });
+  const sent = network(t, { "practice.example": () => json(failed) });
+  const services = w.load("convex/consent/services.ts");
+  const ada = await w.db.insert("users", { email: "ada@example.com" });
+  await w.db.insert("aiConsents", { account: ada, answer: "allowed", services: services.ASKED.map(({ id, version }) => ({ id, version })), listVersion: services.LIST_VERSION, answeredAt: 1 });
+  const appId = await project(w, ada, "practice.example");
+  await w.db.patch(appId, { practice: true });
+  await w.db.insert("accountSpendDays", { account: ada, day: "2026-11-16", ownUsd: 0, ownHeldUsd: 0, intakeUsd: 0, intakeHeldUsd: 0, practiceUsd: 2, practiceHeldUsd: 0, calls: 40, updatedAt: 1 });
+  await minutesAsked(t, w, sent, "practice.example", 0, 1);
+  const [opened] = w.rows("cases");
+  assert.equal(opened.raisedBy, "monitor", "the case opened");
+  const answer = await w.run("internal.consent.gate.check", { scope: { caseId: opened._id }, service: "openai", purpose: "send", allowance: "outage" });
+  assert.deepEqual(answer, { ok: false, reason: w.load("convex/spend/limits.ts").spendRefusal.practiceSpent(2) });
+  assert.deepEqual(sent.filter((request) => request.host === "api.openai.com"), []);
+});
+
 // ---- Statement 9: the live address's port ----
 
 test("ATTACK: an account cannot point its live app at another port of someone else's host, so turtl probes no port but the web's", async (t) => {
