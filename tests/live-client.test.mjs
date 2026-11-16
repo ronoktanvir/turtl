@@ -253,6 +253,17 @@ test("example mode and a missing URL never open a backend watch or substitute da
   }
 });
 
+test("the example build opens no backend connection even when a backend address is set", (t) => {
+  const example = clientHooks({ live: false });
+  t.after(example.unmount);
+  assert.equal(example.liveClient, null);
+  assert.equal(example.calls.filter((call) => call.kind === "construct").length, 0, "no client, so no socket and no console errors");
+  const live = clientHooks({ live: true });
+  t.after(live.unmount);
+  assert.notEqual(live.liveClient, null);
+  assert.equal(live.calls.filter((call) => call.kind === "construct").length, 1);
+});
+
 test("errorMessage removes Convex wrappers and stacks without hiding the actual refusal", (t) => {
   const h = clientHooks();
   t.after(h.unmount);
