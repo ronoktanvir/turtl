@@ -6,11 +6,13 @@ import {
   ruleReading,
   type EvidenceSummary,
 } from "../../diagnosis";
+import { readPastCaseNotes } from "../../memory/service";
 import { revisionOf } from "../../protectedApp/client";
 import type { StepHandler } from "../contract";
 import { evidenceRow, loadJourneyContext, type Facts } from "./journey";
 
-// One model call over the facts and evidence from gather_context; a labelled rule-based reading when no model answers.
+// One model call over the facts and evidence from gather_context, with up to three earlier case notes as background;
+// a labelled rule-based reading when no model answers.
 export const handler: StepHandler = {
   timeoutMs: 60_000,
   run: async (ctx, input) => {
@@ -45,6 +47,7 @@ export const handler: StepHandler = {
         ...(e.body && { body: e.body }),
       }));
 
+    const past = await readPastCaseNotes(ctx, input.case, facts);
     const model = modelId();
     const started = Date.now();
     const agentRunId: Id<"agentRuns"> = await ctx.runMutation(
@@ -54,9 +57,10 @@ export const handler: StepHandler = {
         stepId: input.step._id,
         stepAttemptId: input.attempt._id,
         modelId: model,
+        pastCaseCount: past.notes.length,
       },
     );
-    const answer = await askModel(facts, gathered);
+    const answer = await askModel(facts, gathered, past.notes);
     const noModel = answer.ok ? null : `No model answered: ${answer.reason}.`;
     await ctx.runMutation(internal.diagnosis.finishRun, {
       agentRunId,
@@ -97,11 +101,15 @@ export const handler: StepHandler = {
       modelId: answer.ok ? model : null,
       noModelReason: answer.ok ? null : answer.reason,
     };
+    const pastNote =
+      answer.ok || !past.notes.length
+        ? past.summary
+        : `${past.summary} No model answered, so they were not used.`;
     return {
       status: "done",
       summary: answer.ok
-        ? `Likely cause (${model}, confidence ${percent}%): ${reading.cause}`
-        : `${noModel} A rule-based reading of the facts says: ${reading.cause}`,
+        ? `Likely cause (${model}, confidence ${percent}%): ${reading.cause} ${pastNote}`
+        : `${noModel} A rule-based reading of the facts says: ${reading.cause} ${pastNote}`,
       handoff: {
         note: answer.ok
           ? "A model's diagnosis is in this attempt's output."
@@ -111,7 +119,7 @@ export const handler: StepHandler = {
           { kind: "agentRun", id: agentRunId },
         ],
       },
-      output: { diagnosis, agentRunId, evidenceId },
+      output: { diagnosis, agentRunId, evidenceId, pastCaseIds: past.caseIds },
     };
   },
 };

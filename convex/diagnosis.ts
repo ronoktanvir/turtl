@@ -13,6 +13,7 @@ export const DEFAULT_MODEL = "gpt-5.4-mini";
 export const MODEL_ENV = "DIAGNOSIS_MODEL";
 export const HARNESS_VERSION = "turtl-diagnosis-v1";
 export const PROMPT_VERSION = "diagnosis-prompt-v2";
+export const PAST_CASES_PROMPT_VERSION = "diagnosis-prompt-v2-with-past-cases";
 const MODEL_TIMEOUT_MS = 30_000;
 
 export const modelId = () => process.env[MODEL_ENV] || DEFAULT_MODEL;
@@ -26,6 +27,12 @@ const SYSTEM_PROMPT = [
   "supportingEvidenceIds: ids from the evidence list that support it.",
   "supportingFactKeys: exact keys from the supplied facts whose observed values support this cause. Name the failed journey step and error code when relevant; do not name facts you did not use. Never infer or include staging switches.",
   "If the evidence does not establish a cause, say so and give a low confidence.",
+].join("\n");
+
+const PAST_CASES_PROMPT = [
+  "pastCases: notes from earlier cases on this app, given as background only. They may not apply to this case; the fresh facts and evidence decide.",
+  "Base the cause and the confidence on this case's facts and evidence. Never cite a past case as support: supportingEvidenceIds and supportingFactKeys come only from this case.",
+  "A past case's recovery is not a recommendation or an approval for this case.",
 ].join("\n");
 
 export type EvidenceSummary = {
@@ -45,6 +52,7 @@ export type Reading = {
 export async function askModel(
   facts: Facts,
   evidence: EvidenceSummary[],
+  pastCases: string[] = [],
 ): Promise<{ ok: true; reading: Reading } | { ok: false; reason: string }> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
@@ -67,8 +75,20 @@ export async function askModel(
         model: modelId(),
         response_format: { type: "json_object" },
         messages: [
-          { role: "system", content: SYSTEM_PROMPT },
-          { role: "user", content: JSON.stringify({ facts, evidence }) },
+          {
+            role: "system",
+            content: pastCases.length
+              ? `${SYSTEM_PROMPT}\n${PAST_CASES_PROMPT}`
+              : SYSTEM_PROMPT,
+          },
+          {
+            role: "user",
+            content: JSON.stringify(
+              pastCases.length
+                ? { facts, evidence, pastCases }
+                : { facts, evidence },
+            ),
+          },
         ],
       }),
       signal: controller.signal,
@@ -170,8 +190,12 @@ export const startRun = internalMutation({
     stepId: v.id("steps"),
     stepAttemptId: v.id("stepAttempts"),
     modelId: v.string(),
+    pastCaseCount: v.number(),
   },
-  handler: async (ctx, { caseId, stepId, stepAttemptId, modelId }) => {
+  handler: async (
+    ctx,
+    { caseId, stepId, stepAttemptId, modelId, pastCaseCount },
+  ) => {
     const attempt = await ctx.db.get(stepAttemptId);
     if (!attempt || attempt.caseId !== caseId || attempt.stepId !== stepId) {
       throw new Error("The step attempt does not belong to this case.");
@@ -184,7 +208,9 @@ export const startRun = internalMutation({
       config: {
         modelId,
         harnessVersion: HARNESS_VERSION,
-        promptVersion: PROMPT_VERSION,
+        promptVersion: pastCaseCount
+          ? PAST_CASES_PROMPT_VERSION
+          : PROMPT_VERSION,
         credentialRef: "OPENAI_API_KEY",
       },
       taskCharacteristics: {
