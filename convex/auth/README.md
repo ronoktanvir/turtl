@@ -17,6 +17,29 @@ single-owner demo: the app's Login buttons go straight to Home and nobody signs 
 Accounts are never merged by email: each method makes its own account. GitHub can hand over an address its user has
 not verified, so linking on it would let someone take over another person's account.
 
+## Keeping a stranger from locking an owner out
+
+Convex Auth refuses an account's password after 10 wrong ones in an hour, checked before the password, so anyone who
+knows an owner's address can keep the right password refused. The reset is the owner's way back in, and turtl keeps it
+open (`email.ts`):
+
+- A reset code is never replaced while it still works: asking again sends nothing, and the code already in the
+  owner's inbox keeps working (at most one email a minute either way).
+- Wrong codes count against the code, not the address: each code takes 5 tries and is then dropped, and anyone may
+  ask for a new one, which only the owner receives. Codes are checked by account (`accountId`), so Convex Auth's own
+  count of wrong codes per address never applies.
+- A reset that works clears the account's count of wrong passwords, so the new password works at once everywhere.
+
+What is left: a stranger can still keep the password count spent, and can use up each new code with 5 wrong guesses
+as soon as it is sent, so a determined script can delay a reset. Telling the owner's own phone apart from a stranger's
+(App Attest, or a code bound to the device that asked) is out of scope for now. `authPasswordResets` holds one row per
+account with a reset under way (when its code was asked for, how many tries it has had), deleted when the reset
+succeeds.
+
+Sign-up says "There's already an account for this email" plainly, with what to do next. A sign-up that works signs in at
+once, so a refusal reads differently from success whatever its words; only a code emailed in both cases could hide it.
+Sign-in and reset never reveal whether an address has an account.
+
 ## Limits on new accounts, and why there is no email check yet
 
 With `AUTH_REQUIRED=true` the deployment makes at most `NEW_ACCOUNTS_PER_HOUR` and `NEW_ACCOUNTS_PER_DAY` new

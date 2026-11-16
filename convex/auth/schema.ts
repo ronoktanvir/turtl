@@ -12,4 +12,8 @@ export const accountTables = {
   ...authTables,
   /** Nonces of Apple identity tokens already used, kept until the token expires, so each token signs in once. */
   authAppleNonces: defineTable({ nonceHash: v.string(), expiresAt: v.number() }).index("nonceHash", ["nonceHash"]),
+  /** A password reset under way, one row per account: when its code was asked for, and how many times someone tried a
+   * code against it. Wrong codes count against the code (it is dropped after a few), never against the address, so
+   * nobody can keep the owner's own code from working. Deleted when the reset succeeds; goes with the account. */
+  authPasswordResets: defineTable({ accountId: v.id("authAccounts"), requestedAt: v.number(), tries: v.number() }).index("accountId", ["accountId"]),
 };
