@@ -364,6 +364,20 @@ test("4. a reset ends every other session of the account, and a code cannot be r
   await assert.rejects(redeem("third password"), refusal(words.wrongCode), "a code works once");
 });
 
+// Review finding 18: an owner who lost a phone resets the password from another device. Every session ends, and the
+// lost phone's registration goes with its session, so it receives none of the account's notifications.
+test("4. a reset forgets the phones registered under the sessions it ended, so a lost phone's notifications stop at once", async (t) => {
+  const w = await world(t, ACCOUNTS);
+  t.mock.timers.enable({ apis: ["Date"], now: START + 10 * 3_600_000 });
+  await confirmedOwner(w, "owner@example.com");
+  const lost = await w.password({ flow: "signIn", email: "owner@example.com", password: "tide pools at dawn" });
+  await w.call("api.push.devices.register", { token: "ExponentPushToken[lost-phone]", platform: "ios" }, lost.identity);
+  assert.equal(w.db.rows("pushTokens")[0].sessionId, lost.identity.subject.split("|")[1], "tied to the session that turned it on");
+  await w.password({ flow: "reset", email: "owner@example.com" });
+  await w.password({ flow: "reset-verification", email: "owner@example.com", code: w.standIn.lastCode("owner@example.com"), newPassword: "a new password" });
+  assert.deepEqual(w.db.rows("pushTokens"), [], "the lost phone's registration went with its session");
+});
+
 // ---------------------------------------------------------------------------------------------- confirming the address
 
 test("5. a password account cannot make a project, connect GitHub, store a secret or spend until it confirms its address", async (t) => {

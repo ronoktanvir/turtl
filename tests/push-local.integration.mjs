@@ -121,4 +121,41 @@ test("push on a local Convex backend against a stand-in for Expo", { timeout: 12
     assert.equal(await admin.query(ref("push/localProof:token"), { token: aliceToken }), null);
     await bob.mutation(ref("push/devices:remove"), { token: bobToken });
   });
+
+  // Review finding 18: a phone receives an account's notifications only while the sign-in session that turned them on
+  // is live. Here the session is a real authSessions row, and the proof acts as a token naming it.
+  await t.test("accounts mode: a phone receives only while its sign-in session is live; then another account may take it, and the sweep forgets the rest", async () => {
+    const asSession = ({ userId, sessionId }) => {
+      const c = new ConvexHttpClient(url);
+      c.setAdminAuth(config.adminKey, { subject: `${userId}|${sessionId}`, issuer: "https://local.test", tokenIdentifier: `https://local.test|${userId}` });
+      return c;
+    };
+    const carol = await admin.mutation(ref("push/localProof:session"), {});
+    const phone = TOKEN("carol"), other = TOKEN("carol-other");
+    await asSession(carol).mutation(ref("push/devices:register"), { token: phone, platform: "ios" });
+    await asSession(carol).mutation(ref("push/devices:register"), { token: other, platform: "ios" });
+    assert.equal((await admin.query(ref("push/localProof:token"), { token: phone })).sessionId, carol.sessionId);
+    const sentFor = (caseId) => stub.sends().filter((r) => r.body.some((m) => m.data.caseId === caseId)).flatMap((r) => r.body.map((m) => m.to)).sort();
+    const pushed = async (caseId, expected) => {
+      await admin.action(ref("notices:notifyOwner"), { caseId, event: "needs_decision", text: "text for Keiki" });
+      if (expected.length) return await until(async () => sentFor(caseId), (to) => to.length >= expected.length, "no push sent");
+      await delay(2000);
+      return sentFor(caseId);
+    };
+    assert.deepEqual(await pushed((await admin.mutation(ref("push/localProof:seed"), { name: "Carol's shop", ownerId: carol.userId })).caseId, [phone, other]), [phone, other].sort());
+
+    // Carol's session ends (she reset her password on another phone, or signed out where this one could not say so).
+    await admin.mutation(ref("push/localProof:endSession"), { sessionId: carol.sessionId });
+    assert.deepEqual(await pushed((await admin.mutation(ref("push/localProof:seed"), { name: "Carol's shop, later", ownerId: carol.userId })).caseId, []), [], "nothing reaches her old phones");
+    // Dave signs in on the phone she left: he may turn its notifications on, but a launch alone files nothing.
+    const dave = await admin.mutation(ref("push/localProof:session"), {});
+    assert.equal(await asSession(dave).mutation(ref("push/devices:refresh"), { token: phone, platform: "ios" }), false);
+    await asSession(dave).mutation(ref("push/devices:register"), { token: phone, platform: "ios" });
+    assert.equal((await admin.query(ref("push/localProof:token"), { token: phone })).account, dave.userId);
+    // The hourly sweep forgets the phone still filed under her ended session.
+    const swept = await admin.mutation(ref("push/devices:sweep"), {});
+    assert.ok(swept.removed >= 1, JSON.stringify(swept));
+    assert.equal(await admin.query(ref("push/localProof:token"), { token: other }), null);
+    await asSession(dave).mutation(ref("push/devices:remove"), { token: phone });
+  });
 });

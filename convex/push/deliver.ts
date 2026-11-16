@@ -4,12 +4,13 @@ import type { Id } from "../_generated/dataModel";
 import { internalAction, internalMutation, internalQuery, type MutationCtx } from "../_generated/server";
 import { accessEnforced, ownsApp, SOLO_ACCOUNT } from "../access";
 import { vNoticeEvent } from "../constants";
-import { MAX_LIVE_TOKENS } from "./devices";
+import { MAX_LIVE_TOKENS, receives } from "./devices";
 import { NOT_REGISTERED, receiptsFromExpo, sendToExpo } from "./expo";
 import { expoMessages, pushMessage, sendsPush } from "./message";
 import { vPushOutcome } from "./schema";
 
-// Sends one push per owner notice to every live phone of the project's owner, through Expo's push service.
+// Sends one push per owner notice to every live phone of the project's owner, through Expo's push service. With
+// accounts on, a live phone is one whose sign-in session is still live (devices.ts, receives).
 // convex/notices.ts schedules forNotice once per case event, after it claimed that event; identity does not travel
 // here, so the recipient is the owner on record for the case's project (apps.ownerId), never the caller.
 
@@ -40,7 +41,9 @@ export const recipients = internalQuery({
       .query("pushTokens")
       .withIndex("by_account_and_disabled", (q) => q.eq("account", account).eq("disabledAt", undefined))
       .take(MAX_LIVE_TOKENS);
-    return { projectName: app.name, account, tokens: live.map((t) => ({ tokenId: t._id, token: t.token })) };
+    const receiving = [];
+    for (const row of live) if (await receives(ctx, row)) receiving.push({ tokenId: row._id, token: row.token });
+    return { projectName: app.name, account, tokens: receiving };
   },
 });
 

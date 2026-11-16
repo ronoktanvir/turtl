@@ -117,8 +117,10 @@ export function password() {
           await modifyAccountCredentials(ctx, { provider: PASSWORD_PROVIDER_ID, account: { id: email, secret: params.newPassword as string } });
           // The new password works at once, on every device, whatever wrong passwords someone tried before.
           await ctx.runMutation(internal.auth.codes.forgetWrongPasswords, { accountId: account._id });
-          // A new password signs out every device. Convex Auth then makes this one's new session.
+          // A new password signs out every device. Convex Auth then makes this one's new session. A lost phone's
+          // notifications stop with its session, and its registration goes now (convex/push/devices.ts).
           await invalidateSessions(ctx, { userId: account.userId });
+          await ctx.runMutation(internal.push.devices.forgetEnded, { account: account.userId });
           return { userId: account.userId };
         }
         default:

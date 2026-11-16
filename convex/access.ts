@@ -96,13 +96,25 @@ export async function signedInAccount(ctx: ReadCtx): Promise<string | null> {
   const [account, session] = identity.subject.split("|");
   // Only a subject naming a real session id is checked; one that names none (an admin's test identity) reads as before.
   const sessionId = session ? db.normalizeId("authSessions", session) : null;
-  if (sessionId) {
-    const row = await db.get(sessionId);
-    if (!row || row.expirationTime <= Date.now()) return null;
-  }
+  if (sessionId && !(await sessionLive({ db }, sessionId))) return null;
   // Email confirmation, checked here and nowhere else (see "email confirmation" at the end of this file).
   if (accessEnforced() && !(await addressConfirmed(db, account))) return null;
   return account;
+}
+
+/** Whether a Convex Auth session is still live: its row is there (signing out, a password reset and account deletion
+ * delete it) and it has not run out. */
+export async function sessionLive(ctx: DbCtx, sessionId: Id<"authSessions">): Promise<boolean> {
+  const row = await ctx.db.get(sessionId);
+  return !!row && row.expirationTime > Date.now();
+}
+
+/** The session the caller's token names. Convex Auth's tokens always name one; an identity the operator's admin key
+ * stands for may name none, and then this is null. Ask after requireAccount, which has checked the session is live. */
+export async function callerSession(ctx: ReadCtx): Promise<Id<"authSessions"> | null> {
+  const db = databaseOf(ctx);
+  const session = (await ctx.auth.getUserIdentity())?.subject.split("|")[1];
+  return session ? db.normalizeId("authSessions", session) : null;
 }
 
 /** The demo's one owner, once the deployment is known to hold no account. These two answers are what everything else
