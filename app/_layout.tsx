@@ -1,4 +1,3 @@
-import { ConvexProvider } from "convex/react";
 import { Stack, useSegments } from "expo-router";
 import { useEffect } from "react";
 import * as SplashScreen from "expo-splash-screen";
@@ -11,6 +10,8 @@ import { Righteous_400Regular } from "@expo-google-fonts/righteous";
 import { backendClient as convex, isLiveData, isStoreBuild, useBackendReachable, useDataStatus } from "../data";
 import BackendUnavailable from "../components/ui/BackendUnavailable";
 import OwnerPasscodePrompt from "../components/ui/OwnerPasscodePrompt";
+import AccountGate from "../components/account/AccountGate";
+import AccountProvider from "../components/account/AccountProvider";
 
 void SplashScreen.preventAutoHideAsync().catch(() => {});
 
@@ -69,11 +70,12 @@ export default function RootLayout() {
 
   return (
     <ThemeProvider>
-      <ConvexProvider client={convex}>
+      <AccountProvider client={convex}>
         <Screens />
+        <AccountGate />
         <DevTools />
         {isStoreBuild && <Unreachable />}
-      </ConvexProvider>
+      </AccountProvider>
     </ThemeProvider>
   );
 }

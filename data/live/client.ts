@@ -4,7 +4,18 @@ import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { isLiveData } from "../source";
 
 const url = process.env.EXPO_PUBLIC_CONVEX_URL;
-export const liveClient = url ? new ConvexReactClient(url, { unsavedChangesWarning: false }) : null;
+// Sign-in refusals (a wrong password, say) arrive in plain words and are shown on the screen, so they skip the
+// console error the client would otherwise print for them. Everything else logs as before.
+const signInRefusal = /^\[CONVEX A\(auth:signIn\)\][\s\S]*ConvexError/;
+const logger = {
+  logVerbose: () => {},
+  log: (...args: unknown[]) => console.log(...args),
+  warn: (...args: unknown[]) => console.warn(...args),
+  error: (...args: unknown[]) => {
+    if (typeof args[0] !== "string" || !signInRefusal.test(args[0])) console.error(...args);
+  },
+};
+export const liveClient = url ? new ConvexReactClient(url, { unsavedChangesWarning: false, logger }) : null;
 
 const states = new Map<string, { error?: string; loading: boolean }>();
 const listeners = new Set<() => void>();
