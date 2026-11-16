@@ -143,8 +143,8 @@ Each sentence of the description in `store.config.json`, and what makes it true:
 - [x] The answers are drafted from the code, one row for each of Apple's data types (`store/app-privacy.md`).
 - [ ] The audit is run again on the commit that is submitted. `node store/check.mjs` names every audited file that has changed and every new outside host, setting, and library. **TUR-66**
 - [ ] The answers are typed into App Store Connect. No tool pushes them. **TUR-66**
-- [ ] When accounts land, the answers include Email Address, Name, and User ID. Accounts have landed; this waits on `store/app-privacy.md`. **TUR-57**
-- [ ] When push notifications land, the answers include Device ID. Push has landed; this waits on `store/app-privacy.md`. **TUR-64**
+- [x] When accounts land, the answers include Email Address, Name, and User ID. They do, each pointed at the audit's account section (`store/app-privacy.md`, `store/data-practices.md` D1).
+- [x] When push notifications land, the answers include Device ID. It is the push token, collected only after the owner taps Turn on notifications (`store/app-privacy.md`, `store/data-practices.md` D13).
 - [ ] When crash reporting lands, the answers include Crash Data and Performance Data, and the vendor is added to the privacy policy. **TUR-65**
 
 ### RC-13 · Guidelines 2.3.7 and 5.2.1 · A name of turtl's own
@@ -205,7 +205,7 @@ Each sentence of the description in `store.config.json`, and what makes it true:
 - [x] The app links to it from the gear sheet, with the terms and the support page (`components/legal/LegalLinks.tsx`). The link shows in any build that uses a real backend.
 - [x] The sign-in screen links to the policy and the terms too, since nobody can reach the gear sheet before signing in ([app/index.tsx:61](https://github.com/ronoktanvir/turtl/blob/2f99bfebc3a7eae0379704a36a19dcbf687526fa/app/index.tsx#L61 "<LegalLinks />")).
 - [ ] Every "to confirm before launch" note on the policy is settled, and `show_review_notes` is set to `false`. **Ronok**
-- [ ] The policy describes what the accounts work stores. **TUR-60**, after **TUR-57**
+- [x] The policy describes what the accounts work stores: the email address, the name Apple or GitHub passes on, the picture GitHub passes on, their id for the person, a scrambled password, Apple's token, the phone's push token, and the control token and coding agent key, encrypted (`site/privacy.md`, "About you" and "What you connect").
 
 ### RC-20 · Guideline 5.1.1(ii) · Purpose strings
 
@@ -240,14 +240,14 @@ Each sentence of the description in `store.config.json`, and what makes it true:
 - [x] It deletes the copies in Supermemory: every namespace the account's projects wrote to is deleted whole ([convex/account/vendors.ts:37](https://github.com/ronoktanvir/turtl/blob/2f99bfebc3a7eae0379704a36a19dcbf687526fa/convex/account/vendors.ts#L37 "const deleted = await deleteNamespace(gateFor(ctx,")). Proven against a stand-in for Supermemory, not yet against Supermemory.
 - [ ] An account made with Sign in with Apple has its Apple token revoked on deletion, as Apple requires. Built and tested against a stand-in ([convex/account/vendors.ts:61](https://github.com/ronoktanvir/turtl/blob/2f99bfebc3a7eae0379704a36a19dcbf687526fa/convex/account/vendors.ts#L61 "const revoked = await revokeToken(client, token.refreshToken)")). What remains: `AUTH_APPLE_TEAM_ID`, `AUTH_APPLE_KEY_ID` and `AUTH_APPLE_PRIVATE_KEY` on the production backend (without them no token is kept, so none can be revoked), and one run against Apple. **TUR-57**, then **TUR-66**
 - [x] It removes turtl's access to the owner's GitHub repositories ([convex/account/vendors.ts:47](https://github.com/ronoktanvir/turtl/blob/2f99bfebc3a7eae0379704a36a19dcbf687526fa/convex/account/vendors.ts#L47 "internal.github.connect.disconnectAccount,")).
-- [ ] The review account can show deletion without destroying itself, or the notes tell the reviewer to make a throwaway account. **TUR-57**
+- [x] The review account can show deletion without destroying itself, or the notes tell the reviewer to make a throwaway account. The notes tell the reviewer to try it on an account they make with Sign up (`store/review-notes.txt`, ACCOUNT DELETION).
 
 ### RC-24 · Guideline 5.1.1(i) · How long data is kept
 
 > "Explain its data retention/deletion policies and describe how a user can revoke consent and/or request deletion of the user's data."
 
 - [x] The policy has a section on how long data is kept and one on how to have it deleted (`site/privacy.md`).
-- [ ] Decide how long closed cases, chat, and customers' reports are kept: forever, or deleted after a set time. The policy says "until you delete it" and the code keeps everything. **Ronok**
+- [ ] Decide how long closed cases, chat, and customers' reports are kept: forever, or deleted after a set time. The policy says they are kept until the owner deletes the account (or one report), which is what the code does. **Ronok**
 - [ ] Fill in how many days a deleted account survives in the backend's backups (`backup_retention_days`). **Ronok**
 
 ### RC-25 · Guidelines 5.1.1(viii) and 5.1.2(i) · Other people's data: customers' reports
