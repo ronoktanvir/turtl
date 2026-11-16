@@ -1,12 +1,16 @@
 import { useLocalSearchParams, useRouter, type Href } from "expo-router";
-import { useMemo } from "react";
-import { Image, PanResponder, Pressable, ScrollView, View, useWindowDimensions } from "react-native";
+import { useEffect, useMemo, useRef, type ComponentRef } from "react";
+import { Image, PanResponder, Platform, Pressable, ScrollView, View, useWindowDimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useCases, useDataStatus, useProject } from "../../data";
 import type { CaseType } from "../../data/types";
 import { labels, useTheme } from "../../theme";
 import { Button, Icon, Screen, T, Turtle, ZoomPressable } from "../ui";
 import { issueState, type IssueTurtle } from "./issueState";
+import { downwardTravel, sidewaysTravel, wheelSwipeUp, type Wheel } from "./wheel";
+
+type WheelEvent = Wheel & { preventDefault(): void };
+type WheelTarget = { scrollLeft: number; addEventListener(type: "wheel", listener: (event: WheelEvent) => void, options: { passive: boolean }): void; removeEventListener(type: "wheel", listener: (event: WheelEvent) => void): void };
 
 const turtles: Record<IssueTurtle, number> = {
   affected: require("../../assets/turtle/affected-laptop.png"),
@@ -36,6 +40,35 @@ export default function BeginScreen({ type }: { type: CaseType }) {
     onMoveShouldSetPanResponder: (_, gesture) => gesture.dy < -10 && Math.abs(gesture.dy) > Math.abs(gesture.dx),
     onPanResponderRelease: (_, gesture) => { if (gesture.dy < -40 && firstId) router.push(`/review/${firstId}` as Href); },
   }), [firstId, router]);
+  // In a browser there is no finger. A mouse wheel moves the strip of cards sideways, and a two-finger swipe up
+  // on a trackpad, which arrives as wheel events, opens the first card the way a swipe on a phone does.
+  const strip = useRef<ComponentRef<typeof ScrollView>>(null);
+  const below = useRef<ComponentRef<typeof View>>(null);
+  const listed = !!project && !!firstId; // the strip is on screen only once both the project and its cases are here
+  useEffect(() => {
+    if (Platform.OS !== "web" || !listed) return;
+    const cards = (strip.current as unknown as { getScrollableNode(): WheelTarget } | null)?.getScrollableNode();
+    const area = below.current as unknown as WheelTarget | null;
+    if (!cards || !area) return;
+    const swipedUp = wheelSwipeUp();
+    const slide = (event: WheelEvent) => {
+      const travel = sidewaysTravel(event);
+      if (!travel) return;
+      event.preventDefault();
+      cards.scrollLeft += travel;
+    };
+    const open = (event: WheelEvent) => {
+      if (Math.abs(event.deltaX) >= Math.abs(event.deltaY)) return;
+      event.preventDefault();
+      if (swipedUp(downwardTravel(event), Date.now())) router.push(`/review/${firstId}` as Href);
+    };
+    cards.addEventListener("wheel", slide, { passive: false });
+    area.addEventListener("wheel", open, { passive: false });
+    return () => {
+      cards.removeEventListener("wheel", slide);
+      area.removeEventListener("wheel", open);
+    };
+  }, [listed, firstId, router]);
 
   return (
     <Screen testID={`begin-${type}`}>
@@ -52,7 +85,7 @@ export default function BeginScreen({ type }: { type: CaseType }) {
       ) : (
         <>
           <View>
-            <ScrollView horizontal testID="begin-case-strip" showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 20, paddingVertical: 8, gap: 14 }}>
+            <ScrollView ref={strip} horizontal testID="begin-case-strip" showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 20, paddingVertical: 8, gap: 14 }}>
               {cases.map((item) => {
                 const state = issueState(item);
                 return <ZoomPressable key={item.id} accessibilityRole="button" testID={`begin-case-${item.id}`} onPress={() => router.push(`/review/${item.id}` as Href)} style={({ pressed }) => ({ width: Math.min(288, width - 64), minHeight: height < 650 ? 224 : 254, borderRadius: 22, borderWidth: 1, borderColor: colors[state.color], backgroundColor: pressed ? colors.surfaceRaised : colors.surface, padding: 20, gap: 18 })}>
@@ -64,7 +97,7 @@ export default function BeginScreen({ type }: { type: CaseType }) {
               })}
             </ScrollView>
           </View>
-          <View {...pan.panHandlers} style={{ flex: 1, justifyContent: "flex-end", alignItems: "center", paddingBottom: insets.bottom + 24, paddingTop: 16 }}>
+          <View ref={below} {...pan.panHandlers} style={{ flex: 1, justifyContent: "flex-end", alignItems: "center", paddingBottom: insets.bottom + 24, paddingTop: 16 }}>
             <Pressable onPress={openFirst} accessibilityRole="button" accessibilityLabel="Swipe up to review" testID="begin-review" style={({ pressed }) => ({ alignItems: "center", gap: 8, opacity: pressed ? 0.6 : 1 })}>
               <View style={{ opacity: 0.45 }}><Icon name="ArrowUp" size={height < 650 ? 64 : 84} color="text" strokeWidth={1.15} /></View>
               <T variant="heading" font="text">Swipe up to review</T>
