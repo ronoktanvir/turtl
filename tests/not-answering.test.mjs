@@ -239,7 +239,8 @@ test("R3, R5: the third try in a row with no answer opens one case for the proje
     { kind: opened.kind, raisedBy: opened.raisedBy, journeyId: opened.journeyId, signature: opened.signature, status: opened.status, passingForMs: opened.passingForMs },
     { kind: "outage", raisedBy: "monitor", journeyId: undefined, signature: `not_answering:${appId}`, status: "waiting_for_app", passingForMs: undefined },
   );
-  assert.match(opened.title, /not answering/);
+  // True while the app is quiet and after the case closes.
+  assert.equal(opened.title, "Your app stopped answering");
   // What turtl saw, and only that: the case page says the rest while the case is open, and shows this line again once
   // it is closed, when "it keeps checking" would no longer be true.
   // No exact number of tries: a check's count can be held below the threshold while turtl checks itself, so the case
@@ -315,6 +316,8 @@ test("R4, R5: when the app answers again the case closes with what turtl saw, an
   const [attempt] = w.rows("stepAttempts").filter((row) => row.caseId === closed._id);
   assert.equal(attempt.status, "done");
   assert.equal(attempt.summary, "The app answered turtl's checks again after about 7 minutes without an answer. Its checks pass now.");
+  // The case page reads whether every check that ran passed from the record, not from the sentence.
+  assert.deepEqual({ answered: attempt.output.answered, allPassed: attempt.output.allPassed }, { answered: true, allPassed: true });
   assert.deepEqual(events(w), ["not_answering", "answering_again"]);
   assert.deepEqual(pushes(w), ["not_answering", "answering_again"]);
   // Not an all-clear: the app can come back with a failing check.
@@ -344,6 +347,7 @@ test("R4: when the app answers with a failing check, the case closes and the ord
   assert.equal(closed.status, "resolved");
   const [attempt] = w.rows("stepAttempts").filter((row) => row.caseId === closed._id);
   assert.equal(attempt.summary, "The app answered turtl's checks again after about 7 minutes without an answer. \"Check 1\" fails now, which turtl handles as a separate issue.");
+  assert.deepEqual({ answered: attempt.output.answered, allPassed: attempt.output.allPassed }, { answered: true, allPassed: false });
   const [failing] = ordinary(w);
   assert.equal(failing.signature, `journey_failed:${w.rows("journeys")[1]._id}`);
   // The failure's own notice was sent during the round, before the round closed the case.
@@ -434,6 +438,7 @@ test("R4: when turtl stops checking the project, the case closes with why, no se
   const [attempt] = w.rows("stepAttempts").filter((row) => row.caseId === closed._id);
   assert.equal(attempt.status, "done");
   assert.equal(attempt.summary, "turtl stopped checking this project, so it closed this case without knowing whether the app answers again. It has no live address, so turtl has nothing to check.");
+  assert.deepEqual({ answered: attempt.output.answered, allPassed: attempt.output.allPassed }, { answered: false, allPassed: false }, "nothing ran, so nothing is said to pass");
   assert.deepEqual([events(w), pushes(w)], [["not_answering"], ["not_answering"]], "no \"answering again\"");
   assert.deepEqual(counts(w, appId), [0, 0]);
   assert.ok((await overview(w, appId, ada)).every((check) => check.notAnswering === undefined));

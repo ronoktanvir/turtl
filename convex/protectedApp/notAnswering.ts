@@ -56,7 +56,8 @@ const NOT_OPEN: readonly string[] = [...CLOSED_CASE_STATUSES, "restored"];
 export const WAIT_STEP = { key: "wait_for_answer", title: "Wait for the app to answer", dependsOn: [], kind: "function" as const, purpose: "detect_or_receive" as const };
 
 const NOT_SENT = "turtl could not send its checks to the app.";
-const TITLE = "Your app is not answering turtl's checks";
+// True while the app is quiet and after the case closes.
+const TITLE = "Your app stopped answering";
 const WAITING = "turtl's checks get no answer from the app. turtl cannot propose a fix for an app it cannot reach, so it keeps checking and closes this case when the app answers.";
 const OFFLINE =
   "A not-answering case was held back: turtl's own site did not answer turtl's request, so turtl's own requests may not be getting out. The next round of that project's checks asks again.";
@@ -143,8 +144,11 @@ function impactOf(quiet: Doc<"journeys">[]): string {
   return `At least three tries in a row of ${which} got no usable answer: ${sawWords(latest)}.`;
 }
 
-/** How the checks stand now that the app answered: the ones that fail, and the ones still with no answer. */
-function nowWords(journeys: Doc<"journeys">[], tries: Try[]): string {
+/**
+ * How the checks stand now that the app answered: the ones that fail, and the ones still with no answer, in words, and
+ * whether every check that ran passed (a try turtl did not send did not run).
+ */
+function nowWords(journeys: Doc<"journeys">[], tries: Try[]): { tail: string; allPassed: boolean } {
   const names = (kind: (got: Try["got"]) => boolean) =>
     tries.filter((tried) => kind(tried.got)).flatMap((tried) => journeys.filter((journey) => journey._id === tried.journeyId).map((journey) => journey.name));
   const failing = names((got) => got.kind === "failed");
@@ -152,9 +156,8 @@ function nowWords(journeys: Doc<"journeys">[], tries: Try[]): string {
   const parts = [];
   if (failing.length) parts.push(`${quoted(failing)} ${failing.length === 1 ? "fails" : "fail"} now, which turtl handles as a separate issue.`);
   if (quiet.length) parts.push(`${quoted(quiet)} got no answer this time.`);
-  // The case page reads this exact sentence to tell a case whose checks all pass from one where something still does
-  // not (data/live/caseMapping.ts, ALL_PASS); change both together.
-  return parts.length ? parts.join(" ") : "Its checks pass now.";
+  const allPassed = tries.some((tried) => tried.got.kind === "passed") && tries.every((tried) => tried.got.kind === "passed" || tried.got.kind === "not_sent");
+  return { tail: parts.length ? parts.join(" ") : "Its checks pass now.", allPassed };
 }
 
 const stoppedWords = (reason: string) => `turtl stopped checking this project, so it closed this case without knowing whether the app answers again. ${reason}`;
@@ -172,14 +175,20 @@ const quietSince = (attempt: Doc<"stepAttempts"> | null, row: Doc<"cases">): num
   return typeof since === "number" ? since : row._creationTime;
 };
 
-async function close(ctx: MutationCtx, row: Doc<"cases">, how: { answered: true; tail: string } | { answered: false; reason: string }) {
+/**
+ * Closes the case. Its step's output records when the app went quiet, when the case closed, whether the app answered,
+ * and whether every check that ran then passed (false when turtl stopped checking: nothing ran). The case page reads
+ * these, never the summary's words.
+ */
+async function close(ctx: MutationCtx, row: Doc<"cases">, how: { answered: true; tail: string; allPassed: boolean } | { answered: false; reason: string }) {
   const now = Date.now();
   const attempt = await waitingAttempt(ctx, row._id);
   const since = quietSince(attempt, row);
   const summary = how.answered
     ? `The app answered turtl's checks again after about ${about(now - since)} without an answer. ${how.tail}`
     : stoppedWords(how.reason);
-  if (attempt) await finishAttempt(ctx, attempt._id, { status: "done", summary, output: { quietSince: since, closedAt: now, answered: how.answered } });
+  const allPassed = how.answered && how.allPassed;
+  if (attempt) await finishAttempt(ctx, attempt._id, { status: "done", summary, output: { quietSince: since, closedAt: now, answered: how.answered, allPassed } });
   await setCaseStatus(ctx, row._id, how.answered ? "resolved" : "unresolved");
   if (how.answered) {
     const app = await ctx.db.get(row.appId);
@@ -261,7 +270,7 @@ export const settle = internalMutation({
     if (open) {
       if (quiet.length) return { kind: "open", caseId: open._id };
       if (fresh.some((one) => one.got.kind === "passed" || one.got.kind === "failed")) {
-        await close(ctx, open, { answered: true, tail: nowWords(journeys, fresh) });
+        await close(ctx, open, { answered: true, ...nowWords(journeys, fresh) });
         return { kind: "closed", caseId: open._id, answered: true };
       }
       if (fresh.length > 0 && fresh.every((one) => one.got.kind === "not_sent")) {
@@ -362,5 +371,6 @@ export async function passedOutsideRound(ctx: MutationCtx, journey: Doc<"journey
   const others = (await journeysOf(ctx, journey.appId)).filter((other) => other._id !== journey._id && isNotAnswering(other));
   if (others.length) return;
   const open = openOf(await recentCases(ctx, journey.appId));
-  if (open) await close(ctx, open, { answered: true, tail: `${quoted([journey.name])} passed when another of this project's cases checked it.` });
+  // The one check that ran passed.
+  if (open) await close(ctx, open, { answered: true, tail: `${quoted([journey.name])} passed when another of this project's cases checked it.`, allPassed: true });
 }

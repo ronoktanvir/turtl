@@ -415,7 +415,7 @@ test("the two journey and health checks say when each was made, so neither reads
 const SAW = "At least three tries in a row of the \"Book an appointment\" check got no usable answer: turtl could not connect to the app.";
 const SAW_AFTER = "at least three tries in a row of the \"Book an appointment\" check got no usable answer: turtl could not connect to the app.";
 const quietRow = (fields = {}) => row({
-  _id: "case-q", title: "Your app is not answering turtl's checks", impact: SAW, status: "waiting_for_app",
+  _id: "case-q", title: "Your app stopped answering", impact: SAW, status: "waiting_for_app",
   signature: "not_answering:app-1", raisedByRef: "turtl's checks", ...fields,
 });
 const waitStep = (attemptFields = {}, fields = {}) => step({
@@ -427,7 +427,7 @@ const waitStep = (attemptFields = {}, fields = {}) => step({
   }),
   ...fields,
 });
-const closedStep = (summary, answered) => waitStep({ status: "done", finishedAt: 422_000, summary, output: { quietSince: 2000, closedAt: 422_000, answered } }, { status: "done" });
+const closedStep = (summary, answered, allPassed = false) => waitStep({ status: "done", finishedAt: 422_000, summary, output: { quietSince: 2000, closedAt: 422_000, answered, allPassed } }, { status: "done" });
 const paragraphs = (detail) => detail.overview.filter((block) => block.kind === "paragraph").map((block) => block.spans.map((span) => span.text).join(""));
 const NOT_INVESTIGATING = /investigat|working on|looking into|Not covered|Source code|approve a fix|\(attempt/i;
 
@@ -469,7 +469,7 @@ test("an open not-answering case says what turtl saw, that it has no fix, where 
 
 test("a not-answering case closed because the app answered says so, how long it was quiet, and how the checks stand", () => {
   const answered = "The app answered turtl's checks again after about 7 minutes without an answer. Its checks pass now.";
-  const detail = map(cards({ case: quietRow({ status: "resolved" }), steps: [closedStep(answered, true)] }));
+  const detail = map(cards({ case: quietRow({ status: "resolved" }), steps: [closedStep(answered, true, true)] }));
   assert.equal(detail.status, "resolved");
   assert.equal(detail.health, "clear");
   assert.equal(detail.summary, answered);
@@ -489,6 +489,10 @@ test("a not-answering case closed with a check failing after the app came back i
   assert.equal(detail.summary, failing, "what fails now leads the page");
   const quiet = "The app answered turtl's checks again after about 7 minutes without an answer. \"Pay\" got no answer this time.";
   assert.equal(map(cards({ case: quietRow({ status: "resolved" }), steps: [closedStep(quiet, true)] })).health, "affected");
+  // What decides is the record of whether every check that ran passed, never the sentence.
+  const said = "The app answered turtl's checks again after about 7 minutes without an answer. Its checks pass now.";
+  assert.equal(map(cards({ case: quietRow({ status: "resolved" }), steps: [closedStep(said, true, false)] })).health, "affected");
+  assert.equal(map(cards({ case: quietRow({ status: "resolved" }), steps: [closedStep(failing, true, true)] })).health, "clear");
   assert.equal(map(cards({ case: quietRow({ status: "resolved", impact: "" }), steps: [] })).health, "affected", "not known to pass: not all clear");
 });
 
