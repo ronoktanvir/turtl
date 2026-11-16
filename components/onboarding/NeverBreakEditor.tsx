@@ -20,7 +20,7 @@ export function NeverBreakEditor({ answers, editable, onChange }: { answers: Nev
         <View key={answer.id ?? "new-" + index} testID={"never-break-" + index} style={{ flexDirection: "row", alignItems: "center", gap: 12, padding: 16, borderRadius: 16, borderWidth: 1, borderColor: answer.addCheck ? colors.brandDeep : colors.border, backgroundColor: colors.surface }}>
           <View style={{ flex: 1, gap: 6 }}>
             <T variant="strong">{answer.text}</T>
-            {answer.suggested && <Chip label="Suggested" tone="brandDeep" />}
+            {answer.suggested && <Chip label="Suggested" tone="statusClear" />}
             {answer.why && <T variant="small" color="textMuted">{answer.why}</T>}
           </View>
           {!editable ? (

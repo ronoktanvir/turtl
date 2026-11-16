@@ -30,7 +30,7 @@ export function WorksNow({ onboarding, checking, onCheckAgain }: { onboarding: O
                   <T variant="small" color="textMuted">{checkKindLabel[check.kind]}</T>
                   <T variant="strong">{check.name}</T>
                   <T color="textMuted">{check.detail}</T>
-                  {check.registered && <Chip label="Registered" tone="brandDeep" />}
+                  {check.registered && <Chip label="Registered" tone="statusClear" />}
                 </View>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 6, alignSelf: "flex-start" }}>
                   <Glyph name={stateGlyph[check.state]} size={16} color={state.color} />
