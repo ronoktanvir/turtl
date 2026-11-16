@@ -10,6 +10,7 @@ import { Droplet, dropBack, fillDrop, nativeDriver, usePull, useWheelPull } from
 import { swipeTravel } from "../ui/swipe";
 import { CaseTabs, type CaseTab } from "./CaseTabs";
 import { CouncilView } from "./CouncilView";
+import { reportLine } from "./counts";
 import { CustomerReportsControl } from "./CustomerReports";
 import { CodeBox, LogRow, SpanText, Viz } from "./Evidence";
 import { ApproveSheet, DeclineSheet, FixCard } from "./FixCard";
@@ -176,7 +177,7 @@ export function CasePage({ caseId, current }: { caseId: string; current: boolean
                   </View>
                     {!!c.reportCount && (
                       <T variant="small" color="textMuted" style={{ paddingLeft: 56 }}>
-                        {c.reportCount + (feature ? " people asked" : " people reported it")}
+                        {reportLine(c.reportCount, feature)}
                       </T>
                     )}
                 </View>
