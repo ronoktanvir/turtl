@@ -185,9 +185,13 @@ export function recoveryMismatchWords(body: string): string {
 
 // Detecting and gathering each run the booking check and the health check, so a case holds two of each. They are
 // separate observations, both kept; each says when turtl made it so neither reads as a duplicate.
+const AGAIN = { source: "when turtl looked again", lead: "Looking again, to gather what it knows: " };
 const WHEN: Record<string, { source: string; lead: string }> = {
   detect_or_receive: { source: "when turtl first noticed", lead: "When turtl first noticed: " },
-  gather_context: { source: "when turtl looked again", lead: "Looking again, to gather what it knows: " },
+  // The two readers that run beside each other after detecting, and the step that gathers what they read.
+  collect_app_state: AGAIN,
+  collect_error_window: AGAIN,
+  gather_context: AGAIN,
 };
 export function whenObserved(purpose: string | undefined): { source: string; lead: string } | null {
   return (purpose && WHEN[purpose]) || null;

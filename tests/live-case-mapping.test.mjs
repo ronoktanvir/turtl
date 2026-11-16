@@ -404,4 +404,7 @@ test("the two journey and health checks say when each was made, so neither reads
   assert.ok(lines.includes("When turtl first noticed: The booking check failed."));
   assert.ok(lines.includes("Looking again, to gather what it knows: The booking check failed."));
   assert.equal(detail.logs.filter((log) => log.source.startsWith("Evidence")).length, 2, "both are kept");
+  const collect = step({ _id: "s-collect", key: "collect_app_state", title: "Read app health, flags and revision", purpose: "collect_app_state", currentAttempt: null });
+  const health = evidence({ _id: "e-health", stepId: "s-collect", kind: "health", title: "The booking app says it is healthy." });
+  assert.equal(map(cards({ steps: [collect], evidence: [health] })).logs.find((log) => log.id === "e-health").source, "Evidence · App health · when turtl looked again");
 });
