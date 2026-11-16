@@ -60,22 +60,26 @@ const passed = { runId: "proof", verdict: "passed", failedStep: null, error: nul
 
 /**
  * The owner's app: every journey check passes while it runs, and its health route answers 200 with no check result,
- * as a real app's does. stop() closes it, so a check gets no response at all.
+ * as a real app's does. stop() closes it, so a check gets no response at all. routesGone: the app is up, but every
+ * journey route answers 404 (the owner renamed them), which is an answer, not silence.
  */
 function standInApp() {
   const requests = [];
   let server = null;
+  const state = { routesGone: false };
   const handler = (request, response) => {
     const path = new URL(request.url, "http://stand-in").pathname;
     requests.push({ path, at: Date.now() });
     request.resume();
     request.on("end", () => {
-      response.writeHead(200, { "Content-Type": "application/json", Connection: "close" });
-      response.end(JSON.stringify(path.endsWith("/journey-check") ? passed : { ok: true, service: "proof" }));
+      const gone = state.routesGone && path.endsWith("/journey-check");
+      response.writeHead(gone ? 404 : 200, { "Content-Type": "application/json", Connection: "close" });
+      response.end(JSON.stringify(gone ? { error: "Not Found" } : path.endsWith("/journey-check") ? passed : { ok: true, service: "proof" }));
     });
   };
   return {
     requests,
+    state,
     start: () => new Promise((resolve, reject) => {
       server = createServer(handler);
       server.once("error", reject);
@@ -187,6 +191,18 @@ test("cases for an app that stops answering, on a local Convex backend", { timeo
     assert.deepEqual([counts(up), notAnsweringCases(up)], [[0, 0, 0], []]);
     assert.ok((await overview()).every((check) => check.state === "passing" && !check.notAnswering));
     say(`accounts: 6 rounds with the app up and its health route answering 200 with no check result: tries in a row ${JSON.stringify(counts(up))}, not-answering cases ${notAnsweringCases(up).length}`);
+
+    // The app is up, but both journey routes answer 404 (renamed in turtl.json): an answer, not silence. Nothing opens.
+    app.state.routesGone = true;
+    const gone = [];
+    for (let n = 0; n < 5; n++) gone.push((await round()).checked.map((check) => check.outcome));
+    assert.ok(gone.every((outcomes) => outcomes.every((outcome) => outcome === "check_error")), "turtl cannot run any check there");
+    const after404 = await read();
+    assert.deepEqual([counts(after404), notAnsweringCases(after404)], [[0, 0, 0], []]);
+    assert.ok((await overview()).every((check) => !check.notAnswering));
+    say(`accounts: 5 rounds with the app up and both journey routes answering 404: tries in a row ${JSON.stringify(counts(after404))}, not-answering cases ${notAnsweringCases(after404).length}`);
+    app.state.routesGone = false;
+    await round();
 
     await app.stop();
     say("accounts: the stand-in app stopped");
