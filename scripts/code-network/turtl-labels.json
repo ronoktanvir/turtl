@@ -3,7 +3,17 @@
     {
       "id": "owner-app",
       "name": "The turtl app",
-      "summary": "The screens you use to see cases, read what happened and respond."
+      "summary": "The screens you use on your phone: your projects, each project's fixes and requests, case cards and settings."
+    },
+    {
+      "id": "reviewing",
+      "name": "Reviewing fixes",
+      "summary": "Where you read what happened in a case, compare its fixes, approve one, and watch it being carried out step by step."
+    },
+    {
+      "id": "look",
+      "name": "Look and feel",
+      "summary": "The app's colours, light and dark themes, icons, the turtle, and its small animations."
     },
     {
       "id": "cases",
@@ -13,12 +23,12 @@
     {
       "id": "watching",
       "name": "Health checks",
-      "summary": "Regularly tests the booking app, raises problems, and confirms after a fix that it works again."
+      "summary": "Tries a booking on a schedule, opens a case when it fails, and checks fixes worked, including runs on a real phone through Revyl."
     },
     {
       "id": "investigation",
       "name": "Finding the cause",
-      "summary": "Gathers clues, asks OpenAI for a diagnosis and plans fix options."
+      "summary": "Gathers clues, works out the likely cause, and proposes one to four fixes, including new ones from your chat about a case."
     },
     {
       "id": "approvals",
@@ -33,7 +43,7 @@
     {
       "id": "code-map",
       "name": "Code map",
-      "summary": "Draws this map of your app's code from GitHub, keeps the code in Supermemory, and answers your questions about any part of it."
+      "summary": "The Investigate screen: draws this map of your app's code from GitHub, keeps the code in Supermemory, and answers your questions about any part."
     },
     {
       "id": "booking",
@@ -48,7 +58,7 @@
     {
       "id": "dev-tools",
       "name": "Testing tools",
-      "summary": "Sample cases and buttons for trying turtl without a real outage."
+      "summary": "Sample cases, example data and buttons for trying turtl without a real outage."
     }
   ],
   "nodes": {
@@ -511,6 +521,211 @@
       "clusterId": "code-map",
       "label": "GitHub",
       "summary": "Where the app's code lives; turtl reads it from there to draw this map."
+    },
+    "app.config.ts": {
+      "clusterId": "look",
+      "label": "App identity",
+      "summary": "Sets the app's name, icon, colours and launch settings that make turtl look like turtl on your phone."
+    },
+    "app/live.tsx": {
+      "clusterId": "owner-app",
+      "label": "Live case feed",
+      "summary": "Lists every case from the live app, putting the ones waiting for your decision first and refreshing the timestamps."
+    },
+    "app/project/[projectId]/features.tsx": {
+      "clusterId": "owner-app",
+      "label": "Feature requests",
+      "summary": "Shows the project's feature ideas on the same start screen used for fixes."
+    },
+    "app/project/[projectId]/fix.tsx": {
+      "clusterId": "owner-app",
+      "label": "Fixes list",
+      "summary": "Shows the project's fix cases on the start screen so you can open one to review."
+    },
+    "app/project/[projectId]/index.tsx": {
+      "clusterId": "owner-app",
+      "label": "Project home",
+      "summary": "The main page for one project, where you see its health and open cases."
+    },
+    "app/project/[projectId]/investigate.tsx": {
+      "clusterId": "code-map",
+      "label": "Investigate screen",
+      "summary": "Shows the whole codebase as a map you can tap, with a chat to ask about the part you picked."
+    },
+    "app/projects.tsx": {
+      "clusterId": "owner-app",
+      "label": "Project list",
+      "summary": "Lists your projects so you can pick which app to look after."
+    },
+    "app/review/[caseId]/chat.tsx": {
+      "clusterId": "reviewing",
+      "label": "Case chat",
+      "summary": "Lets you ask turtl questions about one case and its fix options."
+    },
+    "app/review/[caseId]/enacting.tsx": {
+      "clusterId": "reviewing",
+      "label": "Fix progress",
+      "summary": "Shows turtl carrying out the approved fix step by step, with options to stop or merge."
+    },
+    "app/review/[caseId]/index.tsx": {
+      "clusterId": "reviewing",
+      "label": "Case review",
+      "summary": "Where you read a case, compare the proposed fixes and approve one."
+    },
+    "components/execution/AskBar.tsx": {
+      "clusterId": "reviewing",
+      "label": "Ask box",
+      "summary": "The text box where you type a question to turtl and send it."
+    },
+    "components/execution/PlanGraph.tsx": {
+      "clusterId": "reviewing",
+      "label": "Fix step list",
+      "summary": "Shows each step of the fix with whether it is waiting, working, done or stopped, and its checks."
+    },
+    "components/fix/CasePage.tsx": {
+      "clusterId": "reviewing",
+      "label": "Case page",
+      "summary": "The page layout that tells the story of a case: what broke, the cause and the fixes."
+    },
+    "components/fix/Evidence.tsx": {
+      "clusterId": "reviewing",
+      "label": "Evidence clues",
+      "summary": "Shows the logs, code and sources turtl used as proof for what it found."
+    },
+    "components/fix/FixCard.tsx": {
+      "clusterId": "reviewing",
+      "label": "Fix card",
+      "summary": "A card describing one proposed fix, with the approval sheet where you say yes."
+    },
+    "components/network/Constellation.tsx": {
+      "clusterId": "code-map",
+      "label": "Code map view",
+      "summary": "Draws the codebase as connected dots you can tap to select an area."
+    },
+    "components/network/NetworkChat.tsx": {
+      "clusterId": "code-map",
+      "label": "Code map chat",
+      "summary": "A chat that answers your questions about the whole project or the area you tapped."
+    },
+    "components/project/BeginScreen.tsx": {
+      "clusterId": "owner-app",
+      "label": "Case start screen",
+      "summary": "Lists a project's fixes or features with a swipe up to open the newest one."
+    },
+    "components/project/ProjectIcon.tsx": {
+      "clusterId": "owner-app",
+      "label": "Project icon",
+      "summary": "Shows a project's picture next to its name."
+    },
+    "components/project/SettingsSheet.tsx": {
+      "clusterId": "owner-app",
+      "label": "Project settings",
+      "summary": "A panel for a project's settings, such as approvals."
+    },
+    "components/ui/BrandIcon.tsx": {
+      "clusterId": "look",
+      "label": "Brand logos",
+      "summary": "Draws logos for outside services shown in the app."
+    },
+    "components/ui/Icon.tsx": {
+      "clusterId": "look",
+      "label": "Icon set",
+      "summary": "The small pictures used for buttons and status across the app."
+    },
+    "components/ui/index.tsx": {
+      "clusterId": "look",
+      "label": "Shared building blocks",
+      "summary": "The buttons, headings, chips and the turtle character reused on every screen."
+    },
+    "components/ui/motion.tsx": {
+      "clusterId": "look",
+      "label": "Motion effects",
+      "summary": "The gentle fade and reveal animations used when things appear."
+    },
+    "convex/fixOptions.ts": {
+      "clusterId": "investigation",
+      "label": "Fix option writer",
+      "summary": "Asks the AI to word up to four fix choices, each tied to an action the app really supports."
+    },
+    "convex/fixes.ts": {
+      "clusterId": "investigation",
+      "label": "Fix proposals",
+      "summary": "Creates, stores and serves the fix choices shown for a case, including code-change fixes."
+    },
+    "table:fixChatMessages": {
+      "clusterId": "investigation",
+      "label": "Case chat messages",
+      "summary": "Saved conversation between you and turtl about a case, with the fix each message was about."
+    },
+    "convex/revyl/api.ts": {
+      "clusterId": "watching",
+      "label": "Revyl connection",
+      "summary": "Talks to Revyl to start phone test runs and fetch their results and screenshots."
+    },
+    "convex/revyl/device.ts": {
+      "clusterId": "watching",
+      "label": "Phone check",
+      "summary": "Runs the booking journey on a real phone and reports passed, failed or not covered."
+    },
+    "convex/revyl/runs.ts": {
+      "clusterId": "watching",
+      "label": "Phone run tracking",
+      "summary": "Starts phone test runs, checks on them every few seconds and saves results and screenshots."
+    },
+    "convex/revyl/schema.ts": {
+      "clusterId": "watching",
+      "label": "Phone test records",
+      "summary": "Defines what is saved about phone test runs and their screenshots."
+    },
+    "table:revylRuns": {
+      "clusterId": "watching",
+      "label": "Phone test runs",
+      "summary": "One record per Revyl phone test, with its status, summary and report link."
+    },
+    "table:revylScreenshots": {
+      "clusterId": "watching",
+      "label": "Phone screenshots",
+      "summary": "Screenshots taken during phone tests, with a caption and whether before, after or at failure."
+    },
+    "data/example/content.ts": {
+      "clusterId": "dev-tools",
+      "label": "Sample projects",
+      "summary": "Made-up projects, cases and fixes used to try the app without real data."
+    },
+    "data/example/screenshots.ts": {
+      "clusterId": "dev-tools",
+      "label": "Sample screenshots",
+      "summary": "Pretend phone screenshots used by the sample data."
+    },
+    "data/example/store.ts": {
+      "clusterId": "dev-tools",
+      "label": "Sample data store",
+      "summary": "Serves the sample data so the app works offline without the real backend."
+    },
+    "data/index.ts": {
+      "clusterId": "owner-app",
+      "label": "App data access",
+      "summary": "Where every screen gets its projects, cases and chats, from live or sample data."
+    },
+    "data/types.ts": {
+      "clusterId": "owner-app",
+      "label": "Data shapes",
+      "summary": "Describes the pieces of information the app handles, like cases, fixes and steps."
+    },
+    "theme/design.ts": {
+      "clusterId": "look",
+      "label": "Design rules",
+      "summary": "Sets the spacing, sizes and wording styles that keep screens consistent."
+    },
+    "theme/index.tsx": {
+      "clusterId": "look",
+      "label": "Light and dark theme",
+      "summary": "Provides the app's colours and switches between light and dark."
+    },
+    "theme/tokens.ts": {
+      "clusterId": "look",
+      "label": "Colour palette",
+      "summary": "Lists the named colours, including health status colours."
     }
   }
 }
