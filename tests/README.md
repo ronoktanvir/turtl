@@ -48,3 +48,5 @@ The voice tests load the voice rules, the talk action and the hands-free turn ta
 The store and release tests (`store-listing`, `store-lock`, `release-config`) hold the listing, the build profiles and the release lock to the repository; `release-config` also holds the privacy manifest's data types to the App Privacy answers (`collectedDataProblems`).
 
 `theme-kept.test.mjs` holds that the theme a person chooses is kept across launches (in the iOS Keychain on a phone, in the browser's storage on the web) and read before the first screen draws, and that dark is used when nothing is kept.
+
+`font-files.test.mjs` holds that the two fonts load from the copies in `assets/fonts/`, never from their packages, and that each copy is its package's own file with its licence beside it. A web export puts a package's font under `assets/node_modules/`, which the web demo's host does not serve, so every screen there fell back to the browser's serif.

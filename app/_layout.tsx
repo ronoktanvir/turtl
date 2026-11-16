@@ -5,8 +5,7 @@ import { ScrollView, StatusBar, StyleSheet, Text, View } from "react-native";
 import { DevTools } from "../components/dev/DevTools";
 import { ThemeProvider, useTheme } from "../theme";
 import { useReducedMotion } from "../components/ui/motion";
-import { useFonts, Capriola_400Regular } from "@expo-google-fonts/capriola";
-import { Righteous_400Regular } from "@expo-google-fonts/righteous";
+import { useFonts } from "expo-font";
 import { backendClient as convex, isLiveData, isStoreBuild, useBackendReachable, useDataStatus } from "../data";
 import BackendUnavailable from "../components/ui/BackendUnavailable";
 import { setSheetCover } from "../components/ui/sheetCover";
@@ -48,7 +47,9 @@ function Unreachable() {
 
 export default function RootLayout() {
   const first: string | undefined = useSegments()[0];
-  const [fontsLoaded, fontError] = useFonts({ Capriola_400Regular, Righteous_400Regular });
+  // Loaded from copies in assets/fonts, not from their packages: a web export puts a package's file under
+  // assets/node_modules/, and the demo's host leaves that folder out, so the fonts never arrived there.
+  const [fontsLoaded, fontError] = useFonts({ Capriola_400Regular: require("../assets/fonts/Capriola_400Regular.ttf"), Righteous_400Regular: require("../assets/fonts/Righteous_400Regular.ttf") });
   useEffect(() => {
     if (fontsLoaded || fontError) void SplashScreen.hideAsync();
   }, [fontsLoaded, fontError]);
