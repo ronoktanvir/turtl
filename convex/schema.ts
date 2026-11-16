@@ -23,6 +23,7 @@ import {
   vAgentRun,
   vContextSource,
 } from "./constants";
+import { revylTables } from "./revyl/schema";
 
 export default defineSchema({
   // Mutations must enforce ownerId access; isSample and optional ownership do not grant production access.
@@ -161,4 +162,5 @@ export default defineSchema({
     revision: v.string(),
     error: v.optional(bookingError),
   }).index("by_timestamp", ["timestamp"]),
+  ...revylTables,
 });

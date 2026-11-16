@@ -4,7 +4,6 @@ import type { CriterionResult } from "../../constants";
 import {
   CRITERIA,
   CRITERIA_VERSION,
-  DEVICE_NOT_COVERED,
   call,
   describeFailure,
   describeJourney,
@@ -13,13 +12,14 @@ import {
   revisionOf,
   runJourneyCheck,
 } from "../../protectedApp/client";
+import { checkBookingScreen } from "../../revyl/device";
 import type { HandlerResult, StepHandler } from "../contract";
 import { evidenceRow, loadJourneyContext } from "./journey";
 
 // Health first, then the flag, then the booking check. A failing booking check fails the step,
 // so the case can never end restored while booking is still broken.
 export const handler: StepHandler = {
-  timeoutMs: 60_000,
+  timeoutMs: 9 * 60_000,
   run: async (ctx, input): Promise<HandlerResult> => {
     if (!input.case.journeyId) {
       return {
@@ -87,12 +87,19 @@ export const handler: StepHandler = {
       journeyPassed = outcome.ok && outcome.result.verdict === "passed";
       if (journeyPassed) await ctx.runMutation(internal.monitor.recordPass, { journeyId: journey._id, observedAt });
       results.set(CRITERIA.journey.id, { status: journeyPassed ? "passed" : "failed", summary: title, evidence: rows.length - 1 });
+
+      if (journeyPassed) {
+        const device = await checkBookingScreen(ctx, { caseId: input.case._id, stepAttemptId: input.attempt._id });
+        if (device.evidence) rows.push(evidenceRow(input, revision, device.evidence));
+        results.set(CRITERIA.device.id, { status: device.status, summary: device.summary, evidence: device.evidence && rows.length - 1 });
+      }
     }
 
     const ids: Id<"evidence">[] = await ctx.runMutation(internal.protectedApp.records.addEvidence, { rows });
     const criterionResults: CriterionResult[] = payload.acceptanceCriteria.map((criterion) => {
-      if (criterion.id === CRITERIA.device.id) {
-        return { criterionId: criterion.id, status: "uncovered", summary: DEVICE_NOT_COVERED, evidenceIds: [] };
+      if (criterion.id === CRITERIA.device.id && healthOk && !results.has(criterion.id)) {
+        const summary = "Not run: the server booking check did not pass, so the booking screen was not run on a device.";
+        return { criterionId: criterion.id, status: "uncovered", summary, evidenceIds: [] };
       }
       const result = results.get(criterion.id);
       if (!result) {
@@ -114,7 +121,7 @@ export const handler: StepHandler = {
     const passed = covered.length > 0 && covered.every((r) => r.status === "passed") && journeyPassed;
     const uncovered = criterionResults.filter((r) => r.status === "uncovered").map((r) => r.criterionId);
     const summary = passed
-      ? "Service restored: the server answers, recommendations are off, and the booking check saved a booking. Not checked: the booking screen on a device. The defect that let recommendations block booking is still in the code."
+      ? `Service restored: the server answers, recommendations are off, and the booking check saved a booking. ${results.get(CRITERIA.device.id)?.status === "passed" ? "The booking screen passed a Revyl run on a cloud device." : "Not checked: the booking screen on a device."} The defect that let recommendations block booking is still in the code.`
       : `Not restored: ${covered.filter((r) => r.status === "failed").map((r) => r.summary).join(" ")}`;
 
     const verificationId: Id<"verifications"> = await ctx.runMutation(
