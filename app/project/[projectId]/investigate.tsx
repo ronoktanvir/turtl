@@ -38,7 +38,7 @@ export default function Investigate() {
             {"source" in network && network.source === "seed" && <T variant="small" color="statusNeedsYou" testID="network-source" style={{ paddingHorizontal: 20, paddingTop: 12 }}>Seeded example code network</T>}
             {!chatOpen && <View style={{ paddingHorizontal: 20, paddingTop: 20, gap: 4 }}>
               <Reveal>
-                <T variant="strong" numberOfLines={1}>{project.name}</T>
+                <T variant="strong" font="title" numberOfLines={1}>{project.name}</T>
                 <T variant="small" color="textMuted">{network.nodes.length} parts · {network.clusters.length} clusters</T>
               </Reveal>
             </View>}
@@ -46,7 +46,7 @@ export default function Investigate() {
             {selection && !chatOpen && (
               <View testID="network-selection" style={{ marginHorizontal: 20, marginBottom: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: colors.border, gap: 4 }}>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                  <View style={{ flex: 1, minWidth: 0 }}><T variant="strong">{name}</T></View>
+                  <View style={{ flex: 1, minWidth: 0 }}><T variant="strong" font="title">{name}</T></View>
                   <Pressable testID="network-clear" accessibilityRole="button" accessibilityLabel="Clear selection" onPress={() => setSelection(null)} style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center", marginVertical: -8 }}>
                     <Icon name="X" size={18} color="textMuted" />
                   </Pressable>

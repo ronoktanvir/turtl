@@ -40,8 +40,8 @@ const logos: Record<Health, number> = {
 };
 
 const variants = {
-  display: { fontSize: 32, lineHeight: 38, fontWeight: "700", letterSpacing: -1.1 },
-  title: { fontSize: 24, lineHeight: 30, fontWeight: "700", letterSpacing: -0.6 },
+  display: { fontSize: 32, lineHeight: 38, fontWeight: "700", letterSpacing: -0.3 },
+  title: { fontSize: 24, lineHeight: 30, fontWeight: "700", letterSpacing: -0.3 },
   heading: { fontSize: 18, lineHeight: 24, fontWeight: "700" },
   body: { fontSize: 16, lineHeight: 24, fontWeight: "400" },
   strong: { fontSize: 16, lineHeight: 24, fontWeight: "600" },
@@ -53,14 +53,17 @@ const variants = {
   },
 } satisfies Record<string, TextStyle>;
 
+const fonts = { title: "Righteous_400Regular", text: "Capriola_400Regular" };
+
 export function T({
   variant = "body",
+  font = variant === "display" || variant === "title" || variant === "heading" ? "title" : "text",
   color = "text",
   style,
   ...props
-}: TextProps & { variant?: keyof typeof variants; color?: TokenName }) {
+}: TextProps & { variant?: keyof typeof variants; font?: keyof typeof fonts; color?: TokenName }) {
   const { colors } = useTheme();
-  return <Text {...props} style={[variants[variant], { color: colors[color] }, style, { fontFamily: "Capriola_400Regular", fontWeight: "400" }]} />;
+  return <Text {...props} style={[variants[variant], { color: colors[color] }, style, { fontFamily: fonts[font], fontWeight: "400" }]} />;
 }
 
 export function Screen({ children, testID }: { children: ReactNode; testID?: string }) {

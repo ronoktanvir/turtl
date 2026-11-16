@@ -155,7 +155,7 @@ export default function Enacting() {
                   <Icon name="GitPullRequest" color="brandDeep" size={22} />
                   <View style={{ flex: 1, gap: 2 }}>
                     <T variant="small" color="textMuted">{"Pull request #" + pr.number}</T>
-                    <T variant="strong">{pr.title}</T>
+                    <T variant="strong" font="title">{pr.title}</T>
                   </View>
                   <Icon name="ExternalLink" color="textMuted" size={16} />
                 </Pressable>

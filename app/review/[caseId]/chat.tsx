@@ -88,7 +88,7 @@ export default function InvestigateFurther() {
                 <View style={{ gap: 10 }}>
                   <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
                     <Turtle health="clear" size={30} />
-                    <T variant="strong">turtl</T>
+                    <T variant="strong" font="title">turtl</T>
                   </View>
                   <T>{m.text}</T>
                 </View>
