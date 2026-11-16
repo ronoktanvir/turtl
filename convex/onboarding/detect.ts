@@ -1,5 +1,10 @@
-// Plain functions the onboarding inspection runs over a repository before any model sees it. No imports, so
-// tests load this file directly.
+// Plain functions the onboarding inspection runs over a repository before any model sees it. The only import is the
+// masking (convex/codeNetwork/redact.ts, itself import-free), so tests load this file with that one beside it.
+//
+// Nothing from a file that is secret by nature (.env, a key, secrets.yml) is read here: it gives no pattern match and no
+// stack evidence. Every line and name that can leave is masked before it is cut.
+
+import { isSecretFile, masked } from "../codeNetwork/redact";
 
 export const READINESS_ITEMS = [
   { key: "error_logs", label: "Structured error logs with identifiers" },
@@ -90,23 +95,30 @@ function dependencies(content: string): Record<string, string> {
   }
 }
 
+// A dependency's version as package.json writes it, repeated only when it is a plain version or range ("~51.0.28",
+// "^1.2", "latest"). Anything else (an address to fetch it from, an alias) can carry a token, so it is not repeated.
+const versionOf = (spec: unknown) =>
+  typeof spec === "string" && /^[\w.^~<>=*| -]{1,40}$/.test(spec) ? masked(spec) : "(from an address turtl does not repeat)";
+
 // Names the stack from manifests in the app's files. Only Expo with a Convex backend is prepared automatically.
 export function detectStack(scoped: RepoFile[]): Stack {
   const evidence: string[] = [];
   const found = new Set<string>();
   const note = (id: string, why: string) => {
     found.add(id);
-    if (!evidence.includes(why)) evidence.push(why);
+    const shown = masked(why);
+    if (!evidence.includes(shown)) evidence.push(shown);
   };
   for (const file of scoped) {
+    if (isSecretFile(file.path)) continue;
     const name = file.path.split("/").pop() ?? "";
     if (name === "package.json") {
       const deps = dependencies(file.content);
       const has = (dep: string) => dep in deps;
-      if (has("expo")) note("expo", `${file.path} depends on expo ${deps.expo}`);
-      if (has("convex")) note("convex-client", `${file.path} depends on convex ${deps.convex}`);
-      if (has("next")) note("nextjs", `${file.path} depends on next ${deps.next}`);
-      if (has("express")) note("express", `${file.path} depends on express ${deps.express}`);
+      if (has("expo")) note("expo", `${file.path} depends on expo ${versionOf(deps.expo)}`);
+      if (has("convex")) note("convex-client", `${file.path} depends on convex ${versionOf(deps.convex)}`);
+      if (has("next")) note("nextjs", `${file.path} depends on next ${versionOf(deps.next)}`);
+      if (has("express")) note("express", `${file.path} depends on express ${versionOf(deps.express)}`);
       if (has("pg") || has("postgres") || has("@vercel/postgres") || has("@neondatabase/serverless")) note("postgres", `${file.path} uses a Postgres driver`);
       if (has("@supabase/supabase-js")) note("supabase", `${file.path} depends on @supabase/supabase-js`);
       if (has("firebase")) note("firebase", `${file.path} depends on firebase`);
@@ -158,11 +170,15 @@ const SIGNALS: Record<ItemKey, RegExp[]> = {
   test_fixtures: [/fixture|test[-_ ]?(account|user)|demo[-_ ]?user|\bseed(ed|ing)?\b/i],
 };
 
-// Lines that look like evidence for each item. Matches are candidates for the model to judge, not findings.
+/** A pattern match's line is cut to this many characters, after its secrets are masked. */
+export const HIT_CHARS = 200;
+
+// Lines that look like evidence for each item. Matches are candidates for the model to judge, not findings. A file that
+// is secret by nature gives none, and each line is masked before it is cut, so no secret is cut in two.
 export function scanSignals(scoped: RepoFile[]): Record<ItemKey, Hit[]> {
   const hits = Object.fromEntries(READINESS_ITEMS.map((item) => [item.key, [] as Hit[]])) as Record<ItemKey, Hit[]>;
   for (const file of scoped) {
-    if (file.path.endsWith(".md")) continue;
+    if (file.path.endsWith(".md") || isSecretFile(file.path)) continue;
     const perFile = new Map<ItemKey, number>();
     if (TEST_PATH.test(file.path)) {
       hits.journey_checks.push({ path: file.path, line: 1, text: "test file" });
@@ -175,7 +191,7 @@ export function scanSignals(scoped: RepoFile[]): Record<ItemKey, Hit[]> {
       for (const item of READINESS_ITEMS) {
         if ((perFile.get(item.key) ?? 0) >= MAX_HITS_PER_FILE) continue;
         if (!SIGNALS[item.key].some((pattern) => pattern.test(text))) continue;
-        hits[item.key].push({ path: file.path, line: index + 1, text: text.slice(0, 200) });
+        hits[item.key].push({ path: file.path, line: index + 1, text: masked(text).slice(0, HIT_CHARS) });
         perFile.set(item.key, (perFile.get(item.key) ?? 0) + 1);
       }
     });
@@ -265,9 +281,10 @@ export function parseManifest(text: string): { ok: true; manifest: Manifest; not
   const check = (value: unknown, fallbackName: string): ManifestCheck | null => {
     const entry = value as Record<string, unknown> | null;
     if (!entry || typeof entry !== "object" || !path(entry.path)) return null;
+    // Names and descriptions reach the models that diagnose cases and propose fixes, so they are masked, then cut.
     return {
-      name: typeof entry.name === "string" && entry.name.trim() ? entry.name.trim().slice(0, 120) : fallbackName,
-      ...(typeof entry.description === "string" && { description: entry.description.slice(0, 500) }),
+      name: typeof entry.name === "string" && entry.name.trim() ? masked(entry.name.trim()).slice(0, 120) : fallbackName,
+      ...(typeof entry.description === "string" && { description: masked(entry.description).slice(0, 500) }),
       path: entry.path as string,
       ...(entry.authenticated === true && { authenticated: true }),
     };

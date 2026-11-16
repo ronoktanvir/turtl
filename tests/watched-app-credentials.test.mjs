@@ -20,7 +20,7 @@ function load(path, imports = {}) {
 }
 
 const client = load("../convex/protectedApp/client.ts");
-const detect = load("../convex/onboarding/detect.ts");
+const detect = load("../convex/onboarding/detect.ts", { "../codeNetwork/redact": load("../convex/codeNetwork/redact.ts") });
 
 function withFetch(run) {
   const real = globalThis.fetch;

@@ -209,10 +209,12 @@ export const build = internalAction({
     const fetched = await fetchRepository(repo, ref ?? "HEAD", access.token);
     if ("reason" in fetched) return { outcome: "failed", reason: fetched.reason };
     const githubMs = Date.now() - started;
-    const { nodes: graphNodes, edges } = buildGraph(fetched.files);
-    if (graphNodes.length === 0) return { outcome: "failed", reason: `${repo} has no source files turtl can read.` };
-    // What leaves turtl is the code with its secrets masked and secret files left out (convex/codeNetwork/redact.ts).
+    // What leaves turtl is the code with its secrets masked and secret files left out (convex/codeNetwork/redact.ts), and
+    // the map is drawn from that same code: a secret file gives no piece and no link, and paths are masked too. Each
+    // excerpt and document below is cut only after this.
     const shared = redactFiles(fetched.files).files;
+    const { nodes: graphNodes, edges } = buildGraph(shared);
+    if (graphNodes.length === 0) return { outcome: "failed", reason: `${repo} has no source files turtl can read.` };
 
     const modelStarted = Date.now();
     let labels: Labels;

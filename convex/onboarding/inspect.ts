@@ -3,13 +3,14 @@ import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import { internalAction } from "../_generated/server";
 import { DEFAULT_MODEL, respond } from "../codeNetwork/openai";
-import { MASK, redactFiles, redactText } from "../codeNetwork/redact";
+import { isSecretFile, MASK, masked, redactFiles } from "../codeNetwork/redact";
 import { gateFor } from "../consent/gate";
 import { plainFailure } from "../consent/outbound";
 import { repositoryAccess } from "../github/access";
 import {
   confirmItems,
   detectStack,
+  HIT_CHARS,
   manifestPath,
   READINESS_ITEMS,
   ruleItems,
@@ -108,13 +109,24 @@ export function inspectionInput(input: {
   scoped: RepoFile[];
   hits: Record<ItemKey, Hit[]>;
 }): string {
-  // Secrets never reach the model: secret files are left out of the excerpts and secrets are masked in the rest,
-  // including in the pattern matches' lines (convex/codeNetwork/redact.ts).
-  const { repo, sha, folders, stack } = input;
+  // Secrets never reach the model (convex/codeNetwork/redact.ts). Nothing from a file that is secret by nature is sent:
+  // not its excerpt, not its name in the file list, not a pattern match in it, not stack evidence from it. Every string
+  // that is sent (excerpts, file paths, matches, stack evidence, the repository and folder names) is masked, and only
+  // then cut.
+  const { sha } = input;
+  const secret = (path: string) => isSecretFile(path);
   const scoped = redactFiles(input.scoped).files;
+  const leftOut = input.scoped.filter((file) => secret(file.path));
   const hits = Object.fromEntries(
-    Object.entries(input.hits).map(([key, list]) => [key, list.map((hit) => ({ ...hit, text: redactText(hit.text).text }))]),
+    Object.entries(input.hits).map(([key, list]) => [
+      key,
+      list.filter((hit) => !secret(hit.path)).map((hit) => ({ ...hit, path: masked(hit.path), text: masked(hit.text).slice(0, HIT_CHARS) })),
+    ]),
   ) as Record<ItemKey, Hit[]>;
+  const evidence = input.stack.evidence.filter((line) => !leftOut.some((file) => line.startsWith(`${file.path} `))).map(masked);
+  const repo = masked(input.repo);
+  const folders = input.folders.map(masked);
+  const stack = { ...input.stack, label: masked(input.stack.label), evidence };
   const score = new Map<string, number>();
   for (const list of Object.values(hits)) for (const hit of list) score.set(hit.path, (score.get(hit.path) ?? 0) + 1);
   const important = (path: string) => /(^|\/)(package\.json|app\.json|http\.[jt]s|schema\.[jt]s|README\.md)$|(^|\/)app\/api\//.test(path);
@@ -137,15 +149,15 @@ export function inspectionInput(input: {
     "## Readiness items",
     ...READINESS_ITEMS.map((item) => `- ${item.key} (${item.label}): ${DEFINITIONS[item.key]}`),
     "",
-    `## The app's files (${input.scoped.length})`,
-    ...input.scoped.slice(0, MAX_LISTED_PATHS).map((file) => `- ${file.path}`),
+    `## The app's files (${scoped.length}${leftOut.length ? `; ${leftOut.length} more hold secrets, so turtl does not send them` : ""})`,
+    ...scoped.slice(0, MAX_LISTED_PATHS).map((file) => `- ${file.path}`),
     "",
     "## Pattern matches (leads, not findings)",
     ...READINESS_ITEMS.map((item) =>
       [`### ${item.key}`, ...(hits[item.key].length ? hits[item.key].map((hit) => `- ${hit.path}:${hit.line}: ${hit.text}`) : ["- none"])].join("\n"),
     ),
     "",
-    `## Excerpts (${excerpts.length} of ${input.scoped.length} files; each cut at ${EXCERPT_CHARS} characters, lines numbered; secrets show as ${MASK})`,
+    `## Excerpts (${excerpts.length} of ${scoped.length} files; each cut at ${EXCERPT_CHARS} characters, lines numbered; secrets show as ${MASK})`,
     ...excerpts,
   ].join("\n");
 }
