@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Pressable, ScrollView, Text, View } from "react-native";
+import { Platform, Pressable, ScrollView, Text, View } from "react-native";
 import type { Citation, CodeRef, LogLine, Span, Visualization } from "../../data/types";
 import { useTheme, type TokenName } from "../../theme";
 import { ago, Icon, T } from "../ui";
@@ -79,17 +79,24 @@ export function SpanText({ spans, sources, prefix }: { spans: Span[]; sources: S
   const code = citation?.kind === "code" ? sources.code.find((c) => c.id === citation.codeId) : undefined;
   return (
     <View style={{ gap: 10 }}>
-      <T>
+      <T testID={prefix + "-paragraph"}>
         {spans.map((span, i) => {
           const cite = span.cite;
           if (!cite) return spans[i - 1]?.cite ? span.text.replace(/^[.,;:!?]+/, "") : span.text;
           const punctuation = !spans[i + 1]?.cite ? spans[i + 1]?.text.match(/^[.,;:!?]+/)?.[0] ?? "" : "";
+          const toggle = () => setOpen(open === cite ? null : cite);
+          const webLink = Platform.OS === "web" ? {
+            href: "#" + prefix + "-cite-box-" + cite,
+            onClick: (event: { preventDefault(): void; stopPropagation(): void }) => { event.preventDefault(); event.stopPropagation(); toggle(); },
+          } : {};
           return (
             <Text
               key={i}
-              onPress={() => setOpen(open === cite ? null : cite)}
-              accessibilityRole="button"
+              {...webLink}
+              onPress={toggle}
+              accessibilityRole="link"
               accessibilityState={{ expanded: open === cite }}
+              aria-expanded={open === cite}
               testID={prefix + "-cite-" + cite}
               style={{
                 color: colors.link,

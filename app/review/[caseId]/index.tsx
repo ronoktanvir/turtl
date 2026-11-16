@@ -90,7 +90,7 @@ export default function Review() {
             </T>
           </Pressable>
           <T variant="small" color="textMuted" testID="case-position">
-            {page + 1 + " of " + ids.length + " · swipe sideways"}
+            {page + 1 + " of " + ids.length}
           </T>
           <Pressable
             onPress={() => goTo(page + 1)}

@@ -110,6 +110,7 @@ export type PlanStep = {
   status: "pending" | "running" | "done" | "failed" | "skipped";
   startedAt?: number;
   finishedAt?: number;
+  estimatedDurationMs?: number; // how long this step usually takes (added in 1.9)
   summary?: string;
 };
 

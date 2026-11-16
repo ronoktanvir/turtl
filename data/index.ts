@@ -1,4 +1,4 @@
-import { useMemo, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import * as store from "./example/store";
 import type {
   ApprovalMode,
@@ -33,6 +33,19 @@ export function useCases(projectId: string, type: CaseType): CaseSummary[] | und
 export function useCase(caseId: string): CaseDetail | null | undefined {
   useVersion();
   return store.getCase(caseId);
+}
+
+export function useEnactmentNow(caseId: string): number {
+  const item = useCase(caseId);
+  const running = item?.enactment?.state === "running" || item?.enactment?.state === "merged";
+  const [now, setNow] = useState(() => store.enactmentNow(caseId));
+  useEffect(() => {
+    setNow(store.enactmentNow(caseId));
+    if (!running) return;
+    const timer = setInterval(() => setNow(store.enactmentNow(caseId)), 250);
+    return () => clearInterval(timer);
+  }, [caseId, running]);
+  return now;
 }
 
 export function useChat(scope: ChatScope): {

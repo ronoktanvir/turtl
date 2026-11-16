@@ -27,6 +27,7 @@ import {
   type ProjectSeed,
   type StepSeed,
 } from "./content";
+import { changeClockState, estimatedStepDuration, playbackDuration, readExecutionClock, type ExecutionClock } from "./timing";
 
 const HEALTH_ORDER: Health[] = ["affected", "needs_you", "working", "clear"];
 const OPEN: CaseStatus[] = ["new", "investigating", "needs_approval", "enacting", "ready_to_merge"];
@@ -37,11 +38,11 @@ const listeners = new Set<() => void>();
 const projects = new Map<string, ProjectSeed>(projectSeeds.map((p) => [p.id, p]));
 const cases = new Map<string, CaseDetail>(caseSeeds.map((c) => [c.id, c]));
 const seedHealth = new Map<string, Health>(caseSeeds.map((c) => [c.id, c.health]));
-const seedStatus = new Map<string, CaseStatus>(caseSeeds.map((c) => [c.id, c.status]));
 const plans = new Map<string, StepSeed[]>();
 const answered = new Set<string>();
 const headChanged = new Set<string>();
 const timers = new Map<string, ReturnType<typeof setTimeout>>();
+const clocks = new Map<string, ExecutionClock>();
 const chats = new Map<string, ChatMessage[]>();
 const busy = new Set<string>();
 let messageCount = 0;
@@ -141,6 +142,17 @@ function withStep(e: Enactment, index: number, step: Partial<PlanStep>): Enactme
   return { ...e, steps: e.steps.map((s, i) => (i === index ? { ...s, ...step } : s)) };
 }
 
+export function enactmentNow(caseId: string): number {
+  const clock = clocks.get(caseId);
+  return clock ? readExecutionClock(clock, Date.now()) : Date.now();
+}
+
+function runClock(caseId: string, running: boolean) {
+  const now = Date.now();
+  const clock = clocks.get(caseId) ?? { realAt: now, logicalAt: now, running: false };
+  clocks.set(caseId, changeClockState(clock, running, now));
+}
+
 function schedule(caseId: string, ms: number) {
   clearTimeout(timers.get(caseId));
   timers.set(
@@ -150,7 +162,7 @@ function schedule(caseId: string, ms: number) {
 }
 
 function during(c: CaseDetail, health: Health): Health {
-  return c.category === "outage" ? "affected" : health;
+  return c.health === "affected" ? "affected" : health;
 }
 
 function advance(caseId: string) {
@@ -164,17 +176,19 @@ function advance(caseId: string) {
   if (running === -1) {
     const next = e.steps.findIndex((s) => s.status === "pending");
     if (next === -1) {
+      runClock(caseId, false);
       patch(caseId, (c) => ({
         ...c,
         status: "resolved",
         health: "clear",
         learned: fix ? learnedFor(fix) : undefined,
-        screenshots: [...c.screenshots, ...afterShots(c.id)],
+        screenshots: [...c.screenshots, ...afterShots(c.id).filter((shot) => !c.screenshots.some((existing) => existing.id === shot.id))],
         enactment: { ...e, state: "done" },
       }));
       return commit();
     }
     if (plan[next].effect === "merge_gate" && e.state !== "merged") {
+      runClock(caseId, false);
       patch(caseId, (c) => ({
         ...c,
         status: "ready_to_merge",
@@ -183,9 +197,10 @@ function advance(caseId: string) {
       }));
       return commit();
     }
-    patchEnactment(caseId, (e) => withStep(e, next, { status: "running", startedAt: Date.now() }));
+    const duration = estimatedStepDuration(plan[next].key);
+    patchEnactment(caseId, (e) => withStep(e, next, { status: "running", startedAt: enactmentNow(caseId), estimatedDurationMs: duration }));
     commit();
-    return schedule(caseId, plan[next].ms ?? 1600);
+    return schedule(caseId, playbackDuration(duration));
   }
 
   const seed = plan[running];
@@ -197,10 +212,9 @@ function advance(caseId: string) {
       ...e,
       pullRequest: { ...pr, checkRuns, checks: passed ? "passing" : "pending", mergeable: passed },
     }));
-    commit();
-    return schedule(caseId, passed ? 500 : (seed.ms ?? 1200));
   }
   if (seed.question && !answered.has(caseId)) {
+    runClock(caseId, false);
     patch(caseId, (c) => ({
       ...c,
       status: "needs_approval",
@@ -208,7 +222,7 @@ function advance(caseId: string) {
       enactment: {
         ...withStep(e, running, {
           status: "failed",
-          finishedAt: Date.now(),
+          finishedAt: enactmentNow(caseId),
           summary: "Stopped here: turtl needs your decision.",
         }),
         state: "needs_you",
@@ -218,7 +232,7 @@ function advance(caseId: string) {
     return commit();
   }
   patchEnactment(caseId, (e) => ({
-    ...withStep(e, running, { status: "done", finishedAt: Date.now(), summary: seed.summary }),
+    ...withStep(e, running, { status: "done", finishedAt: enactmentNow(caseId), summary: seed.summary }),
     pullRequest: seed.effect === "open_pr" && fix ? pullRequestFor(c, fix) : e.pullRequest,
   }));
   commit();
@@ -231,6 +245,7 @@ export async function approveFix(caseId: string, fixKey: string): Promise<void> 
   const enactment = c.enactment;
   const answer = enactment?.question?.fixes.find((f) => f.key === fixKey);
   if (enactment && answer) {
+    runClock(caseId, true);
     answered.add(caseId);
     const stopped = enactment.steps.findIndex((s) => s.status === "failed");
     patch(caseId, (c) => ({
@@ -249,6 +264,8 @@ export async function approveFix(caseId: string, fixKey: string): Promise<void> 
   const fix = c.fixes.find((f) => f.key === fixKey);
   if (!fix) return;
   const plan = planFor(fix);
+  const now = Date.now();
+  clocks.set(caseId, { realAt: now, logicalAt: now, running: true });
   plans.set(caseId, plan);
   answered.delete(caseId);
   patch(caseId, (c) => ({
@@ -259,7 +276,7 @@ export async function approveFix(caseId: string, fixKey: string): Promise<void> 
     enactment: {
       fixKey,
       state: "running",
-      steps: plan.map((s) => ({ key: s.key, title: s.title, detail: s.detail, status: "pending" })),
+      steps: plan.map((s) => ({ key: s.key, title: s.title, detail: s.detail, status: "pending", estimatedDurationMs: estimatedStepDuration(s.key) })),
     },
   }));
   commit();
@@ -270,16 +287,17 @@ export async function stopEnactment(caseId: string): Promise<void> {
   const e = cases.get(caseId)?.enactment;
   if (!e || e.state === "done" || e.state === "merged" || e.state === "stopped") return;
   clearTimeout(timers.get(caseId));
+  runClock(caseId, false);
   patch(caseId, (c) => ({
     ...c,
-    status: seedStatus.get(caseId) ?? "needs_approval",
-    health: seedHealth.get(caseId) ?? c.health,
+    status: "needs_approval",
+    health: seedHealth.get(caseId) === "affected" ? "affected" : "needs_you",
     enactment: {
       ...e,
       state: "stopped",
       question: undefined,
       steps: e.steps.map((s) =>
-        s.status === "running" ? { ...s, status: "skipped", summary: "Stopped by you before it finished." } : s,
+        s.status === "running" ? { ...s, status: "skipped", finishedAt: enactmentNow(caseId), summary: "Stopped by you before it finished." } : s,
       ),
       pullRequest: e.pullRequest && { ...e.pullRequest, state: "closed", mergeable: false },
     },
@@ -300,6 +318,7 @@ export async function mergePullRequest(
   }
   if (e.state !== "waiting_for_merge" || !pr.mergeable) return { ok: false, reason: "The checks have not passed yet." };
   if (headChangesOnce.includes(e.fixKey) && !headChanged.has(caseId)) {
+    runClock(caseId, true);
     headChanged.add(caseId);
     const newHead = "c41d7e2";
     patch(caseId, (c) => ({
@@ -310,7 +329,7 @@ export async function mergePullRequest(
         ...e,
         state: "running",
         steps: e.steps.map((s) =>
-          s.key === "checks" ? { ...s, status: "running", summary: "A new commit arrived, so the checks are running again." } : s,
+          s.key === "checks" ? { ...s, status: "running", startedAt: enactmentNow(caseId), finishedAt: undefined, summary: "A new commit arrived, so the checks are running again." } : s,
         ),
         pullRequest: {
           ...pr,
@@ -322,7 +341,7 @@ export async function mergePullRequest(
       },
     }));
     commit();
-    schedule(caseId, 1300);
+    schedule(caseId, playbackDuration(estimatedStepDuration("checks")));
     return {
       ok: false,
       reason:
@@ -332,6 +351,7 @@ export async function mergePullRequest(
   if (headSha !== pr.headSha) {
     return { ok: false, reason: "Not merged. The pull request changed after you looked. Check it again, then merge." };
   }
+  runClock(caseId, true);
   patch(caseId, (c) => ({
     ...c,
     status: "enacting",
@@ -498,4 +518,21 @@ export async function requestNewFix(caseId: string): Promise<void> {
   say(key, propose(caseId));
   busy.delete(key);
   commit();
+}
+
+for (const item of caseSeeds) {
+  const enactment = item.enactment;
+  if (!enactment) continue;
+  const fix = item.fixes.find((option) => option.key === enactment.fixKey);
+  if (!fix) continue;
+  const plan = planFor(fix);
+  plans.set(item.id, plan);
+  const steps = enactment.steps.map((step) => ({ ...step, estimatedDurationMs: step.estimatedDurationMs ?? estimatedStepDuration(step.key) }));
+  cases.set(item.id, { ...item, enactment: { ...enactment, steps } });
+  runClock(item.id, enactment.state === "running" || enactment.state === "merged");
+  if (enactment.state === "running" || enactment.state === "merged") {
+    const running = steps.find((step) => step.status === "running");
+    const elapsed = running?.startedAt ? Math.max(0, enactmentNow(item.id) - running.startedAt) : 0;
+    schedule(item.id, running ? playbackDuration(Math.max(0, running.estimatedDurationMs - elapsed)) : 500);
+  }
 }

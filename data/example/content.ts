@@ -1,5 +1,6 @@
 import type { CaseDetail, CodeNetwork, FixOption, Project, PullRequest, Screenshot } from "../types";
 import { listenerProject, listenerCases, listenerNetwork, listenerPlans, listenerProposals, listenerReplies, listenerAfterShots } from "./listener-ladder";
+import { listenerFeatures, featurePlans, featureReplies, featureAfterShots } from "./listener-features";
 
 export type ProjectSeed = Pick<Project, "id" | "name" | "iconUrl" | "summary" | "repoUrl" | "productionUrl" | "approvals">;
 export type StepSeed = {
@@ -7,7 +8,6 @@ export type StepSeed = {
   title: string;
   detail: string;
   summary: string;
-  ms?: number;
   effect?: "open_pr" | "checks" | "merge_gate";
   question?: { text: string; fixes: FixOption[] };
 };
@@ -26,6 +26,7 @@ const request = (projectId: string, number: number, title: string, summary: stri
 
 export const caseSeeds: CaseDetail[] = [
   ...listenerCases,
+  ...listenerFeatures,
   request("orca", 1, "Compare agent team performance", "A request to compare team outcomes across tasks. No implementation plan has been prepared yet."),
   request("superprediction", 1, "Compare forecast revisions", "A request to see how a forecast changes as new evidence arrives. No implementation plan has been prepared yet."),
   request("superprediction", 2, "Explain a missed prediction", "A request to review the evidence behind an incorrect forecast. No implementation plan has been prepared yet."),
@@ -34,16 +35,16 @@ export const caseSeeds: CaseDetail[] = [
 
 export const networks: Record<string, CodeNetwork> = { "listener-ladder": listenerNetwork };
 export const proposals = listenerProposals;
-export const caseReplies: Record<string, string[]> = { ...listenerReplies, default: ["This request has not been investigated yet. There is no implementation plan to approve."] };
+export const caseReplies: Record<string, string[]> = { ...listenerReplies, ...featureReplies, default: ["This request has not been investigated yet. There is no implementation plan to approve."] };
 export const headChangesOnce = listenerCases.filter((item) => item.health === "needs_you").flatMap((item) => item.fixes.slice(0, 1).map((fix) => fix.key));
 
 export function planFor(fix: FixOption): StepSeed[] {
-  return listenerPlans[fix.key] ?? [
-    { key: "write", title: "Write the change", detail: fix.whatChanges, summary: "The proposed change is ready for review.", ms: 1800 },
-    { key: "open_pr", title: "Open a pull request", detail: "The change stays on its own branch until you merge.", summary: "Pull request opened.", effect: "open_pr", ms: 1400 },
-    { key: "checks", title: "Run the checks", detail: fix.howChecked, summary: "The checks passed.", effect: "checks", ms: 1600 },
-    { key: "merge", title: "Merge and deploy", detail: "This step waits for your decision.", summary: "Merged and deployed.", effect: "merge_gate", ms: 1800 },
-    { key: "verify", title: "Verify the player journey", detail: "Check that answers advance the round and completed scores are saved once.", summary: "The player journey completed.", ms: 1800 },
+  return featurePlans[fix.key] ?? listenerPlans[fix.key] ?? [
+    { key: "write", title: "Write the change", detail: fix.whatChanges, summary: "The proposed change is ready for review." },
+    { key: "open_pr", title: "Open a pull request", detail: "The change stays on its own branch until you merge.", summary: "Pull request opened.", effect: "open_pr" },
+    { key: "checks", title: "Run the checks", detail: fix.howChecked, summary: "The checks passed.", effect: "checks" },
+    { key: "merge", title: "Merge and deploy", detail: "This step waits for your decision.", summary: "Merged and deployed.", effect: "merge_gate" },
+    { key: "verify", title: "Verify the player journey", detail: "Check that answers advance the round and completed scores are saved once.", summary: "The player journey completed." },
   ];
 }
 
@@ -57,5 +58,5 @@ export function learnedFor(fix: FixOption): string {
 }
 
 export function afterShots(caseId: string): Screenshot[] {
-  return caseId === "listener-ladder-1" ? listenerAfterShots() : [];
+  return caseId === "listener-ladder-1" ? listenerAfterShots() : featureAfterShots(caseId);
 }

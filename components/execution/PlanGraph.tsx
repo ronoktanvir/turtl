@@ -3,6 +3,7 @@ import { Pressable, View } from "react-native";
 import type { PlanStep, PullRequest } from "../../data/types";
 import { useTheme, type TokenName } from "../../theme";
 import { Icon, Reveal, T, type IconName } from "../ui";
+import { formatDuration, formatStart } from "./timing";
 
 const status: Record<PlanStep["status"], { label: string; color: TokenName; icon: IconName }> = {
   pending: { label: "Waiting", color: "textMuted", icon: "GitBranch" },
@@ -12,7 +13,7 @@ const status: Record<PlanStep["status"], { label: string; color: TokenName; icon
   skipped: { label: "Skipped", color: "textMuted", icon: "ArrowDown" },
 };
 
-export function PlanGraph({ steps, pullRequest }: { steps: PlanStep[]; pullRequest?: PullRequest }) {
+export function PlanGraph({ steps, pullRequest, now }: { steps: PlanStep[]; pullRequest?: PullRequest; now: number }) {
   const { colors } = useTheme();
   const [expanded, setExpanded] = useState<string | null>(null);
   const [openCheck, setOpenCheck] = useState<string | null>(null);
@@ -22,6 +23,14 @@ export function PlanGraph({ steps, pullRequest }: { steps: PlanStep[]; pullReque
         const look = status[step.status];
         const open = expanded === step.key;
         const checks = step.key === "checks" ? pullRequest?.checkRuns : undefined;
+        const timing = step.startedAt !== undefined
+          ? `Started ${formatStart(step.startedAt)}` + (
+            step.finishedAt !== undefined
+              ? ` · took ${formatDuration(step.finishedAt - step.startedAt)}`
+              : step.status === "running" ? ` · ${formatDuration(now - step.startedAt)} elapsed` : ""
+          )
+          : step.status === "skipped" ? "Not run"
+            : step.estimatedDurationMs !== undefined ? `About ${formatDuration(step.estimatedDurationMs)}` : "Estimate pending";
         return (
           <View key={step.key}>
             {index > 0 && (
@@ -56,6 +65,7 @@ export function PlanGraph({ steps, pullRequest }: { steps: PlanStep[]; pullReque
                 <T variant="mono" color="textMuted">{String(index + 1).padStart(2, "0")}</T>
                 <Icon name={open ? "ChevronDown" : "ChevronRight"} color="textMuted" size={16} />
               </View>
+              <T variant="small" color="textMuted" testID={"plan-timing-" + step.key}>{timing}</T>
               {open && (
                 <View style={{ gap: 8, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 12 }}>
                   {step.summary && <T>{step.summary}</T>}
