@@ -1,6 +1,6 @@
 {
-  "auditedCommit": "3d01f6404fede6e87f619bfd6cb5ae521b12b64a",
-  "auditedOn": "2026-11-15",
+  "auditedCommit": "2f99bfebc3a7eae0379704a36a19dcbf687526fa",
+  "auditedOn": "2026-11-16",
   "scope": [
     "app",
     "components",
@@ -40,6 +40,7 @@
         "Excerpts of source code",
         "Case details",
         "Messages",
+        "Notes and preferences the owner writes",
         "Customers' reports",
         "Voice recordings"
       ],
@@ -51,6 +52,7 @@
         "OPENAI_MODEL",
         "DIAGNOSIS_MODEL",
         "FIXES_MODEL",
+        "STRUCTURAL_MODEL",
         "VOICE_TRANSCRIBE_MODEL",
         "VOICE_SPEECH_MODEL"
       ],
@@ -67,6 +69,7 @@
       "receives": [
         "Up to 30,000 characters of each source file",
         "Notes on past cases",
+        "Preferences the owner states",
         "Questions about the code",
         "Customers' reports"
       ],
@@ -76,6 +79,8 @@
       ],
       "settings": [
         "SUPERMEMORY_API_KEY",
+        "SUPERMEMORY_NAMESPACE_PREFIX",
+        "SUPERMEMORY_BASE_URL",
         "INTAKE_NAMESPACE_PREFIX"
       ],
       "policy": "https://supermemory.ai/privacy/"
@@ -86,10 +91,11 @@
       "kind": "ai",
       "inPrivacyPolicy": true,
       "needsPermission": true,
-      "does": "Writes an approved code change and opens a pull request",
+      "does": "Writes an approved code change, or the changes that prepare a new project, and opens a pull request",
       "receives": [
         "The title of a case",
         "The instructions for an approved code change",
+        "The brief for preparing a new project: its name, folders, live address, and what turtl found missing",
         "The repository's name",
         "The repository itself, through Capy's own connection to GitHub"
       ],
@@ -100,7 +106,8 @@
         "CAPY_API_KEY",
         "CAPY_PROJECT_ID",
         "CAPY_MODEL_ID",
-        "CAPY_REASONING"
+        "CAPY_REASONING",
+        "CAPY_API_URL"
       ],
       "policy": "https://capy.ai/privacy-policy"
     },
@@ -132,10 +139,12 @@
       "kind": "tool",
       "inPrivacyPolicy": true,
       "needsPermission": false,
-      "does": "Holds the repository turtl reads, and the pull requests it follows and merges",
+      "does": "Signs the owner in when they choose GitHub, holds the repositories turtl reads through its GitHub App, and the pull requests it follows and merges",
       "receives": [
-        "Requests to read the repository and its pull requests",
-        "A merge, when the owner taps Merge"
+        "The owner's approval when they sign in with GitHub or connect it, and requests to read who they are and which repositories they chose",
+        "Requests to read those repositories and their pull requests",
+        "A merge, when the owner taps Merge",
+        "A request to remove turtl's GitHub App when the owner disconnects GitHub or deletes their account"
       ],
       "hosts": [
         "api.github.com",
@@ -143,6 +152,13 @@
         "github.com"
       ],
       "settings": [
+        "GITHUB_APP_ID",
+        "GITHUB_APP_SLUG",
+        "GITHUB_APP_PRIVATE_KEY",
+        "GITHUB_APP_WEBHOOK_SECRET",
+        "AUTH_GITHUB_ID",
+        "AUTH_GITHUB_SECRET",
+        "GITHUB_API_URL",
         "GITHUB_TOKEN"
       ],
       "policy": "https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement"
@@ -168,6 +184,68 @@
       "policy": "https://revyl.com/privacy/"
     },
     {
+      "id": "expo",
+      "name": "Expo",
+      "kind": "tool",
+      "inPrivacyPolicy": true,
+      "needsPermission": false,
+      "does": "Delivers push notifications to the owner's phone, through Apple",
+      "receives": [
+        "The phone's push token, sent by the phone when the owner turns notifications on",
+        "Each notification: the project's name, one fixed sentence, and the case's id"
+      ],
+      "hosts": [
+        "exp.host"
+      ],
+      "settings": [
+        "EXPO_ACCESS_TOKEN",
+        "EXPO_PUSH_API_URL"
+      ],
+      "policy": "https://expo.dev/privacy"
+    },
+    {
+      "id": "resend",
+      "name": "Resend",
+      "kind": "tool",
+      "inPrivacyPolicy": true,
+      "needsPermission": false,
+      "does": "Sends the email with a code to reset a password",
+      "receives": [
+        "The owner's email address",
+        "The reset code"
+      ],
+      "hosts": [
+        "api.resend.com"
+      ],
+      "settings": [
+        "AUTH_RESEND_KEY",
+        "AUTH_EMAIL_FROM"
+      ],
+      "policy": "https://resend.com/legal/privacy-policy"
+    },
+    {
+      "id": "apple",
+      "name": "Apple",
+      "kind": "tool",
+      "inPrivacyPolicy": true,
+      "needsPermission": false,
+      "does": "Signs the owner in when they choose Sign in with Apple, and revokes that sign-in when they delete their account",
+      "receives": [
+        "Apple's one-time code from the sign-in, traded for a token turtl keeps only to revoke it",
+        "That token, when the owner deletes their account"
+      ],
+      "hosts": [
+        "appleid.apple.com"
+      ],
+      "settings": [
+        "AUTH_APPLE_BUNDLE_ID",
+        "AUTH_APPLE_TEAM_ID",
+        "AUTH_APPLE_KEY_ID",
+        "AUTH_APPLE_PRIVATE_KEY"
+      ],
+      "policy": "https://www.apple.com/legal/privacy/"
+    },
+    {
       "id": "owner-app",
       "name": "The owner's own app",
       "kind": "owner",
@@ -175,21 +253,32 @@
       "needsPermission": false,
       "does": "Answers turtl's health checks and carries out an approved recovery",
       "receives": [
-        "Health checks and the approved recovery action, signed with a control secret"
+        "Health checks and the approved recovery action, with the project's control token (in the single-owner demo, the deployment's control secret)"
       ],
       "hosts": [],
       "settings": [
         "PROTECTED_APP_URL",
         "PROTECTED_APP_CONTROL_SECRET",
         "PROTECTED_APP_CONTROL_SECRET_SHA256",
-        "PROTECTED_APP_REVISION"
+        "PROTECTED_APP_REVISION",
+        "WATCHED_APP_ALLOW_LOOPBACK"
       ]
     }
   ],
   "otherHosts": {
     "ronoktanvir.github.io": "turtl's own privacy, terms, and support pages, opened in the browser from the gear sheet",
     "app.invalid": "A placeholder address in a prompt. Nothing is sent to it",
-    "example.invalid": "A placeholder address in developer sample data. Nothing is sent to it"
+    "example.invalid": "A placeholder address in developer sample data. Nothing is sent to it",
+    "api.anthropic.com": "Anthropic's model API. The council can ask it for a second diagnosis when ANTHROPIC_API_KEY is set, but only in the single-owner demo: with accounts on, the AI permission refuses every call to it, because this list does not name it",
+    "generativelanguage.googleapis.com": "Google's Gemini API. The council can ask it for a second diagnosis when GEMINI_API_KEY is set, but only in the single-owner demo: with accounts on, the AI permission refuses every call to it, because this list does not name it",
+    "127.0.0.1": "The demo's own app on a local backend, and stand-ins in tests. With accounts on, a project's live address may not be one",
+    "docs.expo.dev": "A link to Expo's documentation in a comment. Nothing is sent to it",
+    "invalid.example": "A placeholder the backend reads when it has no address of its own. Nothing is sent to it",
+    "your-deployment.convex.site": "A placeholder in the GitHub App's definition, replaced with the backend's own address when the app is registered. Nothing is sent to it",
+    "example.com": "An example address in a message to the owner. Nothing is sent to it",
+    "app.example.com": "An example address in a message to the owner. Nothing is sent to it",
+    "guardian-scoring.vercel.app": "The live address of a project in the app's example data, shown as a link. The app sends nothing to it",
+    "orca-teams.vercel.app": "The live address of a project in the app's example data, shown as a link. The app sends nothing to it"
   },
   "otherSettings": {
     "VOICE_ENABLED": "Switches talking on. Off by default",
@@ -200,21 +289,51 @@
     "EXPO_PUBLIC_DATA_SOURCE": "Set to example, the app shows example data and calls no backend",
     "EXPO_PUBLIC_TURTL_INTAKE_URL": "The demo app's report form: where it posts reports",
     "EXPO_PUBLIC_TURTL_INTAKE_KEY": "The demo app's report form: which app the report is for",
-    "TURTL_PREVIEW_ORIGIN": "The address of a web preview, used when building one"
+    "TURTL_PREVIEW_ORIGIN": "The address of a web preview, used when building one",
+    "AUTH_REQUIRED": "Set to true, accounts mode: sign-in, one owner per project, the AI permission and the limits. Unset, the single-owner demo",
+    "SITE_URL": "turtl's web address, where GitHub sign-in may return",
+    "CONVEX_CLOUD_URL": "The backend's own address, set by Convex. Used to tell a local backend from a hosted one",
+    "CONVEX_SITE_URL": "The backend's own web address, set by Convex. Sign-in tokens name it, and GitHub sends the owner back to it",
+    "AUTH_STAND_IN_URL": "Points sign-in at a stand-in for Apple, GitHub and Resend in tests. With accounts on it is honoured only on a local backend",
+    "SECRETS_ENCRYPTION_KEY": "Encrypts each project's control token and each account's coding agent key. Never sent anywhere",
+    "INTAKE_CONTACT_KEY": "The key for the hash a customer's contact on the report form becomes. The contact itself is not kept",
+    "ANTHROPIC_API_KEY": "Lets the council ask Anthropic, in the single-owner demo only (see api.anthropic.com)",
+    "GEMINI_API_KEY": "Lets the council ask Google, in the single-owner demo only (see generativelanguage.googleapis.com)",
+    "MODEL_SPEND_LIMIT_USD": "The AI spend one account may reach in a month",
+    "CODING_THREADS_PER_DAY": "The code changes one account may start in a day",
+    "INTAKE_SPEND_PER_DAY_USD": "The AI spend one project's customer reports may use in a day",
+    "INTAKE_CASES_PER_DAY": "The cases customer reports may open on one project in a day",
+    "NEW_ACCOUNTS_PER_HOUR": "The new accounts the backend makes in an hour",
+    "NEW_ACCOUNTS_PER_DAY": "The new accounts the backend makes in a day",
+    "DEPLOYMENT_MODEL_SPEND_PER_DAY_USD": "The AI spend of every account together in a day",
+    "PROJECTS_PER_ACCOUNT": "The projects one account may have",
+    "INTAKE_KEYS_PER_PROJECT": "The report form keys one project may have at once",
+    "EVIDENCE_LOCAL_PROOF": "Opens the local evidence fixtures on a local backend. Never set in production",
+    "EXPO_PUBLIC_APP_ENV": "Which kind of build this is. Picks Apple's development or production push service"
   },
   "libraries": {
+    "@auth/core": "Sign in with GitHub, used only in the backend",
+    "@convex-dev/auth": "Sign-in and sessions, in turtl's own backend",
     "@expo-google-fonts/capriola": "The font, shipped inside the app. No request to Google",
+    "@expo-google-fonts/righteous": "The second font, shipped inside the app. No request to Google",
     "@expo/metro-runtime": "Build tooling",
     "convex": "The client for turtl's own backend",
     "expo": "The app framework",
+    "expo-apple-authentication": "Shows Apple's own Sign in with Apple sheet",
+    "expo-asset": "Loads files that ship inside the app",
     "expo-audio": "Records and plays audio after the owner taps Talk",
     "expo-constants": "Reads the app's own configuration",
+    "expo-crypto": "Makes the one-time value a Sign in with Apple request carries",
     "expo-file-system": "Reads the recording and deletes it; writes and deletes the spoken reply",
     "expo-font": "Loads the font",
     "expo-linking": "Opens links in the browser",
+    "expo-notifications": "Asks to show notifications after the owner taps Turn on notifications, and gets the phone's push token from Expo",
     "expo-router": "Navigation",
     "expo-secure-store": "Keeps the owner passcode in the iOS Keychain",
     "expo-splash-screen": "The launch screen",
+    "expo-web-browser": "Opens GitHub's sign-in page in a browser sheet",
+    "jose": "Checks Apple's sign-in tokens and signs turtl's requests to Apple, used only in the backend",
+    "lucia": "Hashes passwords (Scrypt), used only in the backend",
     "lucide-react-native": "Icons",
     "react": "The UI library",
     "react-dom": "The UI library, for the web preview",

@@ -7,11 +7,11 @@
 - **Frontend:** Other (Expo iOS simulator build on Revyl cloud devices; no public hosted frontend)
 - **Convex deployment:** https://patient-kudu-956.convex.cloud
 - **Components:** none
-- **Convex features:** schema, tables, indexes, queries, mutations, actions, internal functions, HTTP actions, crons, scheduled functions, file storage, realtime queries
-- **Auth:** none
+- **Convex features:** authentication (Convex Auth), schema, tables, indexes, queries, mutations, actions, internal functions, HTTP actions, crons, scheduled functions, file storage, realtime queries
+- **Auth:** Convex Auth (`@convex-dev/auth` 0.0.98): email and password, Sign in with Apple, and GitHub, only when the deployment sets `AUTH_REQUIRED=true`. Without it the deployment is the single-owner demo and nobody signs in
 - **AI models:** gpt-5.4-mini (Quick look diagnosis, and by default fix proposals, case chat, report triage and preference reading; `DIAGNOSIS_MODEL` and `FIXES_MODEL` override it), gpt-6.1-sol (Careful review diagnosis and council consolidation), gpt-5.5 and gpt-6.1-terra (council members), gpt-5.4 (broader-cause examination, `STRUCTURAL_MODEL` overrides it), gpt-6-luna (assistant chat, code network and onboarding inspection, `OPENAI_MODEL` overrides it), gpt-4o-mini-transcribe and gpt-4o-mini-tts (voice); claude-sonnet-4-5 and gemini-2.5-pro join the council only when `ANTHROPIC_API_KEY` or `GEMINI_API_KEY` is set. All are called through each provider's API, not the Convex AI Gateway
 - **Started:** 2026-11-15T20:37:34Z
-- **Last updated:** 2026-11-16T06:51:03Z
+- **Last updated:** 2026-11-16T10:50:10Z
 
 ## Log
 
@@ -188,3 +188,75 @@ Pull request #53 rewrote the README as the repository's front page, with screens
 
 ### 2026-11-16 - 0b482e4
 Pull request #58 landed #56, #45, #46, #47, #50, #48, #49, #54, #55, #57 and #53 together, each with its own merge commit. Only the first two merged cleanly; every other conflict was two branches adding to the same list in a shared registry such as `convex/schema.ts`, `convex/crons.ts` or `data/index.ts`, and each resolution kept both sides. Two tests that load modules through a fixed list of allowed imports broke once the branches met: `tests/preferences.test.mjs` now stubs `./structural`, and `tests/workflow-evidence.test.mjs` now loads `convex/routing/validators.ts`. The combined head passed typecheck and 227 tests and was pushed to a local backend; nothing was deployed.
+
+### 2026-11-15 - fbf6fed
+Added `convex/access.ts`, the one place that decides who is calling and whether a project is theirs. With `AUTH_REQUIRED` unset the deployment stays the single-owner demo; with `AUTH_REQUIRED=true` a caller must be signed in and reaches only projects whose `ownerId` is their account. Nothing called it yet (`convex/access.ts`).
+
+### 2026-11-15 - 3a02df0
+Pushed notifications to the owner's phone through Expo's push service when a case needs their decision or a fix they allowed in advance has run. The words come from one pure function: the project's name as the title, one fixed sentence per event, and only the case id as data, so no customer's words, error or code can reach a locked screen. A Notifications row in the gear sheet asks the phone only when the owner taps, and a tap opens the case. Proven against a stand-in for Expo in tests and on a local backend; nothing has reached a real phone, which needs an Apple Developer membership. Convex features: tables, mutations, queries, internal actions, scheduled functions (`convex/push/`, `convex/notices.ts`, `components/push/`, `data/push/`).
+
+### 2026-11-15 - 82ad039
+Refused to send any deployment secret but the watched app's own token. A check's `credentialRef` names the setting turtl sends as a bearer token, and onboarding read it from a project's `turtl.json`, so with several owners a project could have named `OPENAI_API_KEY` and had turtl send it to that project's server. The request helper now refuses every other name before a request is made (`convex/protectedApp/`, `convex/onboarding/`).
+
+### 2026-11-15 - 74d9b99
+Kept Home's header turtle green and greeted an account with no projects with a first-run screen. A project with nothing open now shows what turtl is watching and when each check last passed, a screen that fails to draw says so with "Try again" and "Go to Projects" instead of going blank, and store builds send the old case list and case screen (`/live`, `/case/<id>`) to Projects. Covered by unit tests. Convex features: queries (`app/projects.tsx`, `app/_layout.tsx`, `convex/screens/overview.ts`).
+
+### 2026-11-15 - 848e701
+Made the booking demo honour turtl's prevention scenario, so approving "Book while recommendations are slow" can register. A customer's contact is now kept only as a keyed hash used to count one person once, and an owner can delete one report from its case. The report form became a self-contained folder any owner can copy, the microphone prompt now says recordings go to OpenAI, and `eas submit` reads the dynamic store listing. Covered by unit tests (`convex/bookingDemo/`, `convex/intake/`, `protected-app/report/`, `app.config.ts`).
+
+### 2026-11-15 - 8652293
+Made every public backend function ask `convex/access.ts` who is calling. With accounts on, another account's project, case or child row reads as missing and writes refuse with the function's own "not found" sentence; with accounts off nothing changes. A signed-in owner replaces the shared passcode in accounts mode, and the unused assistant action was deleted. `tests/access-coverage.test.mjs` parses every module and fails for a public function that does not ask (`convex/`, `tests/access-coverage.test.mjs`).
+
+### 2026-11-15 - 01867f0
+Made the case screens match the owner's design and made Approve show what will be sent. The coding agent now receives, word for word, the instructions stored when the fix was proposed, and the Approve sheet shows them behind "See the full instructions", open from the start when a model read customers' messages. Live steps, evidence and actions are named in plain words, the council moved to Logs and the prevention check to Fixes, and the Settings copy was restored. Covered by unit tests (`convex/fixes.ts`, `convex/fixOptions.ts`, `components/fix/`, `data/live/`).
+
+### 2026-11-15 - 9c1cc16
+Showed "Can't reach turtl" over an open sheet, so an owner who tapped Approve as the network dropped no longer sees a sheet stuck on "Approving…" with no reason (`app/_layout.tsx`, `components/ui/`).
+
+### 2026-11-15 - 7b26038
+Brought this log up to date through #58: one entry per merged pull request, headed by its merge commit, and one for the combination (`hackathon.md`).
+
+### 2026-11-15 - 1792828
+Added sign-in with Convex Auth 0.0.98: email and password, Sign in with Apple through the iPhone's own sheet, and GitHub through the same GitHub App that reaches repositories. Accounts are never merged by email. With accounts on, or in a store build, the Login screen signs people in and keeps the app behind it; Google's button is gone. A password reset by emailed code (Resend) switches on only when its key and sender are set, and sends at most one email a minute. Apple's refresh token is kept so it can be revoked later. Proven against stand-ins for Apple, GitHub and Resend; nothing has run against Apple. Convex features: authentication, tables, HTTP actions (`convex/auth.ts`, `convex/auth/`, `app/sign-in.tsx`, `app/sign-up.tsx`, `data/account/`).
+
+### 2026-11-15 - cb56eda
+Asked the owner before anything goes to an AI service. Every call to OpenAI, Supermemory, Capy or Keiki now passes a gate that, in accounts mode, refuses until the account has said yes on a screen listing each service and what it receives, read from `store/data-practices.json`; taking the permission back stops the next call. Each account also gets a monthly model allowance ($20 by default) and five coding-agent threads a day. Secrets are masked in repository content before it leaves turtl, and the code map no longer passes OpenAI's raw error text on. Covered by unit tests against stand-ins. Convex features: tables, mutations, queries, internal queries (`convex/consent/`, `convex/spend/`, `convex/codeNetwork/redact.ts`, `app/ai-permission.tsx`).
+
+### 2026-11-16 - a04b384
+Listed every variable the backend reads in the release table, so the release check knows each one by name (`release/backend-env.mjs`, `release/backend-runbook.md`).
+
+### 2026-11-16 - a21100e
+Let an owner connect GitHub from Add project, pick a repository, and disconnect. turtl never trusts the installation id GitHub puts in the setup address: GitHub confirms the person, and each installation is tied to the account that connected it. Disconnect touches only installations the account actually uses. Proven against a stand-in that plays GitHub and the person's browser, in tests and on a local backend; no real GitHub App exists yet. Convex features: HTTP actions, actions, internal mutations, tables (`convex/github/`, `app/add-project.tsx`).
+
+### 2026-11-16 - 6412a9b
+Added `vercel.json`, which builds the Expo web export and answers every path with its single page. With no backend address set, the build shows the built-in example data (`vercel.json`).
+
+### 2026-11-16 - 68ec36c
+Kept ordinary text in Capriola and titles in Righteous where a few screens had them the other way round (`components/`, `app/`).
+
+### 2026-11-16 - fb01311
+Fixed what running the combined app with accounts on turned up: the project and case sub-screens say "not found" for a project the owner cannot see, a rules-judged Preparation report says "No model answered" once, and the workflow browser test finds Chrome on a Mac (`app/project/`, `tests/workflow-browser.test.mjs`).
+
+### 2026-11-16 - 0e67a4c
+Pull request #59 landed the App Store's first wave on `main`: the access rule, push, the first run, the demo-app changes, the case screens, sign-in, the AI permission and spend limits, Connect GitHub, and the fixes above, each with its own merge commit. Nothing was deployed, and no store build has run.
+
+### 2026-11-16 - efea476
+Closed findings 3 to 9 and 11 of a security review of accounts mode. Stop and verify cancel a case's scheduled jobs by id instead of reading every account's; a project's overview counts only the caller's own code maps; a push token live on another account is refused; repository access goes only through an installation linked to the project's owner; the backend refuses the demo's deployment-wide variables when accounts are on; customer reports get their own daily allowance and case cap; the deployment caps new accounts, total model spend, projects and report keys; and the password reset stays open to an owner a stranger is trying to lock out. Covered by unit tests (`convex/runner/jobs.ts`, `convex/spend/`, `convex/auth/email.ts`, `convex/demoSettings.ts`, `convex/github/access.ts`).
+
+### 2026-11-16 - afb1506
+Set every piece of text that is not a full sentence (titles, names, labels, status words, counts, dates) in Righteous, and sentences in Capriola. The text component decides from the words it draws; errors, chat messages and quoted words are set in Capriola by hand. A follow-up, 826ed48, set the last few fonts the rule needed (`components/ui/typeface.ts`, `components/ui/index.tsx`).
+
+### 2026-11-16 - 17fb5ff
+Redesigned the issue list and the opened issue. The list takes the top half of the screen as compact rows (state turtle, title, date) with "Swipe up to begin review" below, and a green drop carries one screen into the next. An opened issue is headed by its own name, the Overview, Logs and Code tabs each have their own colour and regroup around the selected one, and Fixes is its own page, reached by swiping past the end of the issue or a button. Covered by unit tests and the UI citation test (`components/project/BeginScreen.tsx`, `components/fix/CasePage.tsx`, `components/fix/CaseTabs.tsx`, `components/ui/pulse.tsx`).
+
+### 2026-11-16 - 36717d5
+Let an owner delete their account from the app: "Delete account" under Sign out, in the gear sheet and in the account sheet behind Home's profile picture, only for a signed-in account. Accepting it ends every session and removes the ways to sign in at once; a resumable job then stops the account's work, waits for running actions to finish, deletes its copies at Supermemory, disconnects its GitHub installations, revokes its Apple token, and deletes its projects, cases, files and the account. A test fails for any table the deletion does not cover. Proven on a local backend against stand-ins for Supermemory, GitHub and Apple. Convex features: mutations, actions, crons, scheduled functions, file storage (`convex/account/`, `components/account/`).
+
+### 2026-11-16 - b2e0e4b
+Gave each project its own control token and each account its own coding agent key, sealed with AES-GCM under `SECRETS_ENCRYPTION_KEY` and never returned by a public function. With accounts on, turtl sends a project's requests only to its own address with its own token, watches every project in turns, and starts every Capy thread with the owner's own key on a repository the owner connected. Owners can make, see and revoke their project's report keys, Revyl is sent only its own key, and every GitHub call goes through one address. Proven in tests and on a local backend. Convex features: actions, internal mutations, tables (`convex/secrets/`, `convex/protectedApp/`, `convex/prTracking/codingAgent.ts`, `components/secrets/`).
+
+### 2026-11-16 - c312a93
+Pull request #60 made ten interface fixes from a critique of every screen: "Log in" and "Projects" said the same way everywhere, every control at least 44 points, green text that passes contrast in the light theme, project names kept whole at 320 wide, empty states on two bare screens, a feature request no longer called an urgent issue, and the Fix and Features lists usable with a mouse and a trackpad (`app/`, `components/`, `theme/`).
+
+### 2026-11-16 - 2f99bfe
+Merged `main`, with #60, into the wave-2 branch. The issue list keeps the redesigned layout and takes #60's state words and turtles; #60's sideways card strip, which the redesign removed, goes with its test. Typecheck, the backend typecheck, 453 tests, a local Convex push and the release preflight passed; nothing was deployed.

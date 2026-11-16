@@ -53,7 +53,7 @@ test("the screen's list is store/data-practices.json's, imported and not copied"
     services.ASKED.map(({ id, name, does, receives, policy }) => ({ id, name, does, receives, policy })),
     asked.map(({ id, name, does, receives, policy }) => ({ id, name, does, receives, policy })),
   );
-  assert.deepEqual(services.ALSO_USED.map((service) => service.id), ["convex", "github", "revyl"]);
+  assert.deepEqual(services.ALSO_USED.map((service) => service.id), ["convex", "github", "revyl", "expo", "resend", "apple"]);
   assert.match(services.LIST_VERSION, /^[0-9a-f]{8}$/);
   const source = readFileSync(join(root, "convex/consent/services.ts"), "utf8");
   assert.match(source, /from "\.\.\/\.\.\/store\/data-practices\.json"/);

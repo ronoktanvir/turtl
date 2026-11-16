@@ -1,6 +1,6 @@
 # The production backend
 
-turtl's backend is a Convex deployment. Today there is one hosted deployment, `patient-kudu-956`, and it is the demo: it has the dev tools switched on, it watches the booking demo app, and it texts Ronok's phone. Production must be a different deployment that shares nothing with it: its own data, its own keys, its own deploy key.
+turtl's backend is a Convex deployment. Today there is one hosted deployment, `patient-kudu-956`, and it is the demo: it has the dev tools switched on, it watches the booking demo app, and it texts the operator's phone. Production must be a different deployment that shares nothing with it: its own data, its own keys, its own deploy key.
 
 Nothing in this file touches `patient-kudu-956`.
 
