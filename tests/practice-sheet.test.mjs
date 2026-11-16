@@ -17,6 +17,7 @@ test("an open issue's stage is told apart from the case's status", () => {
   for (const status of ["open", "investigating"]) assert.equal(stageOf(status), "working", status);
   assert.equal(stageOf("waiting_for_owner"), "waiting");
   for (const status of ["executing", "waiting_for_deploy", "verifying"]) assert.equal(stageOf(status), "carrying_out", status);
+  assert.equal(stageOf("waiting_for_app"), "not_answering", "an app turtl cannot reach is not being worked out");
   assert.equal(nextDay(Date.UTC(2026, 10, 16, 15, 30)), Date.UTC(2026, 10, 17), "the allowance day is a UTC day");
   assert.equal(nextDay(Date.UTC(2026, 11, 31, 23, 59)), Date.UTC(2027, 0, 1));
 });
@@ -28,6 +29,12 @@ test("each stage says what is true, and a waiting fix leads to it", () => {
   assert.equal(STAGE_WORDS.waiting.button, "Look at the fix");
   assert.equal(STAGE_WORDS.carrying_out.enacting, true, "carrying out leads to the running fix");
   assert.doesNotMatch(JSON.stringify(STAGE_WORDS), /working out what to do/);
+  assert.deepEqual(STAGE_WORDS.not_answering, {
+    title: "Your practice app is not answering",
+    line: "turtl's checks get no answer from it, so turtl cannot work out a fix. It keeps checking and closes the issue when the app answers.",
+    button: "Open the issue",
+    enacting: false,
+  });
   const source = read("components/practice/PracticeSheet.tsx");
   assert.match(source, /const stage = STAGE_WORDS\[project\.caseStage \?\? "working"\];/);
 });

@@ -68,6 +68,12 @@ export const STAGE_WORDS: Record<NonNullable<PracticeProject["caseStage"]>, { ti
     button: "Watch it",
     enacting: true,
   },
+  not_answering: {
+    title: "Your practice app is not answering",
+    line: "turtl's checks get no answer from it, so turtl cannot work out a fix. It keeps checking and closes the issue when the app answers.",
+    button: "Open the issue",
+    enacting: false,
+  },
 };
 
 /** When today's breaks start again, in the person's own time: "at 4:00 PM", or "tomorrow at 1:00 AM". */
