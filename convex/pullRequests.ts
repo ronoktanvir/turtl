@@ -5,12 +5,14 @@ import { action, internalAction, mutation, query, type ActionCtx } from "./_gene
 import { canSeeCase, guardCaseInAction, ownerActor, requireDevTools } from "./access";
 import { gateFor } from "./consent/gate";
 import { repositoryAccess } from "./github/access";
-import { capyConfig, findPullRequestNumber } from "./prTracking/capy";
+import { findPullRequestNumber } from "./prTracking/capy";
+import { capyConfigFor } from "./prTracking/codingAgent";
 import { registerCodeChangeAction } from "./prTracking/catalog";
 import { mergePullRequest, parsePullRequestUrl, readPullRequest } from "./prTracking/github";
 import { latestForCase, toPullRequest } from "./prTracking/records";
 import { pullRequestOf, type PullRequest } from "./prTracking/validators";
 import { readRevision } from "./protectedApp/client";
+import { watchedApp } from "./protectedApp/watched";
 
 declare const process: { env: Record<string, string | undefined> };
 
@@ -38,7 +40,7 @@ async function sync(ctx: ActionCtx, row: Doc<"pullRequests">): Promise<RefreshRe
   let number = row.number;
   if (number === undefined) {
     if (!row.capyThreadId) return { outcome: "failed", message: "This pull request has no number and no Capy thread." };
-    const capy = capyConfig();
+    const capy = await capyConfigFor(ctx, { caseId: row.caseId });
     if (!capy.ok) return { outcome: "not_configured", missing: capy.missing };
     const found = await findPullRequestNumber(gateFor(ctx, { caseId: row.caseId }), capy, row.capyThreadId, row.repo, row.capyCursor);
     if (!found.ok) {
@@ -69,7 +71,7 @@ async function sync(ctx: ActionCtx, row: Doc<"pullRequests">): Promise<RefreshRe
   await ctx.runMutation(internal.prTracking.records.applySnapshot, { id: row._id, ...read.body });
   const deployment = await ctx.runQuery(internal.prTracking.records.deploymentTarget, { id: row._id });
   if (deployment) {
-    const revision = await readRevision(deployment.base);
+    const revision = await readRevision(deployment.base, await watchedApp(ctx, { caseId: row.caseId }));
     if (revision === deployment.expectedRevision) {
       await ctx.runMutation(internal.prTracking.records.confirmDeployment, { id: row._id, revision });
     } else {
