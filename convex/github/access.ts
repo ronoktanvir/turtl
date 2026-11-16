@@ -1,10 +1,11 @@
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import { internalAction, type ActionCtx } from "../_generated/server";
+import { accessEnforced, SOLO_ACCOUNT } from "../access";
 import { githubToken } from "../prTracking/github";
 import { readApp, readRepositoryInstallation } from "./api";
 import manifest from "./app-manifest.json";
-import { appConfig, GITHUB_APP_VARIABLES, REPOSITORY_PATTERN } from "./config";
+import { appConfig, connectConfig, GITHUB_APP_VARIABLES, REPOSITORY_PATTERN } from "./config";
 import { signAppJwt, UNREADABLE_KEY } from "./jwt";
 import { installationToken } from "./tokens";
 
@@ -14,12 +15,24 @@ export type RepositoryAccess =
   | { ok: true; source: "installation"; token: string; installationId: number }
   // The GitHub App is not configured: the deployment's GITHUB_TOKEN, or no token at all when that is not set either.
   | { ok: true; source: "deployment"; token: string | undefined }
-  | { ok: false; reason: "invalid_repository" | "app_incomplete" | "not_installed" | "suspended" | "github_error"; message: string };
+  | { ok: false; reason: "invalid_repository" | "app_incomplete" | "not_installed" | "not_connected" | "suspended" | "github_error"; message: string };
+
+// Whose repository it is: the project or case turtl acts for (the owner is the project's apps.ownerId, the rule in
+// convex/access.ts), or an account named directly.
+export type RepositoryOwner = { appId: string } | { caseId: string } | { account: string };
+
+const notConnected = (repo: string): RepositoryAccess => ({
+  ok: false,
+  reason: "not_connected",
+  message: `${repo} is not one of the repositories this project's owner connected to turtl. Connect it in turtl (Add project, Connect GitHub), or add it to turtl's installation on GitHub.`,
+});
 
 // The one place that decides which credential reaches a repository ("owner/name").
 // With the GitHub App configured, only an installation that covers the repository gives a token, and
 // GITHUB_TOKEN is never used. Without it, every repository gets the deployment's GITHUB_TOKEN, as before.
-export async function repositoryAccess(ctx: ActionCtx, repo: string): Promise<RepositoryAccess> {
+// With accounts on (AUTH_REQUIRED=true) the installation must also be linked to the project's owner through
+// Connect GitHub, and allow that repository for them. With accounts off the owner is not asked, as before.
+export async function repositoryAccess(ctx: ActionCtx, repo: string, owner: RepositoryOwner): Promise<RepositoryAccess> {
   const app = appConfig();
   if (app.state === "absent") return { ok: true, source: "deployment", token: githubToken() };
   if (app.state === "incomplete") {
@@ -29,7 +42,15 @@ export async function repositoryAccess(ctx: ActionCtx, repo: string): Promise<Re
   const jwt = await signAppJwt(app.appId, app.privateKey);
   if (!jwt) return { ok: false, reason: "app_incomplete", message: UNREADABLE_KEY };
 
-  let installationId: number | null = await ctx.runQuery(internal.github.installations.covering, { repo });
+  let account: string | null = null;
+  if (accessEnforced()) {
+    account = "account" in owner ? owner.account : await ctx.runQuery(internal.github.links.ownerOf, owner);
+    if (!account) return { ok: false, reason: "not_connected", message: `turtl does not know who owns this project, so it will not reach ${repo}.` };
+  }
+  let installationId: number | null =
+    account === null
+      ? await ctx.runQuery(internal.github.installations.covering, { repo })
+      : await ctx.runQuery(internal.github.links.coveringForAccount, { account, repo });
   if (installationId === null) {
     // turtl's records say no. GitHub has the last word, so a missed webhook or a renamed repository heals here.
     const found = await readRepositoryInstallation(jwt, repo);
@@ -48,6 +69,10 @@ export async function repositoryAccess(ctx: ActionCtx, repo: string): Promise<Re
     if (suspended) {
       return { ok: false, reason: "suspended", message: `${installation.accountLogin} has suspended turtl's GitHub App, so turtl cannot reach ${repo}.` };
     }
+    // An installation covers it, and with accounts on it gives a token only to an account it is linked to.
+    if (account !== null && !(await ctx.runQuery(internal.github.links.allows, { account, installationId: installation.installationId, repo }))) {
+      return notConnected(repo);
+    }
     installationId = installation.installationId;
   }
 
@@ -61,18 +86,21 @@ export async function repositoryAccess(ctx: ActionCtx, repo: string): Promise<Re
 }
 
 // Says what is configured and whether GitHub accepts it, without returning any secret. With a repository it
-// also says which credential that repository would get.
-// Run: npx convex run github/access:check '{"repo":"owner/name"}'
+// also says which credential that repository would get, for an account (with accounts on) or the single owner.
+// Run: npx convex run github/access:check '{"repo":"owner/name","account":"<account id>"}'
 export const check = internalAction({
-  args: { repo: v.optional(v.string()) },
-  handler: async (ctx, { repo }) => {
+  args: { repo: v.optional(v.string()), account: v.optional(v.string()) },
+  handler: async (ctx, { repo, account }) => {
     const app = appConfig();
     const jwt = app.state === "ready" ? await signAppJwt(app.appId, app.privateKey) : null;
     const read = jwt ? await readApp(jwt) : null;
     const expected: Record<string, string> = manifest.default_permissions;
-    const access = repo === undefined ? null : await repositoryAccess(ctx, repo);
+    const access = repo === undefined ? null : await repositoryAccess(ctx, repo, { account: account ?? SOLO_ACCOUNT });
+    const connect = connectConfig();
     return {
       app: app.state,
+      connect: connect.ok ? "ready" : { missing: connect.missing },
+      accounts: accessEnforced(),
       variables: Object.fromEntries(
         [...GITHUB_APP_VARIABLES, "AUTH_GITHUB_ID", "AUTH_GITHUB_SECRET", "GITHUB_TOKEN"].map((name) => [name, process.env[name] ? "set" : "not set"]),
       ),

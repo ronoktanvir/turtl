@@ -46,12 +46,12 @@ This is every variable the backend reads, taken from the code. "Required" stops 
 | `INTAKE_CONTACT_KEY` (secret) | Required | Key for the keyed hash a customer's contact on the report form becomes, so turtl can count one person once without keeping the address. Use at least 32 random characters and never change it: a new key counts returning customers as new people. Without it the contact becomes a plain hash, which someone holding the database could match against a guessed address. |
 | `INTAKE_NAMESPACE_PREFIX` | Optional | Prefix for the Supermemory namespaces that hold customer reports. It keeps a test deployment's reports apart; leave it unset in production. |
 | `SUPERMEMORY_NAMESPACE_PREFIX` | Optional | Prefix for every Supermemory namespace. It keeps a test deployment's memory apart from a hosted project's; leave it unset in production. |
-| `GITHUB_APP_ID` | Required, arrives with turtl#54 | The GitHub App's id. turtl reaches each account's repositories with a token of the app's installation on them, and with nothing else. |
-| `GITHUB_APP_PRIVATE_KEY` (secret) | Required, arrives with turtl#54 | The GitHub App's private key (the .pem file), which signs the request for an installation token. |
-| `GITHUB_APP_SLUG` | Required, arrives with turtl#54 | The GitHub App's name in its public link, used to send an owner to install it. |
-| `GITHUB_APP_WEBHOOK_SECRET` (secret) | Required, arrives with turtl#54 | Proves a webhook delivery came from GitHub. Without it every delivery is answered 503. |
-| `AUTH_GITHUB_ID` | Required | The same GitHub App's client id, for signing in with GitHub. |
-| `AUTH_GITHUB_SECRET` (secret) | Required | The same GitHub App's client secret. |
+| `GITHUB_APP_ID` | Required | The GitHub App's id. turtl reaches each account's repositories with a token of the app's installation on them, and with nothing else. |
+| `GITHUB_APP_PRIVATE_KEY` (secret) | Required | The GitHub App's private key (the .pem file), which signs the request for an installation token. |
+| `GITHUB_APP_SLUG` | Required | The GitHub App's name in its public link, used to send an owner to install it. |
+| `GITHUB_APP_WEBHOOK_SECRET` (secret) | Required | Proves a webhook delivery came from GitHub. Without it every delivery is answered 503. |
+| `AUTH_GITHUB_ID` | Required | The same GitHub App's client id. Connect GitHub asks the owner to authorize the app with it, which is how GitHub confirms who connected; signing in with GitHub uses it too. Without it Add project offers only a typed repository address. |
+| `AUTH_GITHUB_SECRET` (secret) | Required | The same GitHub App's client secret. Connect GitHub exchanges the owner's authorization with it for a user token, uses that token to read which installations the owner can reach, then revokes it. Signing in with GitHub uses it too. |
 | `JWT_PRIVATE_KEY` (secret) | Required | Signs the sign-in tokens the backend hands out (Convex Auth). Make it with the steps in convex/auth/README.md, with JWKS. Changing it signs everyone out. |
 | `JWKS` | Required | The public half of JWT_PRIVATE_KEY, which the backend checks sign-in tokens against. |
 | `SITE_URL` | Required | Where GitHub sign-in returns on the web, and the only web address a sign-in code may be sent to besides the app's own turtl:// link. The password reset email needs it too. For the iPhone-only launch, the turtl site: https://ronoktanvir.github.io/turtl |
@@ -78,7 +78,7 @@ This is every variable the backend reads, taken from the code. "Required" stops 
 | `EXPO_ACCESS_TOKEN` (secret) | Optional | Expo access token for push notifications, needed only once enhanced push security is turned on for the project in Expo. Without it pushes still send while that setting is off. |
 | `KEIKI_OWNER_CONTACT` | Never set | One phone number that receives every alert in the deployment. In production that would text one person about every account's incidents. Never set it until alerts go to each account's own owner. |
 | `GITHUB_TOKEN` (secret) | Never set | One GitHub token for the whole deployment, which is how the demo reaches GitHub. Every account would act through it. Production reaches GitHub only through the GitHub App, and with this unset there is nothing to fall back to when the app's variables go missing, so access fails closed. |
-| `GITHUB_API_URL` | Never set, arrives with turtl#54 | Points GitHub calls at a stand-in server in tests. In production it would send the app's tokens to another server. |
+| `GITHUB_API_URL` | Never set | Points GitHub calls at a stand-in server in tests. In production it would send the app's tokens to another server. |
 | `EXPO_PUSH_API_URL` | Never set | Points push notifications at a stand-in for Expo's push service in tests. In production it would send every owner's phone address and project names to another server. |
 | `DEV_TOOLS_ENABLED` | Never set | "true" opens the dev tools functions: sample cases, staged outages on the booking demo, memory resets, and seeded data, callable by anyone who knows the backend address. With AUTH_REQUIRED=true they stay closed whatever this says. |
 | `EVIDENCE_LOCAL_PROOF` | Never set | "true" opens the local evidence fixtures (convex/evidence/localProof.ts). They also need DEV_TOOLS_ENABLED and a localhost backend, and refuse to run anywhere else. |

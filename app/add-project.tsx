@@ -1,13 +1,16 @@
-import { useRouter, type Href } from "expo-router";
+import { useLocalSearchParams, useRouter, type Href } from "expo-router";
 import { useRef, useState } from "react";
 import { KeyboardAvoidingView, Platform, ScrollView, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import ConnectGithub from "../components/github/ConnectGithub";
 import { Button, Header, Screen, T } from "../components/ui";
 import { addProject } from "../data";
 import { useTheme } from "../theme";
 
 export default function AddProject() {
   const router = useRouter();
+  // GitHub's last redirect after Connect GitHub opens this screen with github= and, when it worked, a one-time ticket=.
+  const returned = useLocalSearchParams<{ github?: string; ticket?: string }>();
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
   const [repoUrl, setRepoUrl] = useState("");
@@ -50,6 +53,7 @@ export default function AddProject() {
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
         <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 20, gap: 24, paddingBottom: insets.bottom + 40 }}>
           <T color="textMuted">turtl reads the repository, tells you what it found, and asks what must never break before it changes anything.</T>
+          <ConnectGithub repoUrl={repoUrl} onPick={setRepoUrl} returned={{ github: returned.github, ticket: returned.ticket }} onReturnHandled={() => router.setParams({ github: undefined, ticket: undefined })} disabled={busy} />
           {fields.map((field) => (
             <View key={field.id} style={{ gap: 8 }}>
               <T variant="strong">{field.label}</T>

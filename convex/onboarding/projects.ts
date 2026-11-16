@@ -4,7 +4,8 @@ import type { Doc, Id } from "../_generated/dataModel";
 import { action, mutation, query, type MutationCtx } from "../_generated/server";
 import { accessEnforced, canSeeApp, guardApp, guardAppInAction, requireAccount, visibleApps } from "../access";
 import { requireOwnerPasscode } from "../ownerPasscode";
-import { githubToken, mergePullRequest, readPullRequest } from "../prTracking/github";
+import { repositoryAccess } from "../github/access";
+import { mergePullRequest, readPullRequest } from "../prTracking/github";
 import { pullRequestOf } from "../prTracking/validators";
 import { normalizeFolders, parseGithubUrl, READINESS_ITEMS } from "./detect";
 import { latestInspection, preparationFor } from "./records";
@@ -178,7 +179,9 @@ export const merge = action({
     const row: Doc<"onboardingPreparations"> | null = await ctx.runQuery(internal.onboarding.records.forApp, { projectId });
     if (!row || row.number === undefined || !row.repo) return { ok: false, reason: "This project has no preparation pull request yet." };
     if (row.settledAt !== undefined) return { ok: false, reason: "turtl is no longer following this pull request." };
-    const token = githubToken();
+    const access = await repositoryAccess(ctx, row.repo, { appId: row.appId });
+    if (!access.ok) return { ok: false, reason: `${access.message} Nothing was merged.` };
+    const token = access.token;
     if (!token) return { ok: false, reason: "Not configured: turtl needs a GITHUB_TOKEN that can merge in this repository. Nothing was merged." };
     const read = await readPullRequest(token, row.repo, row.number);
     if (!read.ok) {

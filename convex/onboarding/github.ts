@@ -1,4 +1,4 @@
-import { github, githubToken, type GithubResult } from "../prTracking/github";
+import { github, type GithubResult } from "../prTracking/github";
 import { readable, type RepoFile } from "./detect";
 
 const MAX_FILES = 400;
@@ -54,10 +54,10 @@ export async function readRaw(repo: string, sha: string, path: string, token: st
 }
 
 // Three GitHub API reads (repository, commit, file tree) and the file contents from raw.githubusercontent.com,
-// which does not count against GitHub's API limit.
-export async function readRepository(repo: string): Promise<RepoRead> {
-  const meta = await readWithFallback<{ default_branch: string }>(`/repos/${repo}`, githubToken());
-  if (!meta.read.ok) return { ok: false, reason: unreadable(repo, meta.read, githubToken(), meta.rejected) };
+// which does not count against GitHub's API limit. The credential comes from repositoryAccess (convex/github/access.ts).
+export async function readRepository(repo: string, credential: string | undefined): Promise<RepoRead> {
+  const meta = await readWithFallback<{ default_branch: string }>(`/repos/${repo}`, credential);
+  if (!meta.read.ok) return { ok: false, reason: unreadable(repo, meta.read, credential, meta.rejected) };
   const { token } = meta;
   const note = meta.rejected ? rejectedNote : undefined;
   const branch = meta.read.body.default_branch;

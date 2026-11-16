@@ -1,56 +1,107 @@
 # GitHub App: linking a person's repositories
 
-turtl used to reach GitHub with one token for the whole deployment (`GITHUB_TOKEN`), so one person's turtl could read one person's code. This module lets each GitHub account grant turtl access to the repositories it chooses, through a GitHub App, and take that access back by uninstalling it.
+turtl used to reach GitHub with one token for the whole deployment (`GITHUB_TOKEN`), so one person's turtl could read one person's code. This module lets each GitHub account grant turtl access to the repositories it chooses, through a GitHub App, ties that access to the turtl account that connected it, and takes it back on Disconnect.
 
-**What exists now (first pull request):** the app's definition, installation tokens, the webhook receiver, the one function that picks the credential for a repository, and the repository listing. All of it is backend, and all of it is proven against a stand-in for GitHub (`scripts/github-app/stub.mjs`). **Nothing has run against real GitHub**, because the app does not exist yet: only Ronok can create it. The checks to run once it exists are [below](#checks-to-run-once-the-app-exists).
-
-**What comes next (second pull request):** the Connect GitHub flow that ties an installation to a signed-in turtl account, and its screens. It is [designed below](#second-pull-request-connect-github) and not built.
+**What exists now:** the app's definition, installation tokens, the webhook receiver, the one function that picks the credential for a repository (now per owner), the repository listing, and Connect GitHub: the flow that ties an installation to a turtl account, the repository picker in Add project, and Disconnect in the gear sheet. All of it is proven against a stand-in for GitHub (`scripts/github-app/stub.mjs`), in tests and on a local Convex backend. **Nothing has run against real GitHub**, because the app does not exist yet: only Ronok can create it. The checks to run once it exists are [below](#checks-to-run-once-the-app-exists).
 
 ## Files
 
 - `app-manifest.json`: the GitHub App's definition, in GitHub's manifest format, with `https://YOUR-DEPLOYMENT.convex.site` standing in for the deployment's HTTP address.
-- `config.ts`: reads the variables and decides whether the app is absent, incomplete or ready.
+- `config.ts`: reads the variables and decides whether the app is absent, incomplete or ready, and whether Connect GitHub can run; the addresses GitHub may send a person back to.
 - `jwt.ts`: signs the app's JWT (RS256) with Web Crypto. Takes the key as GitHub hands it out (PKCS#1) or as PKCS#8.
-- `api.ts`: the five GitHub calls the module makes.
+- `api.ts`: every GitHub call the module makes: as the app (JWT), as an installation (its token), as the person (a user token), and with the client id and secret (the code exchange and token revocation).
 - `tokens.ts`: the installation token cache. The only file that touches `githubInstallationTokens`.
-- `access.ts`: `repositoryAccess(ctx, "owner/name")`, the one place that decides which credential reaches a repository, and `check`, which reports what is configured.
+- `access.ts`: `repositoryAccess(ctx, "owner/name", owner)`, the one place that decides which credential reaches a repository, and `check`, which reports what is configured.
+- `links.ts`: which turtl account may use which installation, and the project owner lookup `repositoryAccess` uses.
+- `connect.ts`: Connect GitHub. The only file with public functions (the app's six), plus the records behind them and `disconnectAccount` for account deletion.
+- `secrets.ts`: random states and tickets, their SHA-256, and the PKCE challenge.
 - `webhook.ts`: signature check and payload reading, with no Convex imports.
-- `http.ts`: `POST /github/webhook` and a plain `GET /github/setup` page, registered from `convex/http.ts`.
+- `http.ts`: `POST /github/webhook`, `GET /github/setup` and `GET /github/callback`, registered from `convex/http.ts`.
 - `installations.ts`: the records: applying a delivery, coverage, the repository list.
 - `sync.ts`: `refresh`, which reads an installation's repositories from GitHub and makes the records match.
-- `schema.ts`: four new tables, spread into `convex/schema.ts`.
-- `scripts/github-app/link.mjs` prints the prefilled registration link; `stub.mjs` is the stand-in GitHub; `prove-local.mjs` runs the module on a local Convex backend. `tests/github-app.test.mjs` holds the tests.
-
-Every function here is internal. Nothing in this module can be called from the app or from the public API.
+- `schema.ts`: six tables, spread into `convex/schema.ts`.
+- `scripts/github-app/link.mjs` prints the prefilled registration link; `stub.mjs` is the stand-in GitHub (it also plays the person's browser on github.com); `prove-local.mjs` runs the module on a local Convex backend. The tests are `tests/github-app.test.mjs` and `tests/github-connect.test.mjs`, sharing `tests/github-harness.mjs`.
+- The app's side: `data/github/` (live and example), `components/github/ConnectGithub.tsx` (Add project) and `components/github/GithubSettings.tsx` (the gear sheet).
 
 ## The app
 
 | Setting | Value | Why |
 | --- | --- | --- |
-| Contents | Read and write | Reading code (`codeNetwork/build.ts`: a commit, the file tree, file contents) needs read. Merging a pull request (`PUT /pulls/{n}/merge`) needs write, and GitHub lists it under Contents. Reading one pull request is allowed by Contents too. |
+| Contents | Read and write | Reading code (`codeNetwork/build.ts`, onboarding: a commit, the file tree, file contents) needs read. Merging a pull request (`PUT /pulls/{n}/merge`) needs write, and GitHub lists it under Contents. Reading one pull request is allowed by Contents too. |
 | Checks | Read-only | `GET /commits/{sha}/check-runs`, shown on the pull request card and required to pass before a merge. |
 | Commit statuses | Read-only | `GET /commits/{sha}/status`, the older kind of check. |
 | Metadata | Read-only | GitHub requires it for every app. |
 | Events | none subscribed | `installation` and `installation_repositories` reach every GitHub App without a subscription, and they are the only two turtl reads. |
 | Webhook | `<site>/github/webhook` | Active, with a secret. |
-| Callback URLs | `<site>/api/auth/callback/github`, then `<site>/github/callback` | The first is Sign in with GitHub (the accounts work, Convex Auth's path). The second is the Connect GitHub flow in the second pull request. |
-| Setup URL | `<site>/github/setup`, also on update | Where GitHub sends a person after they install or change the app. |
-| Request user authorization during installation | off | With it on GitHub drops the setup URL, and a change to an installation would send the person nowhere. The Connect flow asks for authorization itself. |
+| Callback URLs | `<site>/api/auth/callback/github`, then `<site>/github/callback` | The first is Sign in with GitHub (the accounts work, Convex Auth's path). The second is Connect GitHub. Both flows send `redirect_uri` explicitly, so their order does not matter. |
+| Setup URL | `<site>/github/setup`, also on update | Where GitHub sends a person after they install or change the app. Connect GitHub continues from there. |
+| Request user authorization during installation | off | With it on, GitHub drops the setup URL and sends the code to the first callback URL, which is Sign in with GitHub's. Connect GitHub asks for the authorization itself, from the setup page. |
 | Installable by | any account | A private app can only be installed on its owner's account. |
 
 turtl never opens a pull request with this app: Capy opens it, through Capy's own GitHub connection. So Pull requests is not requested at all. Workflows is not requested either, which means GitHub will refuse a merge from turtl for a pull request that changes a file under `.github/workflows/`; the owner merges that one on GitHub.
 
+Connect GitHub needed **no change to the manifest and no new permission**: the callback URL was already in it, and the reads a user token makes (`GET /user`, `GET /user/installations`, `GET /user/installations/{id}/repositories`), uninstalling (`DELETE /app/installations/{id}`, as the app) and revoking a user token (`DELETE /applications/{client_id}/token`, with the client id and secret) need no permission an app asks for.
+
 ## Which credential reaches a repository
 
-`repositoryAccess(ctx, repo)` in `access.ts` decides, and `convex/pullRequests.ts` and `convex/codeNetwork/build.ts` ask it.
+`repositoryAccess(ctx, repo, owner)` in `access.ts` decides. `owner` is the project or case turtl acts for (`{ appId }` or `{ caseId }`; the owner is the project's `apps.ownerId`, the rule in `convex/access.ts`), or an account (`{ account }`). `convex/pullRequests.ts`, `convex/codeNetwork/build.ts` and `convex/onboarding/` (inspect, prepare, the merge in projects) ask it.
 
-1. **No GitHub App variable is set** (`GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_APP_WEBHOOK_SECRET`): every repository gets the deployment's `GITHUB_TOKEN`, exactly as before. GitHub is not asked anything and no table is read. This is the hosted demo today.
+1. **No GitHub App variable is set** (`GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_APP_WEBHOOK_SECRET`): every repository gets the deployment's `GITHUB_TOKEN`, exactly as before. GitHub is not asked anything and no table is read, whatever the owner. This is the hosted demo today.
 2. **Any of them is set**: `GITHUB_TOKEN` is never used for a repository again. If the id or the key is missing or unreadable, access is refused with a message that names the variable.
-3. **The app is ready**: the repository gets a token of the installation that covers it. If turtl's records show no active installation for it, turtl asks GitHub once (`GET /repos/{owner}/{repo}/installation`); GitHub's answer is recorded and wins. No installation means no access: "turtl's GitHub App is not installed on owner/name".
+3. **The app is ready, accounts off** (`AUTH_REQUIRED` unset): the repository gets a token of the installation that covers it, as before; the owner is not asked. If turtl's records show no active installation for it, turtl asks GitHub once (`GET /repos/{owner}/{repo}/installation`); GitHub's answer is recorded and wins. No installation means no access: "turtl's GitHub App is not installed on owner/name".
+4. **The app is ready, accounts on** (`AUTH_REQUIRED=true`): the same, and the installation must also be linked to the project's owner through Connect GitHub, and allow that repository for them (below). Otherwise: "owner/name is not one of the repositories this project's owner connected to turtl" (`not_connected`), and no token is minted. A project with no owner reaches nothing.
 
 The records only route a repository to an installation. GitHub decides what an installation token can reach, so a stale record can cause a refused request and never a wider one.
 
-**Until the second pull request, this has no idea of accounts.** With the app configured, any installation that covers a repository serves any project on the deployment that names it. That is right for one owner per deployment, which is all turtl has today, and wrong the moment two accounts share a deployment. The second pull request adds the account to this function before that can happen.
+## Connect GitHub
+
+### The flow
+
+```mermaid
+sequenceDiagram
+    participant App as turtl app (signed in)
+    participant Convex as turtl backend
+    participant Browser as system browser
+    participant GitHub
+    App->>Convex: github.connect.begin({ returnTo })
+    Convex-->>App: github.com/apps/<slug>/installations/new?state
+    App->>Browser: open it
+    Browser->>GitHub: choose "Only select repositories", install
+    GitHub-->>Browser: redirect to /github/setup?installation_id&setup_action&state
+    Browser->>Convex: GET /github/setup (the installation id is not read)
+    Convex-->>Browser: redirect to /login/oauth/authorize?client_id&redirect_uri&state&code_challenge
+    Browser->>GitHub: authorize turtl (once; later it answers at once)
+    GitHub-->>Browser: redirect to /github/callback?code&state
+    Browser->>Convex: GET /github/callback
+    Convex->>GitHub: exchange the code (client secret + PKCE verifier) for a user token
+    Convex->>GitHub: GET /user, /user/installations, /user/installations/{id}/repositories
+    Convex->>GitHub: revoke the user token
+    Convex-->>Browser: redirect to turtl://add-project?github=connected&ticket
+    Browser->>App: deep link
+    App->>Convex: github.connect.finish({ ticket })
+```
+
+1. **Begin.** `api.github.connect.begin` (an action, so the state comes from real randomness) takes the caller's account from `requireAccount`, stores an attempt (the account, a SHA-256 of a random 32-byte state, a PKCE verifier, where to send the person back, 15 minutes to live) and returns GitHub's install page with the state. With `start: "authorize"` it returns GitHub's authorize page instead (step 2's redirect, without the install page), for someone whose installation already exists; the app offers it as "Already installed? Confirm on GitHub". A new attempt replaces the account's earlier ones. `returnTo` is `"app"` (`turtl://add-project`) or, on the web, the page's origin, accepted only for `localhost`, `127.0.0.1` or `[::1]`; nothing else, because a ticket sent elsewhere could be used by whoever started the attempt. A hosted web build would add its origin in `config.ts`.
+2. **Setup.** GitHub sends the person to `/github/setup` with the installation id and the state. The id is never read: anyone can type one. With the state of an attempt still waiting, the page redirects to GitHub's authorize page (`client_id`, `redirect_uri=<site>/github/callback`, the same state, an S256 `code_challenge`). Without one (expired, unknown, or a person who changed the installation on GitHub without coming from turtl) it shows "Go back to turtl" and reads nothing. `setup_action=request` (an organization's owner must approve) sends the person back with `github=requested`.
+3. **Callback.** `/github/callback` takes the attempt by the state's hash, once: a second callback with the same state, or one after 15 minutes, gets "This link has expired" and writes nothing. No `code` (the person pressed Cancel) ends the attempt with `github=cancelled`. Otherwise it exchanges the code for a user token with `AUTH_GITHUB_ID`, `AUTH_GITHUB_SECRET` and the PKCE verifier, reads who the person is, every installation of turtl's app they can reach (`GET /user/installations`, up to 10 pages), and in each the repositories they can reach (`GET /user/installations/{id}/repositories`, up to 10 pages), records them, and revokes the token whatever happened. The token is never stored. GitHub's lists are the confirmation: a forged installation id gets nowhere because it is never in them.
+4. **Ticket.** For each installation (up to 20, not suspended) it writes an **inactive** link: the account that started, the GitHub user, and, unless the installation is on the person's own account, the repositories they could reach in it. It stores the SHA-256 of a new random ticket (10 minutes to live) and redirects to `turtl://add-project?github=connected&ticket=<ticket>` (or the web origin's `/add-project`). With nothing confirmed it redirects with `github=none` or `github=failed`.
+5. **Finish.** `api.github.connect.finish({ ticket })` (a mutation) finds the attempt by the ticket's hash and requires that it is confirmed, unexpired and **started by the account now calling**. It makes the links active (replacing the account's earlier link to the same installation) and marks the attempt finished. Every refusal has the same message, so a ticket cannot be probed.
+6. **Pick.** `api.github.connect.repositories` (a query) lists the caller's repositories: every repository an installation on their own account covers, and in an organization only those they could reach when they connected. `api.github.connect.refresh` (an action) reads the caller's installations from GitHub again first. Choosing one fills in the project's repository in Add project. "Choose different repositories on GitHub" opens the installation's settings page on GitHub.
+7. **Status.** `api.github.connect.status` (a query) says whether Connect GitHub is set up (`configured`), whether accounts are on, whether the caller is signed in, and their connections (the GitHub account, who connected, the settings page). The app draws nothing GitHub-related when `configured` is false, so the demo's screens are unchanged.
+8. **Disconnect.** `api.github.connect.disconnect` (an action) and `internal.github.connect.disconnectAccount({ account })` (the same, for account deletion, RC-23) go through every installation the account is linked to. One no other account uses is uninstalled at GitHub (`DELETE /app/installations/{id}`, as the app), then marked deleted, with its cached token, repository rows and links deleted. One another account still uses keeps its installation, and only this account's links are removed. If GitHub does not confirm an uninstall, nothing is removed for that installation and the answer says so (`failed`), so it can be run again. In the single-owner demo, disconnecting is an owner decision: it needs the owner passcode, and a passcode must be set first.
+9. **Uninstalled on GitHub.** The `installation.deleted` webhook, or GitHub answering 404 for the installation, removes its links too.
+
+### Why each piece is there
+
+- **A forged installation id** gets nowhere: no handler reads the id from an address. Installations come only from what GitHub lists for the person's user token.
+- **A link sent to a victim.** An attacker starts on their own account and sends the GitHub link to a victim, who installs on their repositories. GitHub confirms the victim and the ticket goes to the victim's device, not the attacker. `finish` requires the account that started, so the victim's turtl cannot use it, and the attacker never sees it. Nothing is linked.
+- **The return address is fixed** at `begin`, by the signed-in app, from a short list. It is never taken from GitHub's redirect.
+- **An organization member** gets only the repositories GitHub says they can reach, because an installation token reaches everything the installation covers.
+- **No user token is kept**: it answers three questions and is revoked.
+
+### Accounts
+
+With `AUTH_REQUIRED` unset (the demo) every caller is `solo-owner`, so Connect GitHub files installations under that one account, and `repositoryAccess` does not look at links (rule 3). With `AUTH_REQUIRED=true` the functions above need a signed-in caller ("Sign in to continue."), and rule 4 applies. The client learns which from `status.accounts`; it does not call another slice's functions.
 
 ## Installation tokens
 
@@ -58,7 +109,7 @@ The records only route a repository to an installation. GitHub decides what an i
 
 The JWT is RS256, issued 60 seconds in the past against clock drift, expires nine minutes ahead (GitHub allows ten), and names `GITHUB_APP_ID` as its issuer.
 
-Tokens live in `githubInstallationTokens`, apart from the installation rows, so a function that returns installations cannot return a token by accident. Only `tokens.ts` names that table, every function in this folder is internal, and a test fails if either stops being true. A token is never logged, never passed to the scheduler (whose arguments are stored), and never part of `check`'s answer. Any change to an installation that arrives by webhook drops its cached token.
+Tokens live in `githubInstallationTokens`, apart from the installation rows, so a function that returns installations cannot return a token by accident. Only `tokens.ts` names that table, the only public functions are the six in `connect.ts` and none returns a token, and a test fails if any of that stops being true. A token is never logged, never passed to the scheduler (whose arguments are stored), and never part of `check`'s answer. Any change to an installation that arrives by webhook drops its cached token.
 
 ## The webhook
 
@@ -67,16 +118,11 @@ Tokens live in `githubInstallationTokens`, apart from the installation rows, so 
 - Without `GITHUB_APP_WEBHOOK_SECRET` every delivery gets 503.
 - The signature (`X-Hub-Signature-256`, HMAC-SHA256 of the raw body) is checked before anything is read from the body, with a comparison that takes the same time wherever a forgery differs. A wrong, missing or malformed signature gets 401 and touches no table.
 - A delivery is applied once. Its `X-GitHub-Delivery` id and a SHA-256 of its body are stored; either one seen again answers `duplicate` and changes nothing. The body digest matters because GitHub signs only the body, so a captured delivery could otherwise be sent again under a new id.
-- `installation`: `created`, `new_permissions_accepted` and `unsuspend` make the installation active and record its repositories; `suspend` suspends it; `deleted` marks it deleted and removes its repositories. A deleted installation keeps its row and never becomes active again from a webhook, because GitHub never reuses an installation id.
+- `installation`: `created`, `new_permissions_accepted` and `unsuspend` make the installation active and record its repositories; `suspend` suspends it; `deleted` marks it deleted and removes its repositories and links. A deleted installation keeps its row and never becomes active again from a webhook, because GitHub never reuses an installation id.
 - `installation_repositories`: `added` and `removed` change the repository rows. When the installation switches between all repositories and selected ones, GitHub does not say which repositories were lost, so turtl schedules `sync.refresh` to read them back. It does the same for a delivery that lists more than 2,000 repositories.
 - `ping` answers `pong`. Any other signed event answers `ignored` and is stored nowhere.
 
 Answers are JSON: `{ ok: true, outcome: "applied" | "duplicate" | "ignored" | "pong" }` or `{ ok: false, error: { code, message } }`.
-
-## Listing
-
-- `internal.github.installations.repositories({ installationId })` (query): the repositories turtl has recorded for an active installation, by name, as `{ fullName, private? }`. Empty for a suspended or deleted one.
-- `internal.github.sync.refresh({ installationId })` (action): reads the installation and every page of its repositories from GitHub, makes the records match (adds, updates, drops what GitHub no longer lists), and returns the same list. The repository picker calls this first so it never shows a stale list.
 
 ## Creating the app
 
@@ -92,7 +138,7 @@ Only the owner of the GitHub account can do this. It takes about five minutes. Y
 2. GitHub's "Register new GitHub App" form opens with everything filled in. Change nothing except:
    - **Webhook secret**: GitHub cannot take this from a link. Run `openssl rand -hex 32`, paste the result into "Secret", and keep it for step 4.
    - **GitHub App name**: it is filled in as "turtl on-call". "turtl" alone is taken by a GitHub user. If GitHub says the name is taken, pick another; the slug in step 3 follows the name.
-   - Check that "Where can this GitHub App be installed?" says **Any account**.
+   - Check that "Where can this GitHub App be installed?" says **Any account**, that both callback URLs are listed, that "Request user authorization (OAuth) during installation" is **off**, and that "Redirect on update" is **on**.
 
    Press **Create GitHub App**.
 3. On the app's settings page:
@@ -100,6 +146,7 @@ Only the owner of the GitHub account can do this. It takes about five minutes. Y
    - Note the slug: the last part of the app's public link, `https://github.com/apps/<slug>`.
    - Press **Generate a new client secret** and copy it now; GitHub shows it once.
    - Under "Private keys" press **Generate a private key**. A `.pem` file downloads.
+   - Leave "Expire user authorization tokens" as GitHub sets it (on). turtl revokes the one user token it gets straight away, so it does not matter for turtl.
 4. Set the values on the Convex deployment (add `--prod` or `--deployment <name>` for the deployment you mean). A command with no value asks for it, which keeps a secret out of the shell history:
 
    ```sh
@@ -107,12 +154,12 @@ Only the owner of the GitHub account can do this. It takes about five minutes. Y
    npx convex env set GITHUB_APP_SLUG <slug>
    npx convex env set GITHUB_APP_PRIVATE_KEY --from-file <path to the .pem file>
    npx convex env set GITHUB_APP_WEBHOOK_SECRET      # paste the secret from step 2
-   npx convex env set AUTH_GITHUB_ID <Client ID>     # Sign in with GitHub
+   npx convex env set AUTH_GITHUB_ID <Client ID>     # Connect GitHub, and Sign in with GitHub
    npx convex env set AUTH_GITHUB_SECRET             # paste the client secret from step 3
    ```
 
-   Then delete the `.pem` file. GitHub can make a new key at any time.
-5. Install the app on the repositories that deployment already uses: open `https://github.com/apps/<slug>/installations/new`, choose the account, choose "Only select repositories", pick them, and press Install. **Do this straight after step 4**: from the moment a `GITHUB_APP_*` variable is set, the deployment stops using `GITHUB_TOKEN` for repositories. On the hosted demo that means `ronoktanvir/turtl` must be installed, or pull request tracking there reports "not installed".
+   Then delete the `.pem` file. GitHub can make a new key at any time. Connect GitHub appears in the app once all six are set; with only the first four, Add project stays a typed address.
+5. Install the app on the repositories that deployment already uses: open `https://github.com/apps/<slug>/installations/new`, choose the account, choose "Only select repositories", pick them, and press Install. **Do this straight after step 4**: from the moment a `GITHUB_APP_*` variable is set, the deployment stops using `GITHUB_TOKEN` for repositories. On the hosted demo that means `ronoktanvir/turtl` must be installed, or pull request tracking there reports "not installed". (On a deployment with accounts on, connect from the app instead, so the installation is linked to your account.)
 6. Run the checks below.
 
 | Value | Where it comes from | Variable on the Convex deployment |
@@ -130,7 +177,7 @@ A production deployment should not have `GITHUB_TOKEN` at all. Then there is not
 
 None of these has been run, because each needs the real app.
 
-1. `npx convex run github/access:check` answers `app: "ready"` and `github: { ok: true, slugMatches: true, permissionsMatch: true }`. That is GitHub accepting a JWT signed with the real key, and the app's permissions matching the manifest.
+1. `npx convex run github/access:check` answers `app: "ready"`, `connect: "ready"` and `github: { ok: true, slugMatches: true, permissionsMatch: true }`. That is GitHub accepting a JWT signed with the real key, and the app's permissions matching the manifest.
 2. In the app's settings, Advanced, Recent Deliveries: the `installation` delivery from step 5 shows response 200 with `"outcome":"applied"`. Press Redeliver: 200 with `"outcome":"duplicate"`.
 3. `npx convex run github/access:check '{"repo":"<owner>/<installed repo>"}'` answers `repository: { ok: true, source: "installation" }`. The same for a repository you did not select answers `reason: "not_installed"`.
 4. `npx convex run github/sync:refresh '{"installationId":<id>}'` lists exactly the repositories you selected. The id is the number at the end of the installation's settings address on GitHub.
@@ -139,82 +186,29 @@ None of these has been run, because each needs the real app.
 7. `codeNetwork/build:build` reads a **private** installed repository. File contents come from `raw.githubusercontent.com` with the installation token, which no test here can prove.
 8. On GitHub: add a repository to the installation, remove one, switch between all and selected repositories, suspend, unsuspend, uninstall. After each, `npx convex run github/installations:repositories '{"installationId":<id>}'` matches, and after the uninstall check 3 answers `not_installed`.
 9. Install with "All repositories" on an account and confirm the `installation` delivery lists them. If it does not, the list still fills on first use and on `sync.refresh`.
+10. **Connect GitHub, on a phone build.** Add project, Connect GitHub: GitHub's install page opens; install on one repository; GitHub asks to authorize turtl (the first time only); the phone offers to open turtl, which shows the repository picker. This proves what the stand-in assumes and GitHub's documentation does not say outright: that GitHub carries the `state` from the install address to the setup address. If the setup page instead says "Go back to turtl" with nothing connected, the state was dropped (see Known limits).
+11. Connect again with the app already installed on that account: GitHub shows the installation's settings; press Save. The same question as 10, for updates. Then "Already installed? Confirm on GitHub": GitHub answers at once (already authorized) and the picker appears.
+12. Install on an organization where you are a member but not an owner: the app comes back with "GitHub asked your organization's owner to approve turtl" (`setup_action=request`).
+13. In the gear sheet, Disconnect: the installation disappears from GitHub's "Installed GitHub Apps", and `npx convex run github/tokens:cached '{"installationId":<id>}'` prints nothing.
+14. With accounts on, a second account sees no connection and cannot pick or reach the first account's repositories.
 
 ## Testing
 
 ```sh
-node --test tests/github-app.test.mjs      # also part of npm run test:ui
-CONVEX_AGENT_MODE=anonymous npx convex dev  # a local backend, in one terminal
-node scripts/github-app/prove-local.mjs     # in another
+node --test tests/github-app.test.mjs tests/github-connect.test.mjs   # also part of npm run test:ci
+CONVEX_AGENT_MODE=anonymous npx convex dev                             # a local backend, in one terminal
+node scripts/github-app/prove-local.mjs [--port 8208]                  # in another
 ```
 
-The tests run this folder's real functions against the stub served over HTTP and an in-memory copy of the four tables. The stub verifies each JWT with the app's public key the way GitHub documents it. `prove-local.mjs` repeats the main paths on a local Convex backend, where Convex's own runtime signs the JWT, verifies the webhook and writes the tables; it refuses to run against anything but a local backend. Both set `GITHUB_API_URL` to point the module at the stub. Leave that variable unset on a real deployment.
-
-## Second pull request: Connect GitHub
-
-Designed here, built later. It needs the accounts work (who is calling) and the onboarding flow (where a project gets its repository).
-
-### What must be true
-
-An installation id in a redirect proves nothing: anyone can type one into an address. Before turtl ties an installation to an account it must hear from GitHub, with a credential that belongs to the person at the keyboard, that this person can reach that installation. And the account that gets the link must be the one that started the flow on the device where it finished, or a person could be tricked into connecting their repositories to someone else's turtl account.
-
-### The flow
-
-```mermaid
-sequenceDiagram
-    participant App as turtl app (signed in)
-    participant Convex as turtl backend
-    participant Browser as in-app browser
-    participant GitHub
-    App->>Convex: github.connect.begin()
-    Convex-->>App: authorize URL carrying a one-time state
-    App->>Browser: open it
-    Browser->>GitHub: authorize turtl
-    GitHub-->>Browser: redirect to /github/callback?code&state
-    Browser->>Convex: GET /github/callback
-    Convex->>GitHub: exchange the code for a user token
-    Convex->>GitHub: GET /user/installations with that token
-    alt the person can reach no installation yet
-        Convex-->>Browser: redirect to github.com/apps/<slug>/installations/new?state
-        Browser->>GitHub: choose repositories, install
-        GitHub-->>Browser: redirect to /github/setup?installation_id&state
-        Browser->>Convex: GET /github/setup
-        Convex-->>Browser: redirect to authorize again (the id is ignored)
-    else the person can reach one or more
-        Convex-->>Browser: redirect to turtl://github/connected?ticket
-        Browser->>App: deep link
-        App->>Convex: github.connect.finish({ ticket })
-        Convex-->>App: the linked installations and their repositories
-    end
-```
-
-1. **Begin.** The signed-in app calls `api.github.connect.begin` (a mutation). It stores a connect attempt for the caller (the caller's user id, a SHA-256 of a random 32-byte state, an expiry 15 minutes ahead) and returns `https://github.com/login/oauth/authorize?client_id=<AUTH_GITHUB_ID>&redirect_uri=<site>/github/callback&state=<state>`. The app opens it with `WebBrowser.openAuthSessionAsync`, which hands the final redirect back to the app that opened it.
-2. **Callback.** `GET /github/callback?code&state` finds the attempt by the state's hash (unknown, expired or used: a plain error page). It exchanges the code for a user token with `AUTH_GITHUB_ID` and `AUTH_GITHUB_SECRET`, reads `GET /user` and every page of `GET /user/installations`, and then forgets the token. It is never stored. GitHub answers that last call with the installations of this app that this person can reach, which is the confirmation.
-3. **Nothing installed yet.** If that list is empty, the callback redirects to `https://github.com/apps/<GITHUB_APP_SLUG>/installations/new?state=<state>`. The person picks an account and repositories. GitHub sends them to `/github/setup?installation_id&setup_action&state`. That handler reads only the state, and redirects to the authorize address again; GitHub answers at once because the person has already authorized. Step 2 runs again and now finds the installation through GitHub, not through the address.
-4. **Ticket.** With one or more installations confirmed, the callback stores on the attempt the GitHub user id and login, the confirmed installation ids, and the hash of a new random ticket. It calls `sync.refresh` for each installation, then redirects to `turtl://github/connected?ticket=<ticket>`. The ticket is the only thing in the deep link.
-5. **Finish.** The app calls `api.github.connect.finish({ ticket })` (a mutation). It finds the attempt by the ticket's hash and requires that it is confirmed, unused, unexpired, and **started by the account now calling**. Then it writes one link per confirmed installation (account, installation id, GitHub user id and login, when it was confirmed) and marks the attempt used.
-6. **Pick.** `api.github.connect.linked` (a query) returns the caller's linked installations with `installations.repositories` for each. The picker shows them, with a row that opens GitHub to add repositories or another account. The chosen repository becomes the project's repository in the onboarding flow.
-7. **Use.** `repositoryAccess` gains the project owner's account: an installation gives a token only when a link ties it to that account. `pullRequests.ts` and `codeNetwork/build.ts` pass the owner of the project they act for.
-8. **Take it back.** Disconnect in turtl removes the caller's link; when no other account is linked to that installation, turtl uninstalls it at GitHub (`DELETE /app/installations/{id}`, as the app), so the access really ends. Uninstalling on GitHub does the same from the other side: the `installation.deleted` webhook already ends access, and the second pull request also removes the links. The `github_app_authorization` webhook (a person revoked their authorization) removes that person's links.
-
-### Why each piece is there
-
-- **A forged installation id** gets nowhere: no handler reads the id from an address. Installations come only from `GET /user/installations`.
-- **A link sent to a victim.** An attacker starts the flow on their own account and sends the victim the GitHub link. The victim installs the app on their repositories. The callback confirms the victim's access and issues a ticket, but the ticket travels by deep link to the victim's device, and `finish` requires the caller to be the account that started the attempt. The attacker never sees the ticket; the victim's app is not the attacker's account. Nothing is linked.
-- **Another app catching the deep link** gets a ticket it cannot use without the starting account's session.
-- **The redirect target is fixed** in the backend (`turtl://github/connected`, or a configured universal link). It is never taken from the request.
-- **Staleness.** A person can lose access on GitHub (leave an organization) without any event turtl receives. A link records when it was confirmed; it stops giving tokens after 30 days until the person passes through authorize again, which is one tap with no GitHub screen. The number is a default to confirm.
-
-### What it needs from the accounts work
-
-- A helper that returns the caller's user id in a query or mutation, and fails when nobody is signed in, and the type of that id for the two new tables (connect attempts, installation links).
-- `apps.ownerId` holding that id, so `repositoryAccess` can ask "is this installation linked to the owner of this project".
-- Its GitHub callback staying at `/api/auth/callback/github`, the first callback URL in the manifest, and both flows sending `redirect_uri` explicitly.
-- `AUTH_GITHUB_ID` and `AUTH_GITHUB_SECRET`, the only two names shared.
+The tests run this folder's real functions against the stub served over HTTP and an in-memory copy of the tables, with a signed-in caller or none. The stub verifies each JWT with the app's public key the way GitHub documents it, issues codes only to a registered callback URL with an S256 challenge, exchanges each code once with the client secret and the verifier, and answers user-token reads only with what that person can reach. `browse()` in `stub.mjs` plays the person's browser through GitHub's pages and turtl's. `prove-local.mjs` repeats the main paths on a local Convex backend, where Convex's own runtime signs the JWT, verifies the webhook, serves the setup and callback pages and writes the tables; it refuses to run against anything but a local backend, and runs with accounts off because a local backend has no sign-in. Both set `GITHUB_API_URL` to point the module at the stub (it moves the github.com pages and the code exchange too). Leave that variable unset on a real deployment.
 
 ## Known limits
 
+- **The state through GitHub's install page.** "Connect GitHub" relies on GitHub passing `state` from `github.com/apps/<slug>/installations/new?state=…` to the setup URL. GitHub documents the `state` parameter on the install address as a way to "preserve the state" across install and update, but not that the setup URL receives it. If it does not, the setup page says "Go back to turtl" and nothing connects from that tap; the installation itself is made, and "Already installed? Confirm on GitHub" (which starts at the authorize page, fully documented) then connects it. If check 10 fails, make the authorize start the default in `ConnectGithub.tsx`.
+- **A link does not expire.** A person who later loses access to an organization's repository on GitHub keeps it in turtl until they disconnect, because no event tells turtl. Within an organization, a link covers only the repositories the person could reach when they connected; to add one later, connect again. On the person's own account every repository the installation covers is theirs, so changes made on GitHub show up on refresh.
+- **The `github_app_authorization` webhook** (a person revoked their authorization of the app) is not read. turtl holds no user token, so there is nothing to drop; links stay until Disconnect or uninstall.
 - **Capy is a separate grant.** The pull request that fixes a case is opened by Capy through Capy's own access to the repository (`CAPY_API_KEY` and a Capy project that holds it). Installing turtl's GitHub App does not give Capy that access. Reading code, tracking a pull request and merging work for any installed repository; "open the pull request" works only where Capy can already reach the repository.
-- **The onboarding agent** (not merged when this was written) reads GitHub with `githubToken()` directly. It should ask `repositoryAccess` when it becomes per-account.
-- `sync.refresh` reads at most 10,000 repositories of one installation.
-- `githubWebhookDeliveries` grows by one row per installation event and is never pruned. A valid signature is needed to add a row.
+- **Disconnect and other accounts.** An installation another turtl account still uses stays installed; only the caller's links go. An organization installation that no turtl account uses any more is uninstalled even if its owner installed it on GitHub directly.
+- **A hosted web build** cannot connect GitHub until its origin is added to `returnAddress` in `config.ts`; only this computer's addresses and `turtl://` are accepted.
+- `sync.refresh` reads at most 10,000 repositories of one installation; the picker shows at most 500 per installation; one connection reads at most 1,000 installations and 1,000 repositories in each, and links at most 20.
+- `githubWebhookDeliveries` grows by one row per installation event and is never pruned. A valid signature is needed to add a row. Finished and failed connect attempts are deleted when the same account starts again or disconnects.
