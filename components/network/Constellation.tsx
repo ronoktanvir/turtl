@@ -260,9 +260,9 @@ export function Constellation({ network, selection, onSelect }: { network: CodeN
       <View pointerEvents="box-none" style={{ position: "absolute", bottom: 12, left: 20, right: 20, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
         <View pointerEvents="none" style={{ flex: 1 }}><T variant="small" color="textMuted" numberOfLines={1} style={{ fontSize: 12 }}>{selection ? "Follow the connections" : "Drag to explore"}</T></View>
         <View style={{ flexDirection: "row", borderRadius: 24, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border }}>
-          <Pressable testID="network-zoom-out" accessibilityRole="button" accessibilityLabel="Zoom out" onPress={() => zoom(1 / 1.3)} style={{ width: 40, height: 44, alignItems: "center", justifyContent: "center" }}><Icon name="ZoomOut" size={18} color="textMuted" /></Pressable>
-          <Pressable testID="network-reset" accessibilityRole="button" accessibilityLabel="Show the whole map" onPress={() => { touched.current = false; onSelect(null); moveTo(fit()); }} style={{ width: 40, height: 44, alignItems: "center", justifyContent: "center" }}><Icon name="Network" size={18} color="brandDeep" /></Pressable>
-          <Pressable testID="network-zoom-in" accessibilityRole="button" accessibilityLabel="Zoom in" onPress={() => zoom(1.3)} style={{ width: 40, height: 44, alignItems: "center", justifyContent: "center" }}><Icon name="ZoomIn" size={18} color="textMuted" /></Pressable>
+          <Pressable testID="network-zoom-out" accessibilityRole="button" accessibilityLabel="Zoom out" onPress={() => zoom(1 / 1.3)} style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}><Icon name="ZoomOut" size={18} color="textMuted" /></Pressable>
+          <Pressable testID="network-reset" accessibilityRole="button" accessibilityLabel="Show the whole map" onPress={() => { touched.current = false; onSelect(null); moveTo(fit()); }} style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}><Icon name="Network" size={18} color="brandDeep" /></Pressable>
+          <Pressable testID="network-zoom-in" accessibilityRole="button" accessibilityLabel="Zoom in" onPress={() => zoom(1.3)} style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}><Icon name="ZoomIn" size={18} color="textMuted" /></Pressable>
         </View>
       </View>
     </View>

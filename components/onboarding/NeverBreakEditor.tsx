@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { Pressable, Switch, TextInput, View } from "react-native";
+import { Pressable, TextInput, View } from "react-native";
 import type { NeverBreakAnswer } from "../../data/onboarding/types";
 import { useTheme } from "../../theme";
 import { Button, Chip, Icon, T } from "../ui";
+import { Toggle } from "../ui/Toggle";
 
 export function NeverBreakEditor({ answers, editable, onChange }: { answers: NeverBreakAnswer[]; editable: boolean; onChange: (next: NeverBreakAnswer[]) => void }) {
   const { colors } = useTheme();
@@ -28,20 +29,17 @@ export function NeverBreakEditor({ answers, editable, onChange }: { answers: Nev
               <Icon name={answer.addCheck ? "Check" : "X"} size={16} color={answer.addCheck ? "statusClear" : "textMuted"} />
               <T variant="small" color={answer.addCheck ? "statusClear" : "textMuted"}>{answer.addCheck ? "Check added" : "No check"}</T>
             </View>
-          ) : <View style={{ alignItems: "center", gap: 4 }}>
-            <T variant="small" color="textMuted">Add a check</T>
-            <Switch
+          ) : (
+            <Toggle
+              label="Add a check"
               value={answer.addCheck}
-              onValueChange={(addCheck) => onChange(answers.map((a, i) => (i === index ? { ...a, addCheck } : a)))}
+              onChange={(addCheck) => onChange(answers.map((a, i) => (i === index ? { ...a, addCheck } : a)))}
               accessibilityLabel={"Add a check: " + answer.text}
               testID={"never-break-" + index + "-check"}
-              trackColor={{ false: colors.surfaceRaised, true: colors.brandDeep }}
-              thumbColor={answer.addCheck ? colors.brand : colors.textMuted}
-              {...({ activeThumbColor: colors.brand } as object)}
             />
-          </View>}
+          )}
           {editable && !answer.suggested && (
-            <Pressable accessibilityRole="button" accessibilityLabel={"Remove " + answer.text} onPress={() => onChange(answers.filter((_, i) => i !== index))} hitSlop={8} style={{ width: 32, height: 44, alignItems: "center", justifyContent: "center" }}>
+            <Pressable accessibilityRole="button" accessibilityLabel={"Remove " + answer.text} onPress={() => onChange(answers.filter((_, i) => i !== index))} style={{ width: 44, height: 44, marginRight: -8, alignItems: "center", justifyContent: "center" }}>
               <Icon name="X" size={18} color="textMuted" />
             </Pressable>
           )}

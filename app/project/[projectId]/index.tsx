@@ -43,7 +43,7 @@ export default function ProjectHome() {
   return (
     <Screen testID="project-home">
       <View style={{ paddingHorizontal: 12, paddingVertical: 4, flexDirection: "row", alignItems: "center", gap: 8 }}>
-        <Pressable testID="header-back" accessibilityRole="button" accessibilityLabel="Back to projects" onPress={() => router.replace("/projects")} style={{ width: 40, height: 44, alignItems: "center", justifyContent: "center" }}><Icon name="ArrowLeft" color="textMuted" /></Pressable>
+        <Pressable testID="header-back" accessibilityRole="button" accessibilityLabel="Back to projects" onPress={() => router.replace("/projects")} style={{ width: 44, height: 44, marginLeft: -4, alignItems: "center", justifyContent: "center" }}><Icon name="ArrowLeft" color="textMuted" /></Pressable>
         <ProjectIcon project={project} size={32} />
         <T variant="heading" accessibilityRole="header" style={{ flex: 1 }} numberOfLines={2}>{project.name}</T>
         <Pressable testID="project-settings" accessibilityRole="button" accessibilityLabel="Settings" onPress={() => setSettings(true)} style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}><Icon name="Settings2" color="textMuted" /></Pressable>
@@ -57,7 +57,7 @@ export default function ProjectHome() {
           {(project.repoUrl || project.productionUrl) && <View style={{ flexDirection: "row", gap: 20, paddingLeft: compact ? 48 : 60 }}>
             {([{ label: "GitHub", id: "project-github", url: project.repoUrl }, { label: "Live app", id: "project-live-app", url: project.productionUrl }] as const).map((link) => link.url && <Pressable key={link.id} testID={link.id} accessibilityRole="link" onPress={() => Linking.openURL(link.url!)} style={{ minHeight: 44, flexDirection: "row", alignItems: "center", gap: 6 }}>{link.id === "project-github" ? <BrandIcon name="github" size={20} /> : <Icon name="ExternalLink" size={15} color="textMuted" />}<T variant="small" color="textMuted">{link.label}</T></Pressable>)}
           </View>}
-          {onboarding && (project.health === "clear" || ownerStages.includes(onboarding.stage)) && <Pressable testID="project-preparation" accessibilityRole="link" onPress={() => router.push(`/project/${project.id}/prepare` as Href)} style={{ minHeight: 40, flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: compact ? 48 : 60 }}>
+          {onboarding && (project.health === "clear" || ownerStages.includes(onboarding.stage)) && <Pressable testID="project-preparation" accessibilityRole="link" onPress={() => router.push(`/project/${project.id}/prepare` as Href)} style={{ minHeight: 44, flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: compact ? 48 : 60 }}>
             <Glyph name="ClipboardCheck" size={17} color={ownerStages.includes(onboarding.stage) ? "statusNeedsYou" : "brandDeep"} />
             <T variant="small">Preparation</T>
             <T variant="small" color={ownerStages.includes(onboarding.stage) ? "statusNeedsYou" : "textMuted"} numberOfLines={1} style={{ flex: 1 }} testID="project-preparation-status">{preparationStatus(onboarding)}</T>
