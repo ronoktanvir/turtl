@@ -27,27 +27,22 @@ turtl tracks each case (an outage, a bug report or a feature request) as a serie
 Every case gets the same eight steps, defined once in [`convex/constants.ts`](convex/constants.ts) and run on the Convex scheduler by [`convex/runner/`](convex/runner/README.md), with no phone connected.
 
 ```mermaid
-flowchart TD
-    detect["1 · Detect or receive"]
-    gather["2 · Gather context"]
-    investigate["3 · Investigate"]
-    broader["4 · Examine broader causes"]
-    plan["5 · Plan: propose up to 4 fixes"]
-    approve{"6 · Authorize<br/>owner approval or scoped permission"}
-    action["Run the catalog action"]
-    pr["Capy writes the change<br/>and opens a pull request"]
-    merge["Owner taps Merge in turtl"]
-    deploy["Wait until the app reports<br/>the merged revision"]
-    verify["7 · Verify<br/>health, journey, Revyl cloud device"]
-    learn["8 · Learn<br/>recovery memory and case note"]
-    declined(["Declined: nothing runs"])
-
-    detect --> gather --> investigate --> broader --> plan --> approve
-    gather -. "a remembered recovery applies" .-> plan
-    approve -- "action" --> action --> verify
-    approve -- "code change" --> pr --> merge --> deploy --> verify
-    approve -- "declined" --> declined
-    verify --> learn
+%%{init: {"flowchart": {"nodeSpacing": 24, "rankSpacing": 32}}}%%
+flowchart TB
+    subgraph understand["Find out what happened"]
+        direction LR
+        detect["1 · Detect<br/>or receive"] --> gather["2 · Gather<br/>context"] --> investigate["3 · Investigate"] --> broader["4 · Examine<br/>broader causes"] --> plan["5 · Plan<br/>up to 4 fixes"]
+        gather -. "remembered<br/>recovery applies" .-> plan
+    end
+    subgraph act["Fix it"]
+        direction LR
+        approve{{"6 · Authorize<br/>owner or permission"}}
+        approve -- "code change" --> pr["Capy opens<br/>a pull request"] --> merge["Owner merges,<br/>turtl waits for the deploy"] --> verify["7 · Verify<br/>health, journey,<br/>cloud device"]
+        approve -- "action" --> run["Run the<br/>catalog action"] --> verify
+        approve -- "declined" --> declined(["Nothing runs"])
+        verify --> learn["8 · Learn<br/>memory and<br/>case note"]
+    end
+    understand --> act
 ```
 
 | Step | What it does on `main` |
@@ -148,8 +143,7 @@ Set app variables in `.env.local` or the build environment. Set deployment varia
 | `INTAKE_NAMESPACE_PREFIX` | Optional prefix that keeps a test deployment's report namespaces apart. |
 | **Voice** | |
 | `VOICE_ENABLED` | `true` turns on talking with turtl about a case. |
-| `VOICE_TRANSCRIBE_MODEL` | Default `gpt-4o-mini-transcribe`. |
-| `VOICE_SPEECH_MODEL` | Default `gpt-4o-mini-tts`. |
+| `VOICE_TRANSCRIBE_MODEL`, `VOICE_SPEECH_MODEL` | Optional; defaults `gpt-4o-mini-transcribe` and `gpt-4o-mini-tts`. |
 | **Code network** | |
 | `CODE_NETWORK_CHAT_ENABLED` | `true` allows questions about the code map. |
 | **Owner alerts (Keiki)** | |
@@ -164,31 +158,34 @@ The booking app in [`protected-app/`](protected-app/README.md) reads `EXPO_PUBLI
 
 ## Project structure
 
-```text
-app/              Screens (Expo Router): login, projects, project/, review/, and the older live feed (live, case/)
-components/       UI: ui/ (shared parts), fix/, execution/ (the plan), network/ (code map), voice/, project/, feed/, dev/
-data/             What the screens read: example/ (built-in examples) or live/ (Convex), chosen in source.ts
-theme/            Colors, type and design tokens
-convex/           Backend: schema, constants, workflow, runner/, monitor, decisions, permissions, memory/, intake/,
-                  prTracking/, revyl/, voice/, codeNetwork/, keiki and notices, bookingDemo/
-protected-app/    The customer booking app turtl protects in the demo, with its own package
-tests/            node:test suites
-docs/             Reference and the screenshots above
-```
+| Folder | What is in it |
+| --- | --- |
+| [`app/`](app) | Screens (Expo Router): login, projects, `project/`, `review/`, and the older live feed (`live`, `case/`) |
+| [`components/`](components) | UI: `ui/` (shared parts), `fix/`, `execution/` (the plan), `network/` (code map), `voice/`, `project/`, `feed/`, `dev/` |
+| [`data/`](data) | What the screens read: `example/` (built-in examples) or `live/` (Convex), chosen in `source.ts` |
+| [`theme/`](theme) | Colors, type and design tokens |
+| [`convex/`](convex) | Backend: schema, constants, workflow, `runner/`, monitor, decisions, permissions, `memory/`, `intake/`, `prTracking/`, `revyl/`, `voice/`, `codeNetwork/`, Keiki alerts, `bookingDemo/` |
+| [`protected-app/`](protected-app) | The customer booking app turtl protects in the demo, with its own package |
+| [`tests/`](tests) | `node:test` suites |
+| [`docs/`](docs) | Reference and the screenshots above |
 
 `convex/_generated/` is committed; regenerate it with `npx convex dev` when you change the schema or functions.
 
 ## Tests
 
 ```sh
-npm run typecheck                         # tsc for the app and convex/
-npm --prefix protected-app run typecheck  # the booking app checks against its own dependencies
-
-EXPO_PUBLIC_DATA_SOURCE=example npx expo start --web --port 8081   # one terminal
-npm run test:ui                                                     # another: node --test tests/*.test.mjs
+npm run typecheck                         # the app and convex/
+npm --prefix protected-app run typecheck  # the booking app, against its own dependencies
 ```
 
-The browser tests open the example UI in Chromium at a phone-size viewport; set `CHROME_PATH` when Chrome is not at a standard path and `UI_BASE_URL` for another preview. The rest run without a server. See [`tests/README.md`](tests/README.md). Backend checks that need a deployment are `memory/dev:prove` ([`convex/memory/README.md`](convex/memory/README.md)) and the booking control check ([`convex/bookingDemo/README.md`](convex/bookingDemo/README.md)). Each pull request also gets an iOS simulator build and a proof-of-changes run on a cloud iPhone from [`.revyl/config.yaml`](.revyl/config.yaml).
+The UI suite needs the example UI running, so start it in one terminal and run the suite (`node --test tests/*.test.mjs`) in another:
+
+```sh
+EXPO_PUBLIC_DATA_SOURCE=example npx expo start --web --port 8081
+npm run test:ui
+```
+
+The browser tests open that UI in Chromium at a phone-size viewport; set `CHROME_PATH` when Chrome is not at a standard path and `UI_BASE_URL` for another preview. The rest run without a server. See [`tests/README.md`](tests/README.md). Backend checks that need a deployment are `memory/dev:prove` ([`convex/memory/README.md`](convex/memory/README.md)) and the booking control check ([`convex/bookingDemo/README.md`](convex/bookingDemo/README.md)). Each pull request also gets an iOS simulator build and a proof-of-changes run on a cloud iPhone from [`.revyl/config.yaml`](.revyl/config.yaml).
 
 ## Reference
 
@@ -197,4 +194,5 @@ The browser tests open the example UI in Chromium at a phone-size viewport; set 
 - [Assistant action and Supermemory](docs/assistant-memory.md)
 - [Owner alerts](docs/owner-alerts.md)
 - [The runner and its handler contract](convex/runner/README.md), [customer reports](convex/intake/README.md), [recovery memory](convex/memory/README.md), [voice](convex/voice/README.md)
+- [The booking demo backend](convex/bookingDemo/README.md) and [its customer app](protected-app/README.md)
 - [Build log](hackathon.md)
