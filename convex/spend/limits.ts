@@ -45,9 +45,10 @@ export const DEFAULT_OUTAGE_RESERVE_ACCOUNT_USD = 0.5;
 export const DEFAULT_OUTAGE_RESERVE_STEADY_HOURS = 24;
 export const DEFAULT_OUTAGE_RESERVE_ACCOUNT_AGE_DAYS = 14;
 /**
- * What finding the cause of practice-app cases may cost one account in a day, apart from its own share: a practice app
- * has no customers and nothing is down. Enough for the ten breaks a day the practice app allows, each explained by AI
- * (a diagnosis, the fixes on offer and a look for a broader cause, about $0.15 to $0.20), and no more.
+ * What finding the cause of practice-app cases may cost one account in a day, within its own share (fourth review,
+ * finding 23: beside the share it was $2 more room in the shared day for every account): a practice app has no
+ * customers and nothing is down. Enough for the ten breaks a day the practice app allows, each explained by AI (a
+ * diagnosis, the fixes on offer and a look for a broader cause, about $0.13 each), and no more.
  */
 export const DEFAULT_PRACTICE_AI_PER_DAY_USD = 2;
 /**

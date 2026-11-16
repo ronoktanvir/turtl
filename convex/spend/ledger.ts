@@ -138,8 +138,8 @@ export async function openIntakeCase(ctx: MutationCtx, appId: Id<"apps">): Promi
 // With appId the call read a project's customer reports and counts against that project's day (the intake
 // allowance); without it, against the account's month. Either way it counts against the account's day, in place of
 // the hold (`held`) the gate counted it at when it let the call through.
-// `practice`: the call was for the account's practice app: it counts against the day's practice allowance instead of
-// the account's own share, and against the month as an own call does.
+// `practice`: the call was for the account's practice app: it counts against the day's practice allowance (which is
+// within the account's own share), and against the month as an own call does.
 // `floor`: the call found the cause of the account's own outage past the shared day: it counts against the account's
 // floor and its month, and not against the deployment's day, which it is outside of.
 export const addModelSpend = internalMutation({

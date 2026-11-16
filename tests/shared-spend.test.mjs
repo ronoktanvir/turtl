@@ -316,6 +316,25 @@ test("ATTACK (finding 23): ten fresh accounts doing everything they may leave a 
   }
 });
 
+// Statement 3: the practice app's $2 is within each account's share, so it adds no room in the shared day. A fresh
+// account now puts at most its own $2.50 and its customers' $1 into the shared day, each passed by at most the last call
+// let through (about $3.57 in all; with the practice allowance beside the share it was $5.50, and three accounts
+// filled the general $15).
+test("ATTACK (finding 23): it takes five fresh accounts to use up the general part, seven with no reserve, and no number of them stops another owner's outage", async (t) => {
+  const kept = await attack(t, {}, { count: 8 });
+  const none = await attack(t, { OUTAGE_RESERVE_PERCENT: "0" }, { count: 12 });
+  // $15 / $3.57 an account: the fifth fills it. $25 / $3.57: the seventh.
+  assert.equal(kept.general, 5, JSON.stringify(kept));
+  assert.equal(none.general, 7, JSON.stringify(none));
+  // Fresh accounts never reach the reserve, so with it the day stops near $15; without it, at $25.
+  assert.equal(kept.whole, null, JSON.stringify(kept));
+  assert.ok(kept.shared < 15 + 1, JSON.stringify(kept));
+  assert.equal(none.whole, 7, JSON.stringify(none));
+  assert.equal(none.chat, limits.spendRefusal.deploymentSpent());
+  assert.deepEqual([kept.outage.refusals, none.outage.refusals], [[], []]);
+  console.log(`fresh accounts to use up the general part: ${kept.general} with the reserve, ${none.general} without; Alice's outage cost her floor $${kept.outage.cost.toFixed(3)}`);
+});
+
 // The reserve, with the floor beside it: accounts a month old whose projects had passed for a day still drain it (it
 // takes about twenty), and then an established owner's outage goes on on the floor too.
 test("ATTACK (finding 12, 19, 23): established accounts drain the reserve and still cannot stop another owner's outage, new or established", async (t) => {
@@ -462,7 +481,7 @@ const PRACTICE_CASE = [
   allowance,
 }));
 
-test("a practice app's cases have their own allowance: ten breaks a day explained by AI fit, then it stops, with a plain sentence", async (t) => {
+test("a practice app's cases have an allowance within the account's share: ten breaks a day explained by AI fit, then it stops, with a plain sentence", async (t) => {
   t.mock.timers.enable({ apis: ["Date"], now: NOV_16 });
   await withEnv({ ...ACCOUNTS, PRACTICE_AI_PER_DAY_USD: undefined }, async () => {
     const db = world({ ada: 1 });
@@ -476,15 +495,22 @@ test("a practice app's cases have their own allowance: ten breaks a day explaine
     }
     let day = await ledger.accountDay({ db }, "users:ada", Date.now());
     assert.ok(Math.abs(day.practiceUsd - 10 * perBreak) < 1e-4, `${day.practiceUsd} for ${10 * perBreak}`);
-    assert.equal(day.ownUsd, 0, "the owner's own share is untouched");
+    assert.equal(day.ownUsd, 0, "kept apart from the owner's own calls");
     assert.ok((await ledger.monthSpend({ db }, "users:ada", Date.now())) > 0, "it counts toward the month like the owner's own calls");
     // And no more: asking about it again and again stops at the allowance.
     const more = await spendAll(ctx, practiceCase, CHAT, 20);
     assert.equal(more.refusal, limits.spendRefusal.practiceSpent(2));
     day = await ledger.accountDay({ db }, "users:ada", Date.now());
     assert.ok(day.practiceUsd <= 2 + CHAT.estimate, `the practice app's day stopped at $${day.practiceUsd.toFixed(2)}`);
-    // The owner's real project is diagnosed as before.
+    // Within the share (finding 23): what is left of her $2.50 is all her own calls may spend today.
+    const own = await spendAll(ctx, { caseId: "cases:ada-0" }, CHAT, 20);
+    assert.equal(own.refusal, limits.spendRefusal.accountDaySpent(2.5));
+    day = await ledger.accountDay({ db }, "users:ada", Date.now());
+    assert.ok(day.ownUsd + day.practiceUsd <= 2.5 + CHAT.estimate, `her share stopped at $${(day.ownUsd + day.practiceUsd).toFixed(2)}`);
+    assert.ok(day.ownUsd < 0.5 + CHAT.estimate, `her own calls had $${day.ownUsd.toFixed(2)}`);
+    // An outage on her real project is still diagnosed: on her floor, now that her share is used.
     assert.equal((await modelCall(ctx, { caseId: "cases:ada-0" }, DIAGNOSIS)).ok, true);
+    assert.ok(Math.abs((await ledger.accountDay({ db }, "users:ada", Date.now())).floorUsd - DIAGNOSIS.cost) < 1e-6);
     assert.equal(
       limits.spendRefusal.practiceSpent(2),
       "this account has used today's $2.00 of AI for its practice app, so no model was asked; it starts again tomorrow",
@@ -603,6 +629,7 @@ const CEILINGS = [
   ["the deployment's day", async (db) => db.insert("deploymentTotals", { name: "model_usd_day", window: "2026-11-16", value: 25, updatedAt: 1 }), { own: limits.spendRefusal.deploymentSpent(), intake: limits.spendRefusal.deploymentSpent() }],
   ["the account's month", async (db) => db.insert("modelSpend", { account: "users:ada", month: "2026-11", costUsd: 20, calls: 1, updatedAt: 1 }), { own: limits.spendRefusal.overLimit(20, NOV_16), outage: limits.spendRefusal.overLimit(20, NOV_16) }],
   ["the account's own share of the day", async (db) => db.insert("accountSpendDays", daySpent({ ownUsd: 2.5 })), { own: limits.spendRefusal.accountDaySpent(2.5) }],
+  ["its share, its practice app's part of it", async (db) => db.insert("accountSpendDays", daySpent({ ownUsd: 0.5, practiceUsd: 2 })), { own: limits.spendRefusal.accountDaySpent(2.5) }],
   ["its customers' share of the day", async (db) => db.insert("accountSpendDays", daySpent({ intakeUsd: 1 })), { intake: limits.spendRefusal.accountIntakeSpent(1) }],
   ["the project's customer-report day", async (db) => db.insert("intakeDays", { appId: "apps:ada-0", day: "2026-11-16", costUsd: 0.5, calls: 1, casesOpened: 0, updatedAt: 1 }), { intake: limits.spendRefusal.intakeSpent(0.5) }],
   ["all but the part kept for outages", async (db) => db.insert("deploymentTotals", { name: "model_usd_day", window: "2026-11-16", value: 15, updatedAt: 1 }), { own: limits.spendRefusal.reserveKept(), intake: limits.spendRefusal.reserveKept() }],

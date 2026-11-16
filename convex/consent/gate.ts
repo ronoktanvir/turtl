@@ -171,8 +171,9 @@ async function sharedDay(ctx: Pick<QueryCtx, "db">, { account, appId, allowance,
   const total = await deploymentSpendToday(ctx, now);
   if (total >= ceiling) return { refusal: spendRefusal.deploymentSpent() };
   // Then the account's share of that day, so one account (its own calls, or its customers' reports) cannot reach the
-  // ceiling alone and stop every other owner's diagnosis (finding 12). Calls still running count at their hold.
-  const own = day.ownUsd + day.ownHeldUsd;
+  // ceiling alone and stop every other owner's diagnosis (finding 12). Calls still running count at their hold. A
+  // practice app's calls are within the account's own share (finding 23), so it adds no room in the shared day.
+  const own = day.ownUsd + day.ownHeldUsd + day.practiceUsd + day.practiceHeldUsd;
   let hold: Share;
   if (allowance === "intake") {
     const limit = intakeSpendPerDayUsd();
@@ -184,16 +185,14 @@ async function sharedDay(ctx: Pick<QueryCtx, "db">, { account, appId, allowance,
     const limit = modelSpendLimitUsd();
     if ((await monthSpend(ctx, account, now)) >= limit) return { refusal: spendRefusal.overLimit(limit, now) };
     if (practice) {
-      // A practice app's cases have their own small allowance, enough for its ten breaks a day explained by AI, so
-      // breaking it neither uses up the owner's share nor reaches the part of the day kept for outages (finding 19).
+      // A practice app's cases have a small allowance of their own within the share, enough for its ten breaks a day
+      // explained by AI, and never reach the part of the day kept for outages (finding 19).
       const allowed = practiceAiPerDayUsd();
       if (day.practiceUsd + day.practiceHeldUsd >= allowed) return { refusal: spendRefusal.practiceSpent(allowed) };
-      hold = "practice";
-    } else {
-      const share = accountModelSpendPerDayUsd();
-      if (own >= share) return { refusal: spendRefusal.accountDaySpent(share) };
-      hold = "own";
     }
+    const share = accountModelSpendPerDayUsd();
+    if (own >= share) return { refusal: spendRefusal.accountDaySpent(share) };
+    hold = practice ? "practice" : "own";
   }
   // The last part of the day is kept for finding the cause of outages the monitor found, on accounts that have used
   // little of the day: a few accounts that used their whole shares cannot reach it, and each other account draws on it
