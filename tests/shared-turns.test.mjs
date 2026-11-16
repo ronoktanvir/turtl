@@ -436,6 +436,35 @@ test("a diagnosis run waiting on its case is looked at every tick for an hour, e
   assert.equal(log.NEVER_FINISHED_MS, 30 * DAY);
 });
 
+// ---- Follow-up: what the structural step reads on a project that has grown ----
+
+test("ATTACK: 2,000 earlier cases on a project and thousands of evidence rows on the cases it relates; the structural step reads a bounded amount", async (t) => {
+  const w = world(t);
+  network(t, {});
+  const appId = await w.db.insert("apps", { name: "shop", ownerId: "users:1", productionUrl: "https://shop.example" });
+  const signature = "journey_failed:journeys:1";
+  // Each failure the monitor saw opened a case with the same signature, and each case gathered a lot of evidence.
+  const caseOf = async (n) => w.db.insert("cases", { appId, title: `Booking failed ${n}`, impact: ".", kind: "outage", raisedBy: "monitor", status: "unresolved", signature });
+  for (let n = 0; n < 1990; n++) await caseOf(n);
+  for (let n = 1990; n < 2000; n++) {
+    const caseId = await caseOf(n);
+    for (let e = 0; e < 300; e++) await w.db.insert("evidence", { caseId, kind: "memory_match", title: `match ${e}`, sourceRef: "m", observedAt: e });
+  }
+  const caseId = await caseOf(2000);
+  for (let e = 0; e < 1000; e++) await w.db.insert("evidence", { caseId, kind: e < 900 ? "memory_match" : "health", title: `row ${e}`, sourceRef: "s", observedAt: e });
+
+  const read = await documentsRead(w, "internal.structural.records.examineContext", { caseId });
+  assert.equal(read.result.skip, null, "the case is still examined");
+  assert.equal(read.result.relatedCaseIds.length, 50, "against the 50 cases before it");
+  // Before, it read all 2,000 cases and every one of the 4,000 evidence rows on the cases it relates.
+  assert.ok(read.documents < 3_000, `the structural step read ${read.documents} documents`);
+  assert.ok(w.reads.filter(([table]) => table === "cases").every(([, , documents]) => documents <= 200));
+  assert.ok(w.reads.filter(([table]) => table === "evidence").every(([, , documents]) => documents <= 100));
+  // What is lost past the bounds: the current case's first 100 rows are all memory matches, so it offers no evidence
+  // beyond them (its health rows come later). That is the cost the code names (EVIDENCE_READ).
+  assert.deepEqual(read.result.prompt.current.evidence, []);
+});
+
 // ---- Statement 9: the live address's port ----
 
 test("ATTACK: an account cannot point its live app at another port of someone else's host, so turtl probes no port but the web's", async (t) => {

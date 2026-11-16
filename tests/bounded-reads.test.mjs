@@ -209,13 +209,14 @@ function importsOf(file) {
   return found;
 }
 
-/** The functions a node refers to: `internal.a.b.c` (convex/a/b.ts, c), and top-level names of its own module or imported ones. */
-function referencesIn(file, node) {
+/** The functions a node refers to: `internal.a.b.c` (convex/a/b.ts, c), and top-level names of its own module or imported
+ * ones. With `scheduled: false`, only the helpers it calls, not the functions it runs or schedules through `internal`. */
+function referencesIn(file, node, { scheduled = true } = {}) {
   const declarations = declarationsOf(file);
   const imported = importsOf(file);
   const found = [];
   const visit = (child) => {
-    if (ts.isPropertyAccessExpression(child) && !ts.isPropertyAccessExpression(child.parent)) {
+    if (scheduled && ts.isPropertyAccessExpression(child) && !ts.isPropertyAccessExpression(child.parent)) {
       const path = textOf(child).replace(/\s+/g, "").split(".");
       if (path[0] === "internal" && path.length >= 3) {
         const target = moduleFile(join(convexDir, ...path.slice(1, -1)));
@@ -235,15 +236,20 @@ function referencesIn(file, node) {
 /** Every module function a cron reaches, as file -> names. */
 export function cronReached() {
   const crons = join(convexDir, "crons.ts");
+  return reachedFrom(referencesIn(crons, parsed(crons)));
+}
+
+/** Every module function reached from these, as file -> names. */
+export function reachedFrom(start, options) {
   const reached = new Map();
-  const queue = referencesIn(crons, parsed(crons));
+  const queue = [...start];
   while (queue.length) {
     const { file, name } = queue.shift();
     if (reached.get(file)?.has(name)) continue;
     const node = declarationsOf(file).get(name);
     if (!node) continue;
     reached.set(file, (reached.get(file) ?? new Set()).add(name));
-    queue.push(...referencesIn(file, node));
+    queue.push(...referencesIn(file, node, options));
   }
   return reached;
 }
@@ -291,6 +297,54 @@ test("no function a cron reaches collects a whole shared table", () => {
     const [file, name] = key.split(":");
     assert.ok(reached.get(join(root, file))?.has(name), `${key} is allowed but no cron reaches it. Remove it from CRON_ALLOWED.`);
     assert.ok(reason.length >= 30, `${key} needs a written reason`);
+  }
+});
+
+// 4. Some scheduled functions read rows that others can grow on one project or one case (the monitor's cases, customers'
+//    reports, chat turns), so even a read scoped to that project or case must be bounded: every read they reach ends in
+//    take(n), first(), unique() or paginate(). A collect() that cannot grow is named in STRICT_ALLOWED with why.
+const STRICT = [
+  ["structural/records.ts", "examineContext"], // the examine_broader_causes step: a project's cases and their evidence
+  ["routing/log.ts", "settlePending"], // the settling cron: every account's agent runs
+  ["intake/records.ts", "claim"], ["intake/records.ts", "triageInput"], ["intake/records.ts", "land"], // triage of one report
+];
+const STRICT_ALLOWED = {
+  "convex/workflow.ts:loadSteps:steps": "a case's steps: as many as its workflow template has, which only turtl's runner adds to",
+};
+
+export function strictProblems(reached) {
+  const problems = [];
+  for (const [file, names] of reached) {
+    const id = relative(root, file).split("\\").join("/");
+    const chains = readChains(parsed(file));
+    for (const name of names) {
+      const node = declarationsOf(file).get(name);
+      for (const chain of chains) {
+        if (!within(chain.node, node) || !has(chain, "collect") || `${id}:${name}:${chain.table}` in STRICT_ALLOWED) continue;
+        problems.push(`${id}:${name}:${chain.table}: collect() in a function a scheduled read reaches, where a project's or case's rows can be grown by others`);
+      }
+    }
+  }
+  return [...new Set(problems)];
+}
+
+test("the structural step, the settling cron and triage read only a bounded number of rows, however a project grows", () => {
+  const reached = reachedFrom(STRICT.map(([file, name]) => ({ file: join(convexDir, file), name })), { scheduled: false });
+  for (const [file, name] of STRICT) assert.ok(reached.get(join(convexDir, file))?.has(name), `${file}:${name} exists`);
+  assert.ok(reached.get(join(convexDir, "workflow.ts"))?.has("loadSteps"), "the helpers they call are followed");
+  assert.deepEqual(strictProblems(reached), [], "Bound the read with take(n) (the newest or the first so many), and say in the code what is lost past it.");
+  for (const [key, reason] of Object.entries(STRICT_ALLOWED)) {
+    const [file, name] = key.split(":");
+    assert.ok(reached.get(join(root, file))?.has(name), `${key} is allowed but nothing listed reaches it. Remove it from STRICT_ALLOWED.`);
+    assert.ok(reason.length >= 30, `${key} needs a written reason`);
+  }
+  // The shape it was written for: the structural step read every case on the project.
+  const file = join(convexDir, "example", "history.ts");
+  parsedFiles.set(file, ts.createSourceFile(file, 'import { internalQuery } from "../_generated/server";\nexport const context = internalQuery({ args: {}, handler: async (ctx, { appId }) => ctx.db.query("cases").withIndex("by_app_and_signature", (q) => q.eq("appId", appId)).collect() });', ts.ScriptTarget.Latest, true, ts.ScriptKind.TS));
+  try {
+    assert.equal(strictProblems(new Map([[file, new Set(["context"])]])).length, 1);
+  } finally {
+    parsedFiles.delete(file);
   }
 });
 
