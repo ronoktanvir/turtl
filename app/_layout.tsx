@@ -11,6 +11,7 @@ import { Righteous_400Regular } from "@expo-google-fonts/righteous";
 import { backendClient as convex, isLiveData, isStoreBuild, useBackendReachable, useDataStatus } from "../data";
 import BackendUnavailable from "../components/ui/BackendUnavailable";
 import OwnerPasscodePrompt from "../components/ui/OwnerPasscodePrompt";
+import PushNotifications from "../components/push/PushNotifications";
 
 void SplashScreen.preventAutoHideAsync().catch(() => {});
 
@@ -72,6 +73,7 @@ export default function RootLayout() {
       <ConvexProvider client={convex}>
         <Screens />
         <DevTools />
+        <PushNotifications />
         {isStoreBuild && <Unreachable />}
       </ConvexProvider>
     </ThemeProvider>

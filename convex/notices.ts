@@ -5,6 +5,7 @@ import { internalAction, internalMutation, query } from "./_generated/server";
 import { vNoticeEvent, vNoticeOutcome } from "./constants";
 import { sendOwnerNotice } from "./keiki";
 import type { NoticeResult } from "./keiki";
+import { sendsPush } from "./push/message";
 
 export const forCase = query({
   args: { caseId: v.id("cases") },
@@ -51,6 +52,8 @@ export const notifyOwner = internalAction({
   handler: async (ctx, { caseId, event, text }): Promise<NoticeResult | null> => {
     const noticeId = await ctx.runMutation(internal.notices.claim, { caseId, event });
     if (!noticeId) return null;
+    // The owner's phones get a push for this event too (convex/push); its outcome is recorded beside this one.
+    if (sendsPush(event)) await ctx.scheduler.runAfter(0, internal.push.deliver.forNotice, { noticeId, caseId, event });
     const result = await sendOwnerNotice(text);
     await ctx.runMutation(internal.notices.recordResult, { noticeId, ...result });
     return result;
