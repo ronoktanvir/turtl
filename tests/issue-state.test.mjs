@@ -56,6 +56,7 @@ test("the swipe to begin review opens the first issue there is something to revi
   assert.equal(firstToReview([quiet, broken]), "b");
   assert.equal(firstToReview([broken, quiet]), "b");
   assert.equal(firstToReview([quiet]), undefined, "nothing to review: no swipe");
-  assert.equal(firstToReview([{ id: "r", status: "unresolved", notAnswering: true }]), "r", "a closed one reads as other closed cases do");
+  assert.equal(firstToReview([{ id: "r", status: "unresolved", notAnswering: true }]), undefined, "closed because turtl stopped checking: still nothing to review");
+  assert.equal(firstToReview([{ id: "u", status: "unresolved" }]), "u");
   assert.equal(firstToReview([]), undefined);
 });

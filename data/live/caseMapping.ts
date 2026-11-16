@@ -34,7 +34,10 @@ export function mapCaseSummary(row: Doc<"cases">, number: number, pullRequest?: 
       ? pullRequest?.state === "open" && pullRequest.checks === "passing" && pullRequest.mergeable ? "ready_to_merge" : "enacting"
       : row.status === "restored" || row.status === "resolved" ? "resolved"
         : row.status === "declined" || row.status === "unresolved" ? row.status : "investigating";
+  // A not-answering case closed because turtl stopped checking: turtl does not know whether users are affected, and the
+  // owner has the next step (its reason says what), so it needs them.
   const health: CaseSummary["health"] = status === "resolved" || status === "declined" ? "clear"
+    : quiet && status === "unresolved" ? "needs_you"
     : (status === "unresolved" && row.kind !== "feature_request") || row.kind === "outage" || status === "not_answering" ? "affected"
       : status === "needs_approval" || status === "ready_to_merge" || status === "unresolved" ? "needs_you" : "working";
   return {

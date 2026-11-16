@@ -438,8 +438,10 @@ test("a not-answering case has its own state while open, and reads as other clos
   assert.equal(open.type, "fix");
   const resolved = mapCaseSummary(quietRow({ status: "resolved" }), 2);
   assert.deepEqual([resolved.status, resolved.health, resolved.notAnswering], ["resolved", "clear", true]);
+  // Closed because turtl stopped checking: turtl does not know whether users are affected, and the owner has the next
+  // step (the reason says what), so it needs them rather than claiming users are affected.
   const stopped = mapCaseSummary(quietRow({ status: "unresolved" }), 2);
-  assert.deepEqual([stopped.status, stopped.health, stopped.notAnswering], ["unresolved", "affected", true]);
+  assert.deepEqual([stopped.status, stopped.health, stopped.notAnswering], ["unresolved", "needs_you", true]);
   assert.equal("notAnswering" in mapCaseSummary(row({ signature: "journey_failed:j1" }), 1), false, "an ordinary case is not one");
   assert.equal(mapCaseSummary(row({ signature: "journey_failed:j1" }), 1).status, "investigating");
 });

@@ -20,9 +20,10 @@ export function issueState(item: Pick<CaseSummary, "type" | "status" | "health">
 }
 
 /**
- * The issue "Swipe up to begin review" opens: the first on the list with something to review. An app that is not
- * answering has nothing to review (no fix, nothing to approve), so with only that open there is no swipe at all.
+ * The issue "Swipe up to begin review" opens: the first on the list with something to review. A case about an app that
+ * is not answering has nothing to review (no fix, nothing to approve), open or closed because turtl stopped checking,
+ * so with only that on the list there is no swipe at all: its card opens it.
  */
-export function firstToReview(items: Pick<CaseSummary, "id" | "status">[]): string | undefined {
-  return items.find((item) => item.status !== "not_answering")?.id;
+export function firstToReview(items: Pick<CaseSummary, "id" | "status" | "notAnswering">[]): string | undefined {
+  return items.find((item) => item.status !== "not_answering" && !item.notAnswering)?.id;
 }
