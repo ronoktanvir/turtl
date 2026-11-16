@@ -72,10 +72,9 @@ const vView = v.object({
   /** What breaks a booking now, or null when the practice app works. */
   failure: v.union(v.null(), vPracticeFailure),
   brokenAt: v.optional(v.number()),
-  /** The open case on it, if any, and where it is: working it out, a fix waiting for the owner, carrying one out, or
-   * waiting for an app that is not answering turtl's checks. */
+  /** The open case on it, if any, and where it is: working it out, a fix waiting for the owner, or carrying one out. */
   caseId: v.optional(v.string()),
-  caseStage: v.optional(v.union(v.literal("working"), v.literal("waiting"), v.literal("carrying_out"), v.literal("not_answering"))),
+  caseStage: v.optional(v.union(v.literal("working"), v.literal("waiting"), v.literal("carrying_out"))),
   /** Still broken after a case on this break closed unfixed (its fixes declined, or it ended unresolved): turtl opens
    * no new case until the app has passed a check again, so the owner can put it back. */
   stalled: v.optional(v.boolean()),
@@ -86,10 +85,8 @@ const vView = v.object({
   note: v.optional(v.string()),
 });
 
-/** Where an open case on a practice app is, in the stages the practice sheet tells apart. A case about an app that is
- * not answering turtl's checks (convex/protectedApp/notAnswering.ts) is not being worked out: turtl only waits. */
-export function stageOf(status: string): "working" | "waiting" | "carrying_out" | "not_answering" {
-  if (status === "waiting_for_app") return "not_answering";
+/** Where an open case on a practice app is, in the three stages the practice sheet tells apart. */
+export function stageOf(status: string): "working" | "waiting" | "carrying_out" {
   if (status === "waiting_for_owner") return "waiting";
   return status === "executing" || status === "waiting_for_deploy" || status === "verifying" ? "carrying_out" : "working";
 }

@@ -10,7 +10,7 @@ export type PracticeProject = {
   brokenAt?: number;
   /** The open issue on it, if any, and where it is. */
   caseId?: string;
-  caseStage?: "working" | "waiting" | "carrying_out" | "not_answering";
+  caseStage?: "working" | "waiting" | "carrying_out";
   /** Still broken after an issue on this break closed unfixed (its fixes declined): turtl opens no new one until it works. */
   stalled?: boolean;
   /** How many more times the owner may break it today, and when that count starts again. */
