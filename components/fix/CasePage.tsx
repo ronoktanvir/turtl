@@ -69,7 +69,8 @@ function focus(view: ViewNode | null) {
   else AccessibilityInfo.sendAccessibilityEvent(view, "focus");
 }
 
-export function CasePage({ caseId, current }: { caseId: string; current: boolean }) {
+/** startOn "fixes" opens the issue on its Fixes page, for a link that leads straight to a fix waiting for approval. */
+export function CasePage({ caseId, current, startOn = "case" }: { caseId: string; current: boolean; startOn?: Part }) {
   const devToolsOn = useDevToolsOn();
   const c = useCase(caseId);
   const workflow = useWorkflow(caseId);
@@ -81,7 +82,7 @@ export function CasePage({ caseId, current }: { caseId: string; current: boolean
   const router = useRouter();
   const reduced = useReducedMotion();
   const [tab, setTab] = useState<CaseTab>("Overview");
-  const [part, setPart] = useState<Part>("case");
+  const [part, setPart] = useState<Part>(startOn);
   const [box, setBox] = useState({ width: 0, height: 0 });
   const drop = useRef(new Animated.Value(0)).current; // the green spreading toward the other page
   const veil = useRef(new Animated.Value(0)).current; // the green the arriving page surfaces out of

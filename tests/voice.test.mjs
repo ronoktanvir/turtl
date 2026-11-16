@@ -30,7 +30,7 @@ const access = load("../convex/access.ts", {
   "./auth/confirmed": load("../convex/auth/confirmed.ts", {}),
 });
 
-function turnModule({ heard = "approve it", speech = { ok: true, audio: new ArrayBuffer(8) } } = {}) {
+function turnModule({ heard = "approve it", speech = { ok: true, audio: new ArrayBuffer(8) }, refusal = null } = {}) {
   const calls = { transcribe: 0, speak: 0 };
   const module = load("../convex/voice/turn.ts", {
     "convex/values": { v },
@@ -40,7 +40,7 @@ function turnModule({ heard = "approve it", speech = { ok: true, audio: new Arra
     "../functions": { action: define, query: define },
     "../access": access,
     // The single-owner demo's gate: every answer is yes. tests/consent-gate.test.mjs covers the refusals.
-    "../consent/gate": { gateFor: () => ({ blocked: async () => null }) },
+    "../consent/gate": { gateFor: () => ({ blocked: async () => refusal }) },
     "./openai": {
       transcribe: async () => { calls.transcribe += 1; return typeof heard === "string" ? { ok: true, text: heard } : heard; },
       speak: async () => { calls.speak += 1; return speech; },
@@ -227,4 +227,13 @@ test("long replies are spoken in whole sentences and the rest stays on screen", 
   assert.equal(rules.clipExtension("audio/webm;codecs=opus"), "webm");
   assert.equal(rules.clipExtension("audio/mp4"), "m4a");
   assert.equal(rules.clipExtension("text/plain"), null);
+});
+
+test("a refusal to listen does not offer typing, which the same gate refuses", async () => {
+  const reason = "this account has used its $20.00 of AI this month, so turtl sends nothing more until 1 December";
+  const { module, calls } = turnModule({ refusal: reason });
+  const result = await withEnv(on, () => module.talk.handler(fakeCtx(), clip));
+  assert.deepEqual(result, { ok: false, reason: `turtl can't listen: ${reason}.`, retry: false });
+  assert.equal(calls.transcribe, 0, "nothing was sent");
+  assert.doesNotMatch(result.reason, /type/);
 });

@@ -72,15 +72,30 @@ const vView = v.object({
   /** What breaks a booking now, or null when the practice app works. */
   failure: v.union(v.null(), vPracticeFailure),
   brokenAt: v.optional(v.number()),
-  /** The open case on it, if any. */
+  /** The open case on it, if any, and where it is: working it out, a fix waiting for the owner, or carrying one out. */
   caseId: v.optional(v.string()),
+  caseStage: v.optional(v.union(v.literal("working"), v.literal("waiting"), v.literal("carrying_out"))),
   /** Still broken after a case on this break closed unfixed (its fixes declined, or it ended unresolved): turtl opens
    * no new case until the app has passed a check again, so the owner can put it back. */
   stalled: v.optional(v.boolean()),
   breaksLeft: v.number(),
+  /** When today's breaks count from zero again: the next day boundary of the allowance (UTC midnight). */
+  breaksResetAt: v.number(),
   /** What an earlier fix left switched, for a practice app that works again. */
   note: v.optional(v.string()),
 });
+
+/** Where an open case on a practice app is, in the three stages the practice sheet tells apart. */
+export function stageOf(status: string): "working" | "waiting" | "carrying_out" {
+  if (status === "waiting_for_owner") return "waiting";
+  return status === "executing" || status === "waiting_for_deploy" || status === "verifying" ? "carrying_out" : "working";
+}
+
+/** The start of the next allowance day after a moment: dayOf counts days in UTC, so the next UTC midnight. */
+export function nextDay(at: number): number {
+  const date = new Date(at);
+  return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate() + 1);
+}
 
 // What the app shows about practice: whether this account can have a practice app, and its practice project.
 export const status = query({
@@ -108,9 +123,10 @@ export const status = query({
         name: app.name,
         failure,
         ...(failure && row.broken && { brokenAt: row.broken.at }),
-        ...(open && { caseId: open._id as string }),
+        ...(open && { caseId: open._id as string, caseStage: stageOf(open.status) }),
         ...(stalled && { stalled: true }),
         breaksLeft: allowance(row.breaks, Date.now(), breaksPerDay).left,
+        breaksResetAt: nextDay(Date.now()),
         ...(note && { note }),
       },
     };

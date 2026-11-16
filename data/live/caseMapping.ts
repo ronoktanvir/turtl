@@ -183,6 +183,20 @@ export function recoveryMismatchWords(body: string): string {
   return out.join("\n");
 }
 
+// Detecting and gathering each run the booking check and the health check, so a case holds two of each. They are
+// separate observations, both kept; each says when turtl made it so neither reads as a duplicate.
+const AGAIN = { source: "when turtl looked again", lead: "Looking again, to gather what it knows: " };
+const WHEN: Record<string, { source: string; lead: string }> = {
+  detect_or_receive: { source: "when turtl first noticed", lead: "When turtl first noticed: " },
+  // The two readers that run beside each other after detecting, and the step that gathers what they read.
+  collect_app_state: AGAIN,
+  collect_error_window: AGAIN,
+  gather_context: AGAIN,
+};
+export function whenObserved(purpose: string | undefined): { source: string; lead: string } | null {
+  return (purpose && WHEN[purpose]) || null;
+}
+
 /** What an unresolved case says when it stopped because turtl could not reach the app at all. */
 export function unreachableStop(stepTitle: string): string {
   return `turtl stopped this case because it could not reach your app, so it sent nothing. The reason is under "${stepTitle}" below: usually the project's control token is missing, or its live address is one turtl may not send to. Fix it in this project's Settings. turtl's next check opens a new case if the problem is still there, and a new report from a customer does too. This case stays closed.`;
@@ -345,10 +359,11 @@ export function mapCaseDetail(
       continue;
     }
     const from = evidence.sourceRef ? plainSource(evidence.sourceRef) : null;
-    logs.push({ id: evidence._id, at: evidence.observedAt, level: "info", source: `Evidence · ${named(evidenceWords, evidence.kind)}`, text: [ownerWords(evidence.title), evidence.body && (evidence.kind === "journey_check" ? journeyBodyWords(evidence.body) : evidence.kind === "memory_match" ? recoveryMismatchWords(evidence.body) : evidence.body), from && `From ${from}.`].filter(Boolean).join("\n") });
+    const when = whenObserved(cards.steps.find((step) => step._id === evidence.stepId)?.purpose);
+    logs.push({ id: evidence._id, at: evidence.observedAt, level: "info", source: `Evidence · ${named(evidenceWords, evidence.kind)}${when ? " · " + when.source : ""}`, text: [ownerWords(evidence.title), evidence.body && (evidence.kind === "journey_check" ? journeyBodyWords(evidence.body) : evidence.kind === "memory_match" ? recoveryMismatchWords(evidence.body) : evidence.body), from && `From ${from}.`].filter(Boolean).join("\n") });
     citations.push({ id: evidence._id, kind: "log", logId: evidence._id });
     if (evidence.kind === "customer_report" && customerReports?.reports.length) continue;
-    paragraph([sourceSpan(ownerWords(evidence.title), evidence._id)]);
+    paragraph([...(when ? [{ text: when.lead }] : []), sourceSpan(ownerWords(evidence.title), evidence._id)]);
   }
 
   for (const step of cards.steps) {

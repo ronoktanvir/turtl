@@ -391,3 +391,20 @@ test("why a remembered recovery does not apply is said in words, once per differ
   ].join("\n"));
   assert.doesNotMatch(line, /journey\.|_|Required condition|Do not use/);
 });
+
+test("the two journey and health checks say when each was made, so neither reads as a duplicate", () => {
+  const detect = step({ _id: "s-detect", key: "detect_or_receive", title: "Detect or receive a request", purpose: "detect_or_receive", currentAttempt: null });
+  const gather = step({ _id: "s-gather", key: "gather_context", title: "Gather context", purpose: "gather_context", currentAttempt: null });
+  const first = evidence({ _id: "e-first", stepId: "s-detect", title: "The booking check failed." });
+  const again = evidence({ _id: "e-again", stepId: "s-gather", title: "The booking check failed." });
+  const detail = map(cards({ steps: [detect, gather], evidence: [first, again] }));
+  const sources = detail.logs.filter((log) => log.source.startsWith("Evidence")).map((log) => log.source);
+  assert.deepEqual(sources.sort(), ["Evidence · Journey check · when turtl first noticed", "Evidence · Journey check · when turtl looked again"]);
+  const lines = detail.overview.filter((block) => block.kind === "paragraph").map((block) => block.spans.map((span) => span.text).join(""));
+  assert.ok(lines.includes("When turtl first noticed: The booking check failed."));
+  assert.ok(lines.includes("Looking again, to gather what it knows: The booking check failed."));
+  assert.equal(detail.logs.filter((log) => log.source.startsWith("Evidence")).length, 2, "both are kept");
+  const collect = step({ _id: "s-collect", key: "collect_app_state", title: "Read app health, flags and revision", purpose: "collect_app_state", currentAttempt: null });
+  const health = evidence({ _id: "e-health", stepId: "s-collect", kind: "health", title: "The booking app says it is healthy." });
+  assert.equal(map(cards({ steps: [collect], evidence: [health] })).logs.find((log) => log.id === "e-health").source, "Evidence · App health · when turtl looked again");
+});
