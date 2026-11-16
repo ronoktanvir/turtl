@@ -1,5 +1,6 @@
 import { internalMutation, type MutationCtx } from "../_generated/server";
 import { BOOKING_APP_NAME } from "../protectedApp/registry";
+import { repoFromUrl } from "./github";
 
 export const CODE_CHANGE_ACTION_TYPE = "open_pull_request";
 export const CODE_CHANGE_REPO_URL = "https://github.com/ronoktanvir/turtl";
@@ -13,6 +14,10 @@ export async function registerCodeChangeAction(ctx: MutationCtx) {
     .filter((q) => q.eq(q.field("name"), BOOKING_APP_NAME))
     .first();
   if (!app) throw new Error(`Register "${BOOKING_APP_NAME}" first.`);
+  if (app.repoUrl && repoFromUrl(app.repoUrl)?.toLowerCase() !== repoFromUrl(CODE_CHANGE_REPO_URL)?.toLowerCase()) {
+    throw new Error(`The booking app already names a different repository (${app.repoUrl}); nothing was changed.`);
+  }
+  if (!app.repoUrl) await ctx.db.patch(app._id, { repoUrl: CODE_CHANGE_REPO_URL });
   const existing = await ctx.db
     .query("actionCatalog")
     .withIndex("by_app_and_type", (q) => q.eq("appId", app._id).eq("type", CODE_CHANGE_ACTION_TYPE))

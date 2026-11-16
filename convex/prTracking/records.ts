@@ -6,6 +6,8 @@ import { CLOSED_CASE_STATUSES, vActor } from "../constants";
 import type { Actor } from "../constants";
 import type { HandlerResult } from "../runner/contract";
 import { pullRequestOf, vGithubSnapshot, type PullRequest } from "./validators";
+import { BOOKING_APP_NAME } from "../protectedApp/registry";
+import { waitOnAttempt } from "../workflow";
 
 const GITHUB_ACTOR: Actor = { kind: "service", identity: "github" };
 const CLOCK_LOOKBACK_MS = 15 * 60_000;
@@ -32,6 +34,20 @@ export const forAction = internalQuery({
       .query("pullRequests")
       .withIndex("by_action", (q) => q.eq("actionId", actionId))
       .first(),
+});
+
+export const deploymentTarget = internalQuery({
+  args: { id: v.id("pullRequests") },
+  handler: async (ctx, { id }) => {
+    const row = await ctx.db.get(id);
+    if (!row || row.settledAt !== undefined || row.snapshot?.state !== "merged" || !row.mergeCommitSha || !row.actionId) return null;
+    const action = await ctx.db.get(row.actionId);
+    const caseRow = await ctx.db.get(row.caseId);
+    const app = caseRow && await ctx.db.get(caseRow.appId);
+    return action?.status !== "cancelled" && action?.executionPayload.config.kind === "capy" && app?.name === BOOKING_APP_NAME && app.productionUrl
+      ? { base: app.productionUrl, expectedRevision: row.mergeCommitSha }
+      : null;
+  },
 });
 
 // Pull requests still being opened or still open: the ones the cron keeps fresh.
@@ -186,7 +202,17 @@ export const applySnapshot = internalMutation({
       return;
     }
     const mergedBy = row.mergeRequestedBy ?? GITHUB_ACTOR;
-    await ctx.db.patch(id, { mergedAt: Date.now(), mergedBy, ...(mergeCommitSha && { mergeCommitSha }) });
+    await ctx.db.patch(id, { mergedAt: row.mergedAt ?? Date.now(), mergedBy: row.mergedBy ?? mergedBy, ...(mergeCommitSha && { mergeCommitSha }) });
+    const action = row.actionId && await ctx.db.get(row.actionId);
+    const caseRow = action && await ctx.db.get(row.caseId);
+    const app = caseRow && await ctx.db.get(caseRow.appId);
+    if (action && app?.name === BOOKING_APP_NAME && action.executionPayload.config.kind === "capy") {
+      if (row.stepAttemptId) await waitOnAttempt(ctx, row.stepAttemptId, {
+        summary: `Pull request #${row.number} was merged. Waiting for the booking app to report deployed revision ${mergeCommitSha ?? row.mergeCommitSha ?? "not yet available"}; no recovery check has run.`,
+        externalRef: snapshot.url,
+      });
+      return;
+    }
     await settle(ctx, latest, {
       status: "done",
       summary:
@@ -195,6 +221,24 @@ export const applySnapshot = internalMutation({
           : `Pull request #${row.number} (${snapshot.title}) was merged on GitHub, outside turtl.`,
       externalRef: snapshot.url,
     });
+  },
+});
+
+export const confirmDeployment = internalMutation({
+  args: { id: v.id("pullRequests"), revision: v.string() },
+  handler: async (ctx, { id, revision }) => {
+    const row = await ctx.db.get(id);
+    if (!row || row.settledAt !== undefined || row.snapshot?.state !== "merged" || !row.mergeCommitSha || revision !== row.mergeCommitSha) return false;
+    const action = row.actionId && await ctx.db.get(row.actionId);
+    const caseRow = action && await ctx.db.get(row.caseId);
+    const app = caseRow && await ctx.db.get(caseRow.appId);
+    if (!action || action.status === "cancelled" || app?.name !== BOOKING_APP_NAME) return false;
+    await settle(ctx, row, {
+      status: "done",
+      summary: `Pull request #${row.number} was merged and the booking app reports deployed revision ${revision}. The approved recovery checks will run next.`,
+      externalRef: row.snapshot.url,
+    });
+    return true;
   },
 });
 

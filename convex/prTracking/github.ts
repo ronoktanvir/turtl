@@ -34,12 +34,12 @@ export function repoFromUrl(repoUrl: string): string | null {
   return match ? `${match[1]}/${match[2]}` : null;
 }
 
-async function github<T>(token: string, path: string, init?: { method: string; body: unknown }): Promise<GithubResult<T>> {
+async function github<T>(token: string | undefined, path: string, init?: { method: string; body: unknown }): Promise<GithubResult<T>> {
   try {
     const response = await fetch(`${API_URL}${path}`, {
       method: init?.method ?? "GET",
       headers: {
-        Authorization: `Bearer ${token}`,
+        ...(token && { Authorization: `Bearer ${token}` }),
         Accept: "application/vnd.github+json",
         "X-GitHub-Api-Version": "2022-11-28",
         "User-Agent": "turtl",
@@ -61,6 +61,13 @@ async function github<T>(token: string, path: string, init?: { method: string; b
   } catch (error) {
     return { ok: false, message: `GitHub request failed: ${error instanceof Error ? error.name : "unknown error"}` };
   }
+}
+
+async function readCheckResource<T>(token: string, path: string): Promise<GithubResult<T>> {
+  const read = await github<T>(token, path);
+  return !read.ok && (read.status === 401 || read.status === 403)
+    ? await github<T>(undefined, path)
+    : read;
 }
 
 export function checkRunsOf(runs: GithubCheckRun[], statuses: GithubStatus[]): CheckRun[] {
@@ -115,8 +122,8 @@ export async function readPullRequest(
   if (!pull.ok) return pull;
   const sha = pull.body.head.sha;
   const [runs, combined] = await Promise.all([
-    github<{ check_runs: GithubCheckRun[] }>(token, `/repos/${repo}/commits/${sha}/check-runs?per_page=100`),
-    github<{ statuses: GithubStatus[] }>(token, `/repos/${repo}/commits/${sha}/status?per_page=100`),
+    readCheckResource<{ check_runs: GithubCheckRun[] }>(token, `/repos/${repo}/commits/${sha}/check-runs?per_page=100`),
+    readCheckResource<{ statuses: GithubStatus[] }>(token, `/repos/${repo}/commits/${sha}/status?per_page=100`),
   ]);
   if (!runs.ok) return runs;
   if (!combined.ok) return combined;
