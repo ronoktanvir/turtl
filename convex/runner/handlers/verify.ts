@@ -101,6 +101,7 @@ export const handler: StepHandler = {
 
       if (journeyPassed && payload.acceptanceCriteria.some((criterion) => criterion.id === CRITERIA.device.id)) {
         const device = await checkBookingScreen(ctx, { caseId: input.case._id, stepAttemptId: input.attempt._id });
+        if (device.status === "waiting") return { status: "waiting", summary: device.summary, externalRef: device.evidence?.sourceRef };
         if (device.evidence) rows.push(evidenceRow(input, revision, device.evidence));
         results.set(CRITERIA.device.id, { status: device.status, summary: device.summary, evidence: device.evidence && rows.length - 1 });
       }
