@@ -29,6 +29,8 @@ export const seed = internalMutation({
     const seeded = [];
     for (const [index, owner] of owners.entries()) {
       const account = await ctx.db.insert("users", { email: owner.email });
+      // The sign-in method a sign-up makes, so each owner is an account as the rest of turtl counts them.
+      await ctx.db.insert("authAccounts", { userId: account, provider: "password", providerAccountId: `${run}-${owner.email}` });
       const appId = await ctx.db.insert("apps", { name: owner.repo, ownerId: account, repoUrl: `https://github.com/${owner.repo}`, productionUrl: owner.liveUrl });
       await ctx.db.insert("journeys", {
         appId, name: "Book an appointment", description: "A stand-in journey.", checkVersion: "proof-v1",

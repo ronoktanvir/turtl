@@ -270,7 +270,7 @@ export function devToolsEnabled(): boolean {
 }
 
 export function requireDevTools(message = DEV_TOOLS_DISABLED): void {
-  if (!devToolsEnabled()) throw new Error(message);
+  if (!devToolsEnabled()) throw new ConvexError(message);
 }
 
 /** The booking demo (convex/bookingDemo) shares a deployment with turtl only as a hosting shortcut, and its

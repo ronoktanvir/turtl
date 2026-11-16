@@ -54,6 +54,14 @@ test("push on a local Convex backend against a stand-in for Expo", { timeout: 12
 
   await t.test("single-owner demo: one push per case event, the case's words never leave, Expo's refusals turn phones off", async () => {
     convexEnv("remove", "AUTH_REQUIRED");
+    // The demo serves only a backend that holds no account (convex/access.ts). This proof makes none: its owners in
+    // accounts mode are identities the admin key stands for, so it runs on any backend another proof has not used.
+    await anonymous.query(ref("push/devices:status"), {}).catch((error) => {
+      if (/turtl is unavailable right now/.test(String(error?.data ?? error?.message))) {
+        throw new Error("This backend holds accounts from another proof, and the single-owner demo refuses to serve it. Stop the backend, remove .convex/local/default, start it again, and run this once more.");
+      }
+      throw error;
+    });
     const live = TOKEN("demo"), gone = TOKEN("demo-Gone"), later = TOKEN("demo-later");
     for (const token of [live, gone, later]) await anonymous.mutation(ref("push/devices:register"), { token, platform: "ios" });
     assert.deepEqual(await anonymous.query(ref("push/devices:status"), { token: live }), { accountsMode: false, signedIn: true, registered: true });

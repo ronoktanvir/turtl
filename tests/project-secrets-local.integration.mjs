@@ -12,8 +12,9 @@ import { promisify } from "node:util";
 import { ConvexHttpClient } from "convex/browser";
 import { makeFunctionReference as ref } from "convex/server";
 
-// Proves per-project control tokens, safe addresses, the monitor for every project and the owner's own coding agent on
-// a real local Convex backend with AUTH_REQUIRED=true, then the single-owner demo with it unset. Convex's own runtime
+// Proves the single-owner demo with AUTH_REQUIRED unset on a backend that holds no account yet, then per-project control
+// tokens, safe addresses, the monitor for every project and the owner's own coding agent on a real local Convex backend
+// with AUTH_REQUIRED=true, and last that the demo refuses once accounts exist. Give it a fresh local backend. Convex's own runtime
 // runs the functions, the scheduler, Web Crypto and fetch. Every server turtl talks to is a stand-in this process serves
 // on one port (8212): two owners' apps (at 127.0.0.1 and at localhost, two origins), Capy, and GitHub. Nothing reaches
 // a real vendor. It refuses to run against anything but a local anonymous deployment, and removes what it set.
@@ -41,6 +42,18 @@ const client = (account) => {
 };
 const admin = client();
 const message = (error) => String(error?.data ?? error?.message ?? error);
+// The single-owner demo refuses to serve a deployment that holds any account (convex/access.ts).
+const UNAVAILABLE = "turtl is unavailable right now. Please try again later.";
+const LOGGED = /Refused a call: AUTH_REQUIRED is unset, empty or "false", which makes this deployment the single-owner demo, but it holds accounts \(rows in authAccounts\)/;
+const refused = (error) => message(error).includes(UNAVAILABLE);
+const onAFreshBackend = async (call) => {
+  try {
+    return await call();
+  } catch (error) {
+    if (refused(error)) throw new Error("This backend already holds accounts from an earlier run, and the single-owner demo refuses to serve it. Stop the backend, remove .convex/local/default, start it again, and run this once more.");
+    throw error;
+  }
+};
 
 async function until(read, ok, label, timeout = 30_000) {
   const deadline = Date.now() + timeout;
@@ -83,6 +96,10 @@ function startStandIns() {
         response.writeHead(200, { "Content-Type": "text/plain" });
         return response.end(manifest);
       }
+      // Before turtl changes a repository for someone it asks GitHub who they are now (by the id they connected with)
+      // and whether they may write to it (convex/github/permission.ts): Alice, user 1, may write to alice/shop.
+      if (path === "/github/user/1") return reply(200, { login: "alice", id: 1 });
+      if (path === "/github/repos/alice/shop/collaborators/alice/permission") return reply(200, { permission: "write", user: { login: "alice", id: 1 } });
       if (path.startsWith("/github/")) return reply(404, { message: "Not Found" });
       // The owners' apps.
       if (path.endsWith("/moved")) return reply(302, undefined, { Location: `http://localhost:${PORT}/steal` });
@@ -116,7 +133,8 @@ test("per-project secrets on a local Convex backend", { timeout: 300_000 }, asyn
   const scratch = mkdtempSync(join(tmpdir(), "turtl-secrets-proof-"));
   const keyFile = join(scratch, "app.pem");
   writeFileSync(keyFile, generateKeyPairSync("rsa", { modulusLength: 2048 }).privateKey.export({ type: "pkcs1", format: "pem" }));
-  for (const [name, value] of Object.entries(VARIABLES)) await convex("env", "set", name, value);
+  // Everything but AUTH_REQUIRED first: the single-owner demo, on a backend that holds no account yet.
+  for (const [name, value] of Object.entries(VARIABLES)) if (name !== "AUTH_REQUIRED") await convex("env", "set", name, value);
   await convex("env", "set", "GITHUB_APP_PRIVATE_KEY", "--from-file", keyFile);
   t.after(async () => {
     await standIns.close();
@@ -126,6 +144,22 @@ test("per-project secrets on a local Convex backend", { timeout: 300_000 }, asyn
   const { requests } = standIns;
   const sent = (filter) => requests.filter(filter);
   const leaked = () => JSON.stringify(requests).includes(VARIABLES.PROTECTED_APP_CONTROL_SECRET) || JSON.stringify(requests).includes(VARIABLES.CAPY_API_KEY);
+
+  await t.test("with AUTH_REQUIRED unset and no account yet, the demo monitor checks the booking demo with the deployment's own token, as before", async () => {
+    await onAFreshBackend(() => admin.query(ref("ownerPasscode:status"), {}));
+    await convex("env", "set", "PROTECTED_APP_URL", `${site}/booking-demo`);
+    await convex("env", "set", "PROTECTED_APP_CONTROL_SECRET_SHA256", createHash("sha256").update(VARIABLES.PROTECTED_APP_CONTROL_SECRET).digest("hex"));
+    const { appId } = await admin.mutation(ref("protectedApp/registry:register"), {});
+    const result = await admin.action(ref("monitor:tick"), {});
+    const booking = result.checked.filter((c) => c.detail === "The booking check passed.");
+    assert.ok(booking.length >= 1, JSON.stringify(result));
+    await assert.rejects(admin.action(ref("secrets/project:setControlToken"), { projectId: appId, token: "demo-token" }), (error) => /single-owner demo/.test(message(error)));
+    assert.equal(leaked(), false, "the deployment's secret went only to the booking demo on this backend");
+    for (const name of DEMO) await convex("env", "remove", name);
+  });
+
+  await convex("env", "set", "AUTH_REQUIRED", VARIABLES.AUTH_REQUIRED);
+  await delay(1500);
 
   const ALICE_ORIGIN = `http://127.0.0.1:${PORT}`;
   const BOB_ORIGIN = `http://localhost:${PORT}`;
@@ -236,14 +270,15 @@ test("per-project secrets on a local Convex backend", { timeout: 300_000 }, asyn
     await assert.rejects(asAlice.mutation(ref("onboarding/projects:checkAgain"), { projectId: alice.appId }), (error) => /less than 2 minutes ago/.test(message(error)));
   });
 
-  await t.test("with AUTH_REQUIRED unset, the demo monitor checks the booking demo with the deployment's own token, as before", async () => {
+  await t.test("with AUTH_REQUIRED removed while the two owners' accounts exist, every call is refused in plain words, and the backend log says why", async () => {
     await convex("env", "remove", "AUTH_REQUIRED");
-    await convex("env", "set", "PROTECTED_APP_URL", `${site}/booking-demo`);
-    await convex("env", "set", "PROTECTED_APP_CONTROL_SECRET_SHA256", createHash("sha256").update(VARIABLES.PROTECTED_APP_CONTROL_SECRET).digest("hex"));
-    await admin.mutation(ref("protectedApp/registry:register"), {});
-    const result = await admin.action(ref("monitor:tick"), {});
-    const booking = result.checked.filter((c) => c.detail === "The booking check passed.");
-    assert.ok(booking.length >= 1, JSON.stringify(result));
-    await assert.rejects(admin.action(ref("secrets/project:setControlToken"), { projectId: alice.appId, token: TOKENS.alice }), (error) => /single-owner demo/.test(message(error)));
+    await delay(1500);
+    await assert.rejects(admin.action(ref("secrets/project:setControlToken"), { projectId: alice.appId, token: TOKENS.alice }), refused, "nobody is the single owner of these accounts' projects");
+    await assert.rejects(asAlice.query(ref("secrets/project:controlToken"), { projectId: alice.appId }), refused, "nor is an owner served as the demo");
+    await assert.rejects(admin.query(ref("screens/projects:list"), {}), refused);
+    // What the operator sees: `npx convex run` prints the function's log line with its error.
+    const answer = await convex("run", "screens/projects:list", "{}").then(() => null, (error) => `${error.stdout}\n${error.stderr}`);
+    assert.ok(answer?.includes(UNAVAILABLE), answer);
+    assert.match(answer, LOGGED);
   });
 });
