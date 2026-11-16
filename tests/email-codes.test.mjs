@@ -428,6 +428,68 @@ test("5. with accounts on and no email service, there is no password sign-up, si
   assert.deepEqual(w.db.rows("users"), []);
 });
 
+test("6. throwaway password sign-ups cannot use up the room for Apple, GitHub or confirmed accounts", async (t) => {
+  const w = await world(t, ACCOUNTS);
+  t.mock.timers.enable({ apis: ["Date"], now: START + 30 * 60_000 });
+  const limits = w.load("convex/spend/limits.ts");
+  const { ceilingRefusal } = limits;
+  assert.deepEqual(
+    [limits.passwordSignUpsPerHour(), limits.passwordSignUpsPerDay(), limits.confirmedSignUpsPerHour(), limits.confirmedSignUpsPerDay(), limits.newAccountsPerHour(), limits.newAccountsPerDay()],
+    [40, 200, 20, 100, 20, 100],
+    "the default ceilings",
+  );
+  // A real person signs up first and does not confirm yet.
+  const real = await w.password({ flow: "signUp", email: "real@example.com", password: "tide pools at dawn" });
+  // A script makes throwaway accounts all day, as fast as it is let, and never confirms one.
+  let made = 1;
+  let refusedThisHour = 0;
+  for (let hour = 0; hour < 24 && made < 200; hour++) {
+    at(t, START + hour * 3_600_000 + 30 * 60_000);
+    for (let n = 0; n < 45; n++) {
+      try {
+        await w.password({ flow: "signUp", email: `throwaway-${hour}-${n}@example.com`, password: "throwaway pass" });
+        made += 1;
+      } catch (error) {
+        assert.ok(refusal(ceilingRefusal.passwordSignUpsThisHour)(error) || refusal(ceilingRefusal.passwordSignUpsToday)(error), error?.data);
+        refusedThisHour += 1;
+      }
+    }
+  }
+  assert.equal(made, 200, "the day's password sign-ups are spent");
+  assert.ok(refusedThisHour > 0);
+  at(t, START + 20 * 3_600_000);
+  await assert.rejects(w.password({ flow: "signUp", email: "late@example.com", password: "tide pools at dawn" }), refusal(ceilingRefusal.passwordSignUpsToday));
+  assert.match(ceilingRefusal.passwordSignUpsToday, /sign up with Apple or GitHub/);
+  // Apple and GitHub sign-ups, and the real person confirming, are still let in.
+  const apple = await w.signInWithApple("001234.after-the-script.0001");
+  const github = await w.signInWithGitHub(5151);
+  assert.ok(apple.userId && github.userId);
+  await w.call("api.auth.confirmation.confirm", { code: w.standIn.lastCode("real@example.com") }, real.identity);
+  assert.equal((await w.call("api.users.viewer", {}, real.identity)).confirmed, true);
+  const totals = Object.fromEntries(w.db.rows("deploymentTotals").map((row) => [row.name, row.value]));
+  assert.equal(totals.password_signups_day, 200);
+  assert.equal(totals.accounts_day, 2, "Apple and GitHub counted apart");
+  assert.equal(totals.confirmations_day, 1, "confirmations counted apart");
+});
+
+test("6. each ceiling refuses in plain words and undoes what it refused; a refused confirmation leaves its code working", async (t) => {
+  const w = await world(t, { ...ACCOUNTS, CONFIRMED_SIGNUPS_PER_HOUR: "1", NEW_ACCOUNTS_PER_HOUR: "1" });
+  t.mock.timers.enable({ apis: ["Date"], now: START + 10 * 3_600_000 });
+  const { ceilingRefusal } = w.load("convex/spend/limits.ts");
+  const one = await w.password({ flow: "signUp", email: "one@example.com", password: "tide pools at dawn" });
+  const two = await w.password({ flow: "signUp", email: "two@example.com", password: "tide pools at dawn" });
+  await w.call("api.auth.confirmation.confirm", { code: w.standIn.lastCode("one@example.com") }, one.identity);
+  const code = w.standIn.lastCode("two@example.com");
+  await assert.rejects(w.call("api.auth.confirmation.confirm", { code }, two.identity), refusal(ceilingRefusal.confirmationsThisHour));
+  assert.equal((await w.call("api.users.viewer", {}, two.identity)).confirmed, false);
+  at(t, START + 11 * 3_600_000);
+  await w.call("api.auth.confirmation.confirm", { code }, two.identity);
+  assert.equal((await w.call("api.users.viewer", {}, two.identity)).confirmed, true, "the same code, an hour later");
+  await w.signInWithApple("001234.first.0001");
+  await assert.rejects(w.signInWithApple("001234.second.0001"), refusal(ceilingRefusal.accountsThisHour));
+  assert.equal(w.db.rows("users").length, 3, "the refused Apple sign-up left no user");
+});
+
 test("7. confirmation emails are limited per address per day, and a stranger who took the address cannot spoil its codes", async (t) => {
   const w = await world(t, ACCOUNTS);
   let now = START + 14 * 3_600_000;

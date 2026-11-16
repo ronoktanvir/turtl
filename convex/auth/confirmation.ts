@@ -4,6 +4,7 @@ import type { Id } from "../_generated/dataModel";
 import { action, internalMutation, internalQuery, mutation, query } from "../_generated/server";
 import { accessEnforced, pendingAccount, SIGN_IN_REQUIRED, signedInAccount } from "../access";
 import { beginDeletion } from "../account/deletion";
+import { admitNewAccount } from "../spend/ceilings";
 import { addressHash, codeHash, emailState, useCode } from "./codes";
 import { markAddressConfirmed, unconfirmedRow } from "./confirmed";
 import { emailCode } from "./email";
@@ -75,6 +76,8 @@ export const confirm = mutation({
     const normalized = normalizeCode(code);
     const email = await emailOf(ctx, account);
     if (!normalized || !email) throw new ConvexError(words.wrongCode);
+    // The ceiling on confirmations comes first. Any refusal below undoes it, and leaves the code unused.
+    await admitNewAccount(ctx, "confirmation");
     if (!(await useCode(ctx, await addressHash(email), "confirm", await codeHash(normalized)))) throw new ConvexError(words.wrongCode);
     await markAddressConfirmed(ctx, account);
     return null;

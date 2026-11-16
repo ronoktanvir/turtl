@@ -35,15 +35,19 @@ export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
       if (!target) throw new ConvexError("That sign-in can't return to this address.");
       return target;
     },
-    // With accounts on, a new account, by any method, counts against the deployment's hourly and daily ceilings
+    // With accounts on, a new account counts against the deployment's hourly and daily ceilings for its kind
     // (convex/spend/ceilings.ts), and a password account is held until its email address is confirmed
     // (convex/auth/confirmation.ts). This runs inside the mutation that makes the user, so a refusal leaves no account
     // behind, and no password account exists without its hold.
     async afterUserCreatedOrUpdated(ctx, { userId, existingUserId, provider }) {
       if (existingUserId !== null || !accessEnforced()) return;
       const mutationCtx = ctx as unknown as MutationCtx;
-      await admitNewAccount(mutationCtx);
-      if (provider?.id === PASSWORD_PROVIDER_ID) await holdUntilConfirmed(mutationCtx, userId);
+      if (provider?.id === PASSWORD_PROVIDER_ID) {
+        await admitNewAccount(mutationCtx, "password");
+        await holdUntilConfirmed(mutationCtx, userId);
+      } else {
+        await admitNewAccount(mutationCtx, "provider");
+      }
     },
   },
 });

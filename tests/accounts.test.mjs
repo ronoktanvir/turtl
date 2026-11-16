@@ -544,6 +544,7 @@ test("every variable sign-in reads has a row, and production refuses the test-on
     assert.equal(rows[name]?.production, "required", name);
     assert.equal(rows[name].arrives, undefined, name + " has arrived");
   }
+  for (const name of ["PASSWORD_SIGNUPS_PER_HOUR", "PASSWORD_SIGNUPS_PER_DAY", "CONFIRMED_SIGNUPS_PER_HOUR", "CONFIRMED_SIGNUPS_PER_DAY"]) assert.equal(rows[name]?.production, "optional", name);
   for (const name of ["AUTH_APPLE_BUNDLE_ID", "AUTH_SESSION_TOTAL_DURATION_MS", "AUTH_SESSION_INACTIVE_DURATION_MS", "AUTH_LOG_LEVEL", "CUSTOM_AUTH_SITE_URL"]) assert.equal(rows[name]?.production, "optional", name);
   for (const name of ["AUTH_STAND_IN_URL", "AUTH_LOG_SECRETS"]) assert.equal(rows[name]?.production, "never", name);
   for (const name of ["JWT_PRIVATE_KEY", "AUTH_GITHUB_SECRET", "AUTH_RESEND_KEY"]) assert.equal(rows[name].secret, true, name);

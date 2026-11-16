@@ -17,6 +17,13 @@ export const DEFAULT_INTAKE_CASES_PER_DAY = 5;
 // that makes accounts multiplies them.
 export const DEFAULT_NEW_ACCOUNTS_PER_HOUR = 20;
 export const DEFAULT_NEW_ACCOUNTS_PER_DAY = 100;
+// New accounts come in three ways, each with its own ceilings (finding 12), so a script of throwaway password sign-ups
+// fills only the first: password sign-ups before their address is confirmed; password accounts confirming it; and
+// Apple and GitHub sign-ups (the NEW_ACCOUNTS ones above).
+export const DEFAULT_PASSWORD_SIGNUPS_PER_HOUR = 40;
+export const DEFAULT_PASSWORD_SIGNUPS_PER_DAY = 200;
+export const DEFAULT_CONFIRMED_SIGNUPS_PER_HOUR = 20;
+export const DEFAULT_CONFIRMED_SIGNUPS_PER_DAY = 100;
 export const DEFAULT_DEPLOYMENT_MODEL_SPEND_PER_DAY_USD = 25;
 export const DEFAULT_PROJECTS_PER_ACCOUNT = 10;
 export const DEFAULT_INTAKE_KEYS_PER_PROJECT = 3;
@@ -42,11 +49,23 @@ export const intakeSpendPerDayUsd = () => positive(process.env.INTAKE_SPEND_PER_
 /** New cases customer reports may open on one project in a calendar day (UTC). */
 export const intakeCasesPerDay = () => positive(process.env.INTAKE_CASES_PER_DAY, DEFAULT_INTAKE_CASES_PER_DAY, true);
 
-/** New accounts the whole deployment makes in one clock hour (UTC), by any sign-in method. */
+/** New accounts the whole deployment makes with Sign in with Apple or GitHub in one clock hour (UTC). */
 export const newAccountsPerHour = () => positive(process.env.NEW_ACCOUNTS_PER_HOUR, DEFAULT_NEW_ACCOUNTS_PER_HOUR, true);
 
-/** New accounts the whole deployment makes in one calendar day (UTC). */
+/** New accounts the whole deployment makes with Sign in with Apple or GitHub in one calendar day (UTC). */
 export const newAccountsPerDay = () => positive(process.env.NEW_ACCOUNTS_PER_DAY, DEFAULT_NEW_ACCOUNTS_PER_DAY, true);
+
+/** Password sign-ups (accounts that must still confirm their address) the deployment takes in one clock hour (UTC). */
+export const passwordSignUpsPerHour = () => positive(process.env.PASSWORD_SIGNUPS_PER_HOUR, DEFAULT_PASSWORD_SIGNUPS_PER_HOUR, true);
+
+/** Password sign-ups the deployment takes in one calendar day (UTC). */
+export const passwordSignUpsPerDay = () => positive(process.env.PASSWORD_SIGNUPS_PER_DAY, DEFAULT_PASSWORD_SIGNUPS_PER_DAY, true);
+
+/** Password accounts the deployment lets confirm their address in one clock hour (UTC). */
+export const confirmedSignUpsPerHour = () => positive(process.env.CONFIRMED_SIGNUPS_PER_HOUR, DEFAULT_CONFIRMED_SIGNUPS_PER_HOUR, true);
+
+/** Password accounts the deployment lets confirm their address in one calendar day (UTC). */
+export const confirmedSignUpsPerDay = () => positive(process.env.CONFIRMED_SIGNUPS_PER_DAY, DEFAULT_CONFIRMED_SIGNUPS_PER_DAY, true);
 
 /** Estimated model spend of every account together in one calendar day (UTC), in US dollars. */
 export const deploymentModelSpendPerDayUsd = () => positive(process.env.DEPLOYMENT_MODEL_SPEND_PER_DAY_USD, DEFAULT_DEPLOYMENT_MODEL_SPEND_PER_DAY_USD, false);
@@ -107,6 +126,10 @@ export const spendRefusal = {
 export const ceilingRefusal = {
   accountsThisHour: "turtl is making a lot of new accounts right now, so it isn't making more this hour. Try again in an hour.",
   accountsToday: "turtl has made as many new accounts as it makes in one day, so it isn't making more today. Try again tomorrow.",
+  passwordSignUpsThisHour: "turtl is making a lot of new accounts with an email address right now, so it isn't making more this hour. Try again in an hour, or sign up with Apple or GitHub.",
+  passwordSignUpsToday: "turtl has made as many new accounts with an email address as it makes in one day. Try again tomorrow, or sign up with Apple or GitHub.",
+  confirmationsThisHour: "turtl is confirming a lot of new accounts right now, so it can't confirm yours this hour. Your code still works: try again in an hour.",
+  confirmationsToday: "turtl has confirmed as many new accounts as it does in one day, so it can't confirm yours today. Try again tomorrow, and ask for a new code if this one has stopped working.",
   projects: (cap: number) => `This account already has ${cap} project${cap === 1 ? "" : "s"}, the most one account can have. Contact support if you need more.`,
   intakeKeys: (cap: number) => `This project already has ${cap} report key${cap === 1 ? "" : "s"} in use, the most one project can have. Stop one from taking reports before making another.`,
 };

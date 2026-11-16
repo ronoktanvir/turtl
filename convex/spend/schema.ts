@@ -32,11 +32,20 @@ export const spendTables = {
     casesOpened: v.number(),
     updatedAt: v.number(),
   }).index("by_app_and_day", ["appId", "day"]),
-  // Deployment-wide running totals that belong to no account (finding 7): new accounts per clock hour and per day, and
+  // Deployment-wide running totals that belong to no account (finding 7): new accounts per clock hour and per day (Apple
+  // and GitHub sign-ups, password sign-ups, and password accounts confirming their address, each counted apart), and
   // every account's model spend per day. `window` is the hour ("2026-11-15T12") or the day ("2026-11-15"), UTC. Older
   // windows of a name are deleted as a new one starts. Not deleted with an account: the totals count everyone.
   deploymentTotals: defineTable({
-    name: v.union(v.literal("accounts_hour"), v.literal("accounts_day"), v.literal("model_usd_day")),
+    name: v.union(
+      v.literal("accounts_hour"),
+      v.literal("accounts_day"),
+      v.literal("model_usd_day"),
+      v.literal("password_signups_hour"),
+      v.literal("password_signups_day"),
+      v.literal("confirmations_hour"),
+      v.literal("confirmations_day"),
+    ),
     window: v.string(),
     value: v.number(),
     updatedAt: v.number(),
