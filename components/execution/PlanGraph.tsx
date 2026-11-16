@@ -3,6 +3,7 @@ import { Pressable, View } from "react-native";
 import type { PlanStep, PullRequest } from "../../data/types";
 import { useTheme, type TokenName } from "../../theme";
 import { Icon, Reveal, T, type IconName } from "../ui";
+import { AgentRuns } from "./AgentRuns";
 import { formatDuration, formatStart } from "./timing";
 
 const status: Record<PlanStep["status"], { label: string; color: TokenName; icon: IconName }> = {
@@ -70,6 +71,7 @@ export function PlanGraph({ steps, pullRequest, now }: { steps: PlanStep[]; pull
                 <View style={{ gap: 8, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 12 }}>
                   {step.summary && <T>{step.summary}</T>}
                   <T color="textMuted">{step.detail ?? (step.summary ? "No further details for this step." : "Details will appear as this step progresses.")}</T>
+                  {!!step.agents?.length && <AgentRuns runs={step.agents} testID={"plan-agents-" + step.key} />}
                 </View>
               )}
             </Pressable>

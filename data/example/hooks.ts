@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { exampleAgentWork, withExampleAgentRuns } from "./agentWork";
 import * as store from "./store";
 import type {
+  AgentWork,
   ApprovalMode,
   CaseDetail,
   CaseSummary,
@@ -31,8 +33,16 @@ export function useCases(projectId: string, type: CaseType): CaseSummary[] | und
 }
 
 export function useCase(caseId: string): CaseDetail | null | undefined {
+  const version = useVersion();
+  const item = store.getCase(caseId);
+  return useMemo(() => withExampleAgentRuns(item), [version, item]);
+}
+
+export function useAgentWork(caseId: string): AgentWork | null | undefined {
   useVersion();
-  return store.getCase(caseId);
+  const item = store.getCase(caseId);
+  if (!item) return item;
+  return exampleAgentWork[caseId] ?? { runs: [] };
 }
 
 export function useEnactmentNow(caseId: string): number {

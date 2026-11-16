@@ -11,6 +11,8 @@ export const useProjects = isLiveData ? live.useProjects : example.useProjects;
 export const useProject = isLiveData ? live.useProject : example.useProject;
 export const useCases = isLiveData ? live.useCases : example.useCases;
 export const useCase = isLiveData ? live.useCase : example.useCase;
+export const useAgentWork = isLiveData ? live.useAgentWork : example.useAgentWork;
+export { money as formatAgentCost, seconds as formatAgentDuration } from "./live/agentWork";
 export const useChat = isLiveData ? live.useChat : example.useChat;
 export const useVoice = isLiveData ? useLiveVoice : useExampleVoice;
 export const useCodeNetwork = isLiveData ? live.useCodeNetwork : example.useCodeNetwork;

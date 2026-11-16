@@ -6,6 +6,7 @@ import { useCase, useDataStatus } from "../../data";
 import type { FixOption, Screenshot } from "../../data/types";
 import { useTheme } from "../../theme";
 import { ago, Button, Card, Chip, devToolsOn, HealthWord, Icon, Reveal, T, Turtle } from "../ui";
+import { CouncilView } from "./CouncilView";
 import { CodeBox, LogRow, SpanText, Viz } from "./Evidence";
 import { ApproveSheet, FixCard } from "./FixCard";
 
@@ -113,6 +114,7 @@ export function CasePage({ caseId, current }: { caseId: string; current: boolean
                   </View>
                 ),
               )}
+              <CouncilView caseId={c.id} prefix={id("")} />
               <View style={{ gap: 12 }}>
                 <T variant="heading">Screenshots from app</T>
                 {c.screenshots.length === 0 && <T color="textMuted">No screenshots have been collected yet.</T>}
