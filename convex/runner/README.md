@@ -28,7 +28,7 @@ A failed attempt is retried as a new attempt after a second, up to `MAX_ATTEMPTS
 
 Case status by stage: `detect_or_receive` sets `open`; `gather_context` to `plan` set `investigating`; `authorize_and_execute` sets `waiting_for_owner`, then `executing` once approved; `verify` sets `verifying`; `learn` keeps the status it finds. A handler may also set `waiting_for_deploy` (with a `waiting` result) or `restored` (with a `done` result).
 
-A case for an app that stops answering turtl's checks (`convex/protectedApp/notAnswering.ts`, signature `not_answering:<appId>`) never reaches the runner: it is made with one step, `wait_for_answer`, parked as `waiting` from the start and never dispatched, so it has no time limit, no retries and no model call, and `advance` finds nothing ready in it. Its status is `waiting_for_app`, which is open. The monitor closes it at the end of a round: `resolved` when the app answers again, `unresolved` when turtl stops checking the project.
+A case for an app that stops answering turtl's checks (`convex/protectedApp/notAnswering.ts`, signature `not_answering:<appId>`) never reaches the runner: it is made with one step, `wait_for_answer`, parked as `waiting` from the start and never dispatched, so it has no time limit, no retries and no model call, and `advance` finds nothing ready in it. Its status is `waiting_for_app`, which is open. The monitor closes it at the end of a round: `resolved` when any check answers again, `unresolved` when turtl stops checking the project or every check of a round is refused.
 
 ## The handler contract
 
