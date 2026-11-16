@@ -2,7 +2,7 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import { action, internalAction, mutation, query, type ActionCtx } from "./_generated/server";
-import { SOLO_OWNER } from "./decisions";
+import { canSeeCase, guardCaseInAction, ownerActor, requireDevTools } from "./access";
 import { repositoryAccess } from "./github/access";
 import { capyConfig, findPullRequestNumber } from "./prTracking/capy";
 import { registerCodeChangeAction } from "./prTracking/catalog";
@@ -28,10 +28,6 @@ async function githubAccess(ctx: ActionCtx, repo: string): Promise<{ token: stri
   if (!access.ok) return { outcome: "failed", message: access.message };
   return access.token ? { token: access.token } : NO_GITHUB_TOKEN;
 }
-
-const requireDevTools = () => {
-  if (process.env.DEV_TOOLS_ENABLED !== "true") throw new Error("Dev tools are disabled on this deployment.");
-};
 
 // Brings one pull request up to date: finds its number in Capy's reply while it is being opened, then
 // reads GitHub. A merge or close seen here settles the execute step waiting on it.
@@ -89,6 +85,7 @@ async function sync(ctx: ActionCtx, row: Doc<"pullRequests">): Promise<RefreshRe
 export const forCase = query({
   args: { caseId: v.string() },
   handler: async (ctx, args): Promise<PullRequest | null> => {
+    if (!(await canSeeCase(ctx, args.caseId))) return null;
     const caseId = ctx.db.normalizeId("cases", args.caseId);
     const row = caseId && (await latestForCase(ctx, caseId));
     return row ? toPullRequest(row) : null;
@@ -99,6 +96,7 @@ export const forCase = query({
 export const refresh = action({
   args: { caseId: v.id("cases") },
   handler: async (ctx, { caseId }): Promise<RefreshResult> => {
+    await guardCaseInAction(ctx, caseId);
     const row: Doc<"pullRequests"> | null = await ctx.runQuery(internal.prTracking.records.forCase, { caseId });
     return row ? await sync(ctx, row) : { outcome: "none" };
   },
@@ -120,6 +118,7 @@ export const refreshActive = internalAction({
 export const merge = action({
   args: { caseId: v.id("cases"), headSha: v.string(), passcode: v.optional(v.string()) },
   handler: async (ctx, { caseId, headSha, passcode }): Promise<MergeResult> => {
+    const account = await guardCaseInAction(ctx, caseId);
     await ctx.runQuery(internal.ownerPasscode.authorize, { passcode });
     const row: Doc<"pullRequests"> | null = await ctx.runQuery(internal.prTracking.records.forCase, { caseId });
     if (!row || row.number === undefined) return { outcome: "refused", reason: "This case has no pull request yet." };
@@ -141,7 +140,7 @@ export const merge = action({
     }
     if (!snapshot.mergeable) return refused(`GitHub can't merge it right now (${snapshot.mergeableState}).`);
 
-    const allowed = await ctx.runMutation(internal.prTracking.records.beginMerge, { id: row._id, by: SOLO_OWNER });
+    const allowed = await ctx.runMutation(internal.prTracking.records.beginMerge, { id: row._id, by: ownerActor(account) });
     if (!allowed) return refused("The owner stopped this action or the pull request already finished. Nothing was merged.");
     const merged = await mergePullRequest(token, row.repo, row.number, headSha);
     if (!merged.ok || !merged.body.merged) {

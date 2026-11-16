@@ -5,11 +5,12 @@ import { join, relative } from "node:path";
 // production: "required" (the release stops without it), "optional", or "never" (the release stops if it is set).
 // arrives: the pull request that brings the variable, for a row written before its code merged. Delete the field once it has.
 export const variables = [
+  { name: "AUTH_REQUIRED", production: "required", what: "Set it to \"true\". Every backend function then needs a signed-in account and reaches only that account's projects, owner decisions are authorised by the account instead of the shared owner passcode, and the dev tools stay closed. Unset, the backend is the single-owner demo, where anyone with its address acts as the one owner. The release check sees only the name, so check the value is \"true\"." },
   { name: "OPENAI_API_KEY", production: "required", secret: true, what: "Model calls: diagnosis, fix options, customer report triage, the case chat, the code map's labels and chat, and voice. Without it turtl falls back to rule-based text or refuses the feature." },
   { name: "SUPERMEMORY_API_KEY", production: "required", secret: true, what: "Memory of past incidents, matching of customer reports, and the code map. Without it turtl reads only its recent notes in Convex and cannot build a code map. Use a key that is not the demo's, so production memory is separate." },
   { name: "DIAGNOSIS_MODEL", production: "optional", what: "Model for diagnosis. Default gpt-5.4-mini." },
   { name: "FIXES_MODEL", production: "optional", what: "Model for fix options and report triage. Default: the diagnosis model." },
-  { name: "OPENAI_MODEL", production: "optional", what: "Model for the code map's labels and chat, and for assistant.chat. Default gpt-6-luna." },
+  { name: "OPENAI_MODEL", production: "optional", what: "Model for the code map's labels and chat, and for reading a repository at onboarding. Default gpt-6-luna." },
   { name: "VOICE_ENABLED", production: "optional", what: "\"true\" turns on talking with turtl about a case. Anything else and voice refuses with a plain message. Each turn spends OpenAI credits." },
   { name: "VOICE_TRANSCRIBE_MODEL", production: "optional", what: "Model that transcribes a voice clip. Default gpt-4o-mini-transcribe." },
   { name: "VOICE_SPEECH_MODEL", production: "optional", what: "Model that speaks a reply. Default gpt-4o-mini-tts." },
@@ -36,11 +37,10 @@ export const variables = [
   { name: "GITHUB_TOKEN", production: "never", secret: true, what: "One GitHub token for the whole deployment, which is how the demo reaches GitHub. Every account would act through it. Production reaches GitHub only through the GitHub App, and with this unset there is nothing to fall back to when the app's variables go missing, so access fails closed." },
   { name: "GITHUB_API_URL", production: "never", arrives: "turtl#54", what: "Points GitHub calls at a stand-in server in tests. In production it would send the app's tokens to another server." },
   { name: "EXPO_PUSH_API_URL", production: "never", what: "Points push notifications at a stand-in for Expo's push service in tests. In production it would send every owner's phone address and project names to another server." },
-  { name: "DEV_TOOLS_ENABLED", production: "never", what: "\"true\" opens the dev tools functions: sample cases, staged outages on the booking demo, memory resets, and seeded data, callable by anyone who knows the backend address." },
-  { name: "ASSISTANT_ENABLED", production: "never", what: "\"true\" opens assistant.chat, a public action that reads and writes memory under whatever user id the caller sends. No screen uses it. Never set it until the action checks its caller." },
+  { name: "DEV_TOOLS_ENABLED", production: "never", what: "\"true\" opens the dev tools functions: sample cases, staged outages on the booking demo, memory resets, and seeded data, callable by anyone who knows the backend address. With AUTH_REQUIRED=true they stay closed whatever this says." },
   { name: "PROTECTED_APP_URL", production: "never", what: "Address of the booking demo's control routes. It makes this deployment watch the one demo app every minute. Demo only." },
   { name: "PROTECTED_APP_CONTROL_SECRET", production: "never", secret: true, what: "Bearer token turtl sends to the booking demo's control routes. Demo only." },
-  { name: "PROTECTED_APP_CONTROL_SECRET_SHA256", production: "never", what: "Hash that opens the booking demo's control routes (/booking-demo/flags, /staged-failure, /journey-check, /errors) on this deployment. Without it they answer 503. Demo only." },
+  { name: "PROTECTED_APP_CONTROL_SECRET_SHA256", production: "never", what: "Hash that opens the booking demo's control routes (/booking-demo/flags, /staged-failure, /journey-check, /errors) on this deployment. Without it they answer 503, and with AUTH_REQUIRED=true the booking demo's customer functions refuse too. Demo only." },
   { name: "PROTECTED_APP_REVISION", production: "never", what: "Revision label the booking demo reports. Demo only." },
   { name: "REVYL_BOOKING_WORKFLOW_ID", production: "never", what: "Revyl workflow for the booking demo's device check. Demo only." },
 ];
@@ -48,7 +48,6 @@ export const variables = [
 // Files that read a variable by a computed name, with the names they can ask for. A scan cannot see these names, so they are listed by hand.
 // An entry for a file that does not exist yet waits for the pull request that brings it.
 export const computedReads = {
-  "convex/assistant.ts": ["OPENAI_API_KEY", "SUPERMEMORY_API_KEY"],
   "convex/codeNetwork/ask.ts": ["OPENAI_API_KEY", "SUPERMEMORY_API_KEY"],
   "convex/codeNetwork/build.ts": ["OPENAI_API_KEY", "SUPERMEMORY_API_KEY"],
   "convex/diagnosis.ts": ["DIAGNOSIS_MODEL"],

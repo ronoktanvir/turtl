@@ -2,8 +2,9 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { mutation, type MutationCtx, type QueryCtx } from "./_generated/server";
+import { guardRow, ownerActor } from "./access";
 import type { Actor, ParameterConstraint } from "./constants";
-import { checkParameters, freezeAndRecordAction, SOLO_OWNER } from "./decisions";
+import { checkParameters, freezeAndRecordAction } from "./decisions";
 import { evaluateCheck } from "./memory/checks";
 import { latestAction, latestProposal } from "./protectedApp/records";
 import { requireOwnerPasscode } from "./ownerPasscode";
@@ -67,6 +68,7 @@ const factsOf = (steps: Awaited<ReturnType<typeof loadSteps>>) =>
 export const grant = mutation({
   args: { memoryId: v.id("recoveryMemories"), passcode: v.optional(v.string()) },
   handler: async (ctx, { memoryId, passcode }) => {
+    const account = await guardRow(ctx, "recoveryMemories", memoryId, "Recovery memory not found.");
     await requireOwnerPasscode(ctx, passcode);
     const memory = await ctx.db.get(memoryId);
     if (!memory) throw new Error("Recovery memory not found.");
@@ -93,7 +95,7 @@ export const grant = mutation({
       appId: memory.appId,
       memoryId,
       actionType: memory.actionType,
-      grantedBy: SOLO_OWNER,
+      grantedBy: ownerActor(account),
       grantedAt: now,
       scope: action.executionPayload.target,
       parameterConstraints,
@@ -110,6 +112,7 @@ export const grant = mutation({
 export const revoke = mutation({
   args: { permissionId: v.id("permissions"), passcode: v.optional(v.string()) },
   handler: async (ctx, { permissionId, passcode }) => {
+    await guardRow(ctx, "permissions", permissionId, "Permission not found.");
     await requireOwnerPasscode(ctx, passcode);
     const permission = await ctx.db.get(permissionId);
     if (!permission) throw new Error("Permission not found.");

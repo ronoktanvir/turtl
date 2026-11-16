@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { action, internalMutation, query, type ActionCtx } from "../_generated/server";
+import { canSeeCase, guardCaseInAction } from "../access";
 import { speak, speechModelId, transcribe, transcribeModelId } from "./openai";
 import {
   clipExtension,
@@ -41,6 +42,7 @@ export type TalkResult =
 export const status = query({
   args: { caseId: v.string() },
   handler: async (ctx, args): Promise<{ available: boolean; reason: string | null; maxClipMs: number }> => {
+    if (!(await canSeeCase(ctx, args.caseId))) return { available: false, reason: "This case was not found.", maxClipMs: MAX_CLIP_MS };
     const caseId = ctx.db.normalizeId("cases", args.caseId);
     if (!caseId || !(await ctx.db.get(caseId))) return { available: false, reason: "This case was not found.", maxClipMs: MAX_CLIP_MS };
     const reason = unavailableReason(process.env);
@@ -105,6 +107,7 @@ async function timed<T extends { ok: boolean }>(
 export const talk = action({
   args: { caseId: v.id("cases"), audio: v.bytes(), mimeType: v.string(), durationMs: v.number() },
   handler: async (ctx, { caseId, audio, mimeType, durationMs }): Promise<TalkResult> => {
+    await guardCaseInAction(ctx, caseId, "This case was not found.");
     const unavailable = unavailableReason(process.env);
     if (unavailable) return { ok: false, reason: unavailable, retry: false };
     if (!clipExtension(mimeType)) return { ok: false, reason: `turtl can't read ${mimeType} recordings.`, retry: false };

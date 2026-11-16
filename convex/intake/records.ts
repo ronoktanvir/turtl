@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import { internalMutation, internalQuery, query, type MutationCtx, type QueryCtx } from "../_generated/server";
+import { canSeeApp, canSeeCase } from "../access";
 import { CLOSED_CASE_STATUSES } from "../constants";
 import { startCaseRun } from "../runner/run";
 import { HARNESS_VERSION, RATE_LIMITS, TRIAGE_PROMPT_VERSION, fingerprint, windowStart, type Candidate } from "./rules";
@@ -328,6 +329,8 @@ export const caseReports = internalQuery({
 export const forCase = query({
   args: { caseId: v.string() },
   handler: async (ctx, args) => {
+    // What customers wrote is shown only to the owner of the app they sent it to.
+    if (!(await canSeeCase(ctx, args.caseId))) return null;
     const caseId = ctx.db.normalizeId("cases", args.caseId);
     if (!caseId) return null;
     const rows = await reportsOn(ctx, caseId);
@@ -344,6 +347,7 @@ export const forCase = query({
 export const forApp = query({
   args: { appId: v.id("apps") },
   handler: async (ctx, { appId }) => {
+    if (!(await canSeeApp(ctx, appId))) return [];
     const rows = await ctx.db.query("reportTriage").withIndex("by_app_and_status", (q) => q.eq("appId", appId)).collect();
     return await Promise.all(
       rows

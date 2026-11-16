@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { query } from "../_generated/server";
+import { accessEnforced, canSeeApp, visibleApps } from "../access";
 
 export type NetworkIdentity = { projectId: string; repo: string; source: "seed" | "built" };
 
@@ -14,6 +15,7 @@ function repository(value: string | undefined): string | null {
 export const resolve = query({
   args: { projectId: v.string() },
   handler: async (ctx, { projectId }): Promise<NetworkIdentity | null> => {
+    if (!(await canSeeApp(ctx, projectId))) return null;
     const appId = ctx.db.normalizeId("apps", projectId);
     const app = appId ? await ctx.db.get(appId) : null;
     if (!app || app.isSample) return null;
@@ -29,7 +31,12 @@ export const resolve = query({
       return { projectId: direct.projectId, repo: direct.repo, source: direct.source };
     }
 
-    const networks = await ctx.db.query("codeNetworks").order("desc").collect();
+    // Another project's map of the same repository may stand in, but with accounts on only one of the caller's own.
+    const networks = accessEnforced()
+      ? (await Promise.all((await visibleApps(ctx)).map((owned) =>
+          ctx.db.query("codeNetworks").withIndex("by_project", (q) => q.eq("projectId", owned._id)).order("desc").first(),
+        ))).flatMap((row) => (row ? [row] : [])).sort((a, b) => b._creationTime - a._creationTime)
+      : await ctx.db.query("codeNetworks").order("desc").collect();
     const seen = new Set<string>();
     const network = networks.find((row) => {
       if (seen.has(row.projectId)) return false;

@@ -10,6 +10,7 @@ import {
   type MutationCtx,
   type QueryCtx,
 } from "./_generated/server";
+import { canSeeCase, guardCaseInAction, requireDevTools } from "./access";
 import { vOptionKind, type ProposalOption } from "./constants";
 import {
   askJson,
@@ -69,6 +70,7 @@ async function toChatMessage(ctx: QueryCtx, row: Doc<"fixChatMessages">): Promis
 export const forCase = query({
   args: { caseId: v.string() },
   handler: async (ctx, args) => {
+    if (!(await canSeeCase(ctx, args.caseId))) return null;
     const caseId = ctx.db.normalizeId("cases", args.caseId);
     if (!caseId || !(await ctx.db.get(caseId))) return null;
     const proposal = await latestProposal(ctx, caseId);
@@ -86,6 +88,7 @@ export const forCase = query({
 export const messages = query({
   args: { caseId: v.string() },
   handler: async (ctx, args): Promise<ChatMessage[] | null> => {
+    if (!(await canSeeCase(ctx, args.caseId))) return null;
     const caseId = ctx.db.normalizeId("cases", args.caseId);
     if (!caseId || !(await ctx.db.get(caseId))) return null;
     const rows = await ctx.db
@@ -257,6 +260,7 @@ const FEATURE_CHAT_RULE =
 export const investigate = action({
   args: { caseId: v.id("cases"), message: v.string(), newFix: v.optional(v.boolean()) },
   handler: async (ctx, { caseId, message, newFix }): Promise<ChatMessage> => {
+    await guardCaseInAction(ctx, caseId, "Case not found.");
     const asked = message.trim() || (newFix ? "New fix" : "");
     if (!asked) throw new Error("The message is empty.");
     if (asked.length > MAX_MESSAGE_LENGTH) {
@@ -352,7 +356,7 @@ export const investigate = action({
 export const devThreeFixCase = mutation({
   args: {},
   handler: async (ctx): Promise<Id<"cases">> => {
-    if (process.env.DEV_TOOLS_ENABLED !== "true") throw new Error("Dev tools are disabled on this deployment.");
+    requireDevTools();
     const { appId, journeyId, actionCatalogId } = await registerBookingApp(ctx);
     const journey = (await ctx.db.get(journeyId))!;
     const flagEntry = (await ctx.db.get(actionCatalogId))!;

@@ -1,6 +1,7 @@
 import { ConvexError, v } from "convex/values";
 import type { Id } from "../_generated/dataModel";
 import { mutation, query, type MutationCtx } from "../_generated/server";
+import { accessEnforced, canSeeApp, guardApp } from "../access";
 import { requireOwnerPasscode } from "../ownerPasscode";
 
 // A public intake key names one app in its customers' report form. It is not a secret: it ships inside
@@ -14,16 +15,19 @@ export async function issueKey(ctx: MutationCtx, appId: Id<"apps">) {
 
 export const forApp = query({
   args: { appId: v.id("apps") },
-  handler: async (ctx, { appId }) =>
-    (await ctx.db.query("intakeKeys").withIndex("by_app", (q) => q.eq("appId", appId)).collect())
+  handler: async (ctx, { appId }) => {
+    if (!(await canSeeApp(ctx, appId))) return [];
+    return (await ctx.db.query("intakeKeys").withIndex("by_app", (q) => q.eq("appId", appId)).collect())
       .filter((row) => row.revokedAt === undefined)
-      .map((row) => ({ key: row.key, createdAt: row.createdAt })),
+      .map((row) => ({ key: row.key, createdAt: row.createdAt }));
+  },
 });
 
 // Registers a new intake key for an app on the owner's behalf, so it needs the owner passcode.
 export const issue = mutation({
   args: { appId: v.id("apps"), passcode: v.optional(v.string()) },
   handler: async (ctx, { appId, passcode }) => {
+    await guardApp(ctx, appId, "This app does not exist.");
     await requireOwnerPasscode(ctx, passcode);
     if (!(await ctx.db.get(appId))) throw new ConvexError("This app does not exist.");
     return { key: await issueKey(ctx, appId) };
@@ -34,6 +38,8 @@ export const issue = mutation({
 export const revoke = mutation({
   args: { key: v.string(), passcode: v.optional(v.string()) },
   handler: async (ctx, { key, passcode }) => {
+    const owned = accessEnforced() ? await ctx.db.query("intakeKeys").withIndex("by_key", (q) => q.eq("key", key)).unique() : null;
+    await guardApp(ctx, owned?.appId, "This intake key does not exist.");
     await requireOwnerPasscode(ctx, passcode);
     const row = await ctx.db.query("intakeKeys").withIndex("by_key", (q) => q.eq("key", key)).unique();
     if (!row) throw new ConvexError("This intake key does not exist.");

@@ -46,7 +46,10 @@ export default defineSchema({
     revision: v.optional(v.string()),
     ownerId: v.optional(v.string()),
     isSample: v.optional(v.boolean()),
-  }).index("by_owner", ["ownerId"]),
+  })
+    .index("by_owner", ["ownerId"])
+    .index("by_name", ["name"])
+    .index("by_isSample", ["isSample"]),
   // Mutations must enforce app ownership and same-app journey/memory links; restored service is not a completed permanent repair.
   cases: defineTable({
     appId: v.id("apps"),
@@ -63,7 +66,10 @@ export default defineSchema({
     distinctRequesterCount: v.optional(v.number()),
     resolvedAt: v.optional(v.number()),
     isSample: v.optional(v.boolean()),
-  }).index("by_app_and_signature", ["appId", "signature"]),
+  })
+    .index("by_app_and_signature", ["appId", "signature"])
+    .index("by_app", ["appId"])
+    .index("by_isSample", ["isSample"]),
   ownerNotices: defineTable(vOwnerNotice).index("by_case_and_event", ["caseId", "event"]),
   // Mutations must maintain one workflow per case, unique step keys, acyclic validated additions, and completed history; memory skips require fresh applicability and executed changes require verification.
   steps: defineTable({

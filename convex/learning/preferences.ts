@@ -2,6 +2,7 @@ import { ConvexError, v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import { internalAction, internalMutation, internalQuery, mutation, query, type ActionCtx } from "../_generated/server";
+import { canSeeApp, guardApp, guardRow } from "../access";
 import { requireOwnerPasscode } from "../ownerPasscode";
 import { deleteDocuments, putDocument, searchWithMetadata } from "../supermemory";
 import { cleanStatement, preferenceFromNote } from "./model";
@@ -38,6 +39,7 @@ const toPreference = (row: Doc<"ownerPreferences">) => ({
 export const list = query({
   args: { projectId: v.string() },
   handler: async (ctx, { projectId }) => {
+    if (!(await canSeeApp(ctx, projectId))) return null;
     const appId = ctx.db.normalizeId("apps", projectId);
     const app = appId ? await ctx.db.get(appId) : null;
     if (!app) return null;
@@ -64,6 +66,7 @@ export const list = query({
 export const add = mutation({
   args: { projectId: v.string(), statement: v.string(), passcode: v.optional(v.string()) },
   handler: async (ctx, { projectId, statement, passcode }) => {
+    await guardApp(ctx, projectId, "This project was not found.");
     await requireOwnerPasscode(ctx, passcode);
     const appId = ctx.db.normalizeId("apps", projectId);
     if (!appId || !(await ctx.db.get(appId))) throw new ConvexError("This project was not found.");
@@ -76,6 +79,7 @@ export const add = mutation({
 export const remove = mutation({
   args: { preferenceId: v.string(), passcode: v.optional(v.string()) },
   handler: async (ctx, { preferenceId, passcode }) => {
+    await guardRow(ctx, "ownerPreferences", preferenceId, "This preference was already removed.");
     await requireOwnerPasscode(ctx, passcode);
     const id = ctx.db.normalizeId("ownerPreferences", preferenceId);
     const row = id ? await ctx.db.get(id) : null;
@@ -92,6 +96,7 @@ export const remove = mutation({
 export const confirm = mutation({
   args: { suggestionId: v.string(), statement: v.optional(v.string()), passcode: v.optional(v.string()) },
   handler: async (ctx, { suggestionId, statement, passcode }) => {
+    await guardRow(ctx, "preferenceSuggestions", suggestionId, "This suggestion no longer exists.");
     await requireOwnerPasscode(ctx, passcode);
     const id = ctx.db.normalizeId("preferenceSuggestions", suggestionId);
     const suggestion = id ? await ctx.db.get(id) : null;
@@ -112,6 +117,7 @@ export const confirm = mutation({
 export const dismiss = mutation({
   args: { suggestionId: v.string(), passcode: v.optional(v.string()) },
   handler: async (ctx, { suggestionId, passcode }) => {
+    await guardRow(ctx, "preferenceSuggestions", suggestionId, "This suggestion no longer exists.");
     await requireOwnerPasscode(ctx, passcode);
     const id = ctx.db.normalizeId("preferenceSuggestions", suggestionId);
     const suggestion = id ? await ctx.db.get(id) : null;

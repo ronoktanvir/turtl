@@ -1,0 +1,450 @@
+import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import { dirname, resolve } from "node:path";
+import { test } from "node:test";
+import { fileURLToPath } from "node:url";
+import { runInThisContext } from "node:vm";
+import ts from "typescript";
+
+// These tests run turtl's real public functions against an in-memory copy of every table in convex/schema.ts and a
+// fake caller identity, once with accounts on (AUTH_REQUIRED=true) and once as the single-owner demo. A function
+// may only read a table by an index the schema defines, and only write fields the schema names. Nothing here talks
+// to Convex or a vendor: the runner, the decision log, the case chat's model, and Supermemory are stand-ins.
+
+const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const nodeRequire = createRequire(import.meta.url);
+const VARIABLES = ["AUTH_REQUIRED", "DEV_TOOLS_ENABLED", "PROTECTED_APP_CONTROL_SECRET_SHA256", "PROTECTED_APP_URL", "CODE_NETWORK_CHAT_ENABLED", "OPENAI_API_KEY", "SUPERMEMORY_API_KEY"];
+const PASSCODE = "local-fixture-passcode";
+const SIGN_IN = "Sign in to continue.";
+const NOT_AVAILABLE = "That project is not available on this account.";
+
+const ref = (path) => new Proxy({ path }, { get: (target, key) => (key === "path" ? target.path : ref(path + "." + String(key))) });
+const registered = (kind) => (definition) => ({ kind, ...definition });
+const generated = {
+  "convex/_generated/api": { api: ref("api"), internal: ref("internal"), components: ref("components") },
+  "convex/_generated/server": {
+    query: registered("query"),
+    mutation: registered("mutation"),
+    action: registered("action"),
+    internalQuery: registered("query"),
+    internalMutation: registered("mutation"),
+    internalAction: registered("action"),
+    httpAction: (handler) => handler,
+  },
+};
+
+// Stand-ins for what is not under test. Each records its calls on `calls`.
+function standIns(calls) {
+  const note = (name) => async (...args) => { calls.push([name, ...args.slice(1)]); return null; };
+  return {
+    "convex/runner/run": { approveCase: note("approveCase"), declineCase: note("declineCase"), startCaseRun: note("startCaseRun") },
+    "convex/learning/feedback": { recordDecision: note("recordDecision") },
+    "convex/learning/model": { cleanStatement: (text) => text, preferenceFromNote: async () => ({ ok: false, reason: "stand-in" }) },
+    "convex/supermemory": { searchChunks: async () => [], putDocument: async () => "doc", deleteDocuments: async () => {}, searchWithMetadata: async () => [] },
+    "convex/codeNetwork/openai": { respond: async () => { throw new Error("No model is called in these tests."); } },
+    "convex/onboarding/prepare": { syncPreparation: async () => null },
+    "convex/bookingDemo/journeyCore": { completeBooking: async () => ({ ok: true }) },
+  };
+}
+
+function createLoader(mocks) {
+  const loaded = new Map();
+  const load = (file) => {
+    if (loaded.has(file)) return loaded.get(file).exports;
+    const module = { exports: {} };
+    loaded.set(file, module);
+    const { outputText } = ts.transpileModule(readFileSync(file, "utf8"), {
+      compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true },
+    });
+    const require = (name) => {
+      if (!name.startsWith(".")) return nodeRequire(name);
+      const key = resolve(dirname(file), name).slice(root.length + 1);
+      if (key in mocks) return mocks[key];
+      if (key in generated) return generated[key];
+      return load(resolve(root, key + ".ts"));
+    };
+    runInThisContext("(function(require, exports, module) { " + outputText + "\n})", { filename: file })(require, module.exports, module);
+    return module.exports;
+  };
+  return (path) => load(resolve(root, path));
+}
+
+// Convex's ordering, enough for these tables: undefined first, then by type, then by value.
+function compare(a, b) {
+  if (a === b) return 0;
+  if (a === undefined) return -1;
+  if (b === undefined) return 1;
+  if (typeof a !== typeof b) return typeof a < typeof b ? -1 : 1;
+  return a < b ? -1 : 1;
+}
+const operators = { eq: (a, b) => a === b, gt: (a, b) => compare(a, b) > 0, gte: (a, b) => compare(a, b) >= 0, lt: (a, b) => compare(a, b) < 0, lte: (a, b) => compare(a, b) <= 0 };
+
+function createBackend(load) {
+  const schema = load("convex/schema.ts").default.tables;
+  const tables = new Map(Object.keys(schema).map((name) => [name, []]));
+  const scheduled = [];
+  let counter = 0;
+  const rowsOf = (table) => {
+    assert.ok(tables.has(table), "Unknown table " + table);
+    return tables.get(table);
+  };
+  const locate = (id) => {
+    const table = String(id).split(":")[0];
+    const rows = tables.get(table) ?? [];
+    const index = rows.findIndex((row) => row._id === id);
+    return index === -1 ? null : { table, rows, index };
+  };
+  const checked = (table, fields) => {
+    const known = schema[table].validator.fields;
+    for (const name of Object.keys(fields)) if (known) assert.ok(name in known, table + " has no field " + name);
+    return Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== undefined));
+  };
+  const indexFields = (table, name) => {
+    const fields = schema[table].export().indexes.find((index) => index.indexDescriptor === name)?.fields;
+    assert.ok(fields, table + " has no index " + name);
+    return fields;
+  };
+  const builder = (table, index, conditions, order) => {
+    const run = () => {
+      const fields = index ? indexFields(table, index) : [];
+      const rows = rowsOf(table)
+        .filter((row) => conditions.every(([operator, field, value]) => operators[operator](row[field], value)))
+        .sort((a, b) => fields.reduce((found, field) => found || compare(a[field], b[field]), 0) || a._creationTime - b._creationTime);
+      return structuredClone(order === "desc" ? rows.reverse() : rows);
+    };
+    return {
+      withIndex: (name, build) => {
+        const fields = indexFields(table, name);
+        const found = [];
+        const range = Object.fromEntries(Object.keys(operators).map((operator) => [operator, (field, value) => (found.push([operator, field, value]), range)]));
+        build?.(range);
+        found.forEach(([, field], position) => assert.equal(field, fields[position], table + "." + name + " cannot be read by " + field + " here"));
+        return builder(table, name, found, order);
+      },
+      order: (direction) => builder(table, index, conditions, direction),
+      collect: async () => run(),
+      take: async (count) => run().slice(0, count),
+      first: async () => run()[0] ?? null,
+      unique: async () => {
+        const rows = run();
+        assert.ok(rows.length <= 1, table + ": unique() matched " + rows.length + " rows");
+        return rows[0] ?? null;
+      },
+    };
+  };
+  const db = {
+    normalizeId: (table, id) => (typeof id === "string" && id.startsWith(table + ":") ? id : null),
+    get: async (id) => {
+      const found = locate(id);
+      return found ? structuredClone(found.rows[found.index]) : null;
+    },
+    insert: async (table, fields) => {
+      const row = { _id: table + ":" + ++counter, _creationTime: 1_800_000_000_000 + counter, ...checked(table, structuredClone(fields)) };
+      rowsOf(table).push(row);
+      return row._id;
+    },
+    patch: async (id, fields) => {
+      const found = locate(id);
+      assert.ok(found, "No document " + id);
+      const next = { ...found.rows[found.index], ...structuredClone(fields) };
+      for (const [key, value] of Object.entries(fields)) if (value === undefined) delete next[key];
+      found.rows[found.index] = { ...next, ...checked(found.table, {}) };
+    },
+    delete: async (id) => {
+      const found = locate(id);
+      assert.ok(found, "No document " + id);
+      found.rows.splice(found.index, 1);
+    },
+    query: (table) => builder(table, null, [], "asc"),
+    system: { query: () => ({ collect: async () => [] }) },
+  };
+  const scheduler = { runAfter: async (_delay, fn, args) => void scheduled.push({ path: fn.path, args }), cancel: async () => {} };
+  const runs = [];
+  const contextFor = (identity) => {
+    const auth = { getUserIdentity: async () => identity };
+    const call = async (fn, args, kind) => {
+      runs.push(fn.path);
+      const segments = fn.path.split(".").slice(1);
+      const name = segments.pop();
+      const definition = load("convex/" + segments.join("/") + ".ts")[name];
+      assert.ok(definition?.handler, "No function " + fn.path);
+      assert.equal(definition.kind, kind, fn.path + " is not a " + kind);
+      return await definition.handler(kind === "action" ? actionCtx : { db, auth, scheduler }, structuredClone(args));
+    };
+    const actionCtx = {
+      auth,
+      scheduler,
+      runQuery: (fn, args) => call(fn, args, "query"),
+      runMutation: (fn, args) => call(fn, args, "mutation"),
+      runAction: (fn, args) => call(fn, args, "action"),
+    };
+    return { db, auth, scheduler, actionCtx };
+  };
+  return { db, rows: (table) => structuredClone(rowsOf(table)), scheduled, runs, contextFor };
+}
+
+// One isolated world per test: fresh modules, empty tables, and only the variables the test sets.
+function world(t, env = {}) {
+  const saved = Object.fromEntries(VARIABLES.map((name) => [name, process.env[name]]));
+  for (const name of VARIABLES) delete process.env[name];
+  Object.assign(process.env, env);
+  t.after(() => {
+    for (const name of VARIABLES) {
+      if (saved[name] === undefined) delete process.env[name];
+      else process.env[name] = saved[name];
+    }
+  });
+  const calls = [];
+  const load = createLoader(standIns(calls));
+  const backend = createBackend(load);
+  const identity = (account) => (account ? { subject: account + "|session-1", tokenIdentifier: "https://auth.test|" + account } : null);
+  // Calls a public function by module and name, as the given account (or signed out with null).
+  const as = (account) => async (module, name, args = {}) => {
+    const definition = load("convex/" + module + ".ts")[name];
+    assert.ok(definition?.handler, "No function " + module + ":" + name);
+    assert.ok(["query", "mutation", "action"].includes(definition.kind));
+    const ctx = backend.contextFor(identity(account));
+    return await definition.handler(definition.kind === "action" ? ctx.actionCtx : ctx, structuredClone(args));
+  };
+  return { load, backend, calls, as, access: load("convex/access.ts"), ctxFor: (account) => backend.contextFor(identity(account)) };
+}
+
+const digest = (text) => createHash("sha256").update(text).digest("hex");
+
+// Two accounts, each with one project and one case waiting on a proposal, and a customer report on each case.
+async function seed({ backend }) {
+  const { db } = backend;
+  const project = async (owner, name) => {
+    const appId = await db.insert("apps", { name, ownerId: owner, repoUrl: `https://github.com/${owner}/${name}`, productionUrl: `https://${owner}.test` });
+    const caseId = await db.insert("cases", { appId, title: `${name} is down`, impact: "Nobody can book.", kind: "outage", raisedBy: "monitor", status: "waiting_for_owner" });
+    const stepId = await db.insert("steps", { caseId, key: "plan", title: "Plan", dependsOn: [], kind: "agent", purpose: "plan", status: "done" });
+    const actionCatalogId = await db.insert("actionCatalog", {
+      appId, type: "set_feature_flag", name: "Turn off recommendations", description: "Sets a flag.", reversible: true,
+      config: { kind: "http", url: `https://${owner}.test/flags`, method: "POST" }, parameterConstraints: [],
+    });
+    const proposalId = await db.insert("proposals", {
+      caseId, stepId, version: 1, decisionStatus: "pending", doneMeans: [],
+      options: [{ key: "recover", title: "Turn off recommendations", kind: "recovery", actionType: "set_feature_flag", actionCatalogId, target: { environment: "production", resourceRef: "flags#recommendationsEnabled" }, parameters: [], acceptanceCriteria: [], checkRefs: [], recommended: true }],
+    });
+    await db.insert("reports", { appId, caseId, channel: "form", fromRef: `form:device:${owner}-customer`, text: `${owner}'s customer: I can't book.`, provider: "turtl-form", providerEventId: `${owner}-1`, receivedAt: 1 });
+    await db.insert("reportTriage", { reportId: (await db.query("reports").withIndex("by_case_and_requester", (q) => q.eq("caseId", caseId)).first())._id, appId, fingerprint: "f", status: "done", outcome: "attached", caseId });
+    const preferenceId = await db.insert("ownerPreferences", { appId, statement: "Never restart checkout.", source: "settings" });
+    return { appId, caseId, proposalId, preferenceId };
+  };
+  const alice = await project("alice", "shop");
+  const bob = await project("bob", "salon");
+  await db.insert("ownerPasscodeConfig", { passcodeDigest: digest(PASSCODE) });
+  return { alice, bob };
+}
+
+const message = (error) => error?.data ?? error?.message;
+const refuses = async (promise, sentence) => {
+  await assert.rejects(promise, (error) => {
+    assert.equal(message(error), sentence);
+    return true;
+  });
+};
+
+test("the helpers: the demo is the one owner and checks nothing; accounts need a signed-in owner", async (t) => {
+  {
+    const w = world(t);
+    const { alice, bob } = await seed(w);
+    const { access } = w;
+    const signedOut = w.ctxFor(null);
+    assert.equal(access.accessEnforced(), false);
+    assert.equal(await access.requireAccount(signedOut), access.SOLO_ACCOUNT);
+    assert.equal(await access.currentAccount(signedOut), "solo-owner");
+    assert.deepEqual(access.ownerActor(await access.requireAccount(signedOut)), { kind: "owner", identity: "solo-owner" });
+    // The guards neither read nor refuse, even for an id that is not there.
+    assert.equal(await access.guardApp(signedOut, "apps:999", "missing"), "solo-owner");
+    assert.equal(await access.guardCase(signedOut, bob.caseId), "solo-owner");
+    assert.equal(await access.guardRow(signedOut, "proposals", "proposals:999"), "solo-owner");
+    assert.equal(await access.canSeeApp(signedOut, alice.appId), true);
+    assert.equal(await access.canSeeCase(signedOut, "cases:999"), true);
+    const asked = [];
+    assert.equal(await access.guardAppInAction({ runQuery: async (...args) => asked.push(args) }, alice.appId), "solo-owner");
+    assert.deepEqual(asked, [], "the demo's actions make no extra query");
+    assert.equal((await access.visibleApps(signedOut)).length, 2);
+  }
+  {
+    const w = world(t, { AUTH_REQUIRED: "true" });
+    const { alice, bob } = await seed(w);
+    const { access } = w;
+    const signedOut = w.ctxFor(null);
+    const asAlice = w.ctxFor("alice");
+    assert.equal(access.accessEnforced(), true);
+    await refuses(access.requireAccount(signedOut), SIGN_IN);
+    assert.equal(await access.currentAccount(signedOut), null);
+    assert.equal(await access.requireAccount(asAlice), "alice", "the account is the subject before the session");
+    assert.equal(await access.guardApp(asAlice, alice.appId), "alice");
+    assert.equal(await access.guardCase(asAlice, alice.caseId), "alice");
+    assert.equal(await access.guardRow(asAlice, "proposals", alice.proposalId), "alice");
+    assert.equal(await access.guardRow(asAlice, "ownerPreferences", alice.preferenceId), "alice");
+    // Someone else's and missing read the same, in the function's own words.
+    for (const id of [bob.appId, "apps:999", "not an id", undefined]) await refuses(access.guardApp(asAlice, id, "This project was not found."), "This project was not found.");
+    for (const id of [bob.caseId, "cases:999"]) await refuses(access.guardCase(asAlice, id), NOT_AVAILABLE);
+    for (const id of [bob.proposalId, "proposals:999"]) await refuses(access.guardRow(asAlice, "proposals", id, "Proposal not found."), "Proposal not found.");
+    await refuses(access.guardApp(signedOut, alice.appId), SIGN_IN);
+    assert.equal(await access.canSeeApp(asAlice, alice.appId), true);
+    assert.equal(await access.canSeeApp(asAlice, bob.appId), false);
+    assert.equal(await access.canSeeCase(asAlice, bob.caseId), false);
+    assert.equal(await access.canSeeCase(signedOut, alice.caseId), false);
+    assert.deepEqual((await access.visibleApps(asAlice)).map((app) => app._id), [alice.appId]);
+    assert.deepEqual((await access.visibleCases(asAlice)).map((row) => row._id), [alice.caseId]);
+    assert.deepEqual(await access.visibleApps(signedOut), []);
+    // An action asks through internal.access.appGuard, which sees the same caller.
+    await refuses(access.guardAppInAction(asAlice.actionCtx, bob.appId), NOT_AVAILABLE);
+    assert.equal(await access.guardAppInAction(asAlice.actionCtx, alice.appId), "alice");
+    assert.deepEqual(w.backend.runs, ["internal.access.appGuard", "internal.access.appGuard"]);
+  }
+});
+
+test("lists return only the caller's projects and cases with accounts on, and everything in the demo", async (t) => {
+  {
+    const w = world(t, { AUTH_REQUIRED: "true" });
+    const { alice } = await seed(w);
+    const projects = await w.as("alice")("screens/projects", "list");
+    assert.deepEqual(projects.map((p) => p.app._id), [alice.appId]);
+    assert.deepEqual(projects[0].cases.map((row) => row._id), [alice.caseId]);
+    assert.deepEqual((await w.as("alice")("cases", "list")).map((row) => row._id), [alice.caseId]);
+    assert.deepEqual((await w.as("alice")("cases", "listWithSteps")).map((row) => row._id), [alice.caseId]);
+    assert.deepEqual(await w.as("carol")("screens/projects", "list"), [], "an account with no projects sees none");
+    assert.deepEqual(await w.as(null)("screens/projects", "list"), []);
+    assert.deepEqual(await w.as(null)("cases", "list"), []);
+  }
+  {
+    const w = world(t);
+    const { alice, bob } = await seed(w);
+    const projects = await w.as(null)("screens/projects", "list");
+    assert.deepEqual(projects.map((p) => p.app._id), [alice.appId, bob.appId]);
+    assert.deepEqual((await w.as(null)("cases", "list")).map((row) => row._id), [bob.caseId, alice.caseId]);
+  }
+});
+
+test("another account's case, its customer reports and its fixes read as not found, and writes to it refuse", async (t) => {
+  const w = world(t, { AUTH_REQUIRED: "true" });
+  const { alice, bob } = await seed(w);
+  const asAlice = w.as("alice");
+  // Reads.
+  assert.equal((await asAlice("cases", "get", { id: alice.caseId }))._id, alice.caseId);
+  assert.equal(await asAlice("cases", "get", { id: bob.caseId }), null);
+  assert.equal(await asAlice("cases", "cards", { id: bob.caseId }), null);
+  assert.deepEqual((await asAlice("intake/records", "forCase", { caseId: alice.caseId })).reports.map((r) => r.text), ["alice's customer: I can't book."]);
+  assert.equal(await asAlice("intake/records", "forCase", { caseId: bob.caseId }), null, "RC-32: a customer's report reaches only the app's owner");
+  assert.deepEqual(await asAlice("intake/records", "forApp", { appId: bob.appId }), []);
+  assert.equal((await asAlice("intake/records", "forApp", { appId: alice.appId })).length, 1);
+  assert.equal(await asAlice("learning/preferences", "list", { projectId: bob.appId }), null);
+  assert.deepEqual(await asAlice("notices", "forCase", { caseId: bob.caseId }), []);
+  assert.deepEqual(await asAlice("voice/turn", "status", { caseId: bob.caseId }), { available: false, reason: "This case was not found.", maxClipMs: w.load("convex/voice/rules.ts").MAX_CLIP_MS });
+  // Writes: the same refusal as for a case or row that does not exist.
+  for (const proposalId of [bob.proposalId, "proposals:999"]) {
+    await refuses(asAlice("decisions", "approve", { proposalId, version: 1, optionKey: "recover" }), "Proposal not found.");
+    await refuses(asAlice("decisions", "decline", { proposalId, version: 1 }), "Proposal not found.");
+  }
+  for (const caseId of [bob.caseId, "cases:999"]) {
+    assert.deepEqual(await asAlice("decisions", "stop", { caseId }), { stopped: false, reason: "This case no longer exists." });
+  }
+  for (const projectId of [bob.appId, "apps:999"]) {
+    await refuses(asAlice("learning/preferences", "add", { projectId, statement: "Keep it up." }), "This project was not found.");
+  }
+  await refuses(asAlice("learning/preferences", "remove", { preferenceId: bob.preferenceId }), "This preference was already removed.");
+  await refuses(asAlice("intake/keys", "issue", { appId: bob.appId }), "This app does not exist.");
+  await refuses(asAlice("codeNetwork/ask", "ask", { scope: { kind: "project", projectId: bob.appId }, message: "What is this?" }), NOT_AVAILABLE);
+  // Nothing of Bob's changed.
+  assert.equal(w.backend.rows("proposals").find((p) => p._id === bob.proposalId).decisionStatus, "pending");
+  assert.equal(w.backend.rows("ownerPreferences").length, 2);
+  assert.equal(w.backend.rows("intakeKeys").length, 0);
+  // Signed out: writes ask for sign-in, reads come back empty.
+  await refuses(w.as(null)("decisions", "approve", { proposalId: alice.proposalId, version: 1, optionKey: "recover" }), SIGN_IN);
+  await refuses(w.as(null)("onboarding/projects", "add", { repoUrl: "https://github.com/alice/next" }), SIGN_IN);
+  assert.equal(await w.as(null)("cases", "get", { id: alice.caseId }), null);
+});
+
+test("with accounts on, an owner decision needs no passcode and records the account", async (t) => {
+  const w = world(t, { AUTH_REQUIRED: "true" });
+  const { alice } = await seed(w);
+  const asAlice = w.as("alice");
+  assert.deepEqual(await asAlice("ownerPasscode", "status"), { configured: false, accounts: true });
+  await refuses(asAlice("ownerPasscode", "set", { passcode: "a-new-passcode" }), "This deployment protects owner decisions with your account, so there is no owner passcode to set.");
+  // A passcode is configured from the demo days; it is neither asked for nor checked.
+  const { actionId } = await asAlice("decisions", "approve", { proposalId: alice.proposalId, version: 1, optionKey: "recover" });
+  const action = w.backend.rows("actions").find((row) => row._id === actionId);
+  assert.deepEqual(action.actor, { kind: "owner", identity: "alice" });
+  assert.equal(action.requestedBy, "owner");
+  assert.deepEqual(w.backend.rows("proposals").find((p) => p._id === alice.proposalId).chosenBy, { kind: "owner", identity: "alice" });
+  assert.deepEqual(w.calls.map(([name]) => name), ["recordDecision", "approveCase"]);
+  // A new project is stamped with the account, and "already a project" means only among the caller's own.
+  const { projectId } = await asAlice("onboarding/projects", "add", { repoUrl: "https://github.com/acme/web" });
+  assert.equal(w.backend.rows("apps").find((app) => app._id === projectId).ownerId, "alice");
+  await refuses(asAlice("onboarding/projects", "add", { repoUrl: "https://github.com/acme/web" }), "acme/web is already a project.");
+  const { projectId: bobs } = await w.as("bob")("onboarding/projects", "add", { repoUrl: "https://github.com/acme/web" });
+  assert.equal(w.backend.rows("apps").find((app) => app._id === bobs).ownerId, "bob");
+  assert.equal(await asAlice("onboarding/projects", "forProject", { projectId: bobs }), null);
+});
+
+test("the demo is unchanged: one owner, every project, and the owner passcode as before", async (t) => {
+  const w = world(t);
+  const { alice, bob } = await seed(w);
+  const anyone = w.as(null);
+  assert.deepEqual(await anyone("ownerPasscode", "status"), { configured: true });
+  await refuses(anyone("decisions", "approve", { proposalId: bob.proposalId, version: 1, optionKey: "recover" }), "That owner passcode is incorrect. Try again.");
+  await refuses(anyone("decisions", "approve", { proposalId: bob.proposalId, version: 1, optionKey: "recover", passcode: "wrong-passcode" }), "That owner passcode is incorrect. Try again.");
+  const { actionId } = await anyone("decisions", "approve", { proposalId: bob.proposalId, version: 1, optionKey: "recover", passcode: PASSCODE });
+  assert.deepEqual(w.backend.rows("actions").find((row) => row._id === actionId).actor, { kind: "owner", identity: "solo-owner" });
+  await anyone("decisions", "decline", { proposalId: alice.proposalId, version: 1, passcode: PASSCODE });
+  assert.deepEqual(w.backend.rows("proposals").find((p) => p._id === alice.proposalId).chosenBy, { kind: "owner", identity: "solo-owner" });
+  // The demo's own sentences for missing rows.
+  await refuses(anyone("decisions", "approve", { proposalId: "proposals:999", version: 1, optionKey: "recover", passcode: PASSCODE }), "Proposal not found.");
+  assert.deepEqual(await anyone("decisions", "stop", { caseId: "cases:999", passcode: PASSCODE }), { stopped: false, reason: "This case no longer exists." });
+  // Every case and every customer report is the one owner's.
+  assert.equal((await anyone("cases", "get", { id: bob.caseId }))._id, bob.caseId);
+  assert.equal((await anyone("intake/records", "forCase", { caseId: bob.caseId })).people, 1);
+  const { projectId } = await anyone("onboarding/projects", "add", { repoUrl: "https://github.com/acme/web", passcode: PASSCODE });
+  assert.equal(w.backend.rows("apps").find((app) => app._id === projectId).ownerId, "solo-owner");
+  // The demo's actions ask nothing extra, and still answer as before.
+  assert.deepEqual(await anyone("codeNetwork/ask", "ask", { scope: { kind: "project", projectId: alice.appId }, message: "What is this?" }), { outcome: "not_configured", missing: ["CODE_NETWORK_CHAT_ENABLED", "SUPERMEMORY_API_KEY", "OPENAI_API_KEY"] });
+  assert.deepEqual(w.backend.runs, []);
+});
+
+test("dev tools refuse with accounts on whatever DEV_TOOLS_ENABLED says, and open in the demo", async (t) => {
+  {
+    const w = world(t, { AUTH_REQUIRED: "true", DEV_TOOLS_ENABLED: "true" });
+    await seed(w);
+    await refuses(w.as("alice")("dev", "createSampleCases"), "Dev tools are disabled on this deployment.");
+    await refuses(w.as("alice")("structural/dev", "clear", { appId: "apps:1" }), "Dev tools are disabled on this deployment.");
+    await refuses(w.as("alice")("memory/dev", "prove"), "Development tools are disabled.");
+    assert.deepEqual(await w.as("alice")("dev", "status"), { enabled: false, cases: [], live: [], booking: null });
+    assert.equal(w.backend.rows("apps").length, 2);
+  }
+  {
+    const w = world(t, { DEV_TOOLS_ENABLED: "true" });
+    const ids = await w.as(null)("dev", "createSampleCases");
+    assert.equal(ids.length, 3);
+    const status = await w.as(null)("dev", "status");
+    assert.equal(status.enabled, true);
+    assert.deepEqual(status.cases.map((entry) => entry.case._id), ids);
+  }
+  {
+    const w = world(t);
+    await refuses(w.as(null)("dev", "createSampleCases"), "Dev tools are disabled on this deployment.");
+  }
+});
+
+test("the booking demo's customer API: open in the demo, closed with accounts on unless the deployment hosts it", async (t) => {
+  {
+    const w = world(t);
+    assert.ok((await w.as(null)("bookingDemo/booking", "getCatalog")).services.length > 0);
+    assert.deepEqual(await w.as(null)("bookingDemo/booking", "getFlags"), { recommendationsEnabled: true });
+  }
+  {
+    const w = world(t, { AUTH_REQUIRED: "true" });
+    for (const name of ["getCatalog", "getFlags", "recommendations"]) await refuses(w.as("alice")("bookingDemo/booking", name), "The booking demo does not run on this deployment.");
+    await refuses(w.as(null)("bookingDemo/booking", "submit", { serviceId: "s", date: "2026-11-16", time: "10:00" }), "The booking demo does not run on this deployment.");
+  }
+  {
+    const w = world(t, { AUTH_REQUIRED: "true", PROTECTED_APP_CONTROL_SECRET_SHA256: digest("control-fixture") });
+    assert.ok((await w.as(null)("bookingDemo/booking", "getCatalog")).services.length > 0);
+  }
+});

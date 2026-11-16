@@ -3,6 +3,7 @@ import type { Infer } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import { internalAction, internalMutation, internalQuery, query, type ActionCtx } from "../_generated/server";
+import { canSeeCase } from "../access";
 import {
   TERMINAL_STATUSES,
   failedStep,
@@ -212,6 +213,7 @@ export const finish = internalMutation({
 export const screenshots = query({
   args: { caseId: v.id("cases") },
   handler: async (ctx, { caseId }) => {
+    if (!(await canSeeCase(ctx, caseId))) return [];
     const rows = await ctx.db
       .query("revylScreenshots")
       .withIndex("by_case", (q) => q.eq("caseId", caseId))

@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import { action, internalMutation } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
+import { requireDevTools } from "../access";
 import {
   createCaseFromTemplate,
   finishAttempt,
@@ -15,9 +16,11 @@ import { CRITERIA } from "../protectedApp/client";
 
 declare const process: { env: Record<string, string | undefined> };
 
+const DEV_DISABLED = "Development tools are disabled.";
+
+// Closed unless DEV_TOOLS_ENABLED=true, and always closed with accounts on (convex/access.ts).
 function requireDev() {
-  if (process.env.DEV_TOOLS_ENABLED !== "true")
-    throw new Error("Development tools are disabled.");
+  requireDevTools(DEV_DISABLED);
 }
 
 const facts = {
@@ -313,7 +316,7 @@ export const lateRecallFixture = internalMutation({
 export const prove = action({
   args: {},
   handler: async (ctx): Promise<unknown> => {
-    requireDev();
+    requireDevTools(DEV_DISABLED);
     if (process.env.SUPERMEMORY_API_KEY)
       throw new Error(
         "Run this no-key proof only on a local deployment without SUPERMEMORY_API_KEY.",
