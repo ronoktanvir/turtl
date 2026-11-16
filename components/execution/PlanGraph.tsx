@@ -65,14 +65,14 @@ export function PlanGraph({ steps, pullRequest }: { steps: PlanStep[]; pullReque
             {!!checks?.length && (
               <View testID="plan-check-lanes">
                 <View style={{ width: 1, height: 16, alignSelf: "center", backgroundColor: colors.border }} />
-                <View style={{ marginHorizontal: "25%", height: 1, backgroundColor: colors.border }} />
+                <View style={{ padding: 12, gap: 12, borderWidth: 1, borderColor: colors.border, borderRadius: 20, backgroundColor: colors.surface }}>
+                  <T variant="small" color="textMuted">Checks run together</T>
                 <View style={{ flexDirection: "row", gap: 12 }}>
                   {checks.slice(0, 2).map((run) => {
                     const tone = run.status === "passed" ? "statusClear" : run.status === "failed" ? "statusAffected" : "textMuted";
                     const checkOpen = openCheck === run.name;
                     return (
                       <View key={run.name} style={{ flex: 1 }}>
-                        <View style={{ width: 1, height: 16, alignSelf: "center", backgroundColor: colors.border }} />
                         <Pressable
                           onPress={() => setOpenCheck(checkOpen ? null : run.name)}
                           testID={"plan-check-" + run.name.toLowerCase().replace(/[^a-z]+/g, "-")}
@@ -88,18 +88,15 @@ export function PlanGraph({ steps, pullRequest }: { steps: PlanStep[]; pullReque
                           <T variant="small" color={tone}>{run.status === "passed" ? "Passed" : run.status === "failed" ? "Failed" : "Pending"}</T>
                           {checkOpen && <T variant="small" color="textMuted">{run.status === "passed" ? "Passed on commit " : run.status === "failed" ? "Failed on commit " : "Awaiting a result for commit "}{pullRequest?.headSha.slice(0, 7)}</T>}
                         </Pressable>
-                        <View style={{ width: 1, height: 16, alignSelf: "center", backgroundColor: colors.border }} />
                       </View>
                     );
                   })}
                 </View>
-                <View style={{ marginHorizontal: "25%", height: 1, backgroundColor: colors.border }} />
                 {checks.slice(2).map((run) => {
                   const checkOpen = openCheck === run.name;
                   const tone = run.status === "passed" ? "statusClear" : run.status === "failed" ? "statusAffected" : "textMuted";
                   return (
                     <View key={run.name}>
-                      <View style={{ width: 1, height: 16, alignSelf: "center", backgroundColor: colors.border }} />
                       <Pressable
                         onPress={() => setOpenCheck(checkOpen ? null : run.name)}
                         testID={"plan-check-" + run.name.toLowerCase().replace(/[^a-z]+/g, "-")}
@@ -107,18 +104,18 @@ export function PlanGraph({ steps, pullRequest }: { steps: PlanStep[]; pullReque
                         accessibilityState={{ expanded: checkOpen }}
                         style={({ pressed }) => ({ padding: 14, gap: 8, borderWidth: 1, borderColor: colors.border, borderRadius: 16, backgroundColor: pressed ? colors.surfaceRaised : colors.bg })}
                       >
-                        <T variant="small" color="textMuted">Also in this check batch</T>
                         <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
                           <Icon name={run.status === "passed" ? "ShieldCheck" : run.status === "failed" ? "TriangleAlert" : "Terminal"} size={18} color={tone} />
                           <T variant="strong" style={{ flex: 1 }}>{run.name}</T>
                           <Icon name={checkOpen ? "ChevronDown" : "ChevronRight"} size={14} color="textMuted" />
                         </View>
                         <T variant="small" color={tone}>{run.status === "passed" ? "Passed" : run.status === "failed" ? "Failed" : "Pending"}</T>
-                        {checkOpen && <T variant="small" color="textMuted">{"Evidence for commit " + pullRequest?.headSha.slice(0, 7) + ". This check belongs to the same batch as the checks above."}</T>}
+                        {checkOpen && <T variant="small" color="textMuted">{"Evidence for commit " + pullRequest?.headSha.slice(0, 7) + ". This check runs alongside Typecheck and Tests."}</T>}
                       </Pressable>
                     </View>
                   );
                 })}
+                </View>
               </View>
             )}
           </View>

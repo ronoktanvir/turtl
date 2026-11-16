@@ -65,7 +65,7 @@ export function CasePage({ caseId, current }: { caseId: string; current: boolean
                 flexDirection: "row",
                 alignItems: "center",
                 gap: 7,
-                paddingVertical: 16,
+                paddingVertical: 12,
                 borderBottomWidth: 2,
                 borderBottomColor: tab === name ? colors.brandDeep : "transparent",
               }}
@@ -78,21 +78,20 @@ export function CasePage({ caseId, current }: { caseId: string; current: boolean
           ))}
         </View>
 
-        <View style={{ padding: 20, paddingTop: 28, gap: 28, minHeight: Math.max(0, height - 150) }}>
+        <View style={{ padding: 20, gap: 20, minHeight: Math.max(0, height - 150) }}>
           {tab === "Overview" && (
             <>
               <Reveal>
-                <View style={{ gap: 16 }}>
+                <View style={{ gap: 12 }}>
                   <View style={{ flexDirection: "row", flexWrap: "wrap", columnGap: 12, alignItems: "center" }}>
                     <HealthWord health={c.health} testID={id("case-health")} />
                     <T variant="small" color="textMuted">
                       {ago(c.happenedAt)}
                     </T>
                   </View>
-                  <T variant="title" accessibilityRole="header">{c.title}</T>
                   <View style={{ flexDirection: "row", gap: 12, alignItems: "center" }}>
                     <Turtle health={c.health} size={44} />
-                    <T style={{ flex: 1 }} testID={id("case-summary")}>{c.summary}</T>
+                    <T variant="strong" style={{ flex: 1 }} testID={id("case-summary")}>{c.summary}</T>
                   </View>
                     {!!c.reportCount && (
                       <T variant="small" color="textMuted" style={{ paddingLeft: 56 }}>
@@ -173,7 +172,6 @@ export function CasePage({ caseId, current }: { caseId: string; current: boolean
           <T variant="title" accessibilityRole="header">
             {feature ? "Options" : "Fixes"}
           </T>
-          <T color="textMuted">{feature ? "Choose an approach. You’ll confirm before work begins." : "A way forward, with the trade-offs made clear. You’ll confirm before anything runs."}</T>
           {active && e && (
             <Card style={{ gap: 10, borderColor: colors.statusWorking }} testID={id("fixes-enacting")}>
               <T variant="strong">
