@@ -75,8 +75,8 @@ export default function Enacting() {
           <Reveal>
             <View style={{ gap: 20 }}>
               <View style={{ gap: 8 }}>
-                {fix && <T variant="small" color="textMuted">{kindLabel[fix.kind]}</T>}
                 <T variant="display" testID="enacting-fix-title">{fix?.title ?? ""}</T>
+                {fix && <T variant="small" color="textMuted">{kindLabel[fix.kind]}</T>}
               </View>
               <View style={{ flexDirection: "row", gap: 12, alignItems: "center" }}>
                 <Turtle health={state.health} size={44} />
@@ -104,7 +104,8 @@ export default function Enacting() {
                 </Pressable>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                   <Icon name="GitBranch" color="textMuted" size={16} />
-                  <T variant="mono" color="textMuted" testID="enacting-pr-head">{"Latest commit " + pr.headSha}</T>
+                  <T variant="small" color="textMuted" style={{ flex: 1 }}>Latest commit</T>
+                  <T variant="mono" color="textMuted" testID="enacting-pr-head">{pr.headSha}</T>
                 </View>
                 {pr.checkRuns.map((run) => (
                   <View key={run.name} style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
@@ -116,8 +117,8 @@ export default function Enacting() {
               </View>
             )}
             <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-              <Button label="Stop" kind="danger" disabled={!canStop} onPress={() => stopEnactment(c.id)} testID="enacting-stop" />
-              <Button label="Merge" disabled={!canMerge || merging} onPress={async () => {
+              <Button label="Stop" icon="X" kind="danger" disabled={!canStop} onPress={() => stopEnactment(c.id)} testID="enacting-stop" />
+              <Button label="Merge" icon="GitMerge" disabled={!canMerge || merging} onPress={async () => {
                 if (!pr || merging) return;
                 setMerging(true);
                 try {
@@ -141,15 +142,19 @@ export default function Enacting() {
 
           {e.state === "done" && (
             <Card style={{ gap: 12, borderColor: colors.brandDeep }} testID="enacting-complete">
-              <Icon name="ShieldCheck" color="statusClear" size={28} />
-              <T variant="heading">Fix complete</T>
-              <T color="textMuted">The plan is complete. You can return to your projects.</T>
-              <Button label="Back to Projects" onPress={() => router.replace("/projects")} testID="enacting-home" />
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+                <Icon name="ShieldCheck" color="statusClear" size={24} />
+                <T variant="heading">Fix complete</T>
+              </View>
+              <Button label="Back to Projects" icon="ArrowLeft" onPress={() => router.replace("/projects")} testID="enacting-home" />
             </Card>
           )}
           {e.state === "stopped" && (
             <View style={{ gap: 12 }} testID="enacting-stopped">
-              <T>Nothing more will run. You can choose another fix whenever you are ready.</T>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                <Icon name="TriangleAlert" color="statusNeedsYou" size={20} />
+                <T style={{ flex: 1 }}>Nothing more will run.</T>
+              </View>
               <Button label="Back to the fixes" kind="plain" onPress={() => (router.canGoBack() ? router.back() : router.replace(back))} testID="enacting-back-to-fixes" />
             </View>
           )}
@@ -174,10 +179,7 @@ export default function Enacting() {
           </View>
           <Reveal delay={80}>
             <View style={{ gap: 16 }}>
-              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-                <T variant="title" accessibilityRole="header">Plan</T>
-                <T variant="small" color="textMuted">Tap a step for details</T>
-              </View>
+              <T variant="title" accessibilityRole="header">Plan</T>
               <PlanGraph steps={e.steps} pullRequest={pr} />
             </View>
           </Reveal>

@@ -19,7 +19,7 @@ export type ProjectSeed = Pick<
 export const projectSeeds: ProjectSeed[] = [
   {
     id: "still-booking-demo",
-    name: "Still booking demo",
+    name: "Still booking",
     summary: "A salon's booking app. Customers pick a service and a time, then book.",
     repoUrl: "https://github.com/turtl-demo/still-booking-demo",
     productionUrl: "https://still-booking-demo.example.com",

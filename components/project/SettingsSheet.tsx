@@ -30,13 +30,13 @@ export default function SettingsSheet({ visible, onClose, projectId, approvals }
         <Choice label="You" icon={UserRound} selected={approvals === "you"} onPress={() => void choose("you")} testID="approvals-you" />
         <Choice label="Auto" icon={Zap} selected={approvals === "auto"} onPress={() => void choose("auto")} testID="approvals-auto" />
       </View>
-      <T color="textMuted">{approvals === "you" ? "You decide which fix goes ahead." : "Auto is saved as an example preference. It does not apply changes automatically in this demo."}</T>
+      <T color="textMuted">{approvals === "you" ? "You decide which fix goes ahead." : "Preference saved. You can still choose a fix below."}</T>
       {error && <T color="statusAffected" accessibilityRole="alert">{error}</T>}
     </View>
     <View style={{ gap: 12, marginTop: 8 }}>
       <T variant="heading">Theme</T>
       <View accessibilityRole="radiogroup" style={{ flexDirection: "row", gap: 4, padding: 4, borderRadius: 16, backgroundColor: colors.surfaceRaised }}>{modes.map((m) => <Choice key={m.mode} label={m.label} icon={m.icon} selected={mode === m.mode} onPress={() => setMode(m.mode)} testID={`theme-${m.mode}`} />)}</View>
-      <T variant="small" color="textMuted">{mode === "system" ? "Follows your device’s appearance." : "A comfortable space to focus."}</T>
+      {mode === "system" && <T variant="small" color="textMuted">Follows your device’s appearance.</T>}
     </View>
     <Button label="Done" onPress={onClose} testID="settings-done" />
   </Sheet>;

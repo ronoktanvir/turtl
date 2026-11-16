@@ -118,7 +118,6 @@ export function CasePage({ caseId, current }: { caseId: string; current: boolean
                     <View key={shot.id} style={{ width: 208, gap: 10 }} testID={"screenshot-" + shot.id}>
                       <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
                         <Chip label={phases[shot.phase]} tone={shot.phase === "failure" ? "statusAffected" : shot.phase === "after" ? "statusClear" : "textMuted"} />
-                        <T variant="small" color="textMuted">{ago(shot.takenAt)}</T>
                       </View>
                       <Image
                         source={{ uri: shot.url }}
@@ -126,7 +125,7 @@ export function CasePage({ caseId, current }: { caseId: string; current: boolean
                         resizeMode="contain"
                         accessibilityLabel={shot.caption}
                       />
-                      <T variant="small" color="textMuted">{shot.caption}</T>
+                      <T color="textMuted">{shot.caption}</T>
                     </View>
                   ))}
                 </ScrollView>
@@ -135,7 +134,6 @@ export function CasePage({ caseId, current }: { caseId: string; current: boolean
           )}
           {tab === "Logs" && (
             <>
-              <T color="textMuted">What the app and turtl wrote down, oldest first.</T>
               <View style={{ gap: 20 }}>
               {c.logs.map((line) => (
                 <View key={line.id} style={{ paddingBottom: 20, borderBottomWidth: 1, borderBottomColor: colors.border }}>
@@ -147,7 +145,6 @@ export function CasePage({ caseId, current }: { caseId: string; current: boolean
           )}
           {tab === "Code" && (
             <>
-              <T color="textMuted">The parts of the code this case touches.</T>
               {c.code.map((code) => (
                 <View key={code.id}>
                   <CodeBox code={code} />

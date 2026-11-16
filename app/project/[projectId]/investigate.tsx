@@ -14,6 +14,8 @@ export default function Investigate() {
   const network = useCodeNetwork(projectId);
   const { colors } = useTheme();
   const [selection, setSelection] = useState<NetworkSelection>(null);
+  const [chatOpen, setChatOpen] = useState(false);
+  const select = (next: NetworkSelection) => { setChatOpen(false); setSelection(next); };
   const back = ("/project/" + projectId) as Href;
   const cluster = selection?.kind === "cluster" ? network?.clusters.find((c) => c.id === selection.id) : undefined;
   const node = selection?.kind === "node" ? network?.nodes.find((n) => n.id === selection.id) : undefined;
@@ -32,27 +34,27 @@ export default function Investigate() {
           </View>
         ) : (
           <>
-            <View style={{ paddingHorizontal: 20, paddingTop: 20, gap: 4 }}>
+            {!chatOpen && <View style={{ paddingHorizontal: 20, paddingTop: 20, gap: 4 }}>
               <Reveal>
-                <T variant="title">A living map of your code.</T>
-                <T variant="small" color="textMuted">{project.name} · {network.nodes.length} parts · {network.clusters.length} clusters</T>
+                <T variant="strong" numberOfLines={1}>{project.name}</T>
+                <T variant="small" color="textMuted">{network.nodes.length} parts · {network.clusters.length} clusters</T>
               </Reveal>
-            </View>
-            <Constellation network={network} selection={selection} onSelect={setSelection} />
-            {selection && (
+            </View>}
+            <Constellation network={network} selection={selection} onSelect={select} />
+            {selection && !chatOpen && (
               <View testID="network-selection" style={{ marginHorizontal: 20, marginBottom: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: colors.border, gap: 4 }}>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                  <View style={{ flex: 1 }}><T variant="strong" numberOfLines={1}>{name}</T></View>
-                  {cluster?.health && <HealthWord health={cluster.health} />}
+                  <View style={{ flex: 1, minWidth: 0 }}><T variant="strong">{name}</T></View>
                   <Pressable testID="network-clear" accessibilityRole="button" accessibilityLabel="Clear selection" onPress={() => setSelection(null)} style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center", marginVertical: -8 }}>
                     <Icon name="X" size={18} color="textMuted" />
                   </Pressable>
                 </View>
+                {cluster?.health && <HealthWord health={cluster.health} />}
                 <T variant="small" color="textMuted" numberOfLines={3}>{cluster?.summary ?? node?.summary}</T>
                 {node?.path && <T variant="mono" color="textMuted" numberOfLines={1} style={{ fontSize: 12 }}>{node.path}</T>}
               </View>
             )}
-            <NetworkChat key={selection ? selection.kind + selection.id : "project"} projectId={projectId} selection={selection} name={name} />
+            <NetworkChat key={selection ? selection.kind + selection.id : "project"} projectId={projectId} selection={selection} name={name} expanded={chatOpen} onExpandedChange={setChatOpen} />
           </>
         )}
       </KeyboardAvoidingView>

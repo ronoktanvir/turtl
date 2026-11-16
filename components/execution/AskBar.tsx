@@ -24,7 +24,7 @@ export function AskBar({ value, onChangeText, onSend, busy, inputID, sendID, pla
         accessibilityLabel={placeholder}
         returnKeyType="send"
         testID={inputID}
-        style={{ flex: 1, minWidth: 0, minHeight: 48, fontSize: 16, color: colors.text, paddingHorizontal: 10 }}
+        style={{ flex: 1, minWidth: 0, minHeight: 48, fontSize: 16, fontFamily: "Capriola_400Regular", fontWeight: "400", color: colors.text, paddingHorizontal: 10 }}
       />
       <Pressable
         onPress={onSend}

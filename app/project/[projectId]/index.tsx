@@ -5,7 +5,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Svg, { Circle, Path } from "react-native-svg";
 import ProjectIcon from "../../../components/project/ProjectIcon";
 import SettingsSheet from "../../../components/project/SettingsSheet";
-import { Button, HealthWord, Header, Icon, Reveal, Screen, T, Turtle } from "../../../components/ui";
+import { BrandIcon, Button, HealthWord, Header, Icon, Reveal, Screen, T, Turtle } from "../../../components/ui";
 import { useProject } from "../../../data";
 import { labels, useTheme } from "../../../theme";
 
@@ -35,16 +35,16 @@ export default function ProjectHome() {
             <View style={{ flex: 1, gap: 4 }}><HealthWord health={project.health} />{project.summary && <T color="textMuted">{project.summary}</T>}</View>
           </View>
           {(project.repoUrl || project.productionUrl) && <View style={{ flexDirection: "row", gap: 20, paddingLeft: 60 }}>
-            {([{ label: "GitHub", id: "project-github", url: project.repoUrl, icon: "GitBranch" }, { label: "Live app", id: "project-live-app", url: project.productionUrl, icon: "ExternalLink" }] as const).map((link) => link.url && <Pressable key={link.id} testID={link.id} accessibilityRole="link" onPress={() => Linking.openURL(link.url!)} style={{ minHeight: 44, flexDirection: "row", alignItems: "center", gap: 6 }}><Icon name={link.icon} size={15} color="textMuted" /><T variant="small" color="textMuted">{link.label}</T></Pressable>)}
+            {([{ label: "GitHub", id: "project-github", url: project.repoUrl }, { label: "Live app", id: "project-live-app", url: project.productionUrl }] as const).map((link) => link.url && <Pressable key={link.id} testID={link.id} accessibilityRole="link" onPress={() => Linking.openURL(link.url!)} style={{ minHeight: 44, flexDirection: "row", alignItems: "center", gap: 6 }}>{link.id === "project-github" ? <BrandIcon name="github" size={20} /> : <Icon name="ExternalLink" size={15} color="textMuted" />}<T variant="small" color="textMuted">{link.label}</T></Pressable>)}
           </View>}
         </View>
         <View style={{ gap: 12 }}>
           <Reveal>
             <Pressable testID="project-fix" accessibilityRole="button" onPress={() => router.push(`/project/${project.id}/fix` as Href)} style={({ pressed }) => ({ borderRadius: 20, borderWidth: 1, borderColor: colors.brandDeep, backgroundColor: pressed ? colors.surfaceRaised : colors.surface, padding: 20, overflow: "hidden", minHeight: 222 })}>
               <View pointerEvents="none" style={{ position: "absolute", right: -22, top: 6, opacity: 0.3 }}><Svg width={210} height={190} viewBox="0 0 210 190"><Circle cx="130" cy="80" r="73" stroke={colors.brandDeep} strokeWidth="1" fill="none" /><Circle cx="130" cy="80" r="52" stroke={colors.brandDeep} strokeWidth="1" fill="none" /><Path d="M32 145h42l24-48 22 22 24-60h49" stroke={colors.brandDeep} strokeWidth="2" fill="none" /><Circle cx="144" cy="59" r="5" fill={colors.brandDeep} /></Svg></View>
-              <View style={{ flexDirection: "row", gap: 8, alignItems: "center", marginBottom: 20 }}><Icon name="Wrench" size={18} color="brandDeep" /><T variant="small" color="textMuted">CARE FOR YOUR APP</T></View>
+              <View style={{ flexDirection: "row", gap: 8, alignItems: "center", marginBottom: 20 }}><Icon name="Wrench" size={18} color="brandDeep" /><T variant="small" color="textMuted">OPEN BUGS</T></View>
               <View style={{ flexDirection: "row", alignItems: "baseline", gap: 12 }}><T variant="display">Fix</T><T variant="title" color="brandDeep">{project.bugCount}</T></View>
-              <T color="textMuted" style={{ marginTop: 8, maxWidth: "80%" }}>{project.bugCount === 0 ? "No open bugs. A little room to breathe." : project.needsApprovalCount > 0 ? `${project.needsApprovalCount} needs approval. You choose the next step.` : "Follow the evidence. Find a way forward."}</T>
+              <T color="textMuted" style={{ marginTop: 8, maxWidth: "80%" }}>{project.bugCount === 0 ? "No open bugs." : project.needsApprovalCount > 0 ? `${project.needsApprovalCount} needs approval.` : "Review open bugs and proposed fixes."}</T>
               <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 24 }}><T variant="strong" color="brandDeep">{project.bugCount === 0 ? "View fixes" : "Review fixes"}</T><Icon name="ArrowRight" color="brandDeep" /></View>
             </Pressable>
           </Reveal>
@@ -52,7 +52,7 @@ export default function ProjectHome() {
             <Pressable testID="project-features" accessibilityRole="button" onPress={() => router.push(`/project/${project.id}/features` as Href)} style={({ pressed }) => ({ borderRadius: 20, borderWidth: 1, borderColor: colors.border, backgroundColor: pressed ? colors.surfaceRaised : colors.surface, padding: 20, overflow: "hidden" })}>
               <View pointerEvents="none" style={{ position: "absolute", right: 22, top: 12, opacity: 0.14, transform: [{ rotate: "-16deg" }] }}><Icon name="Layers" size={105} color="brandDeep" strokeWidth={1} /></View>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}><Icon name="Sparkles" size={20} color="brandDeep" /><T variant="title">{labels.features}</T><T variant="heading" color="textMuted">{project.featureCount}</T></View>
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 16, marginTop: 12 }}><T color="textMuted" style={{ flex: 1 }}>{project.featureCount === 0 ? "No open requests. Space for what’s next." : "Small ideas. Thoughtful next steps."}</T><Icon name="ArrowRight" size={18} color="textMuted" /></View>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 16, marginTop: 12 }}><T color="textMuted" style={{ flex: 1 }}>{project.featureCount === 0 ? "No open requests." : "Review feature requests."}</T><Icon name="ArrowRight" size={18} color="textMuted" /></View>
             </Pressable>
           </Reveal>
           <Reveal delay={120}>

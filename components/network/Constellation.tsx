@@ -132,9 +132,53 @@ export function Constellation({ network, selection, onSelect }: { network: CodeN
     });
   } else if (selection) network.nodes.filter((n) => n.clusterId === selection.id).forEach((n) => related.add(n.id));
   const projected = (point: Point) => ({ x: camera.x + point.x * camera.scale, y: camera.y + point.y * camera.scale });
+  const labelBoxes = new Map<string, { x: number; y: number; width: number; height: number }>();
+  const occupied = network.clusters.map((cluster) => {
+    const center = layout.clusters.get(cluster.id)!;
+    const point = projected({ x: center.x, y: center.y - 130 });
+    const width = cluster.name.length > 13 ? 176 : 120;
+    return { x: point.x - width / 2, y: point.y - 14, width, height: 28 };
+  });
+  const nodeCircles = network.nodes.flatMap((node) => {
+    const point = layout.nodes.get(node.id);
+    return point ? [{ ...projected(point), radius: (14 + (node.weight ?? 1) * 5) * camera.scale }] : [];
+  });
+  if (camera.scale >= 0.85) {
+    const candidates = network.nodes.filter((node) => !selection || related.has(node.id)).sort((a, b) => Number(b.id === selection?.id) - Number(a.id === selection?.id) || (b.weight ?? 1) - (a.weight ?? 1));
+    candidates.forEach((node) => {
+      const point = layout.nodes.get(node.id);
+      const center = layout.clusters.get(node.clusterId);
+      if (!point || !center) return;
+      const screen = projected(point);
+      const radius = (14 + (node.weight ?? 1) * 5) * camera.scale;
+      const above = Math.hypot(point.x - center.x, point.y - center.y) > 20 && point.y <= center.y + 15;
+      const width = 160;
+      const height = 64;
+      for (const gap of [8, 28, 56]) {
+        const positions = [
+          { x: screen.x - width / 2, y: screen.y + radius + gap },
+          { x: screen.x - width / 2, y: screen.y - radius - gap - height },
+          { x: screen.x + radius + gap, y: screen.y - height / 2 },
+          { x: screen.x - radius - gap - width, y: screen.y - height / 2 },
+        ];
+        if (above) [positions[0], positions[1]] = [positions[1], positions[0]];
+        const position = positions.find((box) =>
+          box.x >= 8 && box.y >= 8 && box.x + width <= size.width - 8 && box.y + height <= size.height - 62 &&
+          !nodeCircles.some((circle) => Math.hypot(circle.x - Math.max(box.x, Math.min(circle.x, box.x + width)), circle.y - Math.max(box.y, Math.min(circle.y, box.y + height))) < circle.radius + 4) &&
+          !occupied.some((other) => box.x < other.x + other.width + 4 && box.x + width + 4 > other.x && box.y < other.y + other.height + 4 && box.y + height + 4 > other.y)
+        );
+        if (position) {
+          const box = { ...position, width, height };
+          labelBoxes.set(node.id, box);
+          occupied.push(box);
+          break;
+        }
+      }
+    });
+  }
 
   return (
-    <View style={{ flex: 1, minHeight: 160 }} testID="network-scroll-x">
+    <View style={{ flex: 1, minHeight: 0 }} testID="network-scroll-x">
       <View ref={viewport} testID="network-scroll-y" onLayout={(event) => setSize(event.nativeEvent.layout)} {...responder.panHandlers} style={[{ flex: 1, overflow: "hidden" }, Platform.OS === "web" ? { touchAction: "none" } as never : null]}>
         <Svg width={size.width} height={size.height} pointerEvents="none">
           <Defs>
@@ -165,26 +209,33 @@ export function Constellation({ network, selection, onSelect }: { network: CodeN
               </G>;
             })}
           </G>
+          {network.nodes.map((node) => {
+            const box = labelBoxes.get(node.id);
+            const point = layout.nodes.get(node.id);
+            if (!box || !point) return null;
+            const screen = projected(point);
+            const x = Math.max(box.x, Math.min(screen.x, box.x + box.width));
+            const y = Math.max(box.y, Math.min(screen.y, box.y + box.height));
+            return <Path key={`label-${node.id}`} d={`M ${screen.x} ${screen.y} L ${x} ${y}`} stroke={colors.textMuted} strokeWidth={0.7} opacity={0.45} />;
+          })}
         </Svg>
         {network.clusters.map((cluster) => {
           const p = layout.clusters.get(cluster.id)!;
-          const screen = projected({ x: p.x, y: p.y - 112 });
-          const labelWidth = cluster.name.length > 13 ? 148 : 120;
+          const screen = projected({ x: p.x, y: p.y - 130 });
+          const labelWidth = cluster.name.length > 13 ? 176 : 120;
           return <Pressable key={cluster.id} testID={`network-cluster-${cluster.id}`} accessibilityRole="button" accessibilityLabel={`Cluster ${cluster.name}`} accessibilityState={{ selected: clusterId === cluster.id }} onPress={() => select({ kind: "cluster", id: cluster.id }, p)} style={{ position: "absolute", left: screen.x - labelWidth / 2, top: screen.y - 18, width: labelWidth, minHeight: 44, alignItems: "center", justifyContent: "center", opacity: !selection || clusterId === cluster.id ? 1 : 0.45 }}>
-            <T variant="small" style={{ fontSize: 13, fontWeight: "600", textAlign: "center", backgroundColor: colors.bg, paddingHorizontal: 4, borderRadius: 6 }}>{cluster.name}</T>
-            {camera.scale >= 0.85 && <T variant="small" color="textMuted" style={{ fontSize: 11 }}>{network.nodes.filter((n) => n.clusterId === cluster.id).length} connected parts</T>}
+            <View style={{ backgroundColor: colors.surface, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12, borderWidth: 1, borderColor: colors.border }}><T variant="small" style={{ fontSize: 13, textAlign: "center" }}>{cluster.name}</T></View>
           </Pressable>;
         })}
         {network.nodes.map((node) => {
           const p = layout.nodes.get(node.id);
           if (!p) return null;
           const screen = projected(p);
-          const showLabel = camera.scale >= 0.85 && (!selection || related.has(node.id));
-          const center = layout.clusters.get(node.clusterId)!;
-          const labelAbove = Math.hypot(p.x - center.x, p.y - center.y) > 20 && p.y <= center.y + 15;
-          return <Pressable key={node.id} testID={`network-node-${node.id}`} accessibilityRole="button" accessibilityLabel={`${node.label}, ${node.kind}`} accessibilityState={{ selected: selection?.kind === "node" && selection.id === node.id }} onPress={() => select({ kind: "node", id: node.id }, p)} style={{ position: "absolute", left: screen.x - 22, top: screen.y - 22, width: 44, height: 44, alignItems: "center", justifyContent: "center" }}>
-            {showLabel && <View pointerEvents="none" style={{ position: "absolute", ...(labelAbove ? { bottom: 26 + (7 + (node.weight ?? 1) * 5) * camera.scale } : { top: 26 + (7 + (node.weight ?? 1) * 5) * camera.scale }), width: 112, alignItems: "center" }}><T variant="small" numberOfLines={2} style={{ fontSize: 12, lineHeight: 16, textAlign: "center", backgroundColor: colors.bg, paddingHorizontal: 3, borderRadius: 4 }}>{node.label}</T></View>}
-          </Pressable>;
+          return <Pressable key={node.id} testID={`network-node-${node.id}`} accessibilityRole="button" accessibilityLabel={`${node.label}, ${node.kind}`} accessibilityState={{ selected: selection?.kind === "node" && selection.id === node.id }} onPress={() => select({ kind: "node", id: node.id }, p)} style={{ position: "absolute", left: screen.x - 22, top: screen.y - 22, width: 44, height: 44, alignItems: "center", justifyContent: "center" }} />;
+        })}
+        {network.nodes.map((node) => {
+          const box = labelBoxes.get(node.id);
+          return box ? <View key={node.id} pointerEvents="none" style={{ position: "absolute", left: box.x, top: box.y, width: box.width, height: box.height, paddingHorizontal: 8, justifyContent: "center", borderRadius: 14, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border }}><T variant="small" style={{ fontSize: 12, lineHeight: 17, textAlign: "center" }}>{node.label}</T></View> : null;
         })}
       </View>
       <View pointerEvents="box-none" style={{ position: "absolute", bottom: 12, left: 20, right: 20, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 }}>

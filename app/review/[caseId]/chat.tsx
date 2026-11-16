@@ -4,7 +4,7 @@ import { KeyboardAvoidingView, Platform, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AskBar } from "../../../components/execution/AskBar";
 import { ApproveSheet, FixCard } from "../../../components/fix/FixCard";
-import { Button, devToolsOn, Header, Icon, Reveal, Screen, T, Turtle, useReducedMotion } from "../../../components/ui";
+import { Button, devToolsOn, Header, Reveal, Screen, T, Turtle, useReducedMotion } from "../../../components/ui";
 import { useCase, useChat } from "../../../data";
 import type { FixOption } from "../../../data/types";
 import { useTheme } from "../../../theme";
@@ -39,16 +39,10 @@ export default function InvestigateFurther() {
         >
           <Reveal>
             <View style={{ gap: 16, paddingBottom: 20, borderBottomWidth: 1, borderBottomColor: colors.border }}>
-              {c && <View style={{ gap: 6 }}>
-                <T variant="small" color="textMuted">{(c.type === "feature" ? "Request #" : "Error #") + c.number}</T>
-                <T variant="title">{c.title}</T>
-              </View>}
+              {c && <T variant="title">{c.title}</T>}
               <View style={{ flexDirection: "row", gap: 16, alignItems: "center" }}>
-                <View style={{ flex: 1, flexDirection: "row", gap: 8, alignItems: "center" }}>
-                  <Icon name="MessageCircle" color="brandDeep" size={18} />
-                  <T variant="small" color="textMuted" style={{ flex: 1 }}>A closer look, together.</T>
-                </View>
-                <Button label="New fix" kind="outline" disabled={chat.busy || !chat.requestNewFix} onPress={() => chat.requestNewFix?.()} testID="chat-new-fix" style={{ minHeight: 44, paddingHorizontal: 14 }} />
+                {c && <T variant="small" color="textMuted" style={{ flex: 1 }}>{(c.type === "feature" ? "Request #" : "Error #") + c.number}</T>}
+                <Button label="New fix" icon="Plus" kind="outline" disabled={chat.busy || !chat.requestNewFix} onPress={() => chat.requestNewFix?.()} testID="chat-new-fix" style={{ minHeight: 44, paddingHorizontal: 14 }} />
               </View>
             </View>
           </Reveal>

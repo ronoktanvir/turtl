@@ -85,7 +85,7 @@ export default function Review() {
             style={{ padding: 10, minHeight: 44, flexDirection: "row", alignItems: "center", gap: 4, opacity: page === 0 ? 0.35 : 1 }}
           >
             <Icon name="ArrowLeft" size={14} color="textMuted" />
-            <T variant="small" color="textMuted" style={{ fontWeight: "600" }}>
+            <T variant="small" color="textMuted">
               Previous
             </T>
           </Pressable>
@@ -99,7 +99,7 @@ export default function Review() {
             testID="case-next"
             style={{ padding: 10, minHeight: 44, flexDirection: "row", alignItems: "center", gap: 4, opacity: page === ids.length - 1 ? 0.35 : 1 }}
           >
-            <T variant="small" color="textMuted" style={{ fontWeight: "600" }}>
+            <T variant="small" color="textMuted">
               Next
             </T>
             <Icon name="ArrowRight" size={14} color="textMuted" />

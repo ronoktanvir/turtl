@@ -16,10 +16,11 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { Health } from "../../data/types";
 import { healthToken, healthWord, useTheme, type TokenName } from "../../theme";
-import { Icon } from "./Icon";
+import { Icon, type IconName } from "./Icon";
 import { Reveal } from "./motion";
 export { Icon, type IconName } from "./Icon";
 export { Reveal, useReducedMotion } from "./motion";
+export { BrandIcon } from "./BrandIcon";
 
 export const devToolsOn =
   !!process.env.EXPO_PUBLIC_CONVEX_URL && (__DEV__ || process.env.EXPO_PUBLIC_DEV_TOOLS === "1");
@@ -59,7 +60,7 @@ export function T({
   ...props
 }: TextProps & { variant?: keyof typeof variants; color?: TokenName }) {
   const { colors } = useTheme();
-  return <Text {...props} style={[variants[variant], { color: colors[color] }, style]} />;
+  return <Text {...props} style={[variants[variant], { color: colors[color] }, style, { fontFamily: "Capriola_400Regular", fontWeight: "400" }]} />;
 }
 
 export function Screen({ children, testID }: { children: ReactNode; testID?: string }) {
@@ -67,9 +68,6 @@ export function Screen({ children, testID }: { children: ReactNode; testID?: str
   const insets = useSafeAreaInsets();
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg, paddingTop: insets.top }} testID={testID}>
-      <View style={{ paddingHorizontal: 20, paddingTop: 5, paddingBottom: 5, alignItems: "flex-end" }}>
-        <Text style={{ color: colors.textMuted, fontSize: 10, letterSpacing: 1.6, fontWeight: "600" }}>EXAMPLE DATA</Text>
-      </View>
       <Reveal style={{ flex: 1 }}>{children}</Reveal>
     </View>
   );
@@ -127,6 +125,7 @@ export function Button({
   disabled,
   testID,
   style,
+  icon,
 }: {
   label: string;
   onPress: () => void;
@@ -134,6 +133,7 @@ export function Button({
   disabled?: boolean;
   testID: string | undefined;
   style?: StyleProp<ViewStyle>;
+  icon?: IconName;
 }) {
   const { colors } = useTheme();
   const look: Record<typeof kind, { bg: string; border: string; text: TokenName }> = {
@@ -156,6 +156,8 @@ export function Button({
           borderRadius: 12,
           borderWidth: 1,
           alignItems: "center",
+          flexDirection: "row",
+          gap: 8,
           justifyContent: "center",
           backgroundColor: disabled ? colors.surfaceRaised : look[kind].bg,
           borderColor: disabled ? colors.border : look[kind].border,
@@ -165,6 +167,7 @@ export function Button({
         style,
       ]}
     >
+      {icon && <Icon name={icon} size={18} color={disabled ? "textMuted" : look[kind].text} />}
       <T variant="strong" color={disabled ? "textMuted" : look[kind].text} style={{ textAlign: "center" }}>
         {label}
       </T>
@@ -231,14 +234,14 @@ export function Card({
   );
 }
 
-export function Turtle({ health, size = 40, outlined }: { health: Health; size?: number; outlined?: boolean }) {
+export function Turtle({ health, size = 40, outlined, label }: { health: Health; size?: number; outlined?: boolean; label?: string }) {
   const { colors } = useTheme();
   const image = (
     <Image
       source={turtles[health]}
       style={{ width: size, height: size }}
       resizeMode="contain"
-      accessibilityLabel={"turtl: " + healthWord[health]}
+      accessibilityLabel={label ?? "turtl: " + healthWord[health]}
     />
   );
   if (!outlined) return image;
@@ -255,17 +258,17 @@ export function Logo({ health, width = 200 }: { health: Health; width?: number }
       source={logos[health]}
       style={{ width, height: Math.round((width * 265) / 840) }}
       resizeMode="contain"
-      accessibilityLabel={"turtl. " + healthWord[health]}
+      accessibilityLabel="turtl"
     />
   );
 }
 
 export function HealthWord({ health, testID }: { health: Health; testID?: string }) {
-  const urgent = health === "affected" || health === "needs_you";
   return (
-    <T variant="small" color={healthToken[health]} style={{ fontWeight: "700" }} testID={testID}>
-      {(urgent ? "! " : "") + healthWord[health]}
-    </T>
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }} testID={testID}>
+      <Icon name={health === "affected" || health === "needs_you" ? "TriangleAlert" : health === "working" ? "Sparkles" : "ShieldCheck"} size={15} color={healthToken[health]} />
+      <T variant="small" color={healthToken[health]}>{healthWord[health]}</T>
+    </View>
   );
 }
 

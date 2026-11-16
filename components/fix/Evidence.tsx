@@ -7,9 +7,9 @@ import { ago, Icon, T } from "../ui";
 export type Sources = { citations: Citation[]; logs: LogLine[]; code: CodeRef[] };
 
 const levels: Record<LogLine["level"], { word: string; tone: TokenName }> = {
-  info: { word: "· Info", tone: "textMuted" },
-  warn: { word: "! Warning", tone: "statusNeedsYou" },
-  error: { word: "✕ Error", tone: "statusAffected" },
+  info: { word: "Info", tone: "textMuted" },
+  warn: { word: "Warning", tone: "statusNeedsYou" },
+  error: { word: "Error", tone: "statusAffected" },
 };
 
 function clock(at: number) {
@@ -21,12 +21,13 @@ function clock(at: number) {
 export function LogRow({ line }: { line: LogLine }) {
   return (
     <View style={{ gap: 8 }} testID={"log-" + line.id}>
-      <T variant="small" color={levels[line.level].tone} style={{ fontWeight: "700" }}>
-        {levels[line.level].word}
-        <T variant="small" color="textMuted">
-          {"  " + line.source + " · " + clock(line.at)}
+      <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 }}>
+        <Icon name={line.level === "info" ? "Terminal" : "TriangleAlert"} size={16} color={levels[line.level].tone} />
+        <T variant="small" color={levels[line.level].tone}>{levels[line.level].word}</T>
+        <T variant="small" color="textMuted" style={{ flex: 1 }}>
+          {line.source + " · " + clock(line.at)}
         </T>
-      </T>
+      </View>
       <T variant="mono" style={{ fontSize: 15, lineHeight: 24 }}>{line.text}</T>
     </View>
   );
@@ -36,7 +37,7 @@ export function CodeBox({ code }: { code: CodeRef }) {
   const { colors } = useTheme();
   const block = (label: string, text: string, sign: string, backgroundColor: string) => (
     <View style={{ gap: 8 }}>
-      <T variant="small" color="textMuted" style={{ fontWeight: "600" }}>
+      <T variant="small" color="textMuted">
         {label}
       </T>
       <ScrollView horizontal testID={"code-scroll-" + code.id + "-" + sign} style={{ backgroundColor, borderRadius: 12 }} contentContainerStyle={{ paddingVertical: 12, paddingRight: 16, minWidth: "100%" }}>
@@ -92,7 +93,7 @@ export function SpanText({ spans, sources, prefix }: { spans: Span[]; sources: S
               style={{
                 color: colors.link,
                 textDecorationLine: "underline",
-                fontWeight: "600",
+                fontWeight: "400",
               }}
             >
               {span.text}
@@ -115,7 +116,7 @@ export function SpanText({ spans, sources, prefix }: { spans: Span[]; sources: S
           testID={prefix + "-cite-box-" + open}
         >
           <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-            <T variant="small" color="textMuted" style={{ fontWeight: "700" }}>
+            <T variant="small" color="textMuted">
               {log ? "From the logs" : "From the code"}
             </T>
             <Pressable
@@ -174,7 +175,7 @@ export function Viz({ viz }: { viz: Visualization }) {
                 <T variant={step.state === "failed" ? "strong" : "body"} color={step.state === "not_reached" ? "textMuted" : "text"}>
                   {step.label}
                 </T>
-                <T variant="small" color={state.tone} style={{ fontWeight: "600" }}>
+                <T variant="small" color={state.tone}>
                   {state.word}
                 </T>
               </View>

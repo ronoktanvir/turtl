@@ -5,7 +5,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useCases, useProject } from "../../data";
 import type { CaseType } from "../../data/types";
 import { labels, useTheme } from "../../theme";
-import { Button, Chip, Header, Icon, Reveal, Screen, T, Turtle, ago } from "../ui";
+import { Button, Chip, Header, Icon, Screen, T, Turtle, ago } from "../ui";
 
 export default function BeginScreen({ type }: { type: CaseType }) {
   const { projectId } = useLocalSearchParams<{ projectId: string }>();
@@ -46,7 +46,6 @@ export default function BeginScreen({ type }: { type: CaseType }) {
   }
 
   const title = `${project.name}: ${type === "fix" ? "Fix" : labels.features}`;
-  const needsApproval = cases.filter((c) => c.status === "needs_approval").length;
   return (
     <Screen testID={`begin-${type}`}>
       <Header
@@ -62,24 +61,14 @@ export default function BeginScreen({ type }: { type: CaseType }) {
         <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 12, padding: 24 }}>
           <Turtle health="clear" size={96} />
           <T color="textMuted" style={{ textAlign: "center" }}>
-            {type === "fix" ? "Nothing to fix. There is nothing to review right now." : "No feature requests. There is nothing to review right now."}
+            {type === "fix" ? "Nothing to fix." : "No feature requests."}
           </T>
         </View>
       ) : (
         <ScrollView testID="begin-scroll" contentContainerStyle={{ flexGrow: 1 }}>
-          <Reveal>
-            <View style={{ paddingHorizontal: 20, paddingTop: 28, paddingBottom: 12, gap: 8 }}>
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                <Icon name={type === "fix" ? "Wrench" : "Sparkles"} size={18} color="brandDeep" />
-                <T variant="small" color="textMuted">{type === "fix" ? "YOUR REVIEW QUEUE" : labels.features.toUpperCase()}</T>
-              </View>
-              <T variant="display">{needsApproval ? "Ready for your call." : "A closer look."}</T>
-              <T color="textMuted">{needsApproval ? `${needsApproval} ${needsApproval === 1 ? "case needs" : "cases need"} approval. Start with the evidence.` : type === "fix" ? "Follow the evidence, then choose a way forward." : "See what people are asking for, and explore the options."}</T>
-            </View>
-          </Reveal>
           <View style={{ flexGrow: 0 }}>
             <ScrollView horizontal testID="begin-case-strip" showsHorizontalScrollIndicator={false} contentContainerStyle={{ padding: 20, gap: 12 }}>
-              {cases.map((c, i) => (
+              {cases.map((c) => (
                 <Pressable
                   key={c.id}
                   onPress={() => router.push(`/review/${c.id}` as Href)}
@@ -87,7 +76,7 @@ export default function BeginScreen({ type }: { type: CaseType }) {
                   testID={`begin-case-${c.id}`}
                   style={({ pressed }) => ({
                     width: 208,
-                    minHeight: 172,
+                    minHeight: 152,
                     borderRadius: 20,
                     borderWidth: 1,
                     borderColor: c.status === "needs_approval" ? colors.statusNeedsYou : colors.border,
@@ -96,10 +85,6 @@ export default function BeginScreen({ type }: { type: CaseType }) {
                     gap: 10,
                   })}
                 >
-                  <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-                    <T variant="mono" color="textMuted">{String(i + 1).padStart(2, "0")}</T>
-                    <Icon name="ArrowRight" size={16} color="textMuted" />
-                  </View>
                   <T variant="strong" numberOfLines={3}>
                     {c.title}
                   </T>
@@ -140,7 +125,6 @@ export default function BeginScreen({ type }: { type: CaseType }) {
                 <Icon name="ArrowUp" size={36} color="brandDeep" strokeWidth={1.4} />
               </View>
               <T variant="heading">Swipe up to review</T>
-              <T variant="small" color="textMuted">Or tap a case above</T>
             </Pressable>
           </View>
         </ScrollView>

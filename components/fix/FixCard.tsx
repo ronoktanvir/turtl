@@ -40,7 +40,7 @@ export function FixCard({
       style={{ gap: 16, borderTopWidth: 1, borderColor: fix.recommended ? colors.brandDeep : colors.border, paddingTop: 20, paddingBottom: 8 }}
       testID={prefix + "-" + fix.key}
     >
-      {fix.recommended && <View style={{ flexDirection: "row", alignItems: "center", gap: 7 }}><Icon name="Sparkles" size={16} color="brandDeep" /><T variant="small" color="brandDeep" style={{ fontWeight: "700" }}>Recommended</T></View>}
+      {fix.recommended && <View style={{ flexDirection: "row", alignItems: "center", gap: 7 }}><Icon name="Check" size={16} color="brandDeep" /><T variant="small" color="brandDeep">Recommended</T></View>}
       <View style={{ flexDirection: "row", gap: 12, alignItems: "flex-start" }}>
         <Pressable
           onPress={() => setOpen(!open)}
@@ -68,7 +68,7 @@ export function FixCard({
       {open && (
         <View style={{ gap: 20, paddingLeft: 26 }}>
           <T>{fix.whatChanges}</T>
-          {fix.delivery === "pull_request" && <View style={{ flexDirection: "row", gap: 10, borderLeftWidth: 2, borderLeftColor: colors.brandDeep, paddingLeft: 12 }}><Icon name="GitPullRequest" size={18} color="brandDeep" /><T variant="small" color="textMuted" style={{ flex: 1 }}>{pullRequestNote}</T></View>}
+          {fix.delivery === "pull_request" && <View style={{ flexDirection: "row", gap: 10, borderLeftWidth: 2, borderLeftColor: colors.brandDeep, paddingLeft: 12 }}><Icon name="GitPullRequest" size={18} color="brandDeep" /><T color="textMuted" style={{ flex: 1 }}>{pullRequestNote}</T></View>}
           <View style={{ gap: 4 }}>
             <T variant="strong">Why</T>
             <SpanText spans={fix.why} sources={sources} prefix={prefix + "-" + fix.key} />

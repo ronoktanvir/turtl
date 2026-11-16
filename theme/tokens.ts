@@ -1,10 +1,10 @@
 import type { Health } from "../data/types";
 
 export const dark = {
-  bg: "#20262b",
-  surface: "#293137",
-  surfaceRaised: "#323d44",
-  border: "#3c484f",
+  bg: "#0A0A0A",
+  surface: "#151515",
+  surfaceRaised: "#202020",
+  border: "#303030",
   text: "#edf2ef",
   textMuted: "#a0adaf",
   link: "#539bf5",
