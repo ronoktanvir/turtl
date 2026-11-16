@@ -121,6 +121,7 @@
       "receives": [
         "The owner's approval when they sign in with GitHub or connect it, and requests to read who they are and which repositories they chose",
         "Requests to read those repositories and their pull requests",
+        "A check that the owner can still change a repository, before a merge or a code change",
         "A merge, when the owner taps Merge",
         "A request to remove turtl's GitHub App when the owner disconnects GitHub or deletes their account"
       ],
@@ -187,10 +188,10 @@
       "kind": "tool",
       "inPrivacyPolicy": true,
       "needsPermission": false,
-      "does": "Sends the email with a code to reset a password",
+      "does": "Sends the email that confirms a new password account's address, and the password reset email",
       "receives": [
         "The owner's email address",
-        "The reset code"
+        "A one-time code (to confirm the address, or to reset the password)"
       ],
       "hosts": [
         "api.resend.com"
@@ -269,7 +270,7 @@
     "EXPO_PUBLIC_TURTL_INTAKE_URL": "The demo app's report form: where it posts reports",
     "EXPO_PUBLIC_TURTL_INTAKE_KEY": "The demo app's report form: which app the report is for",
     "TURTL_PREVIEW_ORIGIN": "The address of a web preview, used when building one",
-    "AUTH_REQUIRED": "Set to true, accounts mode: sign-in, one owner per project, the AI permission and the limits. Unset, the single-owner demo",
+    "AUTH_REQUIRED": "Unset, empty or false: the single-owner demo, which makes no accounts and refuses to run on a backend that holds any. Any other value: accounts mode, with sign-in, one owner per project, the AI permission and the limits",
     "SITE_URL": "turtl's web address, where GitHub sign-in may return",
     "CONVEX_CLOUD_URL": "The backend's own address, set by Convex. Used to tell a local backend from a hosted one",
     "CONVEX_SITE_URL": "The backend's own web address, set by Convex. Sign-in tokens name it, and GitHub sends the owner back to it",
@@ -282,8 +283,8 @@
     "CODING_THREADS_PER_DAY": "The code changes one account may start in a day",
     "INTAKE_SPEND_PER_DAY_USD": "The AI spend one project's customer reports may use in a day",
     "INTAKE_CASES_PER_DAY": "The cases customer reports may open on one project in a day",
-    "NEW_ACCOUNTS_PER_HOUR": "The new accounts the backend makes in an hour",
-    "NEW_ACCOUNTS_PER_DAY": "The new accounts the backend makes in a day",
+    "NEW_ACCOUNTS_PER_HOUR": "The new accounts made with Apple or GitHub in an hour",
+    "NEW_ACCOUNTS_PER_DAY": "The new accounts made with Apple or GitHub in a day",
     "DEPLOYMENT_MODEL_SPEND_PER_DAY_USD": "The AI spend of every account together in a day",
     "PROJECTS_PER_ACCOUNT": "The projects one account may have",
     "INTAKE_KEYS_PER_PROJECT": "The report form keys one project may have at once",
@@ -292,7 +293,16 @@
     "KEIKI_API_KEY": "Lets the single-owner demo text its owner through Keiki (see onkeiki.com)",
     "KEIKI_AGENT_ID": "The Keiki agent the single-owner demo texts through",
     "KEIKI_OWNER_CONTACT": "The one phone number the single-owner demo texts. Read as unset with accounts on",
-    "KEIKI_BASE_URL": "Points Keiki calls at a stand-in in tests. With accounts on it is honoured only on a local backend"
+    "KEIKI_BASE_URL": "Points Keiki calls at a stand-in in tests. With accounts on it is honoured only on a local backend",
+    "PRACTICE_BREAKS_PER_DAY": "How many times one account may break its practice app in a day. A number; it sends nothing anywhere",
+    "PASSWORD_SIGNUPS_PER_HOUR": "The password sign-ups the backend accepts in an hour, before any address is confirmed",
+    "PASSWORD_SIGNUPS_PER_DAY": "The password sign-ups the backend accepts in a day. With at most five emails each, it bounds a day's confirmation emails",
+    "CONFIRMED_SIGNUPS_PER_HOUR": "The password accounts that may confirm their address in an hour",
+    "CONFIRMED_SIGNUPS_PER_DAY": "The password accounts that may confirm their address in a day",
+    "ACCOUNT_MODEL_SPEND_PER_DAY_USD": "The AI spend one account may use in a day",
+    "ACCOUNT_INTAKE_SPEND_PER_DAY_USD": "The AI spend one account's customer reports may use in a day",
+    "OUTAGE_RESERVE_PERCENT": "The share of the backend's daily AI ceiling kept for finding the cause of outages",
+    "OUTAGE_RESERVE_ACCOUNT_USD": "Only an account that has spent less than this today may draw on that reserve"
   },
   "libraries": {
     "@auth/core": "Sign in with GitHub, used only in the backend",
