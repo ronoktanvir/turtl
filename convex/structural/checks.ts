@@ -27,6 +27,11 @@ export const approve = mutation({
   },
 });
 
+// The owner reads this on the case: where the run stopped, in words, never the app's error code.
+export function failedRunWords(failedStep: string | undefined): string {
+  return failedStep ? `Its first run failed at the "${failedStep}" step.` : "Its first run failed.";
+}
+
 export const load = internalQuery({
   args: { findingId: v.id("structuralFindings") },
   handler: async (ctx, { findingId }) => await ctx.db.get(findingId),
@@ -61,7 +66,6 @@ export const runOnce = internalAction({
     }
     const verdict = body.verdict as "passed" | "failed";
     const failedStep = typeof body.failedStep === "string" ? body.failedStep : undefined;
-    const code = typeof body.error?.code === "string" ? ` (${body.error.code})` : "";
     await ctx.runMutation(internal.structural.checks.settle, {
       findingId,
       outcome: {
@@ -72,7 +76,7 @@ export const runOnce = internalAction({
           summary:
             verdict === "passed"
               ? "Its first run passed: a test booking was saved while the scenario was applied."
-              : `Its first run failed at the "${failedStep ?? "unknown"}" step${code}. The monitor will open a case for it.`,
+              : `${failedRunWords(failedStep)} The monitor will open a case for it.`,
           at,
         },
       },
