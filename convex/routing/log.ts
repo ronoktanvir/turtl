@@ -1,6 +1,7 @@
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import { internalMutation, internalQuery, mutation, type MutationCtx } from "../_generated/server";
+import { accessEnforced, guardRow } from "../access";
 import { requireOwnerPasscode } from "../ownerPasscode";
 import { ROUTING_POLICY_VERSION } from "./configs";
 import { bucketOf, type LogEntry } from "./selector";
@@ -200,6 +201,7 @@ export const settlePending = internalMutation({
 export const correct = mutation({
   args: { agentRunId: v.id("agentRuns"), description: v.string(), passcode: v.optional(v.string()) },
   handler: async (ctx, { agentRunId, description, passcode }) => {
+    const account = await guardRow(ctx, "agentRuns", agentRunId, "This agent run does not exist.");
     await requireOwnerPasscode(ctx, passcode);
     const run = await ctx.db.get(agentRunId);
     if (!run) throw new ConvexError("This agent run does not exist.");
@@ -207,7 +209,7 @@ export const correct = mutation({
     if (!text || text.length > 1000) throw new ConvexError("Say in under 1,000 characters what the diagnosis got wrong.");
     const correctedAt = Date.now();
     await ctx.db.patch(agentRunId, {
-      corrections: [...run.corrections, { description: text, correctedAt, actor: { kind: "owner", identity: "owner" }, evidenceIds: [] }],
+      corrections: [...run.corrections, { description: text, correctedAt, actor: { kind: "owner", identity: accessEnforced() ? account : "owner" }, evidenceIds: [] }],
       outcome: "corrected",
       outcomeReason: `The owner corrected this diagnosis: ${text}`,
       outcomeAt: correctedAt,

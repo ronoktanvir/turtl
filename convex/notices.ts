@@ -2,17 +2,20 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { internalAction, internalMutation, query } from "./_generated/server";
+import { canSeeCase } from "./access";
 import { vNoticeEvent, vNoticeOutcome } from "./constants";
 import { sendOwnerNotice } from "./keiki";
 import type { NoticeResult } from "./keiki";
 
 export const forCase = query({
   args: { caseId: v.id("cases") },
-  handler: async (ctx, { caseId }) =>
-    await ctx.db
+  handler: async (ctx, { caseId }) => {
+    if (!(await canSeeCase(ctx, caseId))) return [];
+    return await ctx.db
       .query("ownerNotices")
       .withIndex("by_case_and_event", (q) => q.eq("caseId", caseId))
-      .collect(),
+      .collect();
+  },
 });
 
 export const claim = internalMutation({

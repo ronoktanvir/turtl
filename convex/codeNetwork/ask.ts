@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import { action } from "../_generated/server";
 import type { Doc } from "../_generated/dataModel";
+import { guardAppInAction } from "../access";
 import { searchChunks, type DocumentMatch } from "../supermemory";
 import { respond } from "./openai";
 import { scopeKey, vCodeChatScope, type ChatMessage, type CodeChatScope, type NetNode } from "./schema";
@@ -91,6 +92,7 @@ function describeScope(network: Network, scope: CodeChatScope): { context: strin
 export const ask = action({
   args: { scope: vCodeChatScope, message: v.string() },
   handler: async (ctx, { scope, message }): Promise<AskResult> => {
+    await guardAppInAction(ctx, scope.projectId);
     const missing = [
       ...(process.env.CODE_NETWORK_CHAT_ENABLED === "true" ? [] : ["CODE_NETWORK_CHAT_ENABLED"]),
       ...["SUPERMEMORY_API_KEY", "OPENAI_API_KEY"].filter((name) => !process.env[name]),

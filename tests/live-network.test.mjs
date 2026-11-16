@@ -73,6 +73,12 @@ function hooks() {
 const { resolve } = load("../convex/screens/network.ts", {
   "convex/values": { v: { string: () => ({}) } },
   "../_generated/server": { query: (definition) => definition },
+  // The real access rule. With AUTH_REQUIRED unset, as here, its checks do nothing.
+  "../access": load("../convex/access.ts", {
+    "convex/values": await import("convex/values"),
+    "./_generated/api": { internal: {} },
+    "./_generated/server": { internalQuery: (definition) => definition },
+  }),
 });
 
 function resolveFor(app, networks = [], projectId = "app-1") {

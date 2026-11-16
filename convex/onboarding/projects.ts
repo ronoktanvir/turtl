@@ -2,7 +2,7 @@ import { ConvexError, v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import { action, mutation, query, type MutationCtx } from "../_generated/server";
-import { SOLO_OWNER } from "../decisions";
+import { accessEnforced, canSeeApp, guardApp, guardAppInAction, requireAccount, visibleApps } from "../access";
 import { requireOwnerPasscode } from "../ownerPasscode";
 import { githubToken, mergePullRequest, readPullRequest } from "../prTracking/github";
 import { pullRequestOf } from "../prTracking/validators";
@@ -53,6 +53,7 @@ function liveUrlOf(input: string | undefined) {
 export const add = mutation({
   args: { repoUrl: v.string(), liveUrl: v.optional(v.string()), folders: v.optional(v.array(v.string())), passcode: v.optional(v.string()) },
   handler: async (ctx, { repoUrl, liveUrl, folders, passcode }) => {
+    const account = await requireAccount(ctx);
     await requireOwnerPasscode(ctx, passcode);
     const parsed = parseGithubUrl(repoUrl);
     if (!parsed) throw new ConvexError("Paste the repository's GitHub address, like https://github.com/owner/name.");
@@ -63,7 +64,11 @@ export const add = mutation({
       throw new ConvexError(error instanceof Error ? error.message : "A folder is not valid.");
     }
     const productionUrl = liveUrlOf(liveUrl);
-    for (const preparation of await ctx.db.query("onboardingPreparations").collect()) {
+    // With accounts on, a repository is "already a project" only among the caller's own projects.
+    const preparations = accessEnforced()
+      ? (await Promise.all((await visibleApps(ctx)).map((owned) => preparationFor(ctx, owned._id)))).flatMap((row) => (row ? [row] : []))
+      : await ctx.db.query("onboardingPreparations").collect();
+    for (const preparation of preparations) {
       const inspection = await latestInspection(ctx, preparation.appId);
       if (inspection?.repo.toLowerCase() === parsed.repo.toLowerCase() && inspection.folders.join(",") === scope.join(",")) {
         throw new ConvexError(`${parsed.repo}${scope.length ? ` (${scope.join(", ")})` : ""} is already a project.`);
@@ -74,7 +79,7 @@ export const add = mutation({
       name: scope.length ? `${repoName}/${scope[0]}` : repoName,
       repoUrl: `https://github.com/${parsed.repo}`,
       ...(productionUrl && { productionUrl }),
-      ownerId: SOLO_OWNER.identity,
+      ownerId: account,
     });
     await ctx.db.insert("onboardingPreparations", { appId, neverBreak: [] });
     await startInspection(ctx, appId, parsed.repo, scope);
@@ -85,6 +90,7 @@ export const add = mutation({
 export const inspectAgain = mutation({
   args: { projectId: v.string(), passcode: v.optional(v.string()) },
   handler: async (ctx, { projectId, passcode }) => {
+    await guardApp(ctx, projectId, "That project does not exist.");
     await requireOwnerPasscode(ctx, passcode);
     const { app, preparation } = await appFor(ctx, projectId);
     if (preparation.approvedAt !== undefined) throw new ConvexError("The preparation was already approved; turtl keeps the report you approved.");
@@ -103,6 +109,7 @@ export const saveAnswers = mutation({
     answers: v.array(v.object({ id: v.optional(v.string()), text: v.string(), suggested: v.optional(v.boolean()), why: v.optional(v.string()), addCheck: v.boolean() })),
   },
   handler: async (ctx, { projectId, answers }) => {
+    await guardApp(ctx, projectId, "That project does not exist.");
     const { preparation } = await appFor(ctx, projectId);
     if (preparation.approvedAt !== undefined) throw new ConvexError("The preparation was already approved, so the answers it used can't change.");
     const kept = answers.map((answer) => ({ ...answer, text: answer.text.trim() })).filter((answer) => answer.text.length > 0);
@@ -126,6 +133,7 @@ export const saveAnswers = mutation({
 export const approve = mutation({
   args: { projectId: v.string(), inspectionId: v.string(), passcode: v.optional(v.string()) },
   handler: async (ctx, { projectId, inspectionId, passcode }) => {
+    await guardApp(ctx, projectId, "That project does not exist.");
     await requireOwnerPasscode(ctx, passcode);
     const { app, preparation } = await appFor(ctx, projectId);
     if (preparation.approvedAt !== undefined) throw new ConvexError("You already approved this preparation.");
@@ -151,6 +159,7 @@ export const approve = mutation({
 export const refresh = action({
   args: { projectId: v.string() },
   handler: async (ctx, { projectId }): Promise<null> => {
+    await guardAppInAction(ctx, projectId);
     const row: Doc<"onboardingPreparations"> | null = await ctx.runQuery(internal.onboarding.records.forApp, { projectId });
     if (row) await syncPreparation(ctx, row, true);
     return null;
@@ -164,6 +173,7 @@ type MergeResult = { ok: true } | { ok: false; reason: string };
 export const merge = action({
   args: { projectId: v.string(), headSha: v.string(), passcode: v.optional(v.string()) },
   handler: async (ctx, { projectId, headSha, passcode }): Promise<MergeResult> => {
+    await guardAppInAction(ctx, projectId);
     await ctx.runQuery(internal.ownerPasscode.authorize, { passcode });
     const row: Doc<"onboardingPreparations"> | null = await ctx.runQuery(internal.onboarding.records.forApp, { projectId });
     if (!row || row.number === undefined || !row.repo) return { ok: false, reason: "This project has no preparation pull request yet." };
@@ -200,6 +210,7 @@ export const merge = action({
 export const checkAgain = mutation({
   args: { projectId: v.string(), passcode: v.optional(v.string()) },
   handler: async (ctx, { projectId, passcode }) => {
+    await guardApp(ctx, projectId, "That project does not exist.");
     await requireOwnerPasscode(ctx, passcode);
     const { preparation } = await appFor(ctx, projectId);
     if (preparation.mergedAt === undefined) throw new ConvexError("The preparation pull request has not merged yet.");
@@ -214,6 +225,7 @@ export const checkAgain = mutation({
 export const forProject = query({
   args: { projectId: v.string() },
   handler: async (ctx, { projectId }) => {
+    if (!(await canSeeApp(ctx, projectId))) return null;
     const appId = ctx.db.normalizeId("apps", projectId);
     const app = appId && (await ctx.db.get(appId));
     if (!app || app.isSample) return null;

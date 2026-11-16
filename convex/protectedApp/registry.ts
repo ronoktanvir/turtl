@@ -1,27 +1,32 @@
+import { ConvexError, v } from "convex/values";
 import { internalMutation, type MutationCtx } from "../_generated/server";
-import { SOLO_OWNER } from "../decisions";
+import { accessEnforced, MAX_PROJECTS, SOLO_ACCOUNT } from "../access";
 import { CHECK_VERSION, CREDENTIAL_REF, controlBase } from "./client";
 
 export const BOOKING_APP_NAME = "Still booking demo";
 export const BOOKING_JOURNEY_NAME = "Book an appointment";
 export const FLAG_ACTION_TYPE = "set_feature_flag";
 
-// Registers the booking app, its booking journey, and its one catalog action. Running it again creates nothing new.
-export async function registerBookingApp(ctx: MutationCtx) {
+// Registers the booking app, its booking journey, and its one catalog action for an account (the demo's one owner
+// unless given). Running it again creates nothing new. The demo finds the booking app by name, as it always has;
+// with accounts on, only among that account's own projects, so each account gets its own.
+export async function registerBookingApp(ctx: MutationCtx, ownerId: string = SOLO_ACCOUNT) {
   const base = controlBase();
   if (!base) {
     throw new Error("PROTECTED_APP_URL is not set on this deployment, so the booking app cannot be registered.");
   }
-  const existingApp = await ctx.db
-    .query("apps")
-    .filter((q) => q.eq(q.field("name"), BOOKING_APP_NAME))
-    .first();
+  const existingApp = accessEnforced()
+    ? ((await ctx.db.query("apps").withIndex("by_owner", (q) => q.eq("ownerId", ownerId)).take(MAX_PROJECTS)).find((app) => app.name === BOOKING_APP_NAME) ?? null)
+    : await ctx.db
+        .query("apps")
+        .withIndex("by_name", (q) => q.eq("name", BOOKING_APP_NAME))
+        .first();
   const appId =
     existingApp?._id ??
     (await ctx.db.insert("apps", {
       name: BOOKING_APP_NAME,
       productionUrl: base,
-      ownerId: SOLO_OWNER.identity,
+      ownerId,
     }));
 
   const existingJourney = (
@@ -77,7 +82,11 @@ export async function registerBookingApp(ctx: MutationCtx) {
   };
 }
 
+// From the dashboard or CLI. With accounts on, name the account (its users id) the booking app belongs to.
 export const register = internalMutation({
-  args: {},
-  handler: async (ctx) => registerBookingApp(ctx),
+  args: { ownerId: v.optional(v.string()) },
+  handler: async (ctx, { ownerId }) => {
+    if (accessEnforced() && !ownerId) throw new ConvexError("Name the account the booking app belongs to: pass ownerId.");
+    return await registerBookingApp(ctx, ownerId);
+  },
 });

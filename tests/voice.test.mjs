@@ -3,7 +3,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { test } from "node:test";
 import { runInThisContext } from "node:vm";
 import ts from "typescript";
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 
 function load(path, imports = {}) {
   const { outputText } = ts.transpileModule(readFileSync(new URL(path, import.meta.url), "utf8"), {
@@ -22,6 +22,12 @@ const progress = load("../convex/voice/progress.ts", { "../workflow": { MAX_ATTE
 
 const ref = (path) => new Proxy({ path }, { get: (target, key) => key === "path" ? target.path : ref(`${path}.${String(key)}`) });
 const define = (definition) => definition;
+// The real access rule. With AUTH_REQUIRED unset, as here, its checks do nothing.
+const access = load("../convex/access.ts", {
+  "convex/values": { ConvexError, v },
+  "./_generated/api": { internal: ref("internal") },
+  "./_generated/server": { internalQuery: define },
+});
 
 function turnModule({ heard = "approve it", speech = { ok: true, audio: new ArrayBuffer(8) } } = {}) {
   const calls = { transcribe: 0, speak: 0 };
@@ -29,6 +35,7 @@ function turnModule({ heard = "approve it", speech = { ok: true, audio: new Arra
     "convex/values": { v },
     "../_generated/api": { api: ref("api"), internal: ref("internal") },
     "../_generated/server": { action: define, internalMutation: define, query: define },
+    "../access": access,
     "./openai": {
       transcribe: async () => { calls.transcribe += 1; return typeof heard === "string" ? { ok: true, text: heard } : heard; },
       speak: async () => { calls.speak += 1; return speech; },

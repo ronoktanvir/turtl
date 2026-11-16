@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { query } from "./_generated/server";
+import { accessEnforced, canSeeCase, visibleCases } from "./access";
 import {
   DEFAULT_MAX_ATTEMPTS,
   currentPermission,
@@ -15,6 +16,7 @@ import { loadSteps } from "./workflow";
 export const list = query({
   args: {},
   handler: async (ctx) => {
+    if (accessEnforced()) return await visibleCases(ctx);
     return await ctx.db.query("cases").order("desc").collect();
   },
 });
@@ -23,7 +25,7 @@ export const list = query({
 export const listWithSteps = query({
   args: {},
   handler: async (ctx) => {
-    const cases = await ctx.db.query("cases").order("desc").collect();
+    const cases = accessEnforced() ? await visibleCases(ctx) : await ctx.db.query("cases").order("desc").collect();
     return await Promise.all(
       cases.map(async (row) => ({
         ...row,
@@ -38,6 +40,7 @@ export const listWithSteps = query({
 export const get = query({
   args: { id: v.string() },
   handler: async (ctx, args) => {
+    if (!(await canSeeCase(ctx, args.id))) return null;
     const id = ctx.db.normalizeId("cases", args.id);
     if (!id) return null;
     const row = await ctx.db.get(id);
@@ -52,6 +55,7 @@ export const get = query({
 export const cards = query({
   args: { id: v.string() },
   handler: async (ctx, args) => {
+    if (!(await canSeeCase(ctx, args.id))) return null;
     const id = ctx.db.normalizeId("cases", args.id);
     if (!id) return null;
     const row = await ctx.db.get(id);

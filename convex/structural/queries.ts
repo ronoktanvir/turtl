@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import type { Doc } from "../_generated/dataModel";
 import { query, type QueryCtx } from "../_generated/server";
+import { canSeeApp, canSeeCase } from "../access";
 import { signatureFor } from "../monitor";
 
 // What the app shows of structural findings: on the case that produced one, and on its project, where a
@@ -86,6 +87,7 @@ async function view(ctx: QueryCtx, finding: Doc<"structuralFindings">): Promise<
 export const forCase = query({
   args: { caseId: v.string() },
   handler: async (ctx, args): Promise<FindingView | null> => {
+    if (!(await canSeeCase(ctx, args.caseId))) return null;
     const caseId = ctx.db.normalizeId("cases", args.caseId);
     if (!caseId) return null;
     const finding = await ctx.db
@@ -101,6 +103,7 @@ export const forCase = query({
 export const forProject = query({
   args: { projectId: v.string() },
   handler: async (ctx, args): Promise<FindingView[]> => {
+    if (!(await canSeeApp(ctx, args.projectId))) return [];
     const appId = ctx.db.normalizeId("apps", args.projectId);
     if (!appId) return [];
     const findings = await ctx.db
