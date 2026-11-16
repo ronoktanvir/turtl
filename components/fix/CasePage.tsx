@@ -85,13 +85,13 @@ export function CasePage({ caseId, current }: { caseId: string; current: boolean
               <Reveal>
                 <View style={{ gap: 12 }}>
                   <View style={{ flexDirection: "row", flexWrap: "wrap", columnGap: 12, alignItems: "center" }}>
-                    <HealthWord health={c.health} testID={id("case-health")} />
+                    {c.status === "new" ? <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }} testID={id("case-health")}><Icon name="Plus" size={15} color="statusNew" /><T variant="small" color="statusNew">New issue</T></View> : <HealthWord health={c.health} testID={id("case-health")} />}
                     <T variant="small" color="textMuted">
                       {ago(c.happenedAt)}
                     </T>
                   </View>
                   <View style={{ flexDirection: "row", gap: 12, alignItems: "center" }}>
-                    <Turtle health={c.health} size={44} />
+                    {c.status === "new" ? <Image source={require("../../assets/turtle/new.png")} style={{ width: 44, height: 44 }} accessibilityLabel="New issue" /> : <Turtle health={c.health} size={44} />}
                     <T variant="strong" style={{ flex: 1 }} testID={id("case-summary")}>{c.summary}</T>
                   </View>
                     {!!c.reportCount && (
@@ -113,6 +113,7 @@ export function CasePage({ caseId, current }: { caseId: string; current: boolean
               )}
               <View style={{ gap: 12 }}>
                 <T variant="heading">Screenshots from app</T>
+                {c.screenshots.length === 0 && <T color="textMuted">No screenshots have been collected yet.</T>}
                 <ScrollView horizontal testID={id("screenshots-strip")} showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12 }}>
                   {c.screenshots.map((shot) => (
                     <View key={shot.id} style={{ width: 208, gap: 10 }} testID={"screenshot-" + shot.id}>
@@ -185,6 +186,7 @@ export function CasePage({ caseId, current }: { caseId: string; current: boolean
               <Button label="See the plan" kind="plain" onPress={openEnacting} testID={id("fixes-open-enacting")} />
             </Card>
           )}
+          {c.fixes.length === 0 && <T color="textMuted">No fixes have been proposed yet. This report needs investigation first.</T>}
           {c.fixes.map((fix, i) => (
             <FixCard
               key={fix.key}

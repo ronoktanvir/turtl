@@ -29,12 +29,12 @@ export function Reveal({ children, delay = 0, style, replayKey, progress }: { ch
   </Animated.View>;
 }
 
-export function ZoomPressable({ onPress, ...props }: PressableProps) {
+export function ZoomPressable({ onPress, containerStyle, ...props }: PressableProps & { containerStyle?: StyleProp<ViewStyle> }) {
   const reduced = useReducedMotion();
   const scale = useRef(new Animated.Value(1)).current;
   const opening = useRef(false);
   useEffect(() => () => scale.stopAnimation(), [scale]);
-  return <Animated.View style={{ transform: [{ scale }] }}><Pressable {...props} onPress={(event) => {
+  return <Animated.View style={[containerStyle, { transform: [{ scale }] }]}><Pressable {...props} onPress={(event) => {
     if (opening.current || !onPress) return;
     if (reduced) { onPress(event); return; }
     opening.current = true;
