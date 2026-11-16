@@ -14,6 +14,16 @@ The weakened boundary is credential isolation: turtl's caller secret (`PROTECTED
 
 The optional recommendations still deliberately gate the booking write (**staged defect**). The staged `providerTimeout` failure is recovered by disabling `recommendationsEnabled`. The independent staged `bookingStoreFailure` rejects the booking write at `submit_booking` with `BOOKING_STORE_UNAVAILABLE`, with recommendations on or off. It takes precedence if both staged failures are on. These are test instruments, not production failure injection or permanent repairs.
 
+## Scenarios: the prevention check
+
+`POST /booking-demo/journey-check?scenario=slow_recommendations` runs the same fixture booking with the live settings, except that the recommendations provider is slowed past its time limit for that one run (`JOURNEY_SCENARIOS` in `journeyCore.ts`). It is what turtl's prevention check "Book while recommendations are slow" calls (`CHECK_SCENARIOS` in `convex/structural/rules.ts`).
+
+- The settings row is never written: the scenario is applied in memory, `configuration` in the answer reports the live settings, and customers never meet it.
+- The fixture booking is deleted like any other, and a failure is not recorded in `/errors`.
+- The answer carries `"scenario": "slow_recommendations"`; turtl registers the check only when the scenario is echoed. A call without the parameter has no `scenario` field and behaves exactly as before.
+- An empty, repeated or unknown `scenario` is refused with 400 `UNKNOWN_SCENARIO` (after the bearer check, so an unauthenticated call still gets 401). Other query parameters are ignored, as before.
+- With the staged defect in place (recommendations on), the scenario fails at `recommendations` with `RECOMMENDATIONS_TIMEOUT`, so once registered the monitor opens a case for it every time it runs. With recommendations off it passes. `dev:resetBooking` needs every journey to pass, so clear the finding and its check first with `structural/dev:clear`.
+
 ## Environment and verification
 
 On the shared deployment, configure:
@@ -35,6 +45,8 @@ CONTROL_BASE_URL=http://127.0.0.1:3211/booking-demo \
   node convex/bookingDemo/control.test.mjs
 ```
 
-Export caller-side `PROTECTED_APP_CONTROL_SECRET` in the shell first. The script prints redacted transcripts, checks all eight flag/failure configurations, rejects malformed state changes, verifies hash authentication, and restores all settings. Run it only against an isolated deployment without concurrent customer traffic. Its `.test.mjs` name keeps the Node-only check script out of Convex function deployment.
+Export caller-side `PROTECTED_APP_CONTROL_SECRET` in the shell first. The script prints redacted transcripts, checks all eight flag/failure configurations and the `slow_recommendations` scenario, rejects malformed state changes and unknown scenarios, verifies hash authentication, and restores all settings. `tests/booking-scenario.test.mjs` checks the scenario without a server.
+
+To prove the prevention check end to end on a local deployment with no model key: `dev:registerBooking`, `dev:stageOutage '{"on":true}'` and `dev:checkNow` to open a case, `dev:stageOutage '{"on":false}'`, then seed a finding by hand with `structural/records:startRun` and `structural/records:recordFinding` (internal functions `npx convex run` can call; give the test `"scenario": "slow_recommendations"`). Approving it with `structural/checks:approve` registers the journey "Book while recommendations are slow", and the next `dev:checkNow` runs it and opens a case. Run it only against an isolated deployment without concurrent customer traffic. Its `.test.mjs` name keeps the Node-only check script out of Convex function deployment.
 
 The Expo booking screens are not included in this backend port. A separate frontend change will use the namespaced customer functions on this deployment. The original standalone branch is retained for local tests until then.
