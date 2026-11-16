@@ -43,8 +43,10 @@ A `development` build is a Release build for the simulator, like the one Revyl m
 
 - **Icon:** `assets/images/icon.png`, 1024 by 1024, no alpha channel.
 - **Export compliance:** `ios.config.usesNonExemptEncryption: false` in `app.json`. turtl uses only the system's HTTPS and Keychain.
-- **Purpose strings:** the microphone, for voice on a case, set on the `expo-audio` plugin in `app.config.ts`. It is the only permission the app asks for. `expo-secure-store` would add a Face ID string by default; the app never asks for Face ID, so `app.config.ts` switches it off.
-- **Privacy manifest:** `ios.privacyManifests` in `app.json` declares no tracking and repeats every required-reason API its libraries declare (user defaults, file timestamps, boot time, disk space), because Apple reads only the app's own manifest reliably. At `pod install`, React Native also merges every pod's reasons into the app's manifest, which covers a pod that ships outside `node_modules`, such as SocketRocket. `NSPrivacyCollectedDataTypes` is empty until the listing thread's data audit says what belongs there.
+- **Purpose strings:** the microphone, for voice on a case, set on the `expo-audio` plugin in `app.config.ts`. It is the only purpose string. The app also asks iOS for permission to show notifications, after the owner taps to turn them on; that prompt needs no purpose string. `expo-secure-store` would add a Face ID string by default; the app never asks for Face ID, so `app.config.ts` switches it off.
+- **Push:** the `expo-notifications` plugin in `app.config.ts` uses Apple's development push service for `development` builds and the production service for `preview` and `production`, with background pushes off. Delivery to a phone needs Apple's push key in EAS's credentials, which do not exist yet.
+- **Sign in with Apple:** `expo-apple-authentication` is installed, and Expo's prebuild applies its plugin, which adds the Sign in with Apple entitlement.
+- **Privacy manifest:** `ios.privacyManifests` in `app.json` declares no tracking and repeats every required-reason API its libraries declare (user defaults, file timestamps, boot time, disk space), because Apple reads only the app's own manifest reliably. At `pod install`, React Native also merges every pod's reasons into the app's manifest, which covers a pod that ships outside `node_modules`, such as SocketRocket. `NSPrivacyCollectedDataTypes` is still empty, although the App Privacy answers in `store/app-privacy.md` now list data turtl collects (with accounts, an email address, a name and a user id; with push, a device id). Filling it in `app.json` is a change still to make.
 - **iPhone only:** `ios.supportsTablet: false`.
 - **Scheme:** `turtl://` stays.
 
@@ -57,7 +59,7 @@ When you add a native module or a config plugin:
 ## Checks
 
 - **Every pull request** (`.github/workflows/ci.yml`): both typechecks and `npm run test:ci`, which is every test in `tests/` that does not drive a browser. It then prints release readiness warnings that never fail the run.
-- **Before a release:** `node release/preflight.mjs` runs the store checks, generates the iOS project in a scratch folder and reads its `Info.plist` and privacy manifest, checks the backend table against `convex/`, and refuses while the backend has no sign-in (`convex/auth.config.ts`).
+- **Before a release:** `node release/preflight.mjs` runs the store checks, generates the iOS project in a scratch folder and reads its `Info.plist` and privacy manifest, checks the backend table against `convex/`, and refuses if the backend has no sign-in (`convex/auth.config.ts`, which exists now). `--advisory` runs only the quick checks, as GitHub warnings, and always exits 0; pull request CI runs it that way.
 - **By hand:** `npx expo-doctor` should report no issues.
 
 ## The release workflow
@@ -88,13 +90,13 @@ Nothing in the repository holds a credential. The workflow reads `EXPO_TOKEN` an
 
 | Value | Where it comes from | Where it goes |
 | --- | --- | --- |
-| Apple team id | developer.apple.com, Membership details | Chosen once at the `eas credentials` prompt. Stored nowhere in the repository or GitHub. Tell the Captain; push notifications and Sign in with Apple will ask for it. |
+| Apple team id | developer.apple.com, Membership details | Chosen once at the `eas credentials` prompt. Stored nowhere in the repository or GitHub. Also the backend variable `AUTH_APPLE_TEAM_ID`, which Sign in with Apple's token revocation needs. |
 | App Store Connect API key | Created by `eas credentials` | Expo's servers, attached to `com.turtl.oncall` |
 | Expo access token | expo.dev, Access tokens | GitHub environment secret `EXPO_TOKEN` |
 | Production Convex deploy key | Convex dashboard, the production deployment's settings | GitHub environment secret `CONVEX_DEPLOY_KEY` |
 | App Store Connect app id | App Store Connect, App Information, Apple ID | GitHub environment variable `ASC_APP_ID` |
 | EAS project id | Printed by `eas init` | `app.json`, committed |
-| Backend variables | `OPENAI_API_KEY` and `SUPERMEMORY_API_KEY` from their providers; the six GitHub App values from the app's settings page, with the GitHub thread's steps | The Convex production deployment (every name is in `backend-runbook.md`) |
+| Backend variables | `AUTH_REQUIRED=true`; the sign-in keys (`JWT_PRIVATE_KEY`, `JWKS`, `SITE_URL`, see `convex/auth/README.md`); `OPENAI_API_KEY` and `SUPERMEMORY_API_KEY` from their providers; the GitHub App's values from its settings page (`convex/github/README.md`); the Sign in with Apple key (`AUTH_APPLE_KEY_ID`, `AUTH_APPLE_PRIVATE_KEY`); `SECRETS_ENCRYPTION_KEY` and `INTAKE_CONTACT_KEY`, made once at random | The Convex production deployment (every name, and whether production needs it, is in `backend-runbook.md`) |
 
 If Apple says `com.turtl.oncall` is taken by another developer, stop and tell the Captain: the bundle identifier is in `app.json` and in Revyl's app.
 
@@ -105,4 +107,5 @@ None of this has run against Apple or Expo, because no credential for them exist
 - That the release workflow's EAS steps work as written: `eas env:set`, `eas env:get`, `eas build --auto-submit`, and the build number going up.
 - That EAS can create the certificate and profile for this Apple team, and that `com.turtl.oncall` is free.
 - That App Store Connect accepts the upload: its checks of the icon, the privacy manifest, the purpose strings, and the export compliance answer run only on a signed archive.
-- How the app behaves on a real iPhone: the microphone prompt, and the "Can't reach turtl" screen on a real network drop.
+- How the app behaves on a real iPhone: the microphone and notification prompts, the "Can't reach turtl" screen on a real network drop, Sign in with Apple, and a push reaching the phone (it needs the push key in EAS).
+- That Apple accepts turtl's token revocation when an account is deleted: it has run only against a stand-in.
