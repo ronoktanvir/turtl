@@ -14,6 +14,7 @@ import {
   type ViewStyle,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { devToolsAllowed } from "../../data/source";
 import type { Health } from "../../data/types";
 import { healthToken, healthWord, useTheme, type TokenName } from "../../theme";
 import { Icon, type IconName } from "./Icon";
@@ -22,8 +23,7 @@ export { Icon, type IconName } from "./Icon";
 export { Reveal, ZoomPressable, useReducedMotion } from "./motion";
 export { BrandIcon } from "./BrandIcon";
 
-export const devToolsOn =
-  !!process.env.EXPO_PUBLIC_CONVEX_URL && (__DEV__ || process.env.EXPO_PUBLIC_DEV_TOOLS === "1");
+export const devToolsOn = !!process.env.EXPO_PUBLIC_CONVEX_URL && devToolsAllowed;
 
 const turtles: Record<Health, number> = {
   affected: require("../../assets/turtle/affected-laptop.png"),

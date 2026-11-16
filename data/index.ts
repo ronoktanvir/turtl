@@ -1,12 +1,20 @@
+import { useEffect, useState } from "react";
 import * as example from "./example/hooks";
 import { useVoice as useExampleVoice } from "./example/voice";
 import * as live from "./live";
 import { useVoice as useLiveVoice } from "./live/voice";
+import { liveClient } from "./live/client";
+import { watchReachability } from "./live/reachability";
 import { isLiveData } from "./source";
 
-export { isLiveData } from "./source";
+export { appEnv, isLiveData, isStoreBuild } from "./source";
 export { useDataStatus } from "./live/client";
 export { liveClient as backendClient } from "./live/client";
+export function useBackendReachable(): boolean {
+  const [reachable, setReachable] = useState(true);
+  useEffect(() => (liveClient ? watchReachability(liveClient, setReachable) : undefined), []);
+  return reachable;
+}
 export const useProjects = isLiveData ? live.useProjects : example.useProjects;
 export const useProject = isLiveData ? live.useProject : example.useProject;
 export const useCases = isLiveData ? live.useCases : example.useCases;
