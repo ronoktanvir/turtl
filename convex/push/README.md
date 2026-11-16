@@ -29,12 +29,20 @@ proves this. No notification is promotional.
 Every live phone of the project's owner: the account in `apps.ownerId` (in the single-owner demo, `solo-owner`).
 Identity does not travel through the scheduler, so the recipient comes from the project, never from a caller.
 
+With `AUTH_REQUIRED=true`, a phone is live only while the sign-in session that turned its notifications on is live
+(`receives` in `devices.ts`). Signing out, a password reset and account deletion end sessions, and sessions run out;
+from then on delivery skips the phone, another account may register it, and it is removed: at once by a reset
+(`forgetEnded`), and otherwise by the hourly sweep. A phone registered by a caller whose token names no session (an
+identity the operator's admin key stands for) is live until removed. Phones registered before sessions were kept name
+none: they receive nothing until the app, signed in to the same account, files them under its session at its next
+launch, and the sweep removes the rest. The single-owner demo keeps no sessions and is unchanged.
+
 ## Tables
 
 - `pushTokens`: one row per phone. `account`, the Expo push `token` (it identifies a phone: collected data, Device ID),
   `platform`, `addedAt`, `lastSeenAt`, and `disabledAt`/`disabledReason` when Expo said the phone no longer accepts
-  notifications (`not_registered`) or a newer phone took its place (`replaced`). At most 10 live and 10 disabled
-  phones per account.
+  notifications (`not_registered`) or a newer phone took its place (`replaced`). With accounts on, `sessionId` (the
+  sign-in session that registered it) or `noSession`. At most 10 live and 10 disabled phones per account.
 - `pushSends`: the push outcome of one owner notice, beside its text outcome: `noticeId`, `caseId`, `event`, `account`,
   `outcome` (`sent`, `partly_sent`, `failed`), Expo's HTTP status, and one ticket per phone (Expo's receipt id or error,
   and the receipt when read). Written only when there was a phone to send to.
@@ -45,17 +53,20 @@ Identity does not travel through the scheduler, so the recipient comes from the 
 | --- | --- |
 | `push/devices:status` (query) | The app, to show the Notifications row. Returns `accountsMode`, `signedIn`, `registered`. |
 | `push/devices:register` | The app, after the owner allowed notifications. |
-| `push/devices:refresh` | The app, at launch and when the phone's token changes (`previousToken` is removed). |
+| `push/devices:refresh` | The app, at launch and when the phone's token changes (`previousToken` is removed), tying the phone to the session it is signed in with now. With accounts on it never registers a phone: it answers false for a token that is not this account's, and the app forgets it. |
 | `push/devices:remove` | The app, when the owner turns notifications off on this phone, and on sign-out (`removePushRegistration()` in `data/push`), before the session ends. |
 | `internal.push.devices.removeAccount` | Account deletion: removes all of an account's phones in batches. |
+| `internal.push.devices.forgetEnded` | A password reset (`convex/auth/password.ts`): removes the account's phones whose session it ended. |
+| `internal.push.devices.sweep` | Every hour (`convex/crons.ts`): removes every phone whose session has ended, in batches. |
 | `internal.push.deliver.forNotice` | `convex/notices.ts`, once per case event. |
 | `internal.push.deliver.checkReceipts` | Scheduled 15 minutes after a send, as Expo asks; retried once if Expo cannot answer. |
 
 The public functions ask `convex/access.ts` for the account. With `AUTH_REQUIRED=true` they refuse without sign-in,
-and an account can only read, refresh or remove its own phones. A token that is live on another account is refused by
-`register` and `refresh` ("This phone still gets notifications for another turtl account…"): a token is not a secret,
-so moving it would let anyone who learned one take that owner's notifications. Signing out on the phone removes its
-token first, so the next account to sign in there can register it; a token Expo turned off moves freely.
+and an account can only read, refresh or remove its own phones. A token that is live on another account (its session
+is live) is refused by `register` and `refresh` ("This phone still gets notifications for another turtl account…"):
+a token is not a secret, so moving it would let anyone who learned one take that owner's notifications. Signing out on
+the phone removes its token first, and ends its session in any case, so the next account to sign in there can
+register it; a token Expo turned off moves freely.
 
 ## Expo's answers
 

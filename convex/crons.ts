@@ -25,4 +25,8 @@ crons.interval("resume account deletions", { minutes: 15 }, internal.account.del
 crons.interval("forget old emailed codes", { hours: 1 }, internal.auth.codes.prune, {});
 crons.interval("remove unconfirmed accounts", { hours: 1 }, internal.auth.confirmation.sweep, {});
 
+// Forgets the phones whose sign-in session has ended, so they stop being any account's (convex/push/devices.ts).
+// Delivery already skips them; it does nothing in the demo or while there are none.
+crons.interval("forget phones whose sign-in ended", { hours: 1 }, internal.push.devices.sweep, {});
+
 export default crons;

@@ -157,7 +157,14 @@ export function createPushController(deps: {
         }
         await device.setup();
         const token = await device.token();
-        await deps.backend.refresh(token, platformOf(), token !== stored ? stored : undefined);
+        const kept = await deps.backend.refresh(token, platformOf(), token !== stored ? stored : undefined);
+        // The backend files a phone only under the account that turned its notifications on. One it no longer files
+        // under this account (another account signed in here, or this phone's sign-in ended) is forgotten, so the
+        // notifications row reads as off until this account turns them on itself.
+        if (kept === false) {
+          await remember({ token: undefined });
+          return;
+        }
         if (token !== stored) await remember({ token });
       } catch {
         // Best effort; the next launch tries again.
