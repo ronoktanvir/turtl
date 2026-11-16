@@ -24,7 +24,7 @@ turtl is run by {% include blank.html value=site.data.operator.legal_name label=
 - **Your account.** The email address you sign in with. If you sign up with an email address and a password, you confirm the address with a code turtl emails you; until then the account opens nothing else. If you sign in with Apple or GitHub: the id it gives turtl for you, and your name, and from GitHub your profile picture, if it passes them on. If you sign in with a password, turtl stores a scrambled form of it that cannot be turned back into the password. turtl uses these to sign you in and to keep your projects yours.
 - **A token from Apple,** if you sign in with Apple. turtl keeps it encrypted, only so that it can tell Apple to end turtl's access when you delete your account.
 - **Your phone's notification address,** if you turn on notifications. It is a token that lets a notification reach your phone. turtl keeps one for each phone where you turned them on, and a phone receives notifications only while you are signed in on it.
-- **Your sign-in on the phone** is kept in the iOS Keychain.
+- **On your phone,** turtl keeps your sign-in and the theme you chose in the iOS Keychain. It also remembers the address you last asked to reset, for 24 hours, so the link in the email can fill in only the code. The theme never leaves the phone, and the address leaves it only in the reset request itself.
 
 ### What you connect
 
@@ -94,7 +94,7 @@ If you tap Not now, turtl still watches your app, runs its checks, and offers th
 
 You can read the list again, allow it, or take your permission back at any time: open a project, tap the gear, then AI services. Taking it back stops the next request. If turtl adds a service to the list, or changes what one receives, it asks you again before sending anything to it.
 
-Each account also has limits on AI: a monthly allowance, a daily allowance ($2.50, plus $1.00 for its customers' reports), and a number of code changes it can start in a day. Settings shows where you stand. When turtl does not use AI, it says why on the case and explains with its own rules.
+Each account also has limits on AI: a monthly allowance, a daily allowance ($2.50, plus $1.00 for its customers' reports), and a number of code changes it can start in a day. Settings shows where you stand. When turtl does not use AI, it says why on the case and explains with its own rules. Your practice app has its own small daily AI allowance; once it is used, turtl still opens the case, explains it with its own rules, and tells you why.
 
 ## How long turtl keeps it
 
