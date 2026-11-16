@@ -42,7 +42,7 @@ export default function AddProject() {
   };
 
   const fields = [
-    { id: "add-project-repo", label: "GitHub repository", value: repoUrl, set: setRepoUrl, placeholder: "https://github.com/owner/name", keyboard: "url" as const },
+    { id: "add-project-repo", label: "GitHub repository", value: repoUrl, set: setRepoUrl, placeholder: "https://github.com/you/app", keyboard: "url" as const },
     { id: "add-project-live", label: "Live app URL (optional)", value: liveUrl, set: setLiveUrl, placeholder: "https://", keyboard: "url" as const },
     { id: "add-project-folders", label: "Folders (optional)", value: folders, set: setFolders, placeholder: "apps/mobile, packages/api", keyboard: "default" as const, hint: "For an app that shares its repository. Separate folders with commas." },
   ];

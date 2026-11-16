@@ -1,0 +1,37 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { issueState } from "../components/project/issueState.ts";
+
+// The word and turtle on each card of the Fix and Features lists. A feature request is something customers
+// asked for; it is never an "issue", and nothing about it is urgent in the way a broken app is.
+
+const item = (type, status, health) => ({ type, status, health });
+
+test("a bug that is hurting users is an urgent issue", () => {
+  assert.deepEqual(issueState(item("fix", "needs_approval", "affected")), { label: "Urgent issue", color: "statusAffected", turtle: "affected" });
+  assert.deepEqual(issueState(item("fix", "investigating", "affected")), { label: "Urgent issue", color: "statusAffected", turtle: "affected" });
+});
+
+test("a feature request is never called an urgent issue, whatever its health says", () => {
+  assert.deepEqual(issueState(item("feature", "needs_approval", "affected")), { label: "Needs review", color: "statusReview", turtle: "review" });
+  assert.deepEqual(issueState(item("feature", "enacting", "affected")), { label: "Currently working", color: "statusWorking", turtle: "working" });
+  assert.deepEqual(issueState(item("feature", "new", "affected")), { label: "New request", color: "statusNew", turtle: "new" });
+});
+
+test("something nobody has looked at yet is a new issue under Fix and a new request under Features", () => {
+  assert.equal(issueState(item("fix", "new", "clear")).label, "New issue");
+  assert.equal(issueState(item("feature", "new", "clear")).label, "New request");
+});
+
+test("how a case ended is said before anything else, for bugs and requests alike", () => {
+  for (const type of ["fix", "feature"]) {
+    assert.deepEqual(issueState(item(type, "resolved", "affected")), { label: "Resolved", color: "statusClear", turtle: "clear" });
+    assert.deepEqual(issueState(item(type, "declined", "affected")), { label: "Declined", color: "textMuted", turtle: "needs_you" });
+    assert.deepEqual(issueState(item(type, "unresolved", "clear")), { label: "Unresolved", color: "statusAffected", turtle: "affected" });
+  }
+});
+
+test("a case waiting on the owner needs review, and one turtl is on is currently working", () => {
+  assert.deepEqual(issueState(item("fix", "ready_to_merge", "needs_you")), { label: "Needs review", color: "statusReview", turtle: "review" });
+  assert.deepEqual(issueState(item("fix", "investigating", "working")), { label: "Currently working", color: "statusWorking", turtle: "working" });
+});

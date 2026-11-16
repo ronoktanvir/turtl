@@ -122,9 +122,9 @@ export const projectErasers: Eraser[] = [
   // The map of the code, and the questions asked about it. Its documents at Supermemory go with the code_ namespace.
   projectRows("codeNetworks", "by_project", { field: "projectId", text: true }),
   projectRows("codeChatMessages", "by_project_scope_and_at", { field: "projectId", text: true }),
-  // At integration (wave 2), the secrets engineer's erasers go here, one line each, with the tables they remove:
-  //   call("project", "secrets.project", [<their per-project tables>], internal.secrets.erase.forProject),
-  //   call("project", "protectedApp.watching", [<its tables>], internal.protectedApp.watching.forgetProject),
+  // The project's own control token, sealed (convex/secrets), and the monitor's note of why it last skipped the project.
+  projectRows("secrets", "by_app_and_kind"),
+  projectRows("watchedProjects", "by_app"),
 ];
 
 /** The account's own rows, removed after its projects. The sign-in records go last. */
@@ -133,7 +133,8 @@ export const accountErasers: Eraser[] = [
   accountRows("aiConsents", "by_account"),
   accountRows("modelSpend", "by_account_and_month"),
   accountRows("codingThreads", "by_account_day_and_request"),
-  // At integration (wave 2): call("account", "secrets.account", [<their per-account tables>], internal.secrets.erase.forAccount),
+  // The account's coding agent key, sealed (convex/secrets). A project's control token went with the project above.
+  accountRows("secrets", "by_account_and_kind"),
   inline("auth.signIn", ["authSessions", "authRefreshTokens", "authVerifiers", "authAccounts", "authVerificationCodes", "authPasswordResets", "authRateLimits", "users"], eraseSignIn),
 ];
 

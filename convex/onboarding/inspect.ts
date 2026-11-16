@@ -197,7 +197,7 @@ export const run = internalAction({
     const refused = process.env.OPENAI_API_KEY ? await gate.blocked("openai") : null;
     if (!process.env.OPENAI_API_KEY) {
       judgedBy = "rules";
-      fallbackReason = "No model answered: OPENAI_API_KEY is not set on turtl's deployment. These results are text-search leads only.";
+      fallbackReason = "No model answered, because this turtl backend has no AI model set up. These results are text-search leads only, so nothing is called missing; you can still prepare the app, and reading it again once a model is set up gives a fuller report.";
       items = ruleItems(hits);
     } else if (refused) {
       judgedBy = "rules";

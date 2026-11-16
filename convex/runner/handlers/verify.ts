@@ -31,7 +31,7 @@ export const handler: StepHandler = {
     }
     const loaded = await loadJourneyContext(ctx, input);
     if (!loaded.ok) return { status: "failed", error: loaded.reason };
-    const { base, journey, check } = loaded.context;
+    const { base, journey, check, watched } = loaded.context;
     const action: Doc<"actions"> | null = loaded.context.action;
     if (!action || action.status !== "completed") {
       return { status: "failed", error: "No completed action to verify." };
@@ -39,7 +39,7 @@ export const handler: StepHandler = {
     const payload = action.executionPayload;
     const codeChange = payload.config.kind === "capy";
     const startedAt = Date.now();
-    const deployedRevision = await readRevision(base);
+    const deployedRevision = await readRevision(base, watched);
     const revision = revisionOf(deployedRevision, base);
     if (codeChange) {
       const pullRequest = await ctx.runQuery(internal.prTracking.records.forAction, { actionId: action._id });
@@ -50,7 +50,7 @@ export const handler: StepHandler = {
     const rows: ReturnType<typeof evidenceRow>[] = [];
     const results = new Map<string, Omit<CriterionResult, "criterionId" | "evidenceIds"> & { evidence?: number }>();
 
-    const health = await call(`${base}/health`);
+    const health = await call(`${base}/health`, { app: watched });
     const healthOk = health.kind === "response" && health.status === 200;
     rows.push(
       evidenceRow(input, revision, {
@@ -65,6 +65,7 @@ export const handler: StepHandler = {
     if (healthOk) {
       if (!codeChange) {
         const flags = await call(payload.config.kind === "http" ? payload.config.url : `${base}/flags`, {
+          app: watched,
           credentialRef: payload.config.credentialRef,
         });
         const flagValue =
@@ -85,7 +86,7 @@ export const handler: StepHandler = {
 
       const ref = payload.checkRefs.find((r) => r.journeyId === journey._id);
       const observedAt = Date.now();
-      const outcome = await runJourneyCheck(check);
+      const outcome = await runJourneyCheck(check, watched);
       const title = outcome.ok ? describeJourney(outcome.result) : `The booking check could not be run: ${outcome.reason}.`;
       rows.push(
         evidenceRow(input, revision, {

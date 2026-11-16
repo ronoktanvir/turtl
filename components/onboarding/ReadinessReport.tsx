@@ -36,12 +36,16 @@ function ItemRow({ item, first }: { item: ReadinessItem; first: boolean }) {
       </View>
       <T color="textMuted">{item.note}</T>
       {groups.length > 0 && (
-        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+        <View style={{ flexDirection: "row", flexWrap: "wrap", columnGap: 8 }}>
           {(expanded ? groups : groups.slice(0, shownChips)).map((group) => (
-            <Pressable key={group.path} accessibilityRole="link" accessibilityLabel={"Open " + group.path} testID={"prepare-file-" + item.key} onPress={() => void Linking.openURL(group.url)} style={({ pressed }) => ({ maxWidth: "100%", flexDirection: "row", alignItems: "center", gap: 6, minHeight: 36, paddingHorizontal: 10, borderRadius: 999, borderWidth: 1, borderColor: colors.border, backgroundColor: pressed ? colors.surfaceRaised : colors.bg })}>
-              <Glyph name="FileCode" size={14} color="link" />
-              <T variant="mono" color="link" numberOfLines={1} style={{ flexShrink: 1 }}>{group.path}</T>
-              {group.lines.length > 0 && <T variant="mono" color="link" numberOfLines={1} style={{ flexShrink: 0 }}>{group.lines.join(", ")}</T>}
+            <Pressable key={group.path} accessibilityRole="link" accessibilityLabel={"Open " + group.path} testID={"prepare-file-" + item.key} onPress={() => void Linking.openURL(group.url)} style={{ maxWidth: "100%", minHeight: 44, justifyContent: "center" }}>
+              {({ pressed }) => (
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 6, minHeight: 36, paddingHorizontal: 10, borderRadius: 999, borderWidth: 1, borderColor: colors.border, backgroundColor: pressed ? colors.surfaceRaised : colors.bg }}>
+                  <Glyph name="FileCode" size={14} color="link" />
+                  <T variant="mono" color="link" numberOfLines={1} style={{ flexShrink: 1 }}>{group.path}</T>
+                  {group.lines.length > 0 && <T variant="mono" color="link" numberOfLines={1} style={{ flexShrink: 0 }}>{group.lines.join(", ")}</T>}
+                </View>
+              )}
             </Pressable>
           ))}
           {hidden > 0 && (

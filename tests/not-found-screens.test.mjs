@@ -24,7 +24,7 @@ test("Investigate says a project it cannot see is not found, not that its code i
   const investigate = source("../app/project/[projectId]/investigate.tsx");
   const notFound = investigate.indexOf("project === null ?");
   assert.ok(notFound > 0, "Investigate checks for a missing project");
-  assert.ok(notFound < investigate.indexOf("Loading code network…"), "checked before waiting for the code network");
+  assert.ok(notFound < investigate.indexOf("Loading the map of your code…"), "checked before waiting for the code network");
   assert.ok(notFound < investigate.indexOf("turtl has not mapped this project's code yet."));
   assert.ok(investigate.slice(notFound).includes("This project is no longer available."));
 });

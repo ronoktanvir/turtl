@@ -1,21 +1,32 @@
 import type { Gate } from "../consent/gate";
+import { standInOnly } from "../demoSettings";
 
 declare const process: { env: Record<string, string | undefined> };
+
+// Capy's HTTP API. Which key a thread starts with is decided in codingAgent.ts; this file only speaks to Capy.
 
 // Every request asks the project's gate first (convex/consent/gate.ts): in accounts mode nothing reaches Capy without
 // the owner's permission, and starting a thread also counts against the account's daily limit.
 
-const API_URL = "https://api.capy.ai/api/v1";
+// CAPY_API_URL points Capy calls at a stand-in server in tests; production never sets it (release/backend-env.mjs).
+// With accounts on it is honoured only on a local backend, so an owner's key is never sent to another server by it.
+const apiUrl = () => (standInOnly(process.env.CAPY_API_URL) || "https://api.capy.ai/api/v1").replace(/\/+$/, "");
 const REQUEST_TIMEOUT_MS = 15_000;
 const STOPPED_STATUSES = ["idle", "failed", "archived"];
 const MAX_PAGES = 20;
 
 export type CapyConfig =
-  | { ok: true; apiKey: string; projectId?: string; model?: { modelId: string; reasoningMode?: string } }
-  | { ok: false; missing: string[] };
+  /** own: the key is the project owner's own (accounts on), not the deployment's CAPY_API_KEY. */
+  | { ok: true; apiKey: string; projectId?: string; model?: { modelId: string; reasoningMode?: string }; own?: boolean }
+  /** missing names what to set; reason, when given, is the whole sentence an owner reads instead. */
+  | { ok: false; missing: string[]; reason?: string };
 
-// CAPY_PROJECT_ID, CAPY_MODEL_ID and CAPY_REASONING are optional: without a project id, the thread goes
-// to the project that holds the repository.
+/** The plain sentence for a coding agent that cannot start, ending "Nothing was sent." */
+export const notConfigured = (capy: Extract<CapyConfig, { ok: false }>, what: string) =>
+  capy.reason ? `${capy.reason} Nothing was sent.` : `Not configured: set ${capy.missing.join(" and ")} on turtl's deployment so Capy can ${what}. Nothing was sent.`;
+
+// The deployment's coding agent, for the single-owner demo. CAPY_PROJECT_ID, CAPY_MODEL_ID and CAPY_REASONING are
+// optional: without a project id, the thread goes to the project that holds the repository.
 export function capyConfig(): CapyConfig {
   const apiKey = process.env.CAPY_API_KEY;
   if (!apiKey) return { ok: false, missing: ["CAPY_API_KEY"] };
@@ -70,7 +81,7 @@ type CapyResult<T> = { ok: true; body: T } | { ok: false; message: string };
 
 async function capy<T>(send: typeof fetch, apiKey: string, path: string, body?: unknown): Promise<CapyResult<T>> {
   try {
-    const response = await send(`${API_URL}${path}`, {
+    const response = await send(`${apiUrl()}${path}`, {
       method: body === undefined ? "GET" : "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -102,7 +113,14 @@ export async function startCapyThread(
     projectId = projects.body.items.find((project) =>
       project.repos.some((repo) => repo.repoFullName.toLowerCase() === thread.repo.toLowerCase()),
     )?.id;
-    if (!projectId) return { ok: false, message: `No Capy project this key can reach holds ${thread.repo}; set CAPY_PROJECT_ID.` };
+    if (!projectId) {
+      return {
+        ok: false,
+        message: config.own
+          ? `None of your Capy projects holds ${thread.repo}. Add the repository to a project in Capy, then try again.`
+          : `No Capy project this key can reach holds ${thread.repo}; set CAPY_PROJECT_ID.`,
+      };
+    }
   }
   const created = await capy<{ id: string }>(opened.fetch, config.apiKey, "/threads", {
     requestId: thread.requestId,

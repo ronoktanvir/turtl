@@ -22,7 +22,7 @@ Set them as environment variables in your app (for Expo, in `.env` or your EAS e
 
 | Setting | Prop | What it is |
 | --- | --- | --- |
-| `EXPO_PUBLIC_TURTL_INTAKE_KEY` | `intakeKey` | Your app's intake key, `tik_…`, one per project. Today it is issued by whoever runs turtl's backend (`npx convex run intake/keys:issue '{"appId":"<project id>"}'`); the turtl app does not show it yet. It only tells turtl which app a report is for. It is not a secret: it ships inside your app, and turtl's limits on how many reports a key and a sender can send are what stop abuse. |
+| `EXPO_PUBLIC_TURTL_INTAKE_KEY` | `intakeKey` | Your app's intake key, `tik_…`, one per project. Make one in turtl, in your project's Settings under Customer reports: turtl shows the whole key once, so copy it then. It only tells turtl which app a report is for. It is not a secret: it ships inside your app, and turtl's limits on how many reports a key and a sender can send are what stop abuse. |
 | `EXPO_PUBLIC_TURTL_INTAKE_URL` | `endpoint` | `https://<turtl's deployment>.convex.site/intake/report`. |
 
 Without both, the form still shows, and Send says "Reports aren't set up for this app yet." Restart Expo after changing an environment variable.

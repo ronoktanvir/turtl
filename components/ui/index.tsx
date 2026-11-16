@@ -137,7 +137,7 @@ export function Header({
           accessibilityLabel="Back"
           testID="header-back"
           hitSlop={8}
-          style={{ width: 40, height: 44, alignItems: "center", justifyContent: "center" }}
+          style={{ width: 44, height: 44, marginLeft: -4, alignItems: "center", justifyContent: "center" }}
         >
           <Icon name="ArrowLeft" color="textMuted" />
         </Pressable>

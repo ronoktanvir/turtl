@@ -35,6 +35,8 @@ import { githubTables } from "./github/schema";
 import { intakeTables } from "./intake/schema";
 import { learningTables } from "./learning/schema";
 import { pushTables } from "./push/schema";
+import { watchingTables } from "./protectedApp/schema";
+import { secretTables } from "./secrets/schema";
 import { revylTables } from "./revyl/schema";
 import { spendTables } from "./spend/schema";
 import { voiceTables } from "./voice/schema";
@@ -230,4 +232,6 @@ export default defineSchema({
   ...consentTables,
   ...spendTables,
   ...accountDeletionTables,
+  ...secretTables,
+  ...watchingTables,
 });

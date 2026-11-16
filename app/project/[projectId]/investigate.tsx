@@ -21,7 +21,7 @@ export default function Investigate() {
   const back = ("/project/" + projectId) as Href;
   const cluster = selection?.kind === "cluster" ? network?.clusters.find((c) => c.id === selection.id) : undefined;
   const node = selection?.kind === "node" ? network?.nodes.find((n) => n.id === selection.id) : undefined;
-  const name = cluster?.name ?? node?.label ?? "Whole codebase";
+  const name = cluster?.name ?? node?.label ?? "all your code";
 
   return (
     <Screen testID="investigate-screen">
@@ -33,7 +33,7 @@ export default function Investigate() {
             <T style={{ textAlign: "center" }} testID="investigate-not-found">This project is no longer available.</T>
           </View>
         ) : network === undefined || project === undefined ? (
-          <View style={{ padding: 20 }}>{errors.length === 0 && <T color="textMuted">Loading code network…</T>}</View>
+          <View style={{ padding: 20 }}>{errors.length === 0 && <T color="textMuted">Loading the map of your code…</T>}</View>
         ) : !network || network.nodes.length === 0 ? (
           <View style={{ flex: 1, padding: 28, justifyContent: "center", alignItems: "center", gap: 20 }}>
             <Turtle health="clear" size={72} />
@@ -45,7 +45,7 @@ export default function Investigate() {
             {!chatOpen && <View style={{ paddingHorizontal: 20, paddingTop: 20, gap: 4 }}>
               <Reveal>
                 <T variant="strong" numberOfLines={1}>{project.name}</T>
-                <T variant="small" color="textMuted">{network.nodes.length} parts · {network.clusters.length} clusters</T>
+                <T variant="small" color="textMuted">{network.nodes.length} {network.nodes.length === 1 ? "part" : "parts"} · {network.clusters.length} {network.clusters.length === 1 ? "group" : "groups"}</T>
               </Reveal>
             </View>}
             <Constellation network={network} selection={selection} onSelect={select} />

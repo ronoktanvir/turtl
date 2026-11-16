@@ -35,7 +35,7 @@ export default function ProjectIcon({ project, size = 48 }: { project: Project; 
         justifyContent: "center",
       }}
     >
-      <T variant="heading" color="brandDeep" style={{ fontSize: size * 0.42, lineHeight: size * 0.6 }}>{project.name.charAt(0).toUpperCase()}</T>
+      <T variant="heading" color="statusClear" style={{ fontSize: size * 0.42, lineHeight: size * 0.6 }}>{project.name.charAt(0).toUpperCase()}</T>
     </View>
   );
 }

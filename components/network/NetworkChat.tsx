@@ -42,7 +42,7 @@ export function NetworkChat({ projectId, selection, name, expanded, onExpandedCh
         <>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
             <T variant="small" color="textMuted" numberOfLines={1} style={{ flex: 1 }}>Asking about {name}</T>
-            <Pressable testID="network-chat-close" accessibilityRole="button" accessibilityLabel="Close codebase chat" onPress={() => { input.current?.blur(); Keyboard.dismiss(); setExpanded(false); }} style={{ width: 44, height: 44, marginVertical: -8, alignItems: "center", justifyContent: "center" }}><Icon name="X" size={18} color="textMuted" /></Pressable>
+            <Pressable testID="network-chat-close" accessibilityRole="button" accessibilityLabel="Close chat" onPress={() => { input.current?.blur(); Keyboard.dismiss(); setExpanded(false); }} style={{ width: 44, height: 44, marginVertical: -8, alignItems: "center", justifyContent: "center" }}><Icon name="X" size={18} color="textMuted" /></Pressable>
           </View>
           {messages.length > 0 && <ScrollView ref={scroll} testID="network-messages" style={{ maxHeight: 144 }} contentContainerStyle={{ gap: 12, paddingVertical: 4 }} keyboardShouldPersistTaps="handled" onContentSizeChange={() => scroll.current?.scrollToEnd({ animated: false })}>
             {messages.map((message) => <View key={message.id} style={{ paddingLeft: 12, borderLeftWidth: 2, borderLeftColor: message.role === "owner" ? colors.border : colors.brandDeep, gap: 2 }}><T variant="small" color="textMuted">{message.role === "owner" ? "You" : "turtl"}</T><T font="text">{message.text}</T></View>)}
@@ -59,7 +59,7 @@ export function NetworkChat({ projectId, selection, name, expanded, onExpandedCh
           onChangeText={setText}
           onFocus={() => setExpanded(true)}
           onSubmitEditing={submit}
-          placeholder="Questions about the codebase?"
+          placeholder="Ask about your code"
           placeholderTextColor={colors.textMuted}
           testID="network-question-input"
           accessibilityLabel={`Question about ${name}`}

@@ -7,7 +7,10 @@ import { PullRequestPanel } from "../../../components/onboarding/PullRequestPane
 import { ReadinessReport } from "../../../components/onboarding/ReadinessReport";
 import { WorksNow } from "../../../components/onboarding/WorksNow";
 import { editableStages, inspectableStages, rulesNote, stageLine } from "../../../components/onboarding/stage";
+import { CodingAgentNotice, useCodingAgentMissing } from "../../../components/secrets/CodingAgentNotice";
+import ControlTokenSettings from "../../../components/secrets/ControlTokenSettings";
 import { Button, Header, Icon, Reveal, Screen, Sheet, T, Turtle } from "../../../components/ui";
+import { Empty } from "../../../components/ui/Empty";
 import { approvePreparation, checkLiveAgain, inspectAgain, mergePreparation, refreshPreparation, saveNeverBreak, useDataStatus, useOnboarding, useProject } from "../../../data";
 import type { NeverBreakAnswer } from "../../../data/onboarding/types";
 import { healthToken, useTheme } from "../../../theme";
@@ -29,6 +32,7 @@ export default function Prepare() {
   const [approving, setApproving] = useState(false);
   const [merging, setMerging] = useState<{ title: string; headSha: string } | null>(null);
   const [refused, setRefused] = useState<string | null>(null);
+  const agentMissing = useCodingAgentMissing();
   const title = (project?.name ?? "") + ": Preparation";
   const back = ("/project/" + projectId) as never;
 
@@ -39,7 +43,7 @@ export default function Prepare() {
         <Header title="Project not found" fallback="/projects" />
         <View style={{ padding: 20, gap: 16 }}>
           <T testID="prepare-not-found">This project is no longer available.</T>
-          <Button label="Back to projects" onPress={() => router.replace("/projects")} testID="prepare-not-found-back" />
+          <Button label="Back to Projects" onPress={() => router.replace("/projects")} testID="prepare-not-found-back" />
         </View>
       </Screen>
     );
@@ -49,7 +53,9 @@ export default function Prepare() {
     return (
       <Screen testID="prepare">
         <Header title={title} fallback={back} />
-        {(onboarding === null || errors.length === 0) && <T color="textMuted" style={{ padding: 20 }}>{onboarding === undefined ? "Loading…" : "turtl has not read this project's repository yet."}</T>}
+        {onboarding === undefined
+          ? errors.length === 0 && <T color="textMuted" style={{ padding: 20 }}>Loading…</T>
+          : <Empty testID="prepare-empty" message="turtl has not read this project yet." hint="When it has, what it found and what it will watch for you show here." action={{ label: "Back to project", onPress: () => (router.canGoBack() ? router.back() : router.replace(back)), testID: "prepare-empty-back" }} />}
       </Screen>
     );
   }
@@ -154,7 +160,8 @@ export default function Prepare() {
 
           {o.stage === "ready" && (
             <View style={{ gap: 10 }}>
-              <Button label="Prepare my app" icon="Sparkles" disabled={unsaved || busy !== null} onPress={() => { setError(null); setApproving(true); }} testID="prepare-approve" />
+              <CodingAgentNotice testID="prepare-coding-agent" />
+              <Button label="Prepare my app" icon="Sparkles" disabled={unsaved || busy !== null || agentMissing} onPress={() => { setError(null); setApproving(true); }} testID="prepare-approve" />
               {unsaved && <T variant="small" color="textMuted" style={{ textAlign: "center" }}>Save your answers first.</T>}
             </View>
           )}
@@ -167,6 +174,10 @@ export default function Prepare() {
               <Icon name="TriangleAlert" color="statusNeedsYou" />
               <T font="text" color="statusNeedsYou" accessibilityRole="alert" style={{ flex: 1 }} testID="prepare-merge-refused">{refused}</T>
             </View>
+          )}
+
+          {(o.stage === "opening" || o.stage === "pr_open" || o.stage === "registering" || o.stage === "registered") && (
+            <ControlTokenSettings projectId={o.projectId} testID="prepare-control-token" />
           )}
 
           {(o.stage === "registering" || o.stage === "registered") && (

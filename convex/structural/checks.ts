@@ -4,6 +4,7 @@ import { internalAction, internalMutation, internalQuery, mutation } from "../_g
 import { guardRow } from "../access";
 import { requireOwnerPasscode } from "../ownerPasscode";
 import { call, CHECK_VERSION, describeFailure } from "../protectedApp/client";
+import { watchedApp } from "../protectedApp/watched";
 import { vCheckRun } from "./schema";
 
 // A finding's prevention check: offered with the finding, approved once by the owner (passcode checked),
@@ -46,7 +47,8 @@ export const runOnce = internalAction({
     const check = finding?.check;
     if (!check || check.status !== "running") return;
     const at = Date.now();
-    const response = await call(check.url, { method: "POST", credentialRef: check.credentialRef, timeoutMs: 30_000 });
+    const app = await watchedApp(ctx, { appId: finding.appId });
+    const response = await call(check.url, { app, method: "POST", credentialRef: check.credentialRef, timeoutMs: 30_000 });
     const body = (response.kind === "response" ? response.body : null) as {
       verdict?: unknown;
       scenario?: unknown;

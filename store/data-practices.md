@@ -78,7 +78,7 @@ The machine-readable list of outside services is [`data-practices.json`](data-pr
 
 ### D4. Questions about the code
 
-- **What:** what the owner types into "Questions about the codebase?" and turtl's answers.
+- **What:** what the owner types into "Ask about your code" and turtl's answers.
 - **Stored:** both sides of the conversation ([convex/codeNetwork/ask.ts:116](https://github.com/ronoktanvir/turtl/blob/3d01f6404fede6e87f619bfd6cb5ae521b12b64a/convex/codeNetwork/ask.ts#L116 "codeNetwork.network.addMessage"), [convex/codeNetwork/schema.ts:79](https://github.com/ronoktanvir/turtl/blob/3d01f6404fede6e87f619bfd6cb5ae521b12b64a/convex/codeNetwork/schema.ts#L79 "codeChatMessages: defineTable")).
 - **Sent to Supermemory:** the question, as a search over the stored code ([convex/codeNetwork/ask.ts:123](https://github.com/ronoktanvir/turtl/blob/3d01f6404fede6e87f619bfd6cb5ae521b12b64a/convex/codeNetwork/ask.ts#L123 "searchChunks(network.namespace, text")).
 - **Sent to OpenAI:** the question, the code excerpts the search found, the map, and the last six turns ([convex/codeNetwork/ask.ts:130](https://github.com/ronoktanvir/turtl/blob/3d01f6404fede6e87f619bfd6cb5ae521b12b64a/convex/codeNetwork/ask.ts#L130 "await respond("), [convex/codeNetwork/ask.ts:13](https://github.com/ronoktanvir/turtl/blob/3d01f6404fede6e87f619bfd6cb5ae521b12b64a/convex/codeNetwork/ask.ts#L13 "HISTORY_TURNS = 6")).

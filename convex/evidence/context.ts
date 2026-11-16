@@ -19,7 +19,7 @@ export async function readAppEvidence(ctx: ActionCtx, input: HandlerInput, conte
     const projections = await ctx.runMutation(internal.evidence.records.projectEvidence, { attemptId: input.attempt._id });
     return { ...consumed, refs: [...consumed.refs, ...projections] };
   }
-  const [state, errors] = await Promise.all([readAppState(input, context.base), readErrorWindow(input, context.base)]);
+  const [state, errors] = await Promise.all([readAppState(input, context.base, context.watched), readErrorWindow(input, context.base, context.watched)]);
   const rows = [...state.rows, ...errors.rows];
   const ids: Id<"evidence">[] = await ctx.runMutation(internal.protectedApp.records.addEvidence, { rows });
   return {

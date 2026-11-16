@@ -2,22 +2,35 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { internalAction, internalMutation, internalQuery, type ActionCtx } from "./_generated/server";
+import { accessEnforced, MAX_PROJECTS } from "./access";
 import { CLOSED_CASE_STATUSES } from "./constants";
-import { controlBase, readErrors, runJourneyCheck } from "./protectedApp/client";
+import { controlBase, readErrors, runJourneyCheck, type WatchedApp } from "./protectedApp/client";
+import { watchedApp } from "./protectedApp/watched";
+import { MAX_JOURNEYS, type Runnable } from "./protectedApp/watching";
 import { startCaseRun } from "./runner/run";
+
+// The monitor. In the single-owner demo it checks every registered journey of the one demo app named by
+// PROTECTED_APP_URL, with the deployment's control secret, as before. With accounts on (AUTH_REQUIRED=true) it needs no
+// PROTECTED_APP_URL: each tick takes the next projects in turn (convex/protectedApp/watching.ts) and checks each one's
+// journeys from its own rows, with its own control token, only on its own live address.
 
 // A case stops counting as open once it is closed or its service is restored.
 const NOT_OPEN: readonly string[] = [...CLOSED_CASE_STATUSES, "restored"];
 
 export const signatureFor = (journeyId: Id<"journeys">) => `journey_failed:${journeyId}`;
 
+// The single-owner demo's journeys, project by project. Bounded like everything else: at most MAX_PROJECTS projects
+// and MAX_JOURNEYS journeys each, read through the by_app index, never the whole table in one go. With accounts on the
+// monitor never calls it (protectedApp/watching.ts takes projects in turns instead).
 export const journeys = internalQuery({
   args: {},
   handler: async (ctx) => {
-    const rows = await ctx.db.query("journeys").collect();
-    return await Promise.all(
-      rows.map(async (journey) => ({ journey, app: await ctx.db.get(journey.appId) })),
-    );
+    const apps = await ctx.db.query("apps").take(MAX_PROJECTS);
+    const rows = [];
+    for (const app of apps) {
+      for (const journey of await ctx.db.query("journeys").withIndex("by_app", (q) => q.eq("appId", app._id)).take(MAX_JOURNEYS)) rows.push({ journey, app });
+    }
+    return rows;
   },
 });
 
@@ -78,7 +91,8 @@ export const openCase = internalMutation({
     const previous = await ctx.db
       .query("cases")
       .withIndex("by_app_and_signature", (q) => q.eq("appId", journey.appId).eq("signature", signature))
-      .collect();
+      .order("desc")
+      .take(50); // the newest: an open case for a signature is always its latest
     const existing = previous.find((row) => !NOT_OPEN.includes(row.status));
     if (existing) return { opened: false as const, caseId: existing._id, reason: "a case for this failure is open" };
     const last = previous.reduce<(typeof previous)[number] | null>(
@@ -118,65 +132,105 @@ export const openCase = internalMutation({
   },
 });
 
-export type MonitorResult =
-  | { skipped: string }
-  | {
-      checked: {
-        journeyId: Id<"journeys">;
-        outcome: "passed" | "failed" | "check_error";
-        detail: string;
-        caseId?: Id<"cases">;
-        opened?: boolean;
-        reason?: string;
-      }[];
-    };
+type Checked = {
+  journeyId: Id<"journeys">;
+  outcome: "passed" | "failed" | "check_error";
+  detail: string;
+  caseId?: Id<"cases">;
+  opened?: boolean;
+  reason?: string;
+};
 
+type Swept = { started: Id<"apps">[]; skipped: { appId: Id<"apps">; reason: string }[] };
+
+export type MonitorResult = { skipped: string } | { checked: Checked[] } | Swept;
+
+/** Checks one journey for one project (app) now: a failure opens a case, a pass re-arms its signature. */
+async function checkJourney(ctx: ActionCtx, journey: Runnable, base: string, app: WatchedApp): Promise<Checked> {
+  const observedAt = Date.now();
+  const outcome = await runJourneyCheck(journey, app);
+  if (!outcome.ok) return { journeyId: journey.journeyId, outcome: "check_error", detail: outcome.reason };
+  const { result } = outcome;
+  if (result.verdict === "passed") {
+    await ctx.runMutation(internal.monitor.recordPass, { journeyId: journey.journeyId, observedAt });
+    return { journeyId: journey.journeyId, outcome: "passed", detail: "The booking check passed." };
+  }
+  const errors = await readErrors(base, app);
+  const opened = await ctx.runMutation(internal.monitor.openCase, {
+    journeyId: journey.journeyId,
+    failedStep: result.failedStep ?? "unknown",
+    observedAt,
+    counts: errors.ok
+      ? {
+          totalBookings: errors.body.counts.totalBookings,
+          failedBookings: errors.body.counts.failedBookings,
+          errorRate: errors.body.counts.errorRate,
+        }
+      : null,
+    countsReason: errors.ok ? null : errors.reason,
+  });
+  return {
+    journeyId: journey.journeyId,
+    outcome: "failed",
+    detail: `The booking check failed at "${result.failedStep}" (${result.error?.code ?? "no error code"}).`,
+    ...opened,
+  };
+}
+
+// The single-owner demo's monitor, as before: every journey, one after another.
 export async function checkJourneys(ctx: ActionCtx): Promise<MonitorResult> {
   if (!controlBase()) {
     return { skipped: "PROTECTED_APP_URL is not set on this deployment, so no journey was checked." };
   }
   const rows = await ctx.runQuery(internal.monitor.journeys, {});
-  const checked = [];
+  const checked: Checked[] = [];
   for (const { journey, app } of rows) {
     if (journey.check.kind !== "http" || !app?.productionUrl) continue;
-    const observedAt = Date.now();
-    const outcome = await runJourneyCheck(journey.check.config);
-    if (!outcome.ok) {
-      checked.push({ journeyId: journey._id, outcome: "check_error" as const, detail: outcome.reason });
-      continue;
-    }
-    const { result } = outcome;
-    if (result.verdict === "passed") {
-      await ctx.runMutation(internal.monitor.recordPass, { journeyId: journey._id, observedAt });
-      checked.push({ journeyId: journey._id, outcome: "passed" as const, detail: "The booking check passed." });
-      continue;
-    }
-    const errors = await readErrors(app.productionUrl);
-    const opened = await ctx.runMutation(internal.monitor.openCase, {
-      journeyId: journey._id,
-      failedStep: result.failedStep ?? "unknown",
-      observedAt,
-      counts: errors.ok
-        ? {
-            totalBookings: errors.body.counts.totalBookings,
-            failedBookings: errors.body.counts.failedBookings,
-            errorRate: errors.body.counts.errorRate,
-          }
-        : null,
-      countsReason: errors.ok ? null : errors.reason,
-    });
-    checked.push({
-      journeyId: journey._id,
-      outcome: "failed" as const,
-      detail: `The booking check failed at "${result.failedStep}" (${result.error?.code ?? "no error code"}).`,
-      ...opened,
-    });
+    const { url, credentialRef } = journey.check.config;
+    checked.push(await checkJourney(ctx, { journeyId: journey._id, url, ...(credentialRef && { credentialRef }) }, app.productionUrl, await watchedApp(ctx, { appId: app._id })));
   }
   return { checked };
 }
 
-// Run by convex/crons.ts.
+/** At most this many of one project's checks run at once. */
+const CONCURRENT_CHECKS = 5;
+
+// With accounts on: one project's checks, read from its own rows. watching:claim starts it; it always hands its turn back.
+const vChecked = v.object({
+  journeyId: v.id("journeys"),
+  outcome: v.union(v.literal("passed"), v.literal("failed"), v.literal("check_error")),
+  detail: v.string(),
+  caseId: v.optional(v.id("cases")),
+  opened: v.optional(v.boolean()),
+  reason: v.optional(v.string()),
+});
+
+export const checkProject = internalAction({
+  args: { appId: v.id("apps") },
+  returns: v.object({ checked: v.array(vChecked) }),
+  handler: async (ctx, { appId }): Promise<{ checked: Checked[] }> => {
+    try {
+      const plan: { base: string; journeys: Runnable[] } | null = await ctx.runQuery(internal.protectedApp.watching.plan, { appId });
+      if (!plan) return { checked: [] };
+      const app = await watchedApp(ctx, { appId });
+      const checked: Checked[] = [];
+      for (let start = 0; start < plan.journeys.length; start += CONCURRENT_CHECKS) {
+        const turn = plan.journeys.slice(start, start + CONCURRENT_CHECKS);
+        checked.push(...(await Promise.all(turn.map((journey) => checkJourney(ctx, journey, plan.base, app)))));
+      }
+      return { checked };
+    } finally {
+      await ctx.runMutation(internal.protectedApp.watching.finish, { appId, checkedAt: Date.now() });
+    }
+  },
+});
+
+// Run by convex/crons.ts. The demo checks its one app; with accounts on, the next projects get their turn.
 export const tick = internalAction({
   args: {},
-  handler: async (ctx): Promise<MonitorResult> => checkJourneys(ctx),
+  handler: async (ctx): Promise<MonitorResult> => {
+    if (!accessEnforced()) return await checkJourneys(ctx);
+    const { started, skipped }: Swept = await ctx.runMutation(internal.protectedApp.watching.claim, {});
+    return { started, skipped };
+  },
 });

@@ -7,6 +7,7 @@ import { PlanGraph } from "../../../components/execution/PlanGraph";
 import { formatDuration, remainingDuration } from "../../../components/execution/timing";
 import { ApproveSheet, FixCard, kindLabel } from "../../../components/fix/FixCard";
 import { Button, Card, caseTitle, Header, Icon, Reveal, Screen, T, Turtle } from "../../../components/ui";
+import { Empty } from "../../../components/ui/Empty";
 import { useTalkSession } from "../../../components/voice/useTalkSession";
 import { mergePullRequest, stopEnactment, useCase, useChat, useDataStatus, useEnactmentNow } from "../../../data";
 import type { Enactment, FixOption, Health } from "../../../data/types";
@@ -57,7 +58,9 @@ export default function Enacting() {
     return (
       <Screen testID="enacting">
         <Header title="Nothing is running" fallback={back} />
-        {(c !== undefined || errors.length === 0) && <T style={{ padding: 20 }}>{c === undefined ? "Loading…" : "No fix has been approved for this case yet."}</T>}
+        {c === undefined
+          ? errors.length === 0 && <T style={{ padding: 20 }}>Loading…</T>
+          : <Empty testID="enacting-empty" message="No fix has been approved for this case yet." hint="Approve a fix and each step turtl takes shows here." action={{ label: "Back to the fixes", onPress: () => (router.canGoBack() ? router.back() : router.replace(back)), testID: "enacting-empty-back" }} />}
       </Screen>
     );
   }

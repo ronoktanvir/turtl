@@ -3,6 +3,7 @@ import { internal } from "../_generated/api";
 import { internalAction } from "../_generated/server";
 import { gateFor, type Gate } from "../consent/gate";
 import { repositoryAccess } from "../github/access";
+import { githubApiUrl, githubRawUrl } from "../github/config";
 import { addDocuments, type CodeDocument } from "../supermemory";
 import {
   buildGraph,
@@ -91,7 +92,7 @@ export type BuildResult =
   | { outcome: "failed"; reason: string };
 
 async function github(path: string, token: string | undefined): Promise<Response> {
-  return await fetch(`https://api.github.com${path}`, {
+  return await fetch(`${githubApiUrl()}${path}`, {
     headers: {
       Accept: "application/vnd.github+json",
       "User-Agent": "turtl-code-network",
@@ -127,7 +128,7 @@ async function fetchRepository(
   for (let start = 0; start < entries.length; start += FETCH_CONCURRENCY) {
     const batch = await Promise.all(
       entries.slice(start, start + FETCH_CONCURRENCY).map(async (entry) => {
-        const response = await fetch(`https://raw.githubusercontent.com/${repo}/${sha}/${entry.path}`, {
+        const response = await fetch(`${githubRawUrl()}/${repo}/${sha}/${entry.path}`, {
           headers: githubToken ? { Authorization: `Bearer ${githubToken}` } : {},
         });
         return response.ok ? { path: entry.path, content: await response.text() } : null;

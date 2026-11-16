@@ -1,6 +1,6 @@
 import { useLocalSearchParams } from "expo-router";
 import { useRef, useState, type ComponentRef } from "react";
-import { KeyboardAvoidingView, Platform, ScrollView, View } from "react-native";
+import { KeyboardAvoidingView, Platform, ScrollView, View, useWindowDimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import AiNotice from "../../../components/consent/AiNotice";
 import { AskBar } from "../../../components/execution/AskBar";
@@ -18,6 +18,8 @@ export default function InvestigateFurther() {
   const talk = useTalkSession(caseId);
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
+  // The whole placeholder shows only from about 360 wide; below that it was cut off mid-word.
+  const narrow = useWindowDimensions().width < 360;
   const reducedMotion = useReducedMotion();
   const list = useRef<ComponentRef<typeof ScrollView>>(null);
   const [text, setText] = useState("");
@@ -116,7 +118,7 @@ export default function InvestigateFurther() {
         </ScrollView>
         <View style={{ paddingHorizontal: 20, paddingTop: 12, paddingBottom: insets.bottom + (devToolsOn ? 76 : 16), borderTopWidth: 1, borderTopColor: colors.border, backgroundColor: colors.bg }}>
           {error && <T font="text" color="statusAffected" accessibilityRole="alert" testID="chat-error" style={{ marginBottom: 8 }}>{error}</T>}
-          <AskBar value={text} onChangeText={setText} onSend={() => void send()} busy={busy} placeholder="Ask about this case…" inputID="chat-input" sendID="chat-send" talk={talk} talkID="chat-talk" />
+          <AskBar value={text} onChangeText={setText} onSend={() => void send()} busy={busy} placeholder={narrow ? "Ask turtl…" : "Ask about this case…"} label="Ask about this case" inputID="chat-input" sendID="chat-send" talk={talk} talkID="chat-talk" />
         </View>
       </KeyboardAvoidingView>
       {c && <ApproveSheet caseId={c.id} fix={approving} onClose={() => setApproving(null)} />}

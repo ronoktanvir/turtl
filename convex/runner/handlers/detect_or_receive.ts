@@ -20,10 +20,10 @@ import { evidenceRow, loadJourneyContext, type JourneyContext } from "./journey"
 const MAX_REPORT_EVIDENCE = 10;
 
 // Runs the journey check and the health check once and records them as the "before" verification.
-async function checkBefore(ctx: ActionCtx, input: HandlerInput, { base, journey, check }: JourneyContext) {
+async function checkBefore(ctx: ActionCtx, input: HandlerInput, { base, journey, check, watched }: JourneyContext) {
   const startedAt = Date.now();
-  const revision = revisionOf(await readRevision(base), base);
-  const [health, outcome] = await Promise.all([call(`${base}/health`), runJourneyCheck(check)]);
+  const revision = revisionOf(await readRevision(base, watched), base);
+  const [health, outcome] = await Promise.all([call(`${base}/health`, { app: watched }), runJourneyCheck(check, watched)]);
   if (!outcome.ok) return { ok: false as const, reason: `The booking check could not be run: ${outcome.reason}.`, revision };
   const { result } = outcome;
   const healthOk = health.kind === "response" && health.status === 200;

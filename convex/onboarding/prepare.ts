@@ -2,11 +2,14 @@ import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Doc } from "../_generated/dataModel";
 import { internalAction, type ActionCtx } from "../_generated/server";
+import { accessEnforced } from "../access";
 import { gateFor } from "../consent/gate";
 import { repositoryAccess } from "../github/access";
-import { capyConfig, findPullRequestNumber, startCapyThread } from "../prTracking/capy";
+import { findPullRequestNumber, startCapyThread } from "../prTracking/capy";
+import { capyConfigFor, codingAgentFor } from "../prTracking/codingAgent";
 import { readPullRequest } from "../prTracking/github";
-import { call, describeFailure, runJourneyCheck } from "../protectedApp/client";
+import { call, describeFailure, runJourneyCheck, type WatchedApp } from "../protectedApp/client";
+import { watchedApp } from "../protectedApp/watched";
 import { manifestPath, parseManifest, type Item, type ManifestCheck, type ManifestSwitch } from "./detect";
 import { preparationBrief } from "./brief";
 import { readRaw } from "./github";
@@ -16,6 +19,8 @@ type PreparationContext = { preparation: Doc<"onboardingPreparations">; app: Doc
 const OPENING_GRACE_MS = 2 * 60_000;
 const UNAUTHENTICATED_SYNC_MS = 5 * 60_000;
 export const CHECK_VERSION = "onboarding-manifest-v1";
+/** The single-owner demo with no coding agent of its own set up on the backend. */
+const DEMO_NO_CODING_AGENT = "This turtl backend has no coding agent set up, so turtl could not write the preparation. Nothing was sent.";
 
 // Asks Capy to write the preparation and open one pull request. The request id is fixed per preparation and
 // inspection, so a retry returns the same Capy thread instead of starting a second one.
@@ -33,8 +38,15 @@ export const start = internalAction({
     if (!inspection || inspection.status !== "done" || !inspection.stack || !inspection.ref || !preparation.requestId || !preparation.repo) {
       return fail("The approved readiness report is not complete, so nothing was sent to Capy.");
     }
-    const capy = capyConfig();
-    if (!capy.ok) return fail(`Not configured: set ${capy.missing.join(" and ")} on turtl's deployment so Capy can write the preparation. Nothing was sent.`);
+    // With accounts on, nothing starts unless the owner's own coding agent and GitHub connection both cover it. Each
+    // refusal hands the approval back with the reason, so the owner can fix it and approve again.
+    const refuse = async (reason: string) => {
+      const error = `turtl did not start the preparation: ${reason} Nothing was sent to the coding agent.`;
+      await ctx.runMutation(internal.onboarding.records.refuseStart, { id: preparationId, reason: error });
+      return { outcome: "failed" as const, error };
+    };
+    const capy = await codingAgentFor(ctx, { appId: app._id }, preparation.repo);
+    if (!capy.ok) return accessEnforced() && capy.reason ? refuse(capy.reason) : fail(DEMO_NO_CODING_AGENT);
     const { title, message } = preparationBrief({
       appName: app.name,
       repo: preparation.repo,
@@ -46,6 +58,7 @@ export const start = internalAction({
       items: inspection.items as Item[],
       hasManifest: inspection.hasManifest ?? false,
       neverBreak: preparation.neverBreak,
+      accounts: accessEnforced(),
     });
     const started = await startCapyThread(gateFor(ctx, { appId: app._id }), capy, { repo: preparation.repo, requestId: preparation.requestId, title: title.slice(0, 120), message });
     if (!started.ok) return fail(`Could not ask Capy to write the preparation: ${started.message}`);
@@ -66,7 +79,7 @@ export async function syncPreparation(ctx: ActionCtx, row: Doc<"onboardingPrepar
   let number = row.number;
   if (number === undefined) {
     if (!row.capyThreadId) return "not_started";
-    const capy = capyConfig();
+    const capy = await capyConfigFor(ctx, { appId: row.appId });
     if (!capy.ok) return "not_configured";
     const found = await findPullRequestNumber(gateFor(ctx, { appId: row.appId }), capy, row.capyThreadId, row.repo, row.capyCursor);
     if (!found.ok) {
@@ -138,21 +151,24 @@ type Check = {
   passedAt?: number;
 };
 
-// Calls each endpoint the manifest names on the live app now. Only what answers is registered: health and
-// readiness and journey checks as journeys, flags and recovery hooks as catalog actions.
-export async function checkLive(base: string, manifest: ReturnType<typeof parseManifest> & { ok: true }, ref: string): Promise<Check[]> {
+/** At most this many of the manifest's endpoints are called at once, so a long list stays inside an action's time. */
+const CONCURRENT_PROBES = 6;
+
+// Calls each endpoint the manifest names on the live app now, for this project (app): with accounts on only on its own
+// live address and with its own control token. Only what answers is registered: health and readiness and journey
+// checks as journeys, flags and recovery hooks as catalog actions. Results keep the manifest's order.
+export async function checkLive(base: string, manifest: ReturnType<typeof parseManifest> & { ok: true }, ref: string, app: WatchedApp): Promise<Check[]> {
   const { credentialRef } = manifest.manifest;
   const checkVersion = `${CHECK_VERSION}:${ref.slice(0, 12)}`;
   const url = (entry: ManifestCheck) => `${base}${entry.path}`;
   const credential = (entry: ManifestCheck) => (entry.authenticated ? credentialRef : undefined);
-  const checks: Check[] = [];
-  const probe = async (kind: "health" | "readiness", entry: ManifestCheck) => {
+  const probe = async (kind: "health" | "readiness", entry: ManifestCheck): Promise<Check> => {
     const checkedAt = Date.now();
-    const response = await call(url(entry), { credentialRef: credential(entry) });
+    const response = await call(url(entry), { app, credentialRef: credential(entry) });
     const answered = response.kind === "response";
     const ok = answered && response.status === 200;
     const notReady = kind === "readiness" && answered && response.status === 503 && typeof response.body === "object" && response.body !== null;
-    checks.push({
+    return {
       result: {
         kind,
         name: entry.name,
@@ -174,15 +190,13 @@ export async function checkLive(base: string, manifest: ReturnType<typeof parseM
         },
       }),
       ...(ok && { passedAt: checkedAt }),
-    });
+    };
   };
-  if (manifest.manifest.health) await probe("health", manifest.manifest.health);
-  if (manifest.manifest.readiness) await probe("readiness", manifest.manifest.readiness);
-  for (const entry of manifest.manifest.journeys) {
+  const journey = async (entry: ManifestCheck): Promise<Check> => {
     const checkedAt = Date.now();
-    const outcome = await runJourneyCheck({ url: url(entry), ...(credential(entry) && { credentialRef: credential(entry) }) });
+    const outcome = await runJourneyCheck({ url: url(entry), ...(credential(entry) && { credentialRef: credential(entry) }) }, app);
     const passed = outcome.ok && outcome.result.verdict === "passed";
-    checks.push({
+    return {
       result: {
         kind: "journey",
         name: entry.name,
@@ -204,18 +218,14 @@ export async function checkLive(base: string, manifest: ReturnType<typeof parseM
         },
       }),
       ...(passed && { passedAt: checkedAt }),
-    });
-  }
-  const switches: [ManifestSwitch, "flag" | "recovery_hook"][] = [
-    ...manifest.manifest.flags.map((entry) => [entry, "flag"] as [ManifestSwitch, "flag"]),
-    ...manifest.manifest.recoveryHooks.map((entry) => [entry, "recovery_hook"] as [ManifestSwitch, "recovery_hook"]),
-  ];
-  for (const [entry, kind] of switches) {
+    };
+  };
+  const toggle = async (entry: ManifestSwitch, kind: "flag" | "recovery_hook"): Promise<Check> => {
     const checkedAt = Date.now();
-    const response = await call(url(entry), { credentialRef: credential(entry) });
+    const response = await call(url(entry), { app, credentialRef: credential(entry) });
     const value = response.kind === "response" ? (response.body as Record<string, unknown> | null)?.[entry.field] : undefined;
     const ok = response.kind === "response" && response.status === 200 && typeof value === "boolean";
-    checks.push({
+    return {
       result: {
         kind,
         name: entry.name,
@@ -238,7 +248,19 @@ export async function checkLive(base: string, manifest: ReturnType<typeof parseM
           ],
         },
       }),
-    });
+    };
+  };
+  const { health, readiness, journeys, flags, recoveryHooks } = manifest.manifest;
+  const probes: (() => Promise<Check>)[] = [
+    ...(health ? [() => probe("health", health)] : []),
+    ...(readiness ? [() => probe("readiness", readiness)] : []),
+    ...journeys.map((entry) => () => journey(entry)),
+    ...flags.map((entry) => () => toggle(entry, "flag")),
+    ...recoveryHooks.map((entry) => () => toggle(entry, "recovery_hook")),
+  ];
+  const checks: Check[] = [];
+  for (let start = 0; start < probes.length; start += CONCURRENT_PROBES) {
+    checks.push(...(await Promise.all(probes.slice(start, start + CONCURRENT_PROBES).map((run) => run()))));
   }
   return checks;
 }
@@ -265,9 +287,9 @@ export const register = internalAction({
     if (text === null) return fail(`turtl could not read ${path} at ${ref.slice(0, 12)}, so nothing was registered.`);
     const manifest = parseManifest(text);
     if (!manifest.ok) return fail(`${manifest.reason} Nothing was registered.`);
-    const checks = await checkLive(app.productionUrl.replace(/\/+$/, ""), manifest, ref);
+    const checks = await checkLive(app.productionUrl.replace(/\/+$/, ""), manifest, ref, await watchedApp(ctx, { appId: app._id }));
     if (checks.length === 0) return fail(`${path} lists no endpoint, so nothing was checked or registered.`);
-    await ctx.runMutation(internal.onboarding.records.register, { id: preparationId, ref, checks });
+    await ctx.runMutation(internal.onboarding.records.register, { id: preparationId, ref, checks, ...(manifest.note && { note: manifest.note }) });
     return { outcome: "registered" as const, checks: checks.map((check) => `${check.result.kind} ${check.result.name}: ${check.result.state}`) };
   },
 });
