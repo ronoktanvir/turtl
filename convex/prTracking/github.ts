@@ -1,3 +1,4 @@
+import { demoOnly } from "../demoSettings";
 import type { CheckRun, Checks, GithubSnapshot } from "./validators";
 
 declare const process: { env: Record<string, string | undefined> };
@@ -22,7 +23,8 @@ export type GithubPull = {
 export type GithubCheckRun = { name: string; status: string; conclusion: string | null; html_url: string | null };
 export type GithubStatus = { context: string; state: string; target_url: string | null };
 
-export const githubToken = () => process.env.GITHUB_TOKEN || undefined;
+/** The demo's one deployment-wide GitHub token. With accounts on it reads as not set: every account would act through it. */
+export const githubToken = () => demoOnly(process.env.GITHUB_TOKEN) || undefined;
 
 export function parsePullRequestUrl(url: string): { repo: string; number: number } | null {
   const match = /^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/pull\/(\d+)(?:[/?#].*)?$/.exec(url.trim());

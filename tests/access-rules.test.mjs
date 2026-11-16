@@ -18,7 +18,12 @@ const nodeRequire = createRequire(import.meta.url);
 // convex/schema.ts spreads Convex Auth's tables. That package publishes only an ES module build, which require()
 // cannot reach, so it is loaded up front and handed out by the loader below.
 const esModules = { "@convex-dev/auth/server": await import("@convex-dev/auth/server") };
-const VARIABLES = ["AUTH_REQUIRED", "DEV_TOOLS_ENABLED", "PROTECTED_APP_CONTROL_SECRET_SHA256", "PROTECTED_APP_URL", "CODE_NETWORK_CHAT_ENABLED", "OPENAI_API_KEY", "SUPERMEMORY_API_KEY"];
+const VARIABLES = [
+  "AUTH_REQUIRED", "DEV_TOOLS_ENABLED", "PROTECTED_APP_CONTROL_SECRET_SHA256", "PROTECTED_APP_URL", "CODE_NETWORK_CHAT_ENABLED", "OPENAI_API_KEY", "SUPERMEMORY_API_KEY",
+  // Demo-only and stand-in variables (finding 8), what they need beside them, and the deployment's own address.
+  "GITHUB_TOKEN", "GITHUB_APP_ID", "GITHUB_APP_PRIVATE_KEY", "GITHUB_APP_SLUG", "GITHUB_APP_WEBHOOK_SECRET", "AUTH_STAND_IN_URL", "AUTH_RESEND_KEY", "AUTH_EMAIL_FROM",
+  "KEIKI_API_KEY", "KEIKI_AGENT_ID", "KEIKI_OWNER_CONTACT", "EXPO_PUSH_API_URL", "REVYL_API_KEY", "REVYL_BOOKING_WORKFLOW_ID", "CONVEX_CLOUD_URL",
+];
 const PASSCODE = "local-fixture-passcode";
 const SIGN_IN = "Sign in to continue.";
 const NOT_AVAILABLE = "That project is not available on this account.";
@@ -469,6 +474,101 @@ test("the booking demo's customer API: open in the demo, closed with accounts on
   {
     const w = world(t, { AUTH_REQUIRED: "true", PROTECTED_APP_CONTROL_SECRET_SHA256: digest("control-fixture") });
     assert.ok((await w.as(null)("bookingDemo/booking", "getCatalog")).services.length > 0);
+  }
+});
+
+// Finding 8: variables that belong to the single-owner demo or to tests do damage if set on a production deployment
+// by mistake. With accounts on, each reads as not set; the two stand-in addresses are honoured only on a local
+// backend. One world per variable, with accounts on and that variable set, asserting nothing uses it.
+const HOSTED = { AUTH_REQUIRED: "true", CONVEX_CLOUD_URL: "https://patient-otter-123.convex.cloud" };
+const LOCAL = { AUTH_REQUIRED: "true", CONVEX_CLOUD_URL: "http://127.0.0.1:3210" };
+const recordingFetch = (t) => {
+  const sent = [];
+  t.mock.method(globalThis, "fetch", async (input) => (sent.push(String(input)), new Response(JSON.stringify({ data: [{ status: "ok", id: "r1" }] }), { status: 200 })));
+  return sent;
+};
+
+test("GITHUB_TOKEN: with accounts on, no project reaches GitHub through the deployment's one token", async (t) => {
+  {
+    const w = world(t, { ...HOSTED, GITHUB_TOKEN: "ghp_the_demo_token" });
+    const { alice } = await seed(w);
+    const { repositoryAccess } = w.load("convex/github/access.ts");
+    assert.equal(w.load("convex/prTracking/github.ts").githubToken(), undefined);
+    assert.deepEqual(await repositoryAccess(w.ctxFor("alice").actionCtx, "alice/shop", { appId: alice.appId }), { ok: true, source: "deployment", token: undefined });
+  }
+  {
+    const w = world(t, { GITHUB_TOKEN: "ghp_the_demo_token" });
+    const { repositoryAccess } = w.load("convex/github/access.ts");
+    assert.deepEqual(await repositoryAccess(w.ctxFor(null).actionCtx, "alice/shop", { account: "solo-owner" }), { ok: true, source: "deployment", token: "ghp_the_demo_token" }, "the demo keeps it");
+  }
+});
+
+test("KEIKI_OWNER_CONTACT: with accounts on, no account's notice is texted to the deployment's one number", async (t) => {
+  const keikiEnv = { KEIKI_API_KEY: "keiki-stand-in", KEIKI_AGENT_ID: "agent-1", KEIKI_OWNER_CONTACT: "+15550000000" };
+  const sent = recordingFetch(t);
+  const gate = { open: async () => ({ ok: true, fetch: async (input, init) => (sent.push(String(input) + " " + init.body), new Response(JSON.stringify({ results: [{ outcome: "ran" }] }))) }) };
+  {
+    const w = world(t, { ...HOSTED, ...keikiEnv });
+    assert.deepEqual(await w.load("convex/keiki.ts").sendOwnerNotice(gate, "Alice's shop needs a decision."), { outcome: "not_configured" });
+    assert.deepEqual(sent, [], "nothing was sent");
+  }
+  {
+    const w = world(t, keikiEnv);
+    assert.equal((await w.load("convex/keiki.ts").sendOwnerNotice(gate, "The shop needs a decision.")).outcome, "ran", "the demo keeps it");
+    assert.equal(sent.length, 1);
+  }
+});
+
+test("REVYL_BOOKING_WORKFLOW_ID: with accounts on, no account's verify step runs the demo's device workflow", async (t) => {
+  const sent = recordingFetch(t);
+  {
+    const w = world(t, { ...HOSTED, REVYL_API_KEY: "revyl-stand-in", REVYL_BOOKING_WORKFLOW_ID: "wf-booking-demo" });
+    const { alice } = await seed(w);
+    assert.deepEqual(w.load("convex/revyl/api.ts").revylConfig(), { ok: false, missing: ["REVYL_BOOKING_WORKFLOW_ID"] });
+    const stepId = w.backend.rows("steps").find((row) => row.caseId === alice.caseId)._id;
+    const stepAttemptId = await w.backend.db.insert("stepAttempts", { stepId, caseId: alice.caseId, attempt: 1, status: "running" });
+    const device = await w.load("convex/revyl/device.ts").checkBookingScreen(w.ctxFor(null).actionCtx, { caseId: alice.caseId, stepAttemptId });
+    assert.equal(device.status, "uncovered");
+    assert.deepEqual(sent, [], "Revyl was not asked");
+    assert.deepEqual(w.backend.rows("revylRuns"), []);
+  }
+  {
+    const w = world(t, { REVYL_API_KEY: "revyl-stand-in", REVYL_BOOKING_WORKFLOW_ID: "wf-booking-demo" });
+    assert.equal(w.load("convex/revyl/api.ts").revylConfig().config.workflowId, "wf-booking-demo", "the demo keeps it");
+  }
+});
+
+test("EXPO_PUSH_API_URL: with accounts on, phones' tokens go to Expo unless this backend is a local one", async (t) => {
+  const sent = recordingFetch(t);
+  const message = [{ to: "ExponentPushToken[a]", title: "Shop", body: "A case needs your decision.", data: { caseId: "cases:1" }, sound: "default", priority: "high" }];
+  {
+    const w = world(t, { ...HOSTED, EXPO_PUSH_API_URL: "https://stand-in.example/push" });
+    await w.load("convex/push/expo.ts").sendToExpo(message);
+    assert.deepEqual(sent.map((url) => new URL(url).host), ["exp.host"], "the stand-in address is ignored on a hosted backend");
+  }
+  for (const env of [{ ...LOCAL }, {}]) {
+    const w = world(t, { ...env, EXPO_PUSH_API_URL: "http://127.0.0.1:8213/push" });
+    assert.equal(w.load("convex/push/expo.ts").expoPushApiUrl(), "http://127.0.0.1:8213/push", "a local backend and the demo keep it");
+  }
+});
+
+test("AUTH_STAND_IN_URL: with accounts on, sign-in trusts no stand-in server unless this backend is a local one", async (t) => {
+  const reset = { AUTH_RESEND_KEY: "re_stand_in", AUTH_EMAIL_FROM: "turtl <no-reply@example.com>", AUTH_STAND_IN_URL: "https://stand-in.example" };
+  {
+    const w = world(t, { ...HOSTED, ...reset });
+    const settings = w.load("convex/auth/settings.ts");
+    assert.equal(settings.standInUrl(), undefined);
+    assert.equal(settings.appleKeysUrl(), "https://appleid.apple.com/auth/keys", "Apple's own keys decide an Apple sign-in");
+    assert.equal(settings.resetEmail().endpoint, "https://api.resend.com/emails");
+    assert.equal((await settings.check.handler({}, {})).standIn, false);
+  }
+  {
+    const w = world(t, { ...HOSTED, CONVEX_CLOUD_URL: "not a url", ...reset });
+    assert.equal(w.load("convex/auth/settings.ts").standInUrl(), undefined, "an address that cannot be read is not local");
+  }
+  for (const env of [{ ...LOCAL }, {}]) {
+    const w = world(t, { ...env, ...reset });
+    assert.equal(w.load("convex/auth/settings.ts").appleKeysUrl(), "https://stand-in.example/apple/auth/keys", "a local backend and the demo keep it");
   }
 });
 

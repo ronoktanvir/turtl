@@ -42,6 +42,7 @@ import type * as council_run from "../council/run.js";
 import type * as council_settings from "../council/settings.js";
 import type * as crons from "../crons.js";
 import type * as decisions from "../decisions.js";
+import type * as demoSettings from "../demoSettings.js";
 import type * as dev from "../dev.js";
 import type * as diagnosis from "../diagnosis.js";
 import type * as evidence_collectors from "../evidence/collectors.js";
@@ -196,6 +197,7 @@ declare const fullApi: ApiFromModules<{
   "council/settings": typeof council_settings;
   crons: typeof crons;
   decisions: typeof decisions;
+  demoSettings: typeof demoSettings;
   dev: typeof dev;
   diagnosis: typeof diagnosis;
   "evidence/collectors": typeof evidence_collectors;

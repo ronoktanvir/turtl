@@ -14,7 +14,7 @@ import { startExpoPushStub } from "./fixtures/expo-push-stub.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const nodeRequire = createRequire(import.meta.url);
-const VARIABLES = ["AUTH_REQUIRED", "EXPO_PUSH_API_URL", "EXPO_ACCESS_TOKEN", "KEIKI_API_KEY", "KEIKI_AGENT_ID", "KEIKI_OWNER_CONTACT"];
+const VARIABLES = ["AUTH_REQUIRED", "EXPO_PUSH_API_URL", "EXPO_ACCESS_TOKEN", "KEIKI_API_KEY", "KEIKI_AGENT_ID", "KEIKI_OWNER_CONTACT", "CONVEX_CLOUD_URL"];
 const CASE = "jd7a0b1c2d3e4f5g6h7j8k9m0n1p2q3r";
 const TOKEN = (name) => `ExponentPushToken[${name}]`;
 
@@ -171,6 +171,8 @@ async function world(t, { accounts = false } = {}) {
     }
   });
   process.env.EXPO_PUSH_API_URL = stub.url;
+  // With accounts on, the stand-in address is honoured only on a local backend (convex/demoSettings.ts), as these run.
+  process.env.CONVEX_CLOUD_URL = "http://127.0.0.1:3210";
   if (accounts) process.env.AUTH_REQUIRED = "true";
   const identity = { current: null };
   const load = createLoader();

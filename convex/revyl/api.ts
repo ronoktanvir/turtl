@@ -1,3 +1,5 @@
+import { demoOnly } from "../demoSettings";
+
 declare const process: { env: Record<string, string | undefined> };
 
 // Revyl's HTTP API, read from turtl's side. Only Convex actions call it; the key is read from the
@@ -10,14 +12,16 @@ const REQUEST_TIMEOUT_MS = 20_000;
 
 export type RevylConfig = { baseUrl: string; apiKey: string; workflowId: string };
 
-// A check names its workflow and key variable (vCheck kind "revyl"); without one, the booking journey's workflow is used.
+// A check names its workflow and key variable (vCheck kind "revyl"); without one, the booking journey's workflow is
+// used. That workflow is the demo's: with accounts on it reads as not set, so no account's verify step runs the demo's
+// device check on the operator's Revyl credits.
 export function revylConfig(check?: {
   workflowId?: string;
   credentialRef?: string;
 }): { ok: true; config: RevylConfig } | { ok: false; missing: string[] } {
   const keyVar = check?.credentialRef ?? API_KEY_VAR;
   const apiKey = process.env[keyVar];
-  const workflowId = check?.workflowId ?? process.env[BOOKING_WORKFLOW_VAR];
+  const workflowId = check?.workflowId ?? demoOnly(process.env[BOOKING_WORKFLOW_VAR]);
   if (!apiKey || !workflowId) {
     return { ok: false, missing: [...(apiKey ? [] : [keyVar]), ...(workflowId ? [] : [BOOKING_WORKFLOW_VAR])] };
   }

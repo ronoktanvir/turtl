@@ -62,4 +62,6 @@ the account or sets a new password on it; sessions already open stay open.
 
 `tests/accounts.test.mjs` runs these modules against `tests/fixtures/auth-stand-in.mjs`, a stand-in for GitHub's
 OAuth pages, Apple's keys and Resend. `AUTH_STAND_IN_URL` points a deployment at the same stand-in; it must never
-be set in production.
+be set in production. With `AUTH_REQUIRED=true` the backend honours it only when it runs locally (its own address is
+localhost, `convex/demoSettings.ts`), so a hosted deployment where it was set by mistake still asks Apple, GitHub and
+Resend themselves.
