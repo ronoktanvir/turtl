@@ -31,8 +31,8 @@ export async function respond(
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error(`${capitalize(NO_MODEL_REASON)}.`);
   const model = process.env.OPENAI_MODEL || DEFAULT_MODEL;
-  const promptChars = instructions.length + (typeof input === "string" ? input.length : input.reduce((sum, item) => sum + item.content.length, 0));
-  const opened = await gate.open("openai", "send", callEstimate(model, promptChars, maxOutputTokens));
+  const texts = [instructions, ...(typeof input === "string" ? [input] : input.map((item) => item.content))];
+  const opened = await gate.open("openai", "send", callEstimate(model, texts, maxOutputTokens));
   if (!opened.ok) throw new Refused(opened.reason);
   let response: Response;
   try {

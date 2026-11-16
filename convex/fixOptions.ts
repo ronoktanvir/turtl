@@ -200,7 +200,7 @@ export async function askJson(
   if (!apiKey) return { ok: false, reason: NO_MODEL_REASON };
   const model = fixesModelId();
   const prompt = JSON.stringify(user);
-  const opened = await gate.open("openai", "send", callEstimate(model, system.length + prompt.length));
+  const opened = await gate.open("openai", "send", callEstimate(model, [system, prompt]));
   if (!opened.ok) return { ok: false, reason: opened.reason };
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), MODEL_TIMEOUT_MS);

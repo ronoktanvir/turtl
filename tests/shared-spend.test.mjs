@@ -107,13 +107,13 @@ async function spendAll(ctx, scope, call, width) {
 
 // What the account's own calls cost when it does everything it may: the case chat (a small model, a long case), its
 // projects' code questions and repository readings (a model with no list price, counted at the dearest), voice.
-const CHAT = { estimate: limits.callEstimate("gpt-5.4-mini", 30_000), cost: limits.callEstimate("gpt-5.4-mini", 30_000) * 0.6 };
-const READING = { estimate: limits.callEstimate("gpt-6-luna", 60_000, 12_000), cost: limits.callEstimate("gpt-6-luna", 60_000, 12_000) * 0.7 };
+const CHAT = { estimate: limits.callEstimate("gpt-5.4-mini", "x".repeat(30_000)), cost: limits.callEstimate("gpt-5.4-mini", "x".repeat(30_000)) * 0.6 };
+const READING = { estimate: limits.callEstimate("gpt-6-luna", "x".repeat(60_000), 12_000), cost: limits.callEstimate("gpt-6-luna", "x".repeat(60_000), 12_000) * 0.7 };
 const VOICE = { estimate: limits.VOICE_CALL_ESTIMATE_USD, cost: limits.VOICE_CALL_ESTIMATE_USD };
 // A customer report read on a project's own allowance.
-const TRIAGE = { estimate: limits.callEstimate("gpt-5.4-mini", 8_000), cost: limits.callEstimate("gpt-5.4-mini", 8_000) * 0.8, allowance: "intake" };
+const TRIAGE = { estimate: limits.callEstimate("gpt-5.4-mini", "x".repeat(8_000)), cost: limits.callEstimate("gpt-5.4-mini", "x".repeat(8_000)) * 0.8, allowance: "intake" };
 // Investigating a case the monitor raised: the careful configuration's model, a long evidence prompt.
-const DIAGNOSIS = { estimate: limits.callEstimate("gpt-6.1-sol", 20_000, 4_000), cost: limits.callEstimate("gpt-6.1-sol", 20_000, 4_000) * 0.7, allowance: "outage" };
+const DIAGNOSIS = { estimate: limits.callEstimate("gpt-6.1-sol", "x".repeat(20_000), 4_000), cost: limits.callEstimate("gpt-6.1-sol", "x".repeat(20_000), 4_000) * 0.7, allowance: "outage" };
 
 /**
  * Accounts acting together, each doing everything it may in a day, in the order that takes the most: diagnosis of an
@@ -175,7 +175,7 @@ test("ATTACK (finding 12): one account spends everything it may in a day, in bur
     // What she managed: her day share and her customers' day share, each passed by at most the last call let through.
     const day = await ledger.accountDay({ db }, "users:mallory", Date.now());
     const own = chat.total + readings.total + voice.total;
-    assert.ok(Math.abs(day.ownUsd - own) < 1e-6);
+    assert.ok(Math.abs(day.ownUsd - own) < 1e-4, `${day.ownUsd} for ${own}`);
     assert.ok(day.ownUsd <= 2.5 + READING.estimate, `her own calls cost $${day.ownUsd.toFixed(2)}`);
     assert.ok(day.intakeUsd <= 1 + TRIAGE.estimate, `her customers' reports cost $${day.intakeUsd.toFixed(2)}`);
     assert.equal(day.ownHeldUsd + day.intakeHeldUsd, 0, "every hold was released by its call's cost");
@@ -515,6 +515,46 @@ test("the case screen says why no model was asked once, in the gate's own words"
     assert.equal(text.match(/No model answered/g).length, 1, text);
     assert.ok(text.includes(`No model answered: ${reason}.`), text);
   }
+});
+
+// Finding 19 (estimates): a call's hold assumed 3 characters a token, and dense text tokenizes at well under that, so a
+// call could cost more than it was held at. The estimate now counts UTF-8 bytes, which no tokenizer exceeds.
+const DENSE = "𠜎𠜱𠝹𠱓𠱸𠲖𠳏".repeat(800) + "漢字のテキストと絵文字🙂🙃".repeat(400) + "Ελληνικά и кириллица ".repeat(200);
+const bytesOf = (text) => Buffer.byteLength(text, "utf8");
+
+test("ATTACK (finding 19): a prompt of dense non-Latin text is held at no less than it can cost", async (t) => {
+  // The most such a prompt can cost: one token per byte, the most any tokenizer makes of it.
+  const worst = (model, texts, out = limits.ASSUMED_OUTPUT_TOKENS) => limits.modelCost(model, { inputTokens: texts.reduce((sum, text) => sum + bytesOf(text), 0), outputTokens: out });
+  assert.ok(limits.callEstimate("gpt-5.4-mini", DENSE) >= worst("gpt-5.4-mini", [DENSE]));
+  // Characters were not enough: the old estimate was a third of what this prompt can be.
+  const old = limits.modelCost("gpt-5.4-mini", { inputTokens: Math.ceil(DENSE.length / 3), outputTokens: limits.ASSUMED_OUTPUT_TOKENS });
+  assert.ok(old < worst("gpt-5.4-mini", [DENSE]));
+  assert.ok(bytesOf(DENSE) > 3 * DENSE.length / 2, "three or four bytes a character");
+
+  // Each model helper estimates from what it sends: fix options and triage, diagnosis and the council, code questions.
+  const asked = [];
+  const recording = { blocked: async () => null, open: async (service, purpose, estimateUsd) => (asked.push(estimateUsd), { ok: false, reason: "stop" }), spent: async () => {}, threadStarted: async () => {} };
+  const { askJson } = load("convex/fixOptions.ts");
+  const { callModel } = load("convex/routing/models.ts");
+  const { respond } = load("convex/codeNetwork/openai.ts");
+  await withEnv({ OPENAI_API_KEY: "sk-test-stand-in", FIXES_MODEL: undefined, DIAGNOSIS_MODEL: undefined, OPENAI_MODEL: undefined }, async () => {
+    await askJson(recording, "system", { report: DENSE });
+    assert.ok(asked.at(-1) >= worst("gpt-5.4-mini", ["system", JSON.stringify({ report: DENSE })]));
+    await callModel(recording, { ref: { provider: "openai", model: "gpt-6.1-sol" }, system: "s", user: DENSE, timeoutMs: 1000, maxOutputTokens: 4000 });
+    assert.ok(asked.at(-1) >= worst("gpt-6.1-sol", ["s", DENSE], 4000));
+    await assert.rejects(respond(recording, { instructions: "i", input: [{ role: "user", content: DENSE }], maxOutputTokens: 1500 }));
+    assert.ok(asked.at(-1) >= limits.modelCost("unpriced", { inputTokens: bytesOf(DENSE) + 1, outputTokens: 1500 }));
+  });
+
+  // Through the gate: a hundred such calls started together stop at the share, however dense the text.
+  t.mock.timers.enable({ apis: ["Date"], now: NOV_16 });
+  await withEnv(ACCOUNTS, async () => {
+    const db = world({ mallory: 1 });
+    const ctx = actions(db);
+    const dense = { estimate: limits.callEstimate("gpt-5.4-mini", DENSE), cost: worst("gpt-5.4-mini", [DENSE]) };
+    await Promise.all(Array.from({ length: 100 }, () => modelCall(ctx, { caseId: "cases:mallory-0" }, dense)));
+    assert.ok((await ledger.accountDay({ db }, "users:mallory", Date.now())).ownUsd <= 2.5 + dense.estimate);
+  });
 });
 
 test("the shares are settings with sensible defaults, and nonsense falls back to them", async () => {

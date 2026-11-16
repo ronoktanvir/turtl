@@ -65,8 +65,12 @@ export const MAX_CALL_HOLD_USD = 5;
  * very long answer cannot make one call cost more than it was held at. Generous, since reasoning counts toward it.
  */
 export const ASSUMED_OUTPUT_TOKENS = 16_000;
-/** A generous count of characters per token, so an estimate from a prompt's length is high rather than low. */
-const CHARS_PER_TOKEN = 3;
+/**
+ * Tokens added to a call beyond its texts: each message's role and separators, and the reply's start. A few per message
+ * in every chat format; this is generous.
+ */
+const FRAMING_TOKENS_PER_TEXT = 8;
+const FRAMING_TOKENS = 16;
 
 /** A flat estimate for one speech-to-text or text-to-speech call, which report no token counts. */
 export const VOICE_CALL_ESTIMATE_USD = 0.01;
@@ -176,12 +180,22 @@ export function modelCost(model: string, usage: { inputTokens: number; outputTok
   return listed ?? (usage.inputTokens * DEAREST.input + usage.outputTokens * DEAREST.output) / 1_000_000;
 }
 
+const utf8 = new TextEncoder();
+
 /**
- * The most a call is likely to cost, from what is about to be sent: its prompt's length and the most it may write.
- * The gate holds this much against the account's day while the call runs (convex/consent/gate.ts).
+ * The most a call can cost, from what is about to be sent: its texts and the most it may write. The gate holds this
+ * much against the account's day while the call runs (convex/consent/gate.ts), so it must not be low for any text.
+ *
+ * Input tokens are counted as the texts' UTF-8 bytes. No tokenizer turns text into more tokens than that: the
+ * byte-level BPE of OpenAI and Anthropic models makes each token of at least one byte, and Gemini's makes each of at
+ * least one character, which is at least one byte. Characters were not enough (third review): dense text such as
+ * Chinese or emoji takes three or four bytes a character and can take a token for each byte. English is about four
+ * bytes a token, so for it this is four times what a call reads; the hold is returned when the call reports its cost.
  */
-export function callEstimate(model: string, promptChars: number, maxOutputTokens = ASSUMED_OUTPUT_TOKENS): number {
-  return modelCost(model, { inputTokens: Math.ceil(Math.max(0, promptChars) / CHARS_PER_TOKEN), outputTokens: Math.max(0, maxOutputTokens) });
+export function callEstimate(model: string, texts: string | readonly string[], maxOutputTokens = ASSUMED_OUTPUT_TOKENS): number {
+  const all = typeof texts === "string" ? [texts] : texts;
+  const inputTokens = all.reduce((sum, text) => sum + utf8.encode(text).length + FRAMING_TOKENS_PER_TEXT, FRAMING_TOKENS);
+  return modelCost(model, { inputTokens, outputTokens: Math.max(0, maxOutputTokens) });
 }
 
 export const spendRefusal = {

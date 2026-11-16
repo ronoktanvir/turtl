@@ -41,7 +41,7 @@ async function ask(gate: Gate, prompt: unknown): Promise<Answer> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) return { ok: false, reason: NO_MODEL_REASON };
   const model = structuralModelId();
-  const opened = await gate.open("openai", "send", callEstimate(model, SYSTEM_PROMPT.length + JSON.stringify(prompt).length));
+  const opened = await gate.open("openai", "send", callEstimate(model, [SYSTEM_PROMPT, JSON.stringify(prompt)]));
   if (!opened.ok) return { ok: false, reason: opened.reason };
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), MODEL_TIMEOUT_MS);
