@@ -89,7 +89,8 @@ export default function Review() {
         }
       />
       {starError && <T font="text" color="statusAffected" accessibilityRole="alert" testID="case-star-error" style={{ paddingHorizontal: 20, paddingVertical: 8 }}>{starError}</T>}
-      <AiNotice uses={practice ? ["openai"] : ["openai", "capy"]} cannot={practice ? "diagnose this with AI" : "diagnose this with AI or write code fixes"} style={{ marginHorizontal: 20, marginTop: 8 }} />
+      {/* A case about an app that is not answering uses no AI: turtl only waits for the app to answer. */}
+      {!current.notAnswering && <AiNotice uses={practice ? ["openai"] : ["openai", "capy"]} cannot={practice ? "diagnose this with AI" : "diagnose this with AI or write code fixes"} style={{ marginHorizontal: 20, marginTop: 8 }} />}
 
       {ids.length > 1 && (
         <View

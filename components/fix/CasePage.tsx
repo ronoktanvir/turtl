@@ -1,6 +1,6 @@
 import { useRouter } from "expo-router";
 import { useEffect, useRef, useState, type ComponentRef, type RefObject } from "react";
-import { AccessibilityInfo, Animated, Easing, Image, Platform, Pressable, ScrollView, StyleSheet, View, type LayoutChangeEvent, type NativeScrollEvent, type NativeSyntheticEvent } from "react-native";
+import { AccessibilityInfo, Animated, Easing, Image, Linking, Platform, Pressable, ScrollView, StyleSheet, View, type LayoutChangeEvent, type NativeScrollEvent, type NativeSyntheticEvent } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { isLiveData, useCase, useDataStatus, useProject, useWorkflow } from "../../data";
 import type { FixOption, Screenshot } from "../../data/types";
@@ -75,7 +75,8 @@ export function CasePage({ caseId, current, startOn = "case" }: { caseId: string
   const c = useCase(caseId);
   const workflow = useWorkflow(caseId);
   // A practice app has no repository: no code to show, and no code change to offer.
-  const practice = useProject(c?.projectId ?? "")?.practice === true;
+  const project = useProject(c?.projectId ?? "");
+  const practice = project?.practice === true;
   const { errors } = useDataStatus();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
@@ -142,11 +143,12 @@ export function CasePage({ caseId, current, startOn = "case" }: { caseId: string
     dropBack(drop);
   };
   const travel = swipeTravel(box.height);
-  const casePull = usePull({ direction: "up", travel, mouse: false, canStart: () => part === "case" && !moving.current && atEnd(caseMetrics.current), onStart: () => drop.stopAnimation(), onPull: follow, onRelease: release });
+  // A case about an app that is not answering has no Fixes page: nothing to pull toward.
+  const casePull = usePull({ direction: "up", travel, mouse: false, canStart: () => part === "case" && !c?.notAnswering && !moving.current && atEnd(caseMetrics.current), onStart: () => drop.stopAnimation(), onPull: follow, onRelease: release });
   const fixesPull = usePull({ direction: "down", travel, mouse: false, canStart: () => part === "fixes" && !moving.current && atTop(fixesMetrics.current), onStart: () => drop.stopAnimation(), onPull: follow, onRelease: release });
   const wheel = useWheelPull({
     direction: () => (part === "case" ? 1 : -1),
-    atEdge: () => (part === "case" ? atEnd(caseMetrics.current) : atTop(fixesMetrics.current)),
+    atEdge: () => !c?.notAnswering && (part === "case" ? atEnd(caseMetrics.current) : atTop(fixesMetrics.current)),
     busy: () => moving.current,
     onPull: follow,
     onRelease: release,
@@ -161,6 +163,13 @@ export function CasePage({ caseId, current, startOn = "case" }: { caseId: string
   const active = !!e && e.state !== "stopped";
   const activeNumber = e ? c.fixes.findIndex((f) => f.key === e.fixKey) + 1 : 0;
   const closed = c.status === "declined" || c.status === "resolved" || c.status === "unresolved";
+  // turtl opened this because the app stopped answering its checks. It only watches: no Plan, no screenshots and no
+  // Fixes page, since there is nothing to propose or approve. Open, it has its own state word ("Not answering").
+  const watchOnly = !!c.notAnswering;
+  const notAnswering = c.status === "not_answering";
+  const liveApp = notAnswering ? project?.productionUrl : undefined;
+  const when = watchOnly && c.quiet?.closedAt !== undefined ? (c.quiet.answered ? "Answered again " : "Closed ") + ago(c.quiet.closedAt) : ago(c.happenedAt);
+  const fixesShown = part === "fixes" && !watchOnly;
   const openEnacting = () => router.push(("/review/" + c.id + "/enacting") as never);
   // The page being left lifts away with the pull; the page arriving settles into place as the green clears.
   const shift = (away: number, settle: number) => Animated.add(
@@ -173,19 +182,19 @@ export function CasePage({ caseId, current, startOn = "case" }: { caseId: string
     <View style={{ flex: 1, overflow: "hidden" }} ref={wheel} onLayout={(event) => setBox({ width: event.nativeEvent.layout.width, height: event.nativeEvent.layout.height })}>
       <Animated.View
         {...casePull}
-        style={[StyleSheet.absoluteFill, { display: part === "case" ? "flex" : "none", opacity: leaving, transform: [{ translateY: shift(-36, -20) }] }]}
+        style={[StyleSheet.absoluteFill, { display: fixesShown ? "none" : "flex", opacity: leaving, transform: [{ translateY: shift(-36, -20) }] }]}
         testID={id("case-part")}
       >
         <CaseTabs tab={tab} onSelect={setTab} id={id} />
-        <ScrollView {...tracking(caseMetrics)} contentContainerStyle={{ padding: 20, gap: 20, paddingBottom: BAR + insets.bottom + 24 }} testID={"case-scroll-" + c.id}>
+        <ScrollView {...tracking(caseMetrics)} contentContainerStyle={{ padding: 20, gap: 20, paddingBottom: (watchOnly ? 0 : BAR) + insets.bottom + (watchOnly && devToolsOn ? 72 : 24) }} testID={"case-scroll-" + c.id}>
           {tab === "Overview" && (
             <>
               <Reveal>
                 <View style={{ gap: 12 }}>
                   <View style={{ flexDirection: "row", flexWrap: "wrap", columnGap: 12, alignItems: "center" }}>
-                    {feature ? <RequestState state={issueState(c)} testID={id("case-health")} /> : c.status === "new" ? <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }} testID={id("case-health")}><Icon name="Plus" size={15} color="statusNew" /><T variant="small" color="statusNew">New issue</T></View> : <HealthWord health={c.health} practice={practice} testID={id("case-health")} />}
-                    <T variant="small" color="textMuted">
-                      {ago(c.happenedAt)}
+                    {feature || notAnswering ? <RequestState state={issueState(c)} testID={id("case-health")} /> : c.status === "new" ? <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }} testID={id("case-health")}><Icon name="Plus" size={15} color="statusNew" /><T variant="small" color="statusNew">New issue</T></View> : <HealthWord health={c.health} practice={practice} testID={id("case-health")} />}
+                    <T variant="small" color="textMuted" testID={id("case-when")}>
+                      {when}
                     </T>
                   </View>
                   <View style={{ flexDirection: "row", gap: 12, alignItems: "center" }}>
@@ -200,7 +209,7 @@ export function CasePage({ caseId, current, startOn = "case" }: { caseId: string
                 </View>
               </Reveal>
               {c.structural && <StructuralFindingCard finding={c.structural} sources={sources} id={id} />}
-              {isLiveData && (workflow ? <WorkflowGraph key={caseId} workflow={workflow} /> : <T color="textMuted">{workflow === undefined ? "Loading Plan…" : "No workflow has been recorded for this case."}</T>)}
+              {isLiveData && !watchOnly && (workflow ? <WorkflowGraph key={caseId} workflow={workflow} /> : <T color="textMuted">{workflow === undefined ? "Loading Plan…" : "No workflow has been recorded for this case."}</T>)}
               {c.overview.length === 0 && <T color="textMuted" testID={id("overview-empty")}>No overview evidence has been collected yet.</T>}
               {c.overview.map((block, i) =>
                 block.kind === "paragraph" ? (
@@ -212,8 +221,9 @@ export function CasePage({ caseId, current, startOn = "case" }: { caseId: string
                   </View>
                 ),
               )}
+              {liveApp && <Button label="Open your live app" icon="ExternalLink" kind="outline" onPress={() => void Linking.openURL(liveApp)} testID={id("open-live-app")} />}
               <CustomerReportsControl caseId={c.id} id={id} />
-              <View style={{ gap: 12 }}>
+              {!watchOnly && <View style={{ gap: 12 }}>
                 <T variant="heading">Screenshots from app</T>
                 {c.screenshots.length === 0 && <T color="textMuted">No screenshots have been collected yet.</T>}
                 <ScrollView horizontal testID={id("screenshots-strip")} showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12 }}>
@@ -232,7 +242,7 @@ export function CasePage({ caseId, current, startOn = "case" }: { caseId: string
                     </View>
                   ))}
                 </ScrollView>
-              </View>
+              </View>}
             </>
           )}
           {tab === "Logs" && (
@@ -250,7 +260,7 @@ export function CasePage({ caseId, current, startOn = "case" }: { caseId: string
           )}
           {tab === "Code" && (
             <>
-              {c.code.length === 0 && <T color="textMuted" testID={id("code-empty")}>{practice ? "The practice app has no repository, so turtl has no code to map, show or change. Code changes need a connected repository." : "No code evidence has been collected yet."}</T>}
+              {c.code.length === 0 && <T color="textMuted" testID={id("code-empty")}>{watchOnly ? "turtl reads no code for this case. It cannot look into an app that does not answer." : practice ?"The practice app has no repository, so turtl has no code to map, show or change. Code changes need a connected repository." : "No code evidence has been collected yet."}</T>}
               {c.code.map((code) => (
                 <View key={code.id}>
                   <CodeBox code={code} />
@@ -259,7 +269,7 @@ export function CasePage({ caseId, current, startOn = "case" }: { caseId: string
             </>
           )}
         </ScrollView>
-        <View
+        {!watchOnly && <View
           style={{
             position: "absolute",
             left: 0,
@@ -280,12 +290,12 @@ export function CasePage({ caseId, current, startOn = "case" }: { caseId: string
             onPress={() => go("fixes", true)}
             testID={id("look-at-fixes")}
           />
-        </View>
+        </View>}
       </Animated.View>
 
       <Animated.View
         {...fixesPull}
-        style={[StyleSheet.absoluteFill, { display: part === "fixes" ? "flex" : "none", opacity: leaving, transform: [{ translateY: shift(36, 24) }] }]}
+        style={[StyleSheet.absoluteFill, { display: fixesShown ? "flex" : "none", opacity: leaving, transform: [{ translateY: shift(36, 24) }] }]}
         testID={id("fixes-part")}
       >
         <Pressable
