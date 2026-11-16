@@ -4,8 +4,10 @@ export const DEMO_KEEPS_CONTROL_TOKEN =
   "This turtl backend is the single-owner demo, which sends the control token set on the backend itself. Nothing was stored.";
 export const DEMO_KEEPS_CODING_AGENT =
   "This turtl backend is the single-owner demo, which uses the coding agent key set on the backend itself. Nothing was stored.";
+// The owner cannot set the backend's encryption key, so they read that turtl is not ready; the operator finds the
+// setting's name in the backend's log (convex/secrets/seal.ts) and in convex/secrets/README.md.
 export const NO_SEALING_KEY =
-  "turtl cannot keep secrets on this backend yet, because its encryption key (SECRETS_ENCRYPTION_KEY) is not set. Nothing was stored.";
+  "turtl cannot keep secrets on this backend yet, because its encryption is not set up. That is for turtl's operator to fix. Nothing was stored.";
 export const NOT_A_CONTROL_TOKEN = "That does not look like a control token. Paste the whole token: at least 16 characters, with no spaces.";
 export const NOT_A_CODING_AGENT_KEY = "That does not look like a Capy API key. Paste the whole key: at least 16 characters, with no spaces.";
 

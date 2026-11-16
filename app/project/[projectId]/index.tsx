@@ -83,7 +83,7 @@ export default function ProjectHome() {
               </> : <>
                 {!compact && <View style={{ flexDirection: "row", gap: 8, alignItems: "center", marginBottom: 12 }}><Icon name="Wrench" size={18} color="brandDeep" /><T variant="small" color="textMuted">OPEN BUGS</T></View>}
                 <View style={{ flexDirection: "row", alignItems: "baseline", gap: 12 }}><T variant="display">Fix</T><T variant="title" color="statusClear">{project.bugCount}</T></View>
-                <T testID="project-fix-approval-count" color="textMuted" numberOfLines={short ? 1 : 2} style={{ marginTop: 4, maxWidth: "90%" }}>{project.bugCount === 0 ? "No open bugs." : fixApprovals > 0 ? approvalLabel(fixApprovals) + "." : "Review open bugs and proposed fixes."}</T>
+                <T testID="project-fix-approval-count" color="textMuted" numberOfLines={short ? 1 : 2} style={{ marginTop: 4, maxWidth: "90%" }}>{project.bugCount === 0 ? "No open bugs." : fixApprovals > 0 ? approvalLabel(fixApprovals) : "Review open bugs and proposed fixes."}</T>
                 <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: compact ? 8 : 16 }}><T variant="strong" color="statusClear">{project.bugCount === 0 ? "View fixes" : "Review fixes"}</T><Icon name="ArrowRight" color="statusClear" /></View>
               </>}
             </ZoomPressable>
@@ -92,7 +92,7 @@ export default function ProjectHome() {
             <ZoomPressable containerStyle={{ flex: 1 }} testID="project-features" accessibilityRole="button" onPress={() => router.push(`/project/${project.id}/features` as Href)} style={({ pressed }) => ({ flex: 1, minHeight: 0, justifyContent: "center", borderRadius: 20, borderWidth: 1, borderColor: colors.border, backgroundColor: pressed ? colors.surfaceRaised : colors.surface, padding: tilePadding, overflow: "hidden" })}>
               <View pointerEvents="none" style={{ position: "absolute", right: 22, top: 12, opacity: 0.14, transform: [{ rotate: "-16deg" }] }}><Icon name="Layers" size={105} color="brandDeep" strokeWidth={1} /></View>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}><Icon name="Sparkles" size={20} color="brandDeep" /><T variant="title">{labels.features}</T><T variant="heading" color="textMuted">{project.featureCount}</T>{short && <View style={{ flex: 1, alignItems: "flex-end" }}><Icon name="ArrowRight" size={18} color="textMuted" /></View>}</View>
-              {!short && <View style={{ flexDirection: "row", alignItems: "center", gap: 16, marginTop: 12 }}><T testID="project-feature-approval-count" color="textMuted" style={{ flex: 1 }}>{project.featureCount === 0 ? "No open requests." : featureApprovals > 0 ? approvalLabel(featureApprovals) + "." : "Review feature requests."}</T><Icon name="ArrowRight" size={18} color="textMuted" /></View>}
+              {!short && <View style={{ flexDirection: "row", alignItems: "center", gap: 16, marginTop: 12 }}><T testID="project-feature-approval-count" color="textMuted" style={{ flex: 1 }}>{project.featureCount === 0 ? "No open requests." : featureApprovals > 0 ? approvalLabel(featureApprovals) : "Review feature requests."}</T><Icon name="ArrowRight" size={18} color="textMuted" /></View>}
             </ZoomPressable>
           </Reveal>
           <Reveal delay={120} style={{ flex: 1, minHeight: 0 }}>

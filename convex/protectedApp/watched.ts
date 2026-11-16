@@ -44,7 +44,7 @@ export const target = internalQuery({
 const TOKEN_WORDS = {
   missing: "no control token is set for this project yet (add it in the project's Settings, under Control token)",
   unreadable: "turtl could not open this project's control token, because the backend's encryption key changed since it was set (enter it again in the project's Settings)",
-  no_key: "turtl cannot open stored tokens on this backend, because its encryption key (SECRETS_ENCRYPTION_KEY) is not set",
+  no_key: "turtl cannot open stored tokens on this backend, because its encryption is not set up (that is for turtl's operator to fix)",
 } as const;
 
 const refusing = (reason: string): WatchedApp => ({

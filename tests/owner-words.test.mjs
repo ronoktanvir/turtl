@@ -56,3 +56,50 @@ test("a model provider without a key is named, not its setting", () => {
   assert.doesNotMatch(models, /\$\{keyName\} is not set/);
   assert.match(models, /is not connected to turtl yet, so no request was sent/);
 });
+
+test("a missing encryption key or GitHub token is not named to the owner", () => {
+  const { NO_SEALING_KEY } = createLoader()("convex/secrets/words.ts");
+  assert.doesNotMatch(NO_SEALING_KEY, /[A-Z]{2,}_[A-Z_]+/);
+  assert.match(NO_SEALING_KEY, /operator/);
+  assert.doesNotMatch(read("convex/protectedApp/watched.ts"), /\(SECRETS_ENCRYPTION_KEY\)/);
+  assert.match(read("convex/secrets/seal.ts"), /console\.error\(`\$\{KEY_VARIABLE\} is not set/);
+  for (const line of read("convex/codeNetwork/build.ts").split("\n").filter((l) => /reason: `/.test(l))) assert.doesNotMatch(line, /GITHUB_TOKEN/, line);
+});
+
+test("reading a repository through the GitHub connection blames the connection, never a token", () => {
+  const { unreadable } = createLoader({ "convex/prTracking/github": { github: async () => ({ ok: false }) } })("convex/onboarding/github.ts");
+  const refused = { ok: false, status: 401, message: "Bad credentials" };
+  const connected = unreadable("acme/app", { ...refused, status: 404 }, undefined, true, true);
+  assert.match(connected, /^turtl reaches acme\/app through your GitHub connection, but GitHub turned that connection down just now\./);
+  assert.doesNotMatch(connected, /token|connect it to turtl through GitHub \(Add project/i);
+  const notConnected = unreadable("acme/app", { ...refused, status: 404 }, undefined, false);
+  assert.match(notConnected, /connect it to turtl through GitHub \(Add project, Connect GitHub\)/);
+  const odd = unreadable("acme/app", { ok: false, status: 502, message: "Bad gateway <html>" }, "t", false);
+  assert.equal(odd, "GitHub did not answer when turtl tried to read acme/app. Try again in a few minutes.");
+  assert.match(read("convex/onboarding/inspect.ts"), /readRepository\(inspection\.repo, access\.token, access\.source === "installation"\)/);
+});
+
+test("a journey check's stored words carry no error code or run id", () => {
+  const { describeJourney, journeyBody } = createLoader({ "convex/protectedApp/watched": {} })("convex/protectedApp/client.ts");
+  const failed = {
+    verdict: "failed", failedStep: "recommendations", runId: "6198e797-0455-400c-891b-571e2f63275e", revision: "local-qa",
+    error: { code: "RECOMMENDATIONS_TIMEOUT", message: "The recommendation provider timed out." },
+    steps: [{ step: "load_catalog", verdict: "passed", detail: "Selected a service." }, { step: "recommendations", verdict: "failed", detail: "Timed out." }],
+    cleanup: { ok: true, deletedBookings: 1 },
+  };
+  assert.equal(describeJourney(failed), 'The booking check failed at the "recommendations" step, so no booking was saved.');
+  assert.equal(describeJourney({ ...failed, failedStep: undefined }), "The booking check failed, so no booking was saved.");
+  assert.equal(journeyBody(failed), "load_catalog: passed. Selected a service.\nrecommendations: failed. Timed out.\nError: The recommendation provider timed out.\nCleanup succeeded (1 test booking deleted).");
+  assert.match(journeyBody({ ...failed, error: undefined, cleanup: { ok: true, deletedBookings: 0 } }), /Cleanup succeeded \(0 test bookings deleted\)\.$/);
+  for (const text of [describeJourney(failed), journeyBody(failed)]) for (const raw of ["RECOMMENDATIONS_TIMEOUT", "6198e797", "local-qa"]) assert.ok(!text.includes(raw), raw);
+});
+
+test("a setting change is reported with the setting's name in words", () => {
+  const { settingName } = createLoader()("convex/constants.ts");
+  assert.equal(settingName("recommendationsEnabled"), "recommendations");
+  assert.equal(settingName("dark_mode_enabled"), "dark mode");
+  assert.equal(settingName("checkoutV2"), "checkout v2");
+  const source = read("convex/runner/handlers/authorize_and_execute.ts");
+  assert.match(source, /Turned \$\{settingName\(flag\)\} \$\{value \? "on" : "off"\}, and the booking app confirmed the change\./);
+  assert.doesNotMatch(source, /label: action\.type \}/);
+});

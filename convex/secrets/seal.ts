@@ -32,14 +32,15 @@ export type Sealed = { sealed: string; keyId: string };
  * row sealed with an earlier key is recognised as such instead of failing to open for no stated reason.
  */
 export async function sealingKey(text: string | undefined = process.env.SECRETS_ENCRYPTION_KEY): Promise<SealingKey | null> {
-  if (!text?.trim()) return null;
+  // The owner reads plain words (words.ts); the operator reads which setting is wrong here, in the backend's log.
+  if (!text?.trim()) return (console.error(`${KEY_VARIABLE} is not set, so turtl cannot seal or open secrets.`), null);
   let raw: Uint8Array<ArrayBuffer>;
   try {
     raw = fromBase64(text.trim());
   } catch {
-    return null;
+    return (console.error(`${KEY_VARIABLE} is not base64.`), null);
   }
-  if (raw.length !== KEY_BYTES) return null;
+  if (raw.length !== KEY_BYTES) return (console.error(`${KEY_VARIABLE} must be ${KEY_BYTES} bytes.`), null);
   const key = await crypto.subtle.importKey("raw", raw, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
   const keyId = hex(await crypto.subtle.digest("SHA-256", raw)).slice(0, 16);
   return { key, keyId };

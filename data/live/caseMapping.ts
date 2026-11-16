@@ -145,6 +145,15 @@ export function journeyBodyWords(body: string): string {
     .join("\n");
 }
 
+// The refusals convex/protectedApp/watched.ts writes when nothing may be sent: the project's address (target) or its
+// control token (TOKEN_WORDS).
+const UNREACHABLE = /so turtl sent nothing|no control token is set for this project|could not open this project's control token|cannot open stored tokens on this backend/;
+
+/** What an unresolved case says when it stopped because turtl could not reach the app at all. */
+export function unreachableStop(stepTitle: string): string {
+  return `turtl stopped this case because it could not reach your app, so it sent nothing. The reason is under "${stepTitle}" below: usually the project's control token is missing, or its live address is one turtl may not send to. Fix it in this project's Settings. turtl's next check opens a new case if the problem is still there, and a new report from a customer does too. This case stays closed.`;
+}
+
 // A model reason that names a deployment setting reads as "no model is connected" to an owner.
 const plainModelReason = (reason: string) => (/_API_KEY|_KEY\b/.test(reason) ? "turtl has no model connected yet" : reason);
 
@@ -178,7 +187,9 @@ function enactmentOf(cards: CaseCards, fixes: CaseFixes | undefined, pullRequest
       status: step.status === "waiting" ? "pending" : step.status,
       detail: nameSteps([step.status === "waiting" ? "Waiting." : "", step.skipReason, attempt?.handoff, attempt?.error].filter(Boolean).join(" "), cards.steps) || undefined,
       summary: attempt?.summary && ownerWords(nameSteps(attempt.summary, cards.steps)),
-      startedAt: attempt?.startedAt,
+      // The approval step's attempt opens when turtl starts waiting for the owner. What it did starts at the approval,
+      // which is when the action was requested, so its time is counted from there.
+      startedAt: step.purpose === "authorize_and_execute" && cards.action ? Math.max(cards.action.requestedAt, attempt?.startedAt ?? 0) : attempt?.startedAt,
       finishedAt: attempt?.finishedAt,
     };
   });
@@ -233,6 +244,12 @@ export function mapCaseDetail(
   const bookingDemo = httpCheck?.kind === "http" && /\/booking-demo(?:\/|$)/.test(httpCheck.config.url);
   const staged = bookingDemo || cards.case.isSample || /staged|fixture/i.test(cards.case.title)
     || cards.steps.some((step) => step.staged || /staged|fixture/i.test(step.currentAttempt?.summary ?? ""));
+  // A step that could not reach the app (no control token, an address turtl may not send to) fails every retry within
+  // minutes, and the case closes as unresolved. Closed cases do not run again, so it says what to fix and what happens next.
+  const unreachable = cards.case.status === "unresolved"
+    ? cards.steps.find((step) => step.status === "failed" && UNREACHABLE.test(step.currentAttempt?.error ?? ""))
+    : undefined;
+  if (unreachable) paragraph([{ text: unreachableStop(unreachable.title) }]);
   if (staged && cards.case.raisedBy !== "customer") paragraph([{ text: "This case came from a staged practice failure on the demo app. What it shows is not a real customer problem." }]);
   const names = cards.steps.map((step) => ({ key: step.key, purpose: step.purpose, title: step.title }));
   const plain = (value: string) => ownerWords(nameSteps(value, names));

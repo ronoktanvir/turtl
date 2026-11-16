@@ -303,9 +303,11 @@ test("a partly configured app stops repository access instead of falling back to
     const refused = await access("octo/app");
     assert.equal(refused.ok, false);
     assert.equal(refused.reason, "app_incomplete");
-    assert.match(refused.message, message);
+    // The operator's detail names the setting; the owner's message does not.
+    assert.match(refused.detail, message);
+    assert.equal(refused.message, "turtl's connection to GitHub is not working on this backend yet, so it cannot reach octo/app. Nothing is wrong with your repository.");
     assert.equal(JSON.stringify(refused).includes(LEGACY_TOKEN), false);
-    assert.equal(refused.message.includes("AAAA"), false, "the key never appears in a message");
+    assert.equal(JSON.stringify(refused).includes("AAAA"), false, "the key never appears in a message");
     for (const name of Object.keys(variables)) delete process.env[name];
   }
   assert.deepEqual(stub.requests, []);

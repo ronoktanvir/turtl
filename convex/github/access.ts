@@ -15,7 +15,15 @@ export type RepositoryAccess =
   | { ok: true; source: "installation"; token: string; installationId: number }
   // The GitHub App is not configured: the deployment's GITHUB_TOKEN, or no token at all when that is not set either.
   | { ok: true; source: "deployment"; token: string | undefined }
-  | { ok: false; reason: "invalid_repository" | "app_incomplete" | "not_installed" | "not_connected" | "suspended" | "github_error"; message: string };
+  // message reaches the owner (Preparation, the map, a merge); detail, when there is one, is for the operator and names settings.
+  | { ok: false; reason: "invalid_repository" | "app_incomplete" | "not_installed" | "not_connected" | "suspended" | "github_error"; message: string; detail?: string };
+
+// A GitHub App this backend cannot use is the operator's to fix, never the owner's: they read that the connection is not
+// working here, and the setting at fault goes to the log and to access:check.
+function appIncomplete(repo: string, detail: string): RepositoryAccess {
+  console.error(`github access: ${detail}`);
+  return { ok: false, reason: "app_incomplete", message: `turtl's connection to GitHub is not working on this backend yet, so it cannot reach ${repo}. Nothing is wrong with your repository.`, detail };
+}
 
 // Whose repository it is: the project or case turtl acts for (the owner is the project's apps.ownerId, the rule in
 // convex/access.ts), or an account named directly.
@@ -36,11 +44,11 @@ export async function repositoryAccess(ctx: ActionCtx, repo: string, owner: Repo
   const app = appConfig();
   if (app.state === "absent") return { ok: true, source: "deployment", token: githubToken() };
   if (app.state === "incomplete") {
-    return { ok: false, reason: "app_incomplete", message: `turtl's GitHub App is partly configured: ${app.missing.join(" and ")} is not set on the deployment.` };
+    return appIncomplete(repo, `turtl's GitHub App is partly configured: ${app.missing.join(" and ")} is not set on the deployment.`);
   }
   if (!REPOSITORY_PATTERN.test(repo)) return { ok: false, reason: "invalid_repository", message: `"${repo}" is not a repository in owner/name form.` };
   const jwt = await signAppJwt(app.appId, app.privateKey);
-  if (!jwt) return { ok: false, reason: "app_incomplete", message: UNREADABLE_KEY };
+  if (!jwt) return appIncomplete(repo, UNREADABLE_KEY);
 
   let account: string | null = null;
   if (accessEnforced()) {

@@ -470,7 +470,7 @@ export const devThreeFixCase = mutation({
           recommended: true,
           confidence: 0.8,
           why: [
-            { text: "Every failed booking stops at the recommendations step with RECOMMENDATIONS_TIMEOUT. " },
+            { text: "Every failed booking stops at the recommendations step, where the provider times out. " },
             { text: "With recommendations off, booking no longer waits for the slow provider, so it can save again within a minute." },
           ],
           delivery: "action",
