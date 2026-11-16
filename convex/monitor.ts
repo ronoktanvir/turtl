@@ -228,12 +228,22 @@ export const checkProject = internalAction({
   },
 });
 
-// Run by convex/crons.ts. The demo checks its one app; with accounts on, the next projects get their turn.
+/** Claims one tick makes at most: CLAIM_BATCH due projects each, so up to 2,000 projects start their checks a minute. */
+const MAX_CLAIMS_PER_TICK = 20;
+
+// Run by convex/crons.ts. The demo checks its one app; with accounts on, every due project gets its check, claimed a
+// batch at a time until a claim comes back short.
 export const tick = internalAction({
   args: {},
   handler: async (ctx): Promise<MonitorResult> => {
     if (!accessEnforced()) return await checkJourneys(ctx);
-    const { started, skipped }: Swept = await ctx.runMutation(internal.protectedApp.watching.claim, {});
-    return { started, skipped };
+    const swept: Swept = { started: [], skipped: [] };
+    for (let claims = 0; claims < MAX_CLAIMS_PER_TICK; claims++) {
+      const { started, skipped, more }: Swept & { more: boolean } = await ctx.runMutation(internal.protectedApp.watching.claim, {});
+      swept.started.push(...started);
+      swept.skipped.push(...skipped);
+      if (!more) break;
+    }
+    return swept;
   },
 });

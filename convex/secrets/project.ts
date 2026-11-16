@@ -65,7 +65,10 @@ export const setControlToken = action({
     const key = await sealingKey();
     if (!key) throw new ConvexError(NO_SEALING_KEY);
     const box = await seal(value, contextOf("control_token", projectId), key);
-    return await ctx.runMutation(internal.secrets.store.put, { kind: "control_token", account, appId: projectId as Id<"apps">, ...box });
+    const stored = await ctx.runMutation(internal.secrets.store.put, { kind: "control_token", account, appId: projectId as Id<"apps">, ...box });
+    // Checks waiting for the token start at the monitor's next tick, not when it next reads why it skipped them.
+    await ctx.runMutation(internal.protectedApp.watching.watchSoon, { appId: projectId as Id<"apps"> });
+    return stored;
   },
 });
 

@@ -34,7 +34,7 @@ const EXEMPT = {
   githubWebhookDeliveries: "GitHub's delivery ids and body digests, kept so a replayed webhook changes nothing. They name an installation number, never a person or an account.",
   authAppleNonces: "SHA-256 hashes of Apple sign-in nonces already used. They name nobody, and each is deleted minutes after its token expires.",
   deploymentTotals: "Deployment-wide running totals (new accounts per hour and day, every account's model spend per day). They count everyone and name no account.",
-  monitorCursor: "The monitor's place in its round of projects: one deployment-wide row holding a point in time. It names no account and no project.",
+  monitorCursor: "How far the monitor has looked through the checks added to every project: one deployment-wide row holding points in time. It names no account and no project.",
   accountDeletions: "The record that a deletion happened. Once the job is done it holds a hash of the account id, the times and counts, and nothing else.",
 };
 

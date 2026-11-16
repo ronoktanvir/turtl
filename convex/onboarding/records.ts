@@ -4,6 +4,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import { internalMutation, internalQuery, type MutationCtx, type QueryCtx } from "../_generated/server";
 import { vActionConfig, vCheck, vParameterConstraint } from "../constants";
 import { vGithubSnapshot } from "../prTracking/validators";
+import { checkSoon } from "../protectedApp/watching";
 import { vLiveCheck, vReadinessItem, vStack } from "./schema";
 
 export const latestInspection = (ctx: QueryCtx, appId: Id<"apps">) =>
@@ -294,5 +295,7 @@ export const register = internalMutation({
     await ctx.db.patch(id, {
       registration: { status: "done", ref, checks: results, checkedAt: Date.now(), ...(note && { note }), ...(requestedAt !== undefined && { requestedAt }) },
     });
+    // What answered is watched from the monitor's next tick (convex/protectedApp/watching.ts).
+    await checkSoon(ctx, row.appId);
   },
 });
