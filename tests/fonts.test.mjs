@@ -55,7 +55,7 @@ test("the title font is used below heading size only for the titles of cards, st
   const optIns = screens.filter((file) => /font="title"/.test(read(file)));
   assert.deepEqual(optIns.filter((file) => !allowed.has(file)), [], "a new file sets body-size text in the title font; ordinary text stays in Capriola");
   // Hints and small lists are ordinary text.
-  assert.match(read("components/project/BeginScreen.tsx"), /<T variant="heading" font="text">Swipe up to review<\/T>/);
+  assert.match(read("components/project/BeginScreen.tsx"), /<T variant="heading" font="text" selectable=\{false\} style=\{\{ textAlign: "center" \}\}>Swipe up to begin review<\/T>/);
   assert.match(read("app/review/[caseId]/enacting.tsx"), /<T variant="small" style=\{\{ flex: 1 \}\}>\{run\.name\}<\/T>/);
   assert.doesNotMatch(read("app/review/[caseId]/enacting.tsx"), /variant="small" font="title"/);
 });
