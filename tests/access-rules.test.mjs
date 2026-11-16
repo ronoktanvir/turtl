@@ -902,8 +902,8 @@ test("as one account, every public function that takes an id refuses another acc
       const label = `${module}:${name}(${JSON.stringify(args)})`;
       tried.push(label);
       assert.equal(snapshot(w), before, `${label} changed the database`);
-      // A refusal in plain words: the function's own sentence, or the dev tools' (requireDevTools throws a plain Error).
-      if ("refused" in outcome) assert.ok(outcome.plain || outcome.refused === "Dev tools are disabled on this deployment.", `${label} failed instead of refusing: ${outcome.refused}`);
+      // A refusal in plain words (a ConvexError, whose sentence reaches the person), not a failure.
+      if ("refused" in outcome) assert.ok(outcome.plain, `${label} failed instead of refusing: ${outcome.refused}`);
       else assert.doesNotMatch(JSON.stringify(outcome.answer) ?? "", /bob|salon/i, `${label} answered with bob's records`);
     }
   }
