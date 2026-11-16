@@ -21,6 +21,9 @@ function when(check: WatchedCheck, now: number): string {
   return "Passed " + ago(check.lastPassedAt, now);
 }
 
+/** What an empty list and the project home say when turtl could not read the project's repository. */
+export const UNREADABLE_LINE = "turtl couldn't read this project's repository, so it is not watching anything yet. Open Preparation to see why and read it again.";
+
 export function watchingSummary(checks: WatchedCheck[]): string {
   const passing = checks.filter((check) => check.state === "passing").length;
   if (passing === checks.length) return checks.length === 1 ? "1 check passing" : "All " + checks.length + " checks passing";
@@ -31,7 +34,7 @@ export default function Watching({ projectId, rows = 4, brief = false, testID = 
   const overview = useOverview(projectId);
   const router = useRouter();
   const { colors } = useTheme();
-  if (!overview || (brief && !overview.checks.length && overview.preparation === "in_progress")) return null;
+  if (!overview || (brief && !overview.checks.length && (overview.preparation === "in_progress" || overview.preparation === "unreadable"))) return null;
   const now = Date.now();
   const { checks, map, preparation } = overview;
   const shown = checks.slice(0, rows);
@@ -57,7 +60,12 @@ export default function Watching({ projectId, rows = 4, brief = false, testID = 
         </View>
       ))}
       {rest > 0 && !brief && <View style={row}><T variant="small" color="textMuted">{rest === 1 ? "1 more check" : rest + " more checks"}</T></View>}
-      {checks.length === 0 && (preparation === "in_progress" ? (
+      {checks.length === 0 && (preparation === "unreadable" ? (
+        <Pressable testID={testID + "-unreadable"} accessibilityRole="link" accessibilityLabel="Open the preparation to read the repository again" onPress={() => router.push(("/project/" + projectId + "/prepare") as Href)} style={({ pressed }) => ({ ...row, paddingVertical: 10, backgroundColor: pressed ? colors.surfaceRaised : "transparent" })}>
+          <T variant="small" color="statusNeedsYou" style={{ flex: 1 }}>{UNREADABLE_LINE}</T>
+          <Icon name="ChevronRight" size={16} color="statusNeedsYou" />
+        </Pressable>
+      ) : preparation === "in_progress" ? (
         <Pressable testID={testID + "-preparation"} accessibilityRole="link" accessibilityLabel="Open the preparation" onPress={() => router.push(("/project/" + projectId + "/prepare") as Href)} style={({ pressed }) => ({ ...row, paddingVertical: 10, backgroundColor: pressed ? colors.surfaceRaised : "transparent" })}>
           <T variant="small" color="textMuted" style={{ flex: 1 }}>turtl is still preparing this project. Its checks show here once the preparation is merged.</T>
           <Icon name="ChevronRight" size={16} color="textMuted" />

@@ -141,6 +141,21 @@ test("a project still being prepared says so, and one without a repository has n
   assert.deepEqual(await overviewQuery().handler({ db: fakeDb(t) }, { projectId: "app1" }), { checks: [], preparation: "in_progress", map: null });
 });
 
+test("a project whose repository could not be read says so, rather than that turtl is still preparing it", async () => {
+  const t = tables();
+  t.journeys = [];
+  t.onboardingPreparations = [{ _id: "p1", appId: "app1", neverBreak: [] }];
+  t.onboardingInspections = [{ _id: "i1", appId: "app1", status: "failed", items: [] }];
+  assert.equal((await overviewQuery().handler({ db: fakeDb(t) }, { projectId: "app1" })).preparation, "unreadable");
+  const { readFileSync } = await import("node:fs");
+  const watching = readFileSync(new URL("../components/project/Watching.tsx", import.meta.url), "utf8");
+  assert.match(watching, /preparation === "unreadable" \? \(/);
+  assert.match(watching, /turtl couldn't read this project's repository, so it is not watching anything yet\. Open Preparation/);
+  const home = readFileSync(new URL("../app/project/[projectId]/index.tsx", import.meta.url), "utf8");
+  assert.match(home, /const unreadable = onboarding\?\.stage === "inspection_failed";/);
+  assert.match(home, /<HealthWord health=\{unreadable && project\.health === "clear" \? "needs_you" : project\.health\}/);
+});
+
 // --- The old case list and case screen are gone from store builds (RC-05) ---
 
 function route(path, isStoreBuild) {

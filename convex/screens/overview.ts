@@ -26,7 +26,8 @@ const vWatchedCheck = v.object({
 });
 export const vOverview = v.object({
   checks: v.array(vWatchedCheck),
-  preparation: v.union(v.literal("none"), v.literal("in_progress"), v.literal("done")),
+  // unreadable: turtl could not read the repository, so nothing is being prepared until the owner tries again.
+  preparation: v.union(v.literal("none"), v.literal("in_progress"), v.literal("done"), v.literal("unreadable")),
   map: v.union(v.null(), v.object({ parts: v.number(), groups: v.number() })),
 });
 
@@ -81,7 +82,7 @@ export const forProject = query({
     })));
 
     const preparation = await preparationFor(ctx, app._id);
-    let stage: "none" | "in_progress" | "done" = "none";
+    let stage: "none" | "in_progress" | "done" | "unreadable" = "none";
     if (preparation) {
       // The endpoints the preparation registered that are not journeys (those are listed above): health, readiness, flags.
       for (const check of preparation.registration?.checks ?? []) {
@@ -95,7 +96,8 @@ export const forProject = query({
         });
       }
       const current = stageOf(await latestInspection(ctx, app._id), preparation);
-      stage = current === "registered" || current === "nothing_to_add" || current === "unsupported" ? "done" : "in_progress";
+      stage = current === "inspection_failed" ? "unreadable"
+        : current === "registered" || current === "nothing_to_add" || current === "unsupported" ? "done" : "in_progress";
     }
 
     return { checks, preparation: stage, map: await codeMap(ctx, app) };
