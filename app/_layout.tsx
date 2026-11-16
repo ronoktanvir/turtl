@@ -10,6 +10,7 @@ import { useFonts, Capriola_400Regular } from "@expo-google-fonts/capriola";
 import { Righteous_400Regular } from "@expo-google-fonts/righteous";
 import { backendClient as convex, isLiveData, isStoreBuild, useBackendReachable, useDataStatus } from "../data";
 import BackendUnavailable from "../components/ui/BackendUnavailable";
+import { setSheetCover } from "../components/ui/sheetCover";
 import OwnerPasscodePrompt from "../components/ui/OwnerPasscodePrompt";
 import PushNotifications from "../components/push/PushNotifications";
 
@@ -34,7 +35,13 @@ function Screens() {
 }
 
 function Unreachable() {
-  return useBackendReachable() ? null : <BackendUnavailable reason="unreachable" />;
+  const reachable = useBackendReachable();
+  // A sheet is a Modal and draws above this layout, so an open sheet shows the same screen over itself.
+  useEffect(() => {
+    setSheetCover(reachable ? null : <BackendUnavailable reason="unreachable" />);
+    return () => setSheetCover(null);
+  }, [reachable]);
+  return reachable ? null : <BackendUnavailable reason="unreachable" />;
 }
 
 export default function RootLayout() {

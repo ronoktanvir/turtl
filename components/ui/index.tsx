@@ -19,6 +19,7 @@ import type { Health } from "../../data/types";
 import { healthToken, healthWord, useTheme, type TokenName } from "../../theme";
 import { Icon, type IconName } from "./Icon";
 import { Reveal, ZoomPressable } from "./motion";
+import { useSheetCover } from "./sheetCover";
 export { Icon, type IconName } from "./Icon";
 export { Reveal, ZoomPressable, useReducedMotion } from "./motion";
 export { BrandIcon } from "./BrandIcon";
@@ -292,6 +293,7 @@ export function Sheet({
 }) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
+  const cover = useSheetCover();
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={{ flex: 1, justifyContent: "flex-end" }}>
@@ -320,6 +322,7 @@ export function Sheet({
           <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 20 }}>{children}</ScrollView>
           {footer}
         </View>
+        {cover}
       </View>
     </Modal>
   );
