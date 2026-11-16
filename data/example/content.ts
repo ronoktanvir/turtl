@@ -495,8 +495,8 @@ const booking9: CaseDetail = {
   number: 9,
   title: "Confirmation email shows the wrong time",
   category: "bug",
-  status: "investigating",
-  health: "working",
+  status: "needs_approval",
+  health: "needs_you",
   happenedAt: ago(3 * HOUR),
   reportCount: 3,
   summary: "Three customers got a confirmation email one hour off. Their bookings are saved at the right time.",
@@ -914,7 +914,27 @@ const guardianRequest2 = feature(
   },
 );
 
-export const caseSeeds: CaseDetail[] = [booking10, booking9, booking8, bookingRequest4, bookingRequest3, guardianRequest2];
+const newBookingReport: CaseDetail = {
+  id: "booking-11",
+  projectId: "still-booking-demo",
+  type: "fix",
+  number: 11,
+  title: "Available times did not load",
+  category: "bug",
+  status: "new",
+  health: "clear",
+  happenedAt: ago(2 * MIN),
+  reportCount: 1,
+  summary: "A customer reported an empty time picker. This report has not been investigated yet.",
+  overview: [{ kind: "paragraph", spans: spans("The customer could open the booking page, but no available times appeared. There is not enough evidence yet to identify the cause or recommend a change.") }],
+  citations: [],
+  logs: [],
+  code: [],
+  screenshots: [],
+  fixes: [],
+};
+
+export const caseSeeds: CaseDetail[] = [booking10, booking9, booking8, newBookingReport, bookingRequest4, bookingRequest3, guardianRequest2];
 
 const bookingNetwork: CodeNetwork = {
   projectId: "still-booking-demo",

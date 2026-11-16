@@ -29,7 +29,7 @@ import {
 } from "./content";
 
 const HEALTH_ORDER: Health[] = ["affected", "needs_you", "working", "clear"];
-const OPEN: CaseStatus[] = ["investigating", "needs_approval", "enacting", "ready_to_merge"];
+const OPEN: CaseStatus[] = ["new", "investigating", "needs_approval", "enacting", "ready_to_merge"];
 const WAITING: CaseStatus[] = ["needs_approval", "ready_to_merge"];
 
 let version = 0;

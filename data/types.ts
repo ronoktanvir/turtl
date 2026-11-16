@@ -1,6 +1,7 @@
 export type Health = "affected" | "needs_you" | "working" | "clear";
 export type CaseType = "fix" | "feature";
 export type CaseStatus =
+  | "new" // nobody has looked at it yet (added in 1.8); shows "New issue"
   | "investigating"
   | "needs_approval"
   | "enacting"
