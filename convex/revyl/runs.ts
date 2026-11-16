@@ -45,7 +45,7 @@ export async function startRun(
     if (existing) return { outcome: "started", runId: existing._id, taskId: existing.taskId };
   }
   const resolved = revylConfig(args);
-  if (!resolved.ok) return { outcome: "not_configured", missing: resolved.missing };
+  if (!resolved.ok) return resolved.refused ? { outcome: "failed", reason: resolved.refused } : { outcome: "not_configured", missing: resolved.missing };
   const started = await startWorkflow(resolved.config);
   if (!started.ok) return { outcome: "failed", reason: started.reason };
   if (!started.body?.task_id) return { outcome: "failed", reason: "Revyl queued the run but returned no task id" };
@@ -85,7 +85,7 @@ export async function advanceRun(ctx: ActionCtx, runId: Id<"revylRuns">): Promis
 
   const resolved = revylConfig(run);
   if (!resolved.ok) {
-    return finish({ status: "error", summary: `Stopped following the Revyl run: ${resolved.missing.join(" and ")} is no longer set.` });
+    return finish({ status: "error", summary: `Stopped following the Revyl run: ${resolved.refused ?? `${resolved.missing.join(" and ")} is no longer set`}.` });
   }
   const status = await workflowStatus(resolved.config, run.taskId);
   if (!status.ok || !TERMINAL_STATUSES.includes(status.body.status)) {
