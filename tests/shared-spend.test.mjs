@@ -241,6 +241,23 @@ test("ATTACK (finding 19): 40 fresh accounts breaking practice apps and spending
   assert.deepEqual(days, [null, null], "neither day did they stop it");
 });
 
+// Statement 3: the arithmetic now, and what the operator can turn when a group of patient accounts does it anyway.
+test("ATTACK (finding 19): how many accounts it takes now, on day 1 and the day after, and what the operator's settings change", async (t) => {
+  // Fresh accounts (any number): never, on either day, until they are 14 days old.
+  assert.deepEqual(await accountsToStopAlice(t, {}, { days: 2, newAccounts: true, count: 60 }), [null, null]);
+  // Accounts over 14 days old, each holding a real project whose live app passed turtl's check for a day before it
+  // failed: the general $15 takes three of them, the $10 reserve about twenty more, and the same accounts can do it
+  // again the next day (each rotates to another of its projects that has passed for a day).
+  const [first, second] = await accountsToStopAlice(t, {}, { days: 2 });
+  assert.ok(first.accounts >= 20 && second.accounts >= 20, JSON.stringify([first, second]));
+  assert.ok(Math.abs(second.accounts - first.accounts) <= 1, "the same accounts again");
+  // What the operator can change when it happens: keep more of the day, or let each account draw less of it.
+  const moreKept = await accountsToStopAlice(t, { OUTAGE_RESERVE_PERCENT: "60" });
+  const lessEach = await accountsToStopAlice(t, { OUTAGE_RESERVE_ACCOUNT_USD: "0.25" }, { count: 80 });
+  assert.ok(moreKept.accounts > first.accounts && lessEach.accounts > first.accounts, JSON.stringify({ moreKept, lessEach }));
+  console.log(`aged accounts with established projects needed: day 1 ${first.accounts}, day 2 ${second.accounts}; with 60% kept ${moreKept.accounts}; with $0.25 each ${lessEach.accounts}`);
+});
+
 test("ATTACK (finding 19): accounts a month old whose projects' checks had only just started passing cannot drain the reserve either", async (t) => {
   assert.equal(await accountsToStopAlice(t, {}, { steady: false, count: 40 }), null);
 });
