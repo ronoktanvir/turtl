@@ -46,8 +46,20 @@ This is every variable the backend reads, taken from the code. "Required" stops 
 | `GITHUB_APP_PRIVATE_KEY` (secret) | Required, arrives with turtl#54 | The GitHub App's private key (the .pem file), which signs the request for an installation token. |
 | `GITHUB_APP_SLUG` | Required, arrives with turtl#54 | The GitHub App's name in its public link, used to send an owner to install it. |
 | `GITHUB_APP_WEBHOOK_SECRET` (secret) | Required, arrives with turtl#54 | Proves a webhook delivery came from GitHub. Without it every delivery is answered 503. |
-| `AUTH_GITHUB_ID` | Required, arrives with the accounts pull request | The same GitHub App's client id, for signing in with GitHub. |
-| `AUTH_GITHUB_SECRET` (secret) | Required, arrives with the accounts pull request | The same GitHub App's client secret. |
+| `AUTH_GITHUB_ID` | Required | The same GitHub App's client id, for signing in with GitHub. |
+| `AUTH_GITHUB_SECRET` (secret) | Required | The same GitHub App's client secret. |
+| `JWT_PRIVATE_KEY` (secret) | Required | Signs the sign-in tokens the backend hands out (Convex Auth). Make it with the steps in convex/auth/README.md, with JWKS. Changing it signs everyone out. |
+| `JWKS` | Required | The public half of JWT_PRIVATE_KEY, which the backend checks sign-in tokens against. |
+| `SITE_URL` | Required | Where GitHub sign-in returns on the web, and the only web address a sign-in code may be sent to besides the app's own turtl:// link. The password reset email needs it too. For the iPhone-only launch, the turtl site: https://ronoktanvir.github.io/turtl |
+| `AUTH_RESEND_KEY` (secret) | Optional | Resend key that emails the code for a password reset. Without it, or without AUTH_EMAIL_FROM, reset is off and the app tells people to contact support. |
+| `AUTH_EMAIL_FROM` | Optional | Sender of the reset email, on a domain verified with Resend, such as "turtl <no-reply@example.com>". Register the same domain with Apple so Hide My Email addresses receive it. |
+| `AUTH_APPLE_BUNDLE_ID` | Optional | The app's bundle id, which Apple names as the audience of a Sign in with Apple token. Default com.turtl.oncall. Change it only together with the app's bundle id. |
+| `AUTH_STAND_IN_URL` | Never set | Points GitHub sign-in, Apple's signing keys and the reset email at a stand-in server in tests. In production it would let that server decide who is signed in. |
+| `AUTH_SESSION_TOTAL_DURATION_MS` | Optional | How long a sign-in lasts before the person must sign in again. Default 30 days. |
+| `AUTH_SESSION_INACTIVE_DURATION_MS` | Optional | How long a sign-in lasts unused. Default 30 days. |
+| `AUTH_LOG_LEVEL` | Optional | How much Convex Auth logs: ERROR, WARN, INFO (the default) or DEBUG. DEBUG writes email addresses to the logs; leave it unset in production. |
+| `AUTH_LOG_SECRETS` | Never set | "true" makes Convex Auth write passwords and tokens to the logs. |
+| `CUSTOM_AUTH_SITE_URL` | Optional | The backend's own web address when it is served from a custom domain; GitHub sign-in starts there. Default: the deployment's .convex.site address. |
 | `CAPY_API_KEY` (secret) | Optional | Starts the Capy thread that writes a code fix and opens its pull request. Without it a code fix reports that it cannot open a pull request. Every account's fixes are billed to this key's owner. |
 | `CAPY_PROJECT_ID` | Optional | Capy project those threads start in. Default: the project that holds the repository. |
 | `CAPY_MODEL_ID` | Optional | Model for those Capy threads. Default: the Capy project's model. |

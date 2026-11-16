@@ -1,6 +1,7 @@
 import { useRouter, type Href } from "expo-router";
-import { Image, Pressable, ScrollView, View } from "react-native";
+import { Pressable, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import ProfileButton from "../components/account/ProfileButton";
 import ProjectIcon from "../components/project/ProjectIcon";
 import FirstRun from "../components/project/FirstRun";
 import { Card, HealthWord, Icon, Reveal, Screen, T, Turtle, devToolsOn } from "../components/ui";
@@ -22,7 +23,7 @@ export default function Projects() {
             <T variant="display" accessibilityRole="header">Projects</T>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
               <Turtle health="clear" size={48} label="turtl" />
-              <Image source={require("../assets/brand/ronok-avatar.png")} accessibilityLabel="Your profile" style={{ width: 40, height: 40, borderRadius: 20, borderWidth: 1, borderColor: colors.border }} />
+              <ProfileButton />
             </View>
           </View>
         </View>

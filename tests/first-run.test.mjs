@@ -179,7 +179,8 @@ test("Home's header turtle is always the green one, with no health line under th
   const home = source("../app/projects.tsx");
   assert.ok(home.includes('<Turtle health="clear" size={48} label="turtl" />'));
   assert.ok(!home.includes("home-health"));
-  assert.ok(home.includes('<Image source={require("../assets/brand/ronok-avatar.png")} accessibilityLabel="Your profile" style={{ width: 40, height: 40, borderRadius: 20, borderWidth: 1, borderColor: colors.border }} />'), "the profile picture is left exactly as it was");
+  assert.ok(home.includes("<ProfileButton />"), "the profile picture is the accounts slice's: today's photo in the demo, the signed-in person's otherwise");
+  assert.ok(!home.includes("ronok-avatar"), "Home itself no longer names the compiled-in photo");
 });
 
 test("an empty project list shows the first-run screen with one way to add a project", () => {

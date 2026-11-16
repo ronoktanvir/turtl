@@ -15,6 +15,9 @@ import ts from "typescript";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const nodeRequire = createRequire(import.meta.url);
+// convex/schema.ts spreads Convex Auth's tables. That package publishes only an ES module build, which require()
+// cannot reach, so it is loaded up front and handed out by the loader below.
+const esModules = { "@convex-dev/auth/server": await import("@convex-dev/auth/server") };
 const VARIABLES = ["AUTH_REQUIRED", "DEV_TOOLS_ENABLED", "PROTECTED_APP_CONTROL_SECRET_SHA256", "PROTECTED_APP_URL", "CODE_NETWORK_CHAT_ENABLED", "OPENAI_API_KEY", "SUPERMEMORY_API_KEY"];
 const PASSCODE = "local-fixture-passcode";
 const SIGN_IN = "Sign in to continue.";
@@ -59,7 +62,7 @@ function createLoader(mocks) {
       compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true },
     });
     const require = (name) => {
-      if (!name.startsWith(".")) return nodeRequire(name);
+      if (!name.startsWith(".")) return name in esModules ? esModules[name] : nodeRequire(name);
       const key = resolve(dirname(file), name).slice(root.length + 1);
       if (key in mocks) return mocks[key];
       if (key in generated) return generated[key];

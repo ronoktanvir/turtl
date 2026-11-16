@@ -1,5 +1,6 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
+import { accountTables } from "./auth/schema";
 import { bookingError } from "./bookingDemo/validators";
 import { codeNetworkTables } from "./codeNetwork/schema";
 import { councilTables } from "./council/schema";
@@ -216,4 +217,5 @@ export default defineSchema({
   ...onboardingTables,
   ...githubTables,
   ...pushTables,
+  ...accountTables,
 });

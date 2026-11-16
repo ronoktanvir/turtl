@@ -1,6 +1,7 @@
 import { httpRouter } from "convex/server";
 import { httpAction } from "./_generated/server";
 import { internal } from "./_generated/api";
+import { auth } from "./auth";
 import { revision } from "./bookingDemo/catalog";
 import { readScenario } from "./bookingDemo/journeyCore";
 import { STAGED_TIMEOUT_MS } from "./bookingDemo/provider";
@@ -70,5 +71,6 @@ http.route({ path: "/booking-demo/errors", method: "GET", handler: httpAction(as
 
 registerIntakeRoutes(http);
 registerGithubRoutes(http);
+auth.addHttpRoutes(http);
 
 export default http;
