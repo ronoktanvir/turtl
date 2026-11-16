@@ -107,13 +107,14 @@ function about(ms: number): string {
 }
 
 function impactOf(quiet: Doc<"journeys">[]): string {
-  const tries = Math.min(...quiet.map((journey) => journey.unanswered!.count));
   const latest = quiet.reduce((newest, journey) => (journey.unanswered!.at > newest.unanswered!.at ? journey : newest)).unanswered!.latest;
   const names = quiet.map((journey) => journey.name);
-  const which = names.length === 1 ? `the ${quoted(names)} check` : `${names.length} checks (${quoted(names)})`;
+  const which = names.length === 1 ? `the ${quoted(names)} check` : `each of ${names.length} checks (${quoted(names)})`;
   // What turtl saw, and only that: the case page says what happens next while the case is open, and shows this line
-  // again once it is closed (data/live/caseMapping.ts), when "it keeps checking" would no longer be true.
-  return `turtl's last ${tries} tries of ${which} got no usable answer: ${sawWords(latest)}.`;
+  // again once it is closed (data/live/caseMapping.ts), when "it keeps checking" would no longer be true. No exact
+  // count of tries: a count can be held below UNANSWERED_AFTER while turtl checks itself, so it may be stale by the
+  // time the case opens. "three" is UNANSWERED_AFTER in words.
+  return `At least three tries in a row of ${which} got no usable answer: ${sawWords(latest)}.`;
 }
 
 /** How the checks stand now that the app answered: the ones that fail, and the ones still with no answer. */
@@ -125,6 +126,8 @@ function nowWords(journeys: Doc<"journeys">[], tries: Try[]): string {
   const parts = [];
   if (failing.length) parts.push(`${quoted(failing)} ${failing.length === 1 ? "fails" : "fail"} now, which turtl handles as a separate issue.`);
   if (quiet.length) parts.push(`${quoted(quiet)} got no answer this time.`);
+  // The case page reads this exact sentence to tell a case whose checks all pass from one where something still does
+  // not (data/live/caseMapping.ts, ALL_PASS); change both together.
   return parts.length ? parts.join(" ") : "Its checks pass now.";
 }
 
@@ -157,7 +160,8 @@ async function close(ctx: MutationCtx, row: Doc<"cases">, how: { answered: true;
     await ctx.scheduler.runAfter(0, internal.notices.notifyOwner, {
       caseId: row._id,
       event: "answering_again",
-      text: `${app?.name ?? "Your app"} is answering turtl's checks again.`,
+      // Not an all-clear: the app can come back with a failing check.
+      text: `${app?.name ?? "Your app"} is answering turtl's checks again. Open the case to see whether they pass.`,
     });
   }
 }

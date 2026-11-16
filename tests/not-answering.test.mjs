@@ -231,7 +231,10 @@ test("R3, R5: the third try in a row with no answer opens one case for the proje
   assert.match(opened.title, /not answering/);
   // What turtl saw, and only that: the case page says the rest while the case is open, and shows this line again once
   // it is closed, when "it keeps checking" would no longer be true.
-  assert.equal(opened.impact, "turtl's last 3 tries of 3 checks (\"Check 0\", \"Check 1\" and \"Check 2\") got no usable answer: turtl could not connect to the app.");
+  // No exact number of tries: a check's count can be held below the threshold while turtl checks itself, so the case
+  // says "at least three" rather than a count that may be wrong by the time it opens.
+  assert.equal(opened.impact, "At least three tries in a row of each of 3 checks (\"Check 0\", \"Check 1\" and \"Check 2\") got no usable answer: turtl could not connect to the app.");
+  assert.doesNotMatch(opened.impact, /last \d|\b\d+ tries/);
   for (const raw of ["TypeError", "fetch failed", "not_answering", "no_response"]) assert.ok(!opened.impact.includes(raw), raw);
   // One step, parked from the start, and nothing ever scheduled to run it.
   const steps = w.rows("steps").filter((step) => step.caseId === opened._id);
@@ -303,7 +306,8 @@ test("R4, R5: when the app answers again the case closes with what turtl saw, an
   assert.equal(attempt.summary, "The app answered turtl's checks again after about 7 minutes without an answer. Its checks pass now.");
   assert.deepEqual(events(w), ["not_answering", "answering_again"]);
   assert.deepEqual(pushes(w), ["not_answering", "answering_again"]);
-  assert.match(jobs(w, "internal.notices.notifyOwner")[1].args.text, /^Shop shop\.example is answering turtl's checks again\.$/);
+  // Not an all-clear: the app can come back with a failing check.
+  assert.match(jobs(w, "internal.notices.notifyOwner")[1].args.text, /^Shop shop\.example is answering turtl's checks again\. Open the case to see whether they pass\.$/);
   assert.deepEqual(counts(w, appId), [0, 0]);
   assert.ok((await overview(w, appId, ada)).every((check) => check.state === "passing" && check.notAnswering === undefined));
 

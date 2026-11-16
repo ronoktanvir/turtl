@@ -412,7 +412,8 @@ test("the two journey and health checks say when each was made, so neither reads
 // A case the monitor opened because the app stopped answering turtl's checks (convex/protectedApp/notAnswering.ts).
 // turtl cannot look into an app it cannot reach: the case says what turtl saw, where the owner can look, and that it
 // closes by itself when the app answers. Nothing on it is a fix, an approval or an investigation.
-const SAW = "turtl's last 3 tries of the \"Book an appointment\" check got no usable answer: turtl could not connect to the app.";
+const SAW = "At least three tries in a row of the \"Book an appointment\" check got no usable answer: turtl could not connect to the app.";
+const SAW_AFTER = "at least three tries in a row of the \"Book an appointment\" check got no usable answer: turtl could not connect to the app.";
 const quietRow = (fields = {}) => row({
   _id: "case-q", title: "Your app is not answering turtl's checks", impact: SAW, status: "waiting_for_app",
   signature: "not_answering:app-1", raisedByRef: "turtl's checks", ...fields,
@@ -474,10 +475,21 @@ test("a not-answering case closed because the app answered says so, how long it 
   assert.equal(detail.summary, answered);
   assert.deepEqual(detail.quiet, { since: 2000, closedAt: 422_000, answered: true });
   assert.deepEqual(paragraphs(detail), [
-    `When this case opened, ${SAW}`,
+    `When this case opened, ${SAW_AFTER}`,
     "turtl closed this case itself when the app answered. It changed nothing on your app.",
   ]);
   for (const line of paragraphs(detail)) assert.doesNotMatch(line, /keeps checking|status page|last deploy/, line);
+});
+
+test("a not-answering case closed with a check failing after the app came back is not all clear", () => {
+  const failing = "The app answered turtl's checks again after about 7 minutes without an answer. \"Book an appointment\" fails now, which turtl handles as a separate issue.";
+  const detail = map(cards({ case: quietRow({ status: "resolved" }), steps: [closedStep(failing, true)] }));
+  assert.equal(detail.status, "resolved");
+  assert.equal(detail.health, "affected", "a failing check reads as it does anywhere else, never \"All clear\"");
+  assert.equal(detail.summary, failing, "what fails now leads the page");
+  const quiet = "The app answered turtl's checks again after about 7 minutes without an answer. \"Pay\" got no answer this time.";
+  assert.equal(map(cards({ case: quietRow({ status: "resolved" }), steps: [closedStep(quiet, true)] })).health, "affected");
+  assert.equal(map(cards({ case: quietRow({ status: "resolved", impact: "" }), steps: [] })).health, "affected", "not known to pass: not all clear");
 });
 
 test("a not-answering case closed because turtl stopped checking says why, once, and never reads as a refused send", () => {
@@ -489,7 +501,7 @@ test("a not-answering case closed because turtl stopped checking says why, once,
   assert.equal(detail.summary, stopped);
   assert.deepEqual(detail.quiet, { since: 2000, closedAt: 422_000, answered: false });
   assert.deepEqual(paragraphs(detail), [
-    `When this case opened, ${SAW}`,
+    `When this case opened, ${SAW_AFTER}`,
     "If turtl checks this project again and the app still gives no answer, turtl opens a new case and tells you.",
   ]);
   assert.ok(!paragraphs(detail).some((line) => line.includes("could not reach your app")), "not the refused-send paragraph");

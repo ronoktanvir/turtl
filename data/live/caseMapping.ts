@@ -301,6 +301,11 @@ const QUIET_OPEN = [
 const QUIET_ANSWERED = "turtl closed this case itself when the app answered. It changed nothing on your app.";
 const QUIET_STOPPED = "If turtl checks this project again and the app still gives no answer, turtl opens a new case and tells you.";
 const WAIT_STEP_KEY = "wait_for_answer";
+// The closing summary's last sentence when every check passed as the app came back (notAnswering.ts, nowWords).
+// Anything else (a check failing, or still no answer) is not all clear.
+const ALL_PASS = /Its checks pass now\.$/;
+// "At least three tries…" continues a sentence after "When this case opened, ".
+const continuing = (text: string) => (/^[A-Z][a-z]/.test(text) ? text.charAt(0).toLowerCase() + text.slice(1) : text);
 
 function notAnsweringDetail(cards: CaseCards, number: number | undefined): CaseDetail {
   const row = cards.case;
@@ -314,7 +319,11 @@ function notAnsweringDetail(cards: CaseCards, number: number | undefined): CaseD
   const ending = closed && step?.status === "done" ? attempt?.summary : undefined;
   const summary = !closed ? row.impact || row.title
     : ending || (answered ? "The app answered turtl's checks again." : "turtl stopped checking this project, so it closed this case.");
-  const texts = !closed ? QUIET_OPEN : [...(row.impact ? [`When this case opened, ${row.impact}`] : []), answered ? QUIET_ANSWERED : QUIET_STOPPED];
+  const texts = !closed ? QUIET_OPEN : [...(row.impact ? [`When this case opened, ${continuing(row.impact)}`] : []), answered ? QUIET_ANSWERED : QUIET_STOPPED];
+  const base = mapCaseSummary(row, number ?? 0);
+  // Answered again is all clear only when every check passed; a check that fails as the app comes back reads as a
+  // failing check does anywhere else.
+  const health: CaseDetail["health"] = base.status === "resolved" && !ALL_PASS.test(ending ?? "") ? "affected" : base.health;
 
   // What turtl recorded stays in the Logs, under each step's name.
   const names = cards.steps.map((one) => ({ key: one.key, purpose: one.purpose, title: one.title }));
@@ -326,7 +335,8 @@ function notAnsweringDetail(cards: CaseCards, number: number | undefined): CaseD
     logs.push({ id: `attempt:${tried._id}`, at: tried.finishedAt ?? tried.startedAt ?? tried._creationTime, level: tried.error || tried.status === "failed" ? "error" : "info", source: `Workflow · ${one.title} · attempt ${tried.attempt}`, text: note });
   }
   return {
-    ...mapCaseSummary(row, number ?? 0),
+    ...base,
+    health,
     summary,
     overview: texts.map((text) => ({ kind: "paragraph", spans: [{ text }] })),
     citations: logs.map((log) => ({ id: log.id, kind: "log", logId: log.id })),
