@@ -1,9 +1,12 @@
 #!/usr/bin/env node
 // Runs convex/github on a local Convex backend against the stand-in GitHub in stub.mjs, so the JWT is signed, the
-// webhook is verified and the tables are written by Convex's own runtime. Nothing here talks to GitHub.
+// webhook is verified, Connect GitHub's two pages answer over HTTP, and the tables are written by Convex's own
+// runtime. Nothing here talks to GitHub.
 //   CONVEX_AGENT_MODE=anonymous npx convex dev     (one terminal; keep it running)
-//   node scripts/github-app/prove-local.mjs        (another)
+//   node scripts/github-app/prove-local.mjs        (another; --port <n> serves the stand-in on that port)
 // It refuses to run unless .env.local names a local backend, and it removes the variables it set when it ends.
+// Accounts stay off here (no sign-in exists on a local backend), so Connect GitHub files under the single owner;
+// tests/github-connect.test.mjs proves the same flow with accounts on.
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { createHmac, generateKeyPairSync, randomBytes, randomUUID } from "node:crypto";
@@ -12,7 +15,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import { startGithubStub } from "./stub.mjs";
+import { browse, startGithubStub } from "./stub.mjs";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const local = Object.fromEntries(
@@ -30,10 +33,11 @@ if (!/^(anonymous|local):/.test(local.CONVEX_DEPLOYMENT ?? "") || !isLocal(conve
   process.exit(1);
 }
 
-const VARIABLES = ["GITHUB_API_URL", "GITHUB_APP_ID", "GITHUB_APP_SLUG", "GITHUB_APP_PRIVATE_KEY", "GITHUB_APP_WEBHOOK_SECRET"];
+const VARIABLES = ["GITHUB_API_URL", "GITHUB_APP_ID", "GITHUB_APP_SLUG", "GITHUB_APP_PRIVATE_KEY", "GITHUB_APP_WEBHOOK_SECRET", "AUTH_GITHUB_ID", "AUTH_GITHUB_SECRET"];
 // The stub is served by this process, so the Convex CLI must never block it: every call is asynchronous.
 const convex = async (...args) => (await promisify(execFile)("npx", ["convex", ...args], { cwd: root, env: { ...process.env, CONVEX_AGENT_MODE: "anonymous" } })).stdout;
-const run = async (name, args = {}) => JSON.parse(await convex("run", name, JSON.stringify(args)));
+// The CLI prints nothing for a function that returns null.
+const run = async (name, args = {}) => JSON.parse((await convex("run", name, JSON.stringify(args))).trim() || "null");
 const clearVariables = async () => {
   for (const name of VARIABLES) await convex("env", "remove", name).catch(() => {});
 };
@@ -44,7 +48,15 @@ const appId = "424242";
 const secret = randomBytes(24).toString("hex");
 const keys = generateKeyPairSync("rsa", { modulusLength: 2048 });
 const manifest = JSON.parse(readFileSync(join(root, "convex/github/app-manifest.json"), "utf8"));
-const stub = await startGithubStub({ appId, publicKey: keys.publicKey.export({ type: "spki", format: "pem" }), permissions: manifest.default_permissions, events: manifest.default_events });
+const portIndex = process.argv.indexOf("--port");
+const stub = await startGithubStub({
+  appId,
+  publicKey: keys.publicKey.export({ type: "spki", format: "pem" }),
+  permissions: manifest.default_permissions,
+  events: manifest.default_events,
+  site: siteUrl,
+  port: portIndex === -1 ? 0 : Number(process.argv[portIndex + 1]),
+});
 const scratch = mkdtempSync(join(tmpdir(), "turtl-github-app-"));
 
 const installation = (suspended = false) => ({ id, account: { login: owner, type: "User" }, repository_selection: "selected", suspended_at: suspended ? new Date().toISOString() : null });
@@ -176,6 +188,65 @@ try {
     const response = await fetch(siteUrl + "/github/setup?installation_id=" + id + "&setup_action=install");
     assert.equal(response.status, 200);
     assert.deepEqual(await names(), []);
+  });
+
+  // Connect GitHub on the same backend: turtl's two pages answer over HTTP, the app's functions are called through
+  // the CLI the way the app calls them, and the stand-in plays the person's browser on github.com.
+  await convex("env", "set", "AUTH_GITHUB_ID", stub.clientId);
+  await convex("env", "set", "AUTH_GITHUB_SECRET", stub.clientSecret);
+  const connectId = id + 1;
+  let ticket = "";
+  let callback = "";
+  await step("Connect GitHub: the install page, turtl's setup page, GitHub's authorize page and turtl's callback bring the person back with a ticket", async () => {
+    const status = await run("github/connect:status");
+    assert.deepEqual([status.configured, status.accounts, status.connections], [true, false, []]);
+    stub.signIn(owner);
+    stub.willInstall({ id: connectId, repositories: [owner + "/app", owner + "/site"] });
+    const { url } = await run("github/connect:begin", { returnTo: "app" });
+    assert.ok(url.startsWith(stub.url + "/apps/turtl-on-call/installations/new?state="), url);
+    const landed = await browse(url);
+    assert.deepEqual(landed.visited.map((address) => new URL(address).pathname), ["/apps/turtl-on-call/installations/new", "/github/setup", "/login/oauth/authorize", "/github/callback"]);
+    const back = new URL(landed.url);
+    assert.equal(back.href.split("?")[0], "turtl://add-project");
+    assert.equal(back.searchParams.get("github"), "connected");
+    ticket = back.searchParams.get("ticket");
+    callback = landed.visited[3];
+    assert.equal(stub.revoked.length, 1, "the person's user token was revoked");
+  });
+  await step("the callback cannot be replayed", async () => {
+    assert.equal((await fetch(callback, { redirect: "manual" })).status, 400);
+  });
+  await step("finishing files the installation under the single owner; the picker lists its repositories, with no token over the public API", async () => {
+    assert.deepEqual(await run("github/connect:finish", { ticket }), { connected: 1, githubLogin: owner });
+    await assert.rejects(run("github/connect:finish", { ticket }), /expired or was started on another sign-in/);
+    assert.deepEqual((await run("github/connect:status")).connections.map((connection) => connection.installationId), [connectId]);
+    assert.deepEqual(await run("github/connect:refresh"), { ok: true, problems: [] });
+    assert.deepEqual((await run("github/connect:repositories")).map((repository) => repository.fullName), [owner + "/app", owner + "/site"]);
+    assert.deepEqual((await run("github/access:check", { repo: owner + "/app" })).repository, { ok: true, source: "installation", installationId: connectId });
+    for (const path of ["github/connect:status", "github/connect:repositories"]) {
+      const text = await (await fetch(convexUrl + "/api/query", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path, args: {}, format: "json" }) })).text();
+      assert.match(text, /"status":"success"/, path);
+      assert.equal(/gh[su]_stub_/.test(text), false, path);
+    }
+  });
+  await step("a forged installation id connects nothing", async () => {
+    stub.signIn("someone-else-" + id);
+    const { url } = await run("github/connect:begin", { returnTo: "app" });
+    const state = new URL(url).searchParams.get("state");
+    const landed = await browse(siteUrl + "/github/setup?installation_id=" + connectId + "&setup_action=install&state=" + state);
+    assert.equal(new URL(landed.url).searchParams.get("github"), "none");
+    assert.deepEqual((await run("github/connect:status")).connections.map((connection) => connection.installationId), [connectId]);
+  });
+  await step("disconnecting needs the owner passcode in the demo; account deletion's disconnect uninstalls at GitHub and leaves no token or link", async () => {
+    if (!(await run("ownerPasscode:status")).configured) {
+      await assert.rejects(run("github/connect:disconnect"), /Set an owner passcode in project settings before disconnecting GitHub/);
+    }
+    assert.deepEqual(await run("github/connect:disconnectAccount", { account: "solo-owner" }), { ok: true, disconnected: 1, failed: [] });
+    assert.deepEqual(stub.uninstalled, [connectId]);
+    assert.equal(await run("github/tokens:cached", { installationId: connectId }), null);
+    assert.deepEqual(await run("github/links:installationsOf", { account: "solo-owner" }), []);
+    assert.deepEqual((await run("github/connect:status")).connections, []);
+    assert.equal((await run("github/access:check", { repo: owner + "/app" })).repository.reason, "not_installed");
   });
 
   await clearVariables();
