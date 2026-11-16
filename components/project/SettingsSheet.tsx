@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Monitor, Moon, Sun, UserRound, Zap, type LucideIcon } from "lucide-react-native";
+import { Moon, Sun, UserRound, Zap, type LucideIcon } from "lucide-react-native";
 import { Pressable, View } from "react-native";
 import { setApprovals } from "../../data";
 import type { ApprovalMode } from "../../data/types";
@@ -14,7 +14,7 @@ function Choice({ label, selected, onPress, testID, icon: Symbol }: { label: str
   </Pressable>;
 }
 
-const modes: { mode: ThemeMode; label: string; icon: LucideIcon }[] = [{ mode: "system", label: "System", icon: Monitor }, { mode: "dark", label: "Dark", icon: Moon }, { mode: "light", label: "Light", icon: Sun }];
+const modes: { mode: ThemeMode; label: string; icon: LucideIcon }[] = [{ mode: "dark", label: "Dark", icon: Moon }, { mode: "light", label: "Light", icon: Sun }];
 
 export default function SettingsSheet({ visible, onClose, projectId, approvals }: { visible: boolean; onClose: () => void; projectId: string; approvals: ApprovalMode }) {
   const { mode, setMode, colors } = useTheme();
@@ -36,7 +36,6 @@ export default function SettingsSheet({ visible, onClose, projectId, approvals }
     <View style={{ gap: 12, marginTop: 8 }}>
       <T variant="heading">Theme</T>
       <View accessibilityRole="radiogroup" style={{ flexDirection: "row", gap: 4, padding: 4, borderRadius: 16, backgroundColor: colors.surfaceRaised }}>{modes.map((m) => <Choice key={m.mode} label={m.label} icon={m.icon} selected={mode === m.mode} onPress={() => setMode(m.mode)} testID={`theme-${m.mode}`} />)}</View>
-      {mode === "system" && <T variant="small" color="textMuted">Follows your device’s appearance.</T>}
     </View>
     <Button label="Done" onPress={onClose} testID="settings-done" />
   </Sheet>;
