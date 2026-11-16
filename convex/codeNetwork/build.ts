@@ -114,13 +114,14 @@ async function fetchRepository(
     commit = await github(commitPath, githubToken);
   }
   if (!commit.ok) {
+    console.error(`codeNetwork: GitHub answered ${commit.status} for ${repo} at ${ref}`);
     return {
-      reason: `GitHub could not find ${repo} at ${ref} (${commit.status}).${githubToken ? "" : " For a private repository set a valid GITHUB_TOKEN."}`,
+      reason: `GitHub could not find ${repo} at ${ref}.${githubToken ? "" : " If it is private, connect it to turtl through GitHub (Add project, Connect GitHub)."}`,
     };
   }
   const sha = ((await commit.json()) as { sha: string }).sha;
   const tree = await github(`/repos/${repo}/git/trees/${sha}?recursive=1`, githubToken);
-  if (!tree.ok) return { reason: `GitHub did not return the file list of ${repo} (${tree.status}).` };
+  if (!tree.ok) return (console.error(`codeNetwork: GitHub answered ${tree.status} for the file list of ${repo}`), { reason: `GitHub did not return the file list of ${repo}. Try again in a few minutes.` });
   const entries = ((await tree.json()) as { tree: { path: string; type: string; size?: number }[] }).tree
     .filter((entry) => entry.type === "blob" && isSourcePath(entry.path) && (entry.size ?? 0) <= MAX_FILE_BYTES)
     .slice(0, MAX_FILES);

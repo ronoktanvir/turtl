@@ -167,7 +167,7 @@ export const run = internalAction({
     if (!context) return { outcome: "missing" as const };
     const { inspection, appId } = context;
     const access = await repositoryAccess(ctx, inspection.repo, { appId });
-    const read = access.ok ? await readRepository(inspection.repo, access.token) : { ok: false as const, reason: access.message };
+    const read = access.ok ? await readRepository(inspection.repo, access.token, access.source === "installation") : { ok: false as const, reason: access.message };
     if (!read.ok) {
       await ctx.runMutation(internal.onboarding.records.failInspection, { inspectionId, error: read.reason });
       return { outcome: "failed" as const, reason: read.reason };
