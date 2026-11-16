@@ -45,11 +45,21 @@ export const DEFAULT_OUTAGE_RESERVE_ACCOUNT_USD = 0.5;
 export const DEFAULT_OUTAGE_RESERVE_STEADY_HOURS = 24;
 export const DEFAULT_OUTAGE_RESERVE_ACCOUNT_AGE_DAYS = 14;
 /**
- * What finding the cause of practice-app cases may cost one account in a day, apart from its own share: a practice app
- * has no customers and nothing is down. Enough for the ten breaks a day the practice app allows, each explained by AI
- * (a diagnosis, the fixes on offer and a look for a broader cause, about $0.15 to $0.20), and no more.
+ * What finding the cause of practice-app cases may cost one account in a day, within its own share (fourth review,
+ * finding 23: beside the share it was $2 more room in the shared day for every account): a practice app has no
+ * customers and nothing is down. Enough for the ten breaks a day the practice app allows, each explained by AI (a
+ * diagnosis, the fixes on offer and a look for a broader cause, about $0.13 each), and no more.
  */
 export const DEFAULT_PRACTICE_AI_PER_DAY_USD = 2;
+/**
+ * What finding the cause of an owner's own outages may cost in a day once the shared day has nothing left for it,
+ * outside the shared day (fourth review, finding 23): however new the owner and whatever every other account has
+ * spent, an outage turtl's checks found on the owner's own real project is diagnosed. With the default models one
+ * outage costs about $0.35 at ordinary sizes (a quick and a careful diagnosis, a council of three and its summary, the
+ * fixes on offer) and at most about $1.10 (the diagnosis's $0.50 budget, the council's $0.50 limit, the fixes): this
+ * covers the most.
+ */
+export const DEFAULT_OUTAGE_FLOOR_PER_DAY_USD = 1.25;
 /**
  * What a model call counts for from the moment the gate lets it through until its cost comes back, when its caller
  * gives no estimate of its own (callEstimate). Without a hold a burst of calls started together would each pass the
@@ -140,6 +150,9 @@ export const outageReserveAccountAgeMs = () => positive(process.env.OUTAGE_RESER
 /** What one account's practice-app cases may spend on models in a calendar day (UTC). */
 export const practiceAiPerDayUsd = () => positive(process.env.PRACTICE_AI_PER_DAY_USD, DEFAULT_PRACTICE_AI_PER_DAY_USD, false);
 
+/** What one account's own outages may cost in a day past the shared day: the floor no other account can use up. */
+export const outageFloorPerDayUsd = () => positive(process.env.OUTAGE_FLOOR_PER_DAY_USD, DEFAULT_OUTAGE_FLOOR_PER_DAY_USD, false);
+
 /** Projects one account may have. */
 export const projectsPerAccount = () => positive(process.env.PROJECTS_PER_ACCOUNT, DEFAULT_PROJECTS_PER_ACCOUNT, true);
 
@@ -219,6 +232,8 @@ export const spendRefusal = {
     `turtl is keeping the rest of today's AI for outages on apps whose checks had been passing for ${hours === 24 ? "a day" : `${hours} hours`} before they failed, and this one's had not, so no model was asked; it starts again tomorrow`,
   reserveNewAccount: (days: number) =>
     `turtl is keeping the rest of today's AI for outages on accounts more than ${days} days old, so no model was asked; it starts again tomorrow`,
+  floorUsed: (floorUsd: number) =>
+    `this account has used the ${dollars(floorUsd)} turtl keeps for it each day for finding the cause of its own outages, and no other AI is left for it today, so no model was asked; it starts again tomorrow`,
   practiceSpent: (limitUsd: number) =>
     `this account has used today's ${dollars(limitUsd)} of AI for its practice app, so no model was asked; it starts again tomorrow`,
 };

@@ -4,7 +4,7 @@ import type { Id } from "../_generated/dataModel";
 import { internalMutation, internalQuery, type ActionCtx, type QueryCtx } from "../_generated/server";
 import { accessEnforced, demoHoldsAccounts, SOLO_ACCOUNT, UNAVAILABLE } from "../access";
 import { deploymentSpendToday } from "../spend/ceilings";
-import { accountDay, holdModelCall, intakeSpendToday, monthSpend, threadsToday, type Share } from "../spend/ledger";
+import { accountDay, holdModelCall, intakeSpendToday, monthSpend, threadsToday, type AccountDay, type Share } from "../spend/ledger";
 import {
   accountIntakeSpendPerDayUsd,
   accountModelSpendPerDayUsd,
@@ -14,6 +14,7 @@ import {
   MAX_CALL_HOLD_USD,
   MODEL_CALL_HOLD_USD,
   modelSpendLimitUsd,
+  outageFloorPerDayUsd,
   outageReserveAccountUsd,
   outageReserveAccountAgeMs,
   outageReservePercent,
@@ -41,7 +42,8 @@ export type Scope = { appId: string } | { caseId: string } | { account: string }
  * "intake": the project's daily allowance for its customers' reports (triage, and reading the cases they open), so
  * whatever a customer posts cannot spend the owner's allowance and stop turtl diagnosing their outages.
  * "outage": the owner's allowance, for investigating or planning a case the monitor raised (the scope must be that
- * case). Such a call may also use the last part of the deployment's day, kept for outages (convex/spend/README.md).
+ * case). Such a call may also use the last part of the deployment's day, kept for outages, and, on a real project, the
+ * account's own floor when the shared day has no room (convex/spend/README.md).
  */
 export type Allowance = "account" | "intake" | "outage";
 
@@ -51,7 +53,9 @@ export type Allowance = "account" | "intake" | "outage";
  */
 export type Purpose = "send" | "start_thread" | "erase";
 
-type Answer = { ok: true; account: string; appId?: Id<"apps">; held?: number; practice?: boolean } | { ok: false; reason: string };
+type Answer =
+  | { ok: true; account: string; appId?: Id<"apps">; held?: number; practice?: boolean; floor?: boolean }
+  | { ok: false; reason: string };
 
 export interface Gate {
   /** Null when turtl may send to this service now, otherwise the plain reason it may not. */
@@ -122,59 +126,90 @@ async function decide(ctx: Pick<QueryCtx, "db">, { scope, service, purpose, allo
   const now = Date.now();
   let hold: Decision["hold"] = null;
   if (isModelCall(service, purpose)) {
-    // The deployment's own daily ceiling comes first: however many accounts there are, the day's total is bounded.
-    const ceiling = deploymentModelSpendPerDayUsd();
-    const total = await deploymentSpendToday(ctx, now);
-    if (total >= ceiling) return no(spendRefusal.deploymentSpent());
-    // Then the account's share of that day, so one account (its own calls, or its customers' reports) cannot reach the
-    // ceiling alone and stop every other owner's diagnosis (finding 12). Calls still running count at their hold.
     const day = await accountDay(ctx, account, now);
-    const own = day.ownUsd + day.ownHeldUsd;
-    if (allowance === "intake") {
-      const limit = intakeSpendPerDayUsd();
-      if ((await intakeSpendToday(ctx, appId!, now)) >= limit) return no(spendRefusal.intakeSpent(limit));
-      const share = accountIntakeSpendPerDayUsd();
-      if (day.intakeUsd + day.intakeHeldUsd >= share) return no(spendRefusal.accountIntakeSpent(share));
-      hold = "intake";
-    } else {
+    const shared = await sharedDay(ctx, { account, appId, allowance, practice, raisedByMonitor, passingForMs, day, now });
+    if ("hold" in shared) hold = shared.hold;
+    else if (allowance === "outage" && raisedByMonitor && !practice) {
+      // The floor (fourth review, finding 23): an outage turtl's checks found on the owner's own real project is
+      // diagnosed whatever every other account has spent, however new the owner, up to outageFloorPerDayUsd() a day
+      // outside the shared day. Only the owner's own month bounds it.
       const limit = modelSpendLimitUsd();
       if ((await monthSpend(ctx, account, now)) >= limit) return no(spendRefusal.overLimit(limit, now));
-      if (practice) {
-        // A practice app's cases have their own small allowance, enough for its ten breaks a day explained by AI, so
-        // breaking it neither uses up the owner's share nor reaches the part of the day kept for outages (finding 19).
-        const allowed = practiceAiPerDayUsd();
-        if (day.practiceUsd + day.practiceHeldUsd >= allowed) return no(spendRefusal.practiceSpent(allowed));
-        hold = "practice";
-      } else {
-        const share = accountModelSpendPerDayUsd();
-        if (own >= share) return no(spendRefusal.accountDaySpent(share));
-        hold = "own";
-      }
-    }
-    // The last part of the day is kept for finding the cause of outages the monitor found, on accounts that have used
-    // little of the day: a few accounts that used their whole shares cannot reach it, and each other account draws on
-    // it only until its own day passes outageReserveAccountUsd(). Only real outages on established projects qualify
-    // (finding 19): never a practice app, whose cases anyone makes at will; only a check that had been passing for
-    // outageReserveSteadyMs() before it failed; only an account older than outageReserveAccountAgeMs().
-    if (total >= ceiling * (1 - outageReservePercent() / 100)) {
-      if (allowance !== "outage" || !raisedByMonitor || practice) return no(spendRefusal.reserveKept());
-      const steady = outageReserveSteadyMs();
-      if (passingForMs < steady) return no(spendRefusal.reserveNotSteady(Math.round(steady / 3_600_000)));
-      const age = outageReserveAccountAgeMs();
-      const madeAt = await accountMadeAt(ctx, account);
-      if (madeAt === null || now - madeAt < age) return no(spendRefusal.reserveNewAccount(Math.round(age / 86_400_000)));
-      const under = outageReserveAccountUsd();
-      if (own >= under) return no(spendRefusal.reserveUsed(under));
-    }
+      const floor = outageFloorPerDayUsd();
+      if (day.floorUsd + day.floorHeldUsd >= floor) return no(spendRefusal.floorUsed(floor));
+      hold = "floor";
+    } else return no(shared.refusal);
   }
   if (purpose === "start_thread") {
     const cap = codingThreadsPerDay();
     if ((await threadsToday(ctx, account, now)) >= cap) return no(spendRefusal.threadCap(cap));
   }
   return {
-    answer: allowance === "intake" ? { ok: true, account, appId: appId! } : { ok: true, account, ...(hold === "practice" && { practice: true }) },
+    answer:
+      allowance === "intake"
+        ? { ok: true, account, appId: appId! }
+        : { ok: true, account, ...(hold === "practice" && { practice: true }), ...(hold === "floor" && { floor: true }) },
     hold,
   };
+}
+
+type SharedDayArgs = {
+  account: string;
+  appId: Id<"apps"> | null;
+  allowance: Allowance;
+  practice: boolean;
+  raisedByMonitor: boolean;
+  passingForMs: number;
+  day: AccountDay;
+  now: number;
+};
+
+// Whether a model call fits in the shared day, and which of the account's day shares it counts against, or why not.
+async function sharedDay(ctx: Pick<QueryCtx, "db">, { account, appId, allowance, practice, raisedByMonitor, passingForMs, day, now }: SharedDayArgs): Promise<{ hold: Share } | { refusal: string }> {
+  // The deployment's own daily ceiling comes first: however many accounts there are, the day's total is bounded.
+  const ceiling = deploymentModelSpendPerDayUsd();
+  const total = await deploymentSpendToday(ctx, now);
+  if (total >= ceiling) return { refusal: spendRefusal.deploymentSpent() };
+  // Then the account's share of that day, so one account (its own calls, or its customers' reports) cannot reach the
+  // ceiling alone and stop every other owner's diagnosis (finding 12). Calls still running count at their hold. A
+  // practice app's calls are within the account's own share (finding 23), so it adds no room in the shared day.
+  const own = day.ownUsd + day.ownHeldUsd + day.practiceUsd + day.practiceHeldUsd;
+  let hold: Share;
+  if (allowance === "intake") {
+    const limit = intakeSpendPerDayUsd();
+    if ((await intakeSpendToday(ctx, appId!, now)) >= limit) return { refusal: spendRefusal.intakeSpent(limit) };
+    const share = accountIntakeSpendPerDayUsd();
+    if (day.intakeUsd + day.intakeHeldUsd >= share) return { refusal: spendRefusal.accountIntakeSpent(share) };
+    hold = "intake";
+  } else {
+    const limit = modelSpendLimitUsd();
+    if ((await monthSpend(ctx, account, now)) >= limit) return { refusal: spendRefusal.overLimit(limit, now) };
+    if (practice) {
+      // A practice app's cases have a small allowance of their own within the share, enough for its ten breaks a day
+      // explained by AI, and never reach the part of the day kept for outages (finding 19).
+      const allowed = practiceAiPerDayUsd();
+      if (day.practiceUsd + day.practiceHeldUsd >= allowed) return { refusal: spendRefusal.practiceSpent(allowed) };
+    }
+    const share = accountModelSpendPerDayUsd();
+    if (own >= share) return { refusal: spendRefusal.accountDaySpent(share) };
+    hold = practice ? "practice" : "own";
+  }
+  // The last part of the day is kept for finding the cause of outages the monitor found, on accounts that have used
+  // little of the day: a few accounts that used their whole shares cannot reach it, and each other account draws on it
+  // only until its own day passes outageReserveAccountUsd(). Only real outages on established projects qualify
+  // (finding 19): never a practice app, whose cases anyone makes at will; only a check that had been passing for
+  // outageReserveSteadyMs() before it failed; only an account older than outageReserveAccountAgeMs().
+  if (total >= ceiling * (1 - outageReservePercent() / 100)) {
+    if (allowance !== "outage" || !raisedByMonitor || practice) return { refusal: spendRefusal.reserveKept() };
+    const steady = outageReserveSteadyMs();
+    if (passingForMs < steady) return { refusal: spendRefusal.reserveNotSteady(Math.round(steady / 3_600_000)) };
+    const age = outageReserveAccountAgeMs();
+    const madeAt = await accountMadeAt(ctx, account);
+    if (madeAt === null || now - madeAt < age) return { refusal: spendRefusal.reserveNewAccount(Math.round(age / 86_400_000)) };
+    const under = outageReserveAccountUsd();
+    if (own >= under) return { refusal: spendRefusal.reserveUsed(under) };
+  }
+  return { hold };
 }
 
 const vArgs = { scope: vScope, service: v.string(), purpose: vPurpose, allowance: v.optional(vAllowance), estimateUsd: v.optional(v.number()) };
@@ -183,7 +218,14 @@ const vArgs = { scope: vScope, service: v.string(), purpose: vPurpose, allowance
 const holdFor = (estimateUsd: number | undefined) =>
   estimateUsd !== undefined && Number.isFinite(estimateUsd) && estimateUsd > 0 ? Math.min(estimateUsd, MAX_CALL_HOLD_USD) : MODEL_CALL_HOLD_USD;
 const vAnswer = v.union(
-  v.object({ ok: v.literal(true), account: v.string(), appId: v.optional(v.id("apps")), held: v.optional(v.number()), practice: v.optional(v.boolean()) }),
+  v.object({
+    ok: v.literal(true),
+    account: v.string(),
+    appId: v.optional(v.id("apps")),
+    held: v.optional(v.number()),
+    practice: v.optional(v.boolean()),
+    floor: v.optional(v.boolean()),
+  }),
   v.object({ ok: v.literal(false), reason: v.string() }),
 );
 
@@ -217,10 +259,12 @@ export function gateFor(ctx: Runner, scope: Scope, allowance: Allowance = "accou
   const enforced = accessEnforced();
   let account: string | null = enforced ? null : SOLO_ACCOUNT;
   let intakeApp: Id<"apps"> | null = null;
-  // The project is a practice app: its calls count against the account's practice allowance.
-  let practice = false;
-  // The holds of the model calls this gate let through whose cost has not come back yet, oldest first.
-  const holds: number[] = [];
+  // Where the last call let through counts: the account's practice allowance (a practice app), its floor (an outage
+  // past the shared day), or its own share. A cost that comes back with no hold counts there.
+  let last: { practice: boolean; floor: boolean } = { practice: false, floor: false };
+  // The model calls this gate let through whose cost has not come back yet, oldest first: each one's hold and where it
+  // counts, so a call admitted on the floor is spent on the floor even when the next was admitted on the shared day.
+  const holds: { held: number; practice: boolean; floor: boolean }[] = [];
 
   // `estimateUsd` set: the call is about to be sent, so a model call is counted at once (admit); otherwise only asked.
   const ask = async (service: Outbound, purpose: Purpose, admitting: { estimateUsd?: number } | null): Promise<Answer> => {
@@ -234,8 +278,8 @@ export function gateFor(ctx: Runner, scope: Scope, allowance: Allowance = "accou
     if (answer.ok) {
       account = answer.account;
       intakeApp = answer.appId ?? intakeApp;
-      practice ||= answer.practice === true;
-      if (answer.held) holds.push(answer.held);
+      if (isModelCall(service, purpose)) last = { practice: answer.practice === true, floor: answer.floor === true };
+      if (answer.held) holds.push({ held: answer.held, ...last });
     }
     return answer;
   };
@@ -253,7 +297,7 @@ export function gateFor(ctx: Runner, scope: Scope, allowance: Allowance = "accou
       if (!enforced || !account) return;
       if (allowance === "intake" && !intakeApp) return;
       // Each call's cost takes the place of the hold it was let through with.
-      const release = holds.shift() ?? 0;
+      const { held: release, practice, floor } = holds.shift() ?? { held: 0, ...last };
       if (!(costUsd > 0) && release === 0) return;
       try {
         await ctx.runMutation(internal.spend.ledger.addModelSpend, {
@@ -262,6 +306,7 @@ export function gateFor(ctx: Runner, scope: Scope, allowance: Allowance = "accou
           ...(intakeApp && { appId: intakeApp }),
           ...(release > 0 && { held: release }),
           ...(practice && { practice: true }),
+          ...(floor && { floor: true }),
         });
       } catch {
         console.error("Recording model spend failed");
