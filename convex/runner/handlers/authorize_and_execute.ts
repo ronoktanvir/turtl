@@ -1,5 +1,6 @@
 import { internal } from "../../_generated/api";
 import type { Doc, Id } from "../../_generated/dataModel";
+import { runCodeChange } from "../../prTracking/execute";
 import { call, describeFailure } from "../../protectedApp/client";
 import type { HandlerResult, StepHandler } from "../contract";
 
@@ -45,7 +46,7 @@ export const handler: StepHandler = {
     if (mode === "cancelled") return { status: "failed", error: "The action was cancelled." };
 
     const { config, parameters } = action.executionPayload;
-    if (config.kind !== "http") return { status: "failed", error: `Unsupported action config: ${config.kind}.` };
+    if (config.kind === "capy") return await runCodeChange(ctx, input, action);
     const flag = parameters.find((p) => p.name === "flag")?.value;
     const value = parameters.find((p) => p.name === "value")?.value;
     if (typeof flag !== "string" || typeof value !== "boolean") {
