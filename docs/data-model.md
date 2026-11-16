@@ -28,7 +28,7 @@ How the runner drives these helpers (scheduling, approval, retries, timeouts, an
 
 | Table | What a row is |
 | --- | --- |
-| `journeys` | A user journey of an app and the check that tests it (HTTP or Revyl), with its check version, `passingSince`: since when the check has passed every time (a failure or no answer clears it), and `unanswered`: how many of the monitor's tries in a row got no usable reply, when the first and the latest were, and what the latest got (no reply in time, a failed connection, or an HTTP status with no check result); a pass or a failure clears it. A case the monitor opens keeps how long that was in `cases.passingForMs`, which the outage reserve reads. |
+| `journeys` | A user journey of an app and the check that tests it (HTTP or Revyl), with its check version, `passingSince`: since when the check has passed every time (a failure or no answer clears it), and `unanswered`: how many of the monitor's tries in a row got no usable reply, when the first and the latest were, and what the latest got (no reply in time, a failed connection, or an HTTP status with no check result); a pass or a failure clears it. Only a POST journey check that has passed at least once keeps one (`canStopAnswering` in `convex/protectedApp/watching.ts`), never a health or readiness check. A case the monitor opens keeps how long that was in `cases.passingForMs`, which the outage reserve reads. |
 | `actionCatalog` | An action turtl may run on an app (an HTTP call or a Capy code change), with its parameter constraints. |
 | `reports` | A customer's message, as written, with its channel and provider event id. |
 | `evidence` | Something a step observed, with the environment and revision it was observed on. |
