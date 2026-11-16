@@ -26,6 +26,7 @@ import {
   vContextSource,
 } from "./constants";
 import { revylTables } from "./revyl/schema";
+import { externalAppTables } from "./externalApp/schema";
 
 export default defineSchema({
   // Mutations must enforce ownerId access; isSample and optional ownership do not grant production access.
@@ -180,4 +181,5 @@ export default defineSchema({
   }).index("by_timestamp", ["timestamp"]),
   ...revylTables,
   ...codeNetworkTables,
+  ...externalAppTables,
 });

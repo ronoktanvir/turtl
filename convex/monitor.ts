@@ -5,6 +5,7 @@ import { internalAction, internalMutation, internalQuery, type ActionCtx } from 
 import { CLOSED_CASE_STATUSES } from "./constants";
 import { controlBase, readErrors, runJourneyCheck } from "./protectedApp/client";
 import { startCaseRun } from "./runner/run";
+import { checkExternalApps } from "./externalApp/flow";
 
 // A case stops counting as open once it is closed or its service is restored.
 const NOT_OPEN: readonly string[] = [...CLOSED_CASE_STATUSES, "restored"];
@@ -125,12 +126,14 @@ export type MonitorResult =
     };
 
 export async function checkJourneys(ctx: ActionCtx): Promise<MonitorResult> {
+  const externalJourneys = await checkExternalApps(ctx);
   if (!controlBase()) {
     return { skipped: "PROTECTED_APP_URL is not set on this deployment, so no journey was checked." };
   }
   const rows = await ctx.runQuery(internal.monitor.journeys, {});
   const checked = [];
   for (const { journey, app } of rows) {
+    if (externalJourneys.includes(journey._id)) continue;
     if (journey.check.kind !== "http" || !app?.productionUrl) continue;
     const observedAt = Date.now();
     const outcome = await runJourneyCheck(journey.check.config);

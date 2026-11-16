@@ -8,8 +8,10 @@ import { handler as investigate } from "./investigate";
 import { handler as learn } from "./learn";
 import { handler as plan } from "./plan";
 import { handler as verify } from "./verify";
+import { internal } from "../../_generated/api";
+import { runExternal } from "../../externalApp/handlers";
 
-export const HANDLERS: Record<Stage, StepHandler> = {
+const BOOKING_HANDLERS: Record<Stage, StepHandler> = {
   detect_or_receive,
   gather_context,
   investigate,
@@ -19,3 +21,15 @@ export const HANDLERS: Record<Stage, StepHandler> = {
   verify,
   learn,
 };
+
+export const HANDLERS = Object.fromEntries(Object.entries(BOOKING_HANDLERS).map(([stage, handler]) => [stage, {
+  timeoutMs: handler.timeoutMs,
+  run: async (ctx, input) => {
+    const app = await ctx.runQuery(internal.externalApp.records.forApp, { appId: input.case.appId });
+    if (app) {
+      const result = await runExternal(ctx, input, app);
+      if (result) return result;
+    }
+    return handler.run(ctx, input);
+  },
+} satisfies StepHandler])) as Record<Stage, StepHandler>;
