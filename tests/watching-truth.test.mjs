@@ -134,7 +134,7 @@ test("an empty Fix list with a check not answering says so, not that its last is
   const quiet = { id: "j1", kind: "journey", name: "Book an appointment", state: "failing", notAnswering: { since: 2_000, tries: 4 } };
   const expected = {
     empty: "Book an appointment: not answering.",
-    note: "turtl's checks get no answer from your app, and no issue is open for it right now. turtl keeps checking.",
+    note: "This check gets no answer from your app, and no issue is open for it right now. turtl opens one when none of your app's checks gets an answer, and it keeps checking.",
   };
   assert.deepEqual(stillBroken([quiet], false), expected);
   assert.deepEqual(stillBroken([{ ...quiet, closedAs: "declined" }], true), expected, "not answering is said before how an older issue ended");
