@@ -115,21 +115,35 @@ export const forApp = internalQuery({
   },
 });
 
-// Preparations approved and not yet settled: the ones the cron keeps fresh.
+/** More open preparation pull requests than the cron follows in one run; the rest wait for the next minute. */
+const ACTIVE_PER_RUN = 100;
+
+// Preparations approved and not yet settled: the ones the cron keeps fresh, oldest approval first, a bounded number.
 export const active = internalQuery({
   args: {},
   handler: async (ctx) =>
-    (
-      await ctx.db
-        .query("onboardingPreparations")
-        .withIndex("by_settled", (q) => q.eq("settledAt", undefined))
-        .collect()
-    ).filter((row) => row.approvedAt !== undefined),
+    await ctx.db
+      .query("onboardingPreparations")
+      .withIndex("by_settled_and_approved", (q) => q.eq("settledAt", undefined).gt("approvedAt", 0))
+      .take(ACTIVE_PER_RUN),
 });
 
 export const recordThread = internalMutation({
   args: { id: v.id("onboardingPreparations"), capyThreadId: v.string(), brief: v.string() },
   handler: async (ctx, { id, capyThreadId, brief }) => ctx.db.patch(id, { capyThreadId, brief, requestedAt: Date.now() }),
+});
+
+// With accounts on, the preparation could not start (no coding agent, or a repository the owner has not connected).
+// Nothing was sent, so the approval is handed back with the reason and the owner can approve again once it is fixed.
+export const refuseStart = internalMutation({
+  args: { id: v.id("onboardingPreparations"), reason: v.string() },
+  returns: v.null(),
+  handler: async (ctx, { id, reason }) => {
+    const row = await ctx.db.get(id);
+    if (!row || row.capyThreadId || row.settledAt !== undefined) return null;
+    await ctx.db.patch(id, { blocked: reason, approvedAt: undefined, inspectionId: undefined, requestId: undefined, repo: undefined, baseBranch: undefined });
+    return null;
+  },
 });
 
 export const failOpening = internalMutation({
@@ -199,9 +213,14 @@ export const clearMergeRequest = internalMutation({
 
 export const failRegistration = internalMutation({
   args: { id: v.id("onboardingPreparations"), ref: v.optional(v.string()), error: v.string() },
-  handler: async (ctx, { id, ref, error }) =>
-    ctx.db.patch(id, { registration: { status: "failed", error, checks: [], checkedAt: Date.now(), ...(ref && { ref }) } }),
+  handler: async (ctx, { id, ref, error }) => {
+    const requestedAt = (await ctx.db.get(id))?.registration?.requestedAt;
+    await ctx.db.patch(id, { registration: { status: "failed", error, checks: [], checkedAt: Date.now(), ...(ref && { ref }), ...(requestedAt !== undefined && { requestedAt }) } });
+  },
 });
+
+/** More journeys than one project registers; it bounds the lookup by name. */
+const JOURNEY_SCAN = 100;
 
 const vJourneyEntry = v.object({ name: v.string(), description: v.string(), check: vCheck, checkVersion: v.string() });
 const vActionEntry = v.object({
@@ -213,7 +232,7 @@ const vActionEntry = v.object({
 });
 
 async function upsertJourney(ctx: MutationCtx, appId: Id<"apps">, entry: Omit<Doc<"journeys">, "_id" | "_creationTime" | "appId">) {
-  const existing = (await ctx.db.query("journeys").withIndex("by_app", (q) => q.eq("appId", appId)).collect()).find(
+  const existing = (await ctx.db.query("journeys").withIndex("by_app", (q) => q.eq("appId", appId)).take(JOURNEY_SCAN)).find(
     (journey) => journey.name === entry.name,
   );
   if (existing) {
@@ -229,6 +248,7 @@ export const register = internalMutation({
   args: {
     id: v.id("onboardingPreparations"),
     ref: v.string(),
+    note: v.optional(v.string()),
     checks: v.array(
       v.object({
         result: vLiveCheck,
@@ -238,9 +258,10 @@ export const register = internalMutation({
       }),
     ),
   },
-  handler: async (ctx, { id, ref, checks }) => {
+  handler: async (ctx, { id, ref, note, checks }) => {
     const row = await ctx.db.get(id);
     if (!row) throw new Error("Preparation not found.");
+    const requestedAt = row.registration?.requestedAt;
     const results = [];
     for (const { result, journey, action, passedAt } of checks) {
       if (journey) {
@@ -251,7 +272,7 @@ export const register = internalMutation({
           await ctx.db
             .query("actionCatalog")
             .withIndex("by_app_and_type", (q) => q.eq("appId", row.appId).eq("type", action.type))
-            .collect()
+            .take(JOURNEY_SCAN)
         ).find((entry) => entry.name === action.name);
         const fields = { ...action, reversible: true };
         const actionCatalogId = existing?._id ?? (await ctx.db.insert("actionCatalog", { appId: row.appId, ...fields }));
@@ -262,14 +283,16 @@ export const register = internalMutation({
           await ctx.db
             .query("actionCatalog")
             .withIndex("by_app_and_type", (q) => q.eq("appId", row.appId).eq("type", result.kind === "flag" ? "set_feature_flag" : "recovery_switch"))
-            .collect()
+            .take(JOURNEY_SCAN)
         ).find((entry) => entry.name === result.name);
         results.push(earlier ? { ...result, actionCatalogId: earlier._id, detail: `${result.detail} It stays registered from an earlier check.` } : result);
       } else {
-        const earlier = (await ctx.db.query("journeys").withIndex("by_app", (q) => q.eq("appId", row.appId)).collect()).find((journey) => journey.name === result.name);
+        const earlier = (await ctx.db.query("journeys").withIndex("by_app", (q) => q.eq("appId", row.appId)).take(JOURNEY_SCAN)).find((journey) => journey.name === result.name);
         results.push(earlier ? { ...result, journeyId: earlier._id, detail: `${result.detail} It stays registered from an earlier check.` } : result);
       }
     }
-    await ctx.db.patch(id, { registration: { status: "done", ref, checks: results, checkedAt: Date.now() } });
+    await ctx.db.patch(id, {
+      registration: { status: "done", ref, checks: results, checkedAt: Date.now(), ...(note && { note }), ...(requestedAt !== undefined && { requestedAt }) },
+    });
   },
 });

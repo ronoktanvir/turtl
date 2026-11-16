@@ -43,6 +43,8 @@ export function normalizeFolders(folders: string[]): string[] {
     .filter((folder) => folder.length > 0);
   for (const folder of clean) {
     if (folder.split("/").some((part) => part === ".." || part === ".")) throw new Error(`"${folder}" is not a folder inside the repository.`);
+    // Folder names are written into the coding agent's brief, so nothing that could end a quote or start a new line.
+    if (folder.length > 200 || /[\u0000-\u001f\u007f`"<>\\]/.test(folder)) throw new Error("A folder name can't contain quotes, backticks, angle brackets or line breaks.");
   }
   return [...new Set(clean)];
 }
@@ -223,11 +225,17 @@ export function ruleItems(hits: Record<ItemKey, Hit[]>): Item[] {
 }
 
 /**
- * The one setting a turtl.json may name as its bearer token. It equals CREDENTIAL_REF in
- * convex/protectedApp/client.ts, which refuses every other name when a request is made: a project's file must
- * never choose which of the deployment's secrets is sent to that project's server.
+ * The one name a turtl.json may give as its bearer token. It equals CREDENTIAL_REF in convex/protectedApp/client.ts,
+ * which refuses every other name when a request is made: a project's file must never choose which of the
+ * deployment's secrets is sent to that project's server. With accounts on it stands for the project's own control
+ * token, which its owner enters in turtl; in the single-owner demo, for the deployment's variable of that name.
  */
 export const MANIFEST_CREDENTIAL_REF = "PROTECTED_APP_CONTROL_SECRET";
+
+/** turtl reads at most this many entries of each list in turtl.json (journeys, flags, recovery hooks). */
+export const MAX_MANIFEST_ENTRIES = 20;
+/** A larger turtl.json is not read at all. */
+export const MAX_MANIFEST_BYTES = 1_000_000;
 
 export type ManifestCheck = { name: string; description?: string; path: string; authenticated?: boolean };
 export type ManifestSwitch = ManifestCheck & { field: string };
@@ -241,8 +249,10 @@ export type Manifest = {
   recoveryHooks: ManifestSwitch[];
 };
 
-// turtl.json, written by the preparation pull request. Paths are relative to the live app URL.
-export function parseManifest(text: string): { ok: true; manifest: Manifest } | { ok: false; reason: string } {
+// turtl.json, written by the preparation pull request. Paths are relative to the live app URL. Each list keeps its
+// first MAX_MANIFEST_ENTRIES usable entries, and `note` says what was left out.
+export function parseManifest(text: string): { ok: true; manifest: Manifest; note?: string } | { ok: false; reason: string } {
+  if (text.length > MAX_MANIFEST_BYTES) return { ok: false, reason: `${MANIFEST_FILE} is larger than ${MAX_MANIFEST_BYTES / 1_000_000} MB, so turtl did not read it.` };
   let raw: unknown;
   try {
     raw = JSON.parse(text);
@@ -274,6 +284,16 @@ export function parseManifest(text: string): { ok: true; manifest: Manifest } | 
   }
   const health = check(object.health, "Health check");
   const readiness = check(object.readiness, "Readiness check");
+  const lists = {
+    journeys: (Array.isArray(object.journeys) ? object.journeys : []).flatMap((entry) => {
+      const journey = check(entry, "Journey");
+      return journey ? [journey] : [];
+    }),
+    flags: switches(object.flags, "Feature flag"),
+    recoveryHooks: switches(object.recoveryHooks, "Recovery hook"),
+  };
+  const over = (Object.entries(lists) as [keyof typeof lists, unknown[]][]).filter(([, list]) => list.length > MAX_MANIFEST_ENTRIES);
+  const words = { journeys: "journeys", flags: "flags", recoveryHooks: "recovery hooks" };
   return {
     ok: true,
     manifest: {
@@ -281,12 +301,12 @@ export function parseManifest(text: string): { ok: true; manifest: Manifest } | 
       ...(credentialRef !== undefined && { credentialRef: credentialRef as string }),
       ...(health && { health }),
       ...(readiness && { readiness }),
-      journeys: (Array.isArray(object.journeys) ? object.journeys : []).flatMap((entry) => {
-        const journey = check(entry, "Journey");
-        return journey ? [journey] : [];
-      }),
-      flags: switches(object.flags, "Feature flag"),
-      recoveryHooks: switches(object.recoveryHooks, "Recovery hook"),
+      journeys: lists.journeys.slice(0, MAX_MANIFEST_ENTRIES),
+      flags: lists.flags.slice(0, MAX_MANIFEST_ENTRIES),
+      recoveryHooks: lists.recoveryHooks.slice(0, MAX_MANIFEST_ENTRIES),
     },
+    ...(over.length > 0 && {
+      note: `${MANIFEST_FILE} lists ${over.map(([key, list]) => `${list.length} ${words[key]}`).join(" and ")}. turtl checks only the first ${MAX_MANIFEST_ENTRIES} of each list.`,
+    }),
   };
 }
