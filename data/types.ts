@@ -99,6 +99,7 @@ export type FixOption = {
   confidence?: number; // 0 to 1
   codeIds?: string[]; // CodeRef ids this fix replaces
   proposedInChat?: boolean;
+  delivery?: "action" | "pull_request"; // pull_request: approving opens a pull request instead of changing the live app (added in 1.1)
 };
 
 export type PlanStep = {

@@ -242,6 +242,7 @@ export const proposals: Record<string, { text: string; fix: FixOption; code?: Co
     text: "Here is one more option. It keeps suggestions on, but stops them from holding up a booking for more than two seconds.",
     fix: {
       key: "recommendations_time_limit",
+      delivery: "pull_request",
       title: "Give recommendations two seconds, then carry on",
       kind: "repair",
       recommended: false,
@@ -428,6 +429,7 @@ const booking10: CaseDetail = {
   fixes: [
     {
       key: "turn_off_recommendations",
+      delivery: "action",
       title: "Turn off recommendations",
       kind: "recovery",
       recommended: true,
@@ -446,6 +448,7 @@ const booking10: CaseDetail = {
     },
     {
       key: "load_recommendations_async",
+      delivery: "pull_request",
       title: "Load recommendations without blocking booking",
       kind: "repair",
       recommended: false,
@@ -464,6 +467,7 @@ const booking10: CaseDetail = {
     },
     {
       key: "check_slow_provider",
+      delivery: "pull_request",
       title: "Check the booking journey when the provider is slow",
       kind: "prevention",
       recommended: false,
@@ -556,6 +560,7 @@ const booking9: CaseDetail = {
   fixes: [
     {
       key: "email_salon_time_zone",
+      delivery: "pull_request",
       title: "Write email times in the salon's time zone",
       kind: "repair",
       recommended: true,
@@ -572,6 +577,7 @@ const booking9: CaseDetail = {
     },
     {
       key: "email_time_check",
+      delivery: "pull_request",
       title: "Check email times after every clock change",
       kind: "prevention",
       recommended: false,
@@ -644,6 +650,7 @@ const booking8: CaseDetail = {
   fixes: [
     {
       key: "resize_service_photos",
+      delivery: "pull_request",
       title: "Send photos at the size the phone shows them",
       kind: "repair",
       recommended: true,
@@ -726,6 +733,7 @@ const bookingRequest4 = feature(
     fixes: [
       {
         key: "reschedule_button",
+      delivery: "pull_request",
         title: "Add Reschedule to the booking page",
         kind: "change",
         recommended: true,
@@ -742,6 +750,7 @@ const bookingRequest4 = feature(
       },
       {
         key: "reschedule_from_email",
+      delivery: "pull_request",
         title: "Add a reschedule link to the confirmation email",
         kind: "change",
         recommended: false,
@@ -810,6 +819,7 @@ const bookingRequest3 = feature(
     fixes: [
       {
         key: "apple_pay_button",
+      delivery: "pull_request",
         title: "Add an Apple Pay button above the card form",
         kind: "change",
         recommended: true,
@@ -883,6 +893,7 @@ const guardianRequest2 = feature(
     fixes: [
       {
         key: "follow_phone_theme",
+      delivery: "pull_request",
         title: "Follow the phone's light or dark setting",
         kind: "change",
         recommended: true,

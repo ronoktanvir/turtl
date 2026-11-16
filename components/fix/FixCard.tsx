@@ -14,6 +14,8 @@ export const kindLabel: Record<FixKind, string> = {
   change: "Build it",
 };
 
+const pullRequestNote = "Approving opens a pull request. Nothing changes in the live app until it is merged.";
+
 export function FixCard({
   fix,
   number,
@@ -69,6 +71,7 @@ export function FixCard({
       {open && (
         <View style={{ gap: 12 }}>
           <T>{fix.whatChanges}</T>
+          {fix.delivery === "pull_request" && <T color="textMuted">{pullRequestNote}</T>}
           <View style={{ gap: 4 }}>
             <T variant="strong">Why</T>
             <SpanText spans={fix.why} sources={sources} prefix={prefix + "-" + fix.key} />
@@ -101,6 +104,7 @@ export function ApproveSheet({
       {fix && (
         <>
           <T>{fix.whatChanges}</T>
+          {fix.delivery === "pull_request" && <T testID="approve-pull-request-note">{pullRequestNote}</T>}
           <T color="textMuted">{fix.whatMightBeLost}</T>
           <View style={{ flexDirection: "row", gap: 12 }}>
             <Button label="Cancel" kind="plain" onPress={onClose} testID="approve-cancel" style={{ flex: 1 }} />

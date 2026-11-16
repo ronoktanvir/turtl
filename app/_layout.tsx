@@ -1,5 +1,5 @@
 import { ConvexProvider, ConvexReactClient } from "convex/react";
-import { Stack } from "expo-router";
+import { Stack, useSegments } from "expo-router";
 import { StatusBar, StyleSheet, Text, View } from "react-native";
 import { DevTools } from "../components/dev/DevTools";
 import { ThemeProvider, useTheme } from "../theme";
@@ -20,7 +20,16 @@ function Screens() {
 }
 
 export default function RootLayout() {
+  const first: string | undefined = useSegments()[0];
+
   if (!convex) {
+    if (first !== "live" && first !== "case") {
+      return (
+        <ThemeProvider>
+          <Screens />
+        </ThemeProvider>
+      );
+    }
     return (
       <View style={styles.missing}>
         <Text style={styles.missingText}>

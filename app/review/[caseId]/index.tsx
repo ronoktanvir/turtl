@@ -1,6 +1,6 @@
 import { useLocalSearchParams } from "expo-router";
 import { useRef, useState, type ComponentRef } from "react";
-import { Pressable, ScrollView, useWindowDimensions, View } from "react-native";
+import { Pressable, ScrollView, View } from "react-native";
 import { CasePage } from "../../../components/fix/CasePage";
 import { Header, Screen, T } from "../../../components/ui";
 import { setStarred, useCase, useCases, useProject } from "../../../data";
@@ -12,7 +12,8 @@ export default function Review() {
   const list = useCases(first?.projectId ?? "", first?.type ?? "fix");
   const project = useProject(first?.projectId ?? "");
   const { colors } = useTheme();
-  const { width } = useWindowDimensions();
+  const [size, setSize] = useState({ width: 0, height: 0 });
+  const width = size.width;
   const pager = useRef<ComponentRef<typeof ScrollView>>(null);
   const order = useRef<string[] | null>(null);
   if (!order.current && first && list) {
@@ -108,25 +109,29 @@ export default function Review() {
           </Pressable>
         </View>
       )}
-      <ScrollView
-        ref={pager}
-        horizontal
-        pagingEnabled
-        showsHorizontalScrollIndicator={false}
-        scrollEventThrottle={32}
-        onLayout={() => pager.current?.scrollTo({ x: page * width, animated: false })}
-        onScroll={(event) => {
-          const next = Math.round(event.nativeEvent.contentOffset.x / width);
-          if (next !== page && next >= 0 && next < ids.length) setIndex(next);
-        }}
-        testID="case-pager"
-      >
-        {ids.map((id, i) => (
-          <View key={id} style={{ width }}>
-            {Math.abs(i - page) <= 1 && <CasePage caseId={id} current={i === page} />}
-          </View>
-        ))}
-      </ScrollView>
+      <View style={{ flex: 1 }} onLayout={(event) => setSize(event.nativeEvent.layout)}>
+        {width > 0 && (
+          <ScrollView
+            ref={pager}
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            scrollEventThrottle={32}
+            onLayout={() => pager.current?.scrollTo({ x: page * width, animated: false })}
+            onScroll={(event) => {
+              const next = Math.round(event.nativeEvent.contentOffset.x / width);
+              if (next !== page && next >= 0 && next < ids.length) setIndex(next);
+            }}
+            testID="case-pager"
+          >
+            {ids.map((id, i) => (
+              <View key={id} style={{ width, height: size.height }}>
+                {Math.abs(i - page) <= 1 && <CasePage caseId={id} current={i === page} />}
+              </View>
+            ))}
+          </ScrollView>
+        )}
+      </View>
     </Screen>
   );
 }

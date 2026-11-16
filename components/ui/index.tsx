@@ -16,7 +16,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { Health } from "../../data/types";
 import { healthToken, healthWord, useTheme, type TokenName } from "../../theme";
 
-export const devToolsOn = __DEV__ || process.env.EXPO_PUBLIC_DEV_TOOLS === "1";
+export const devToolsOn =
+  !!process.env.EXPO_PUBLIC_CONVEX_URL && (__DEV__ || process.env.EXPO_PUBLIC_DEV_TOOLS === "1");
 
 const turtles: Record<Health, number> = {
   affected: require("../../assets/turtle/affected.png"),

@@ -6,7 +6,7 @@ import { Card, HealthWord, Logo, Screen, T, Turtle } from "../components/ui";
 import { useProjects } from "../data";
 import { worstHealth } from "../theme";
 
-const devTools = __DEV__ || process.env.EXPO_PUBLIC_DEV_TOOLS === "1";
+const devTools = !!process.env.EXPO_PUBLIC_CONVEX_URL && (__DEV__ || process.env.EXPO_PUBLIC_DEV_TOOLS === "1");
 
 export default function Home() {
   const router = useRouter();
@@ -42,7 +42,7 @@ export default function Home() {
                 <ProjectIcon project={p} />
                 <View style={{ flex: 1, gap: 2 }}>
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                    <T variant="heading" numberOfLines={1} style={{ flexShrink: 1 }}>
+                    <T variant="heading" numberOfLines={2} style={{ flexShrink: 1 }}>
                       {p.name}
                     </T>
                     {urgent && (
