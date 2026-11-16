@@ -97,7 +97,8 @@ test("dedicated live hook and Overview do not depend on approval or example time
   assert.match(index, /useWorkflow = isLiveData \? live\.useWorkflow : .*=> null/);
   const page = readFileSync(new URL("../components/fix/CasePage.tsx", import.meta.url), "utf8");
   assert.match(page, /const workflow = useWorkflow\(caseId\)/);
-  assert.match(page, /isLiveData && \(workflow \? <WorkflowGraph/);
+  // Every live case shows its Plan, except one about an app that is not answering: its one step only waits.
+  assert.match(page, /isLiveData && !watchOnly && \(workflow \? <WorkflowGraph/);
   const graph = readFileSync(new URL("../components/execution/WorkflowGraph.tsx", import.meta.url), "utf8");
   assert.doesNotMatch(graph, /setInterval|setTimeout|useEnactmentNow|estimatedDuration/);
 });
