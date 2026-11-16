@@ -130,6 +130,7 @@ test("owner wrappers run every preference and decline write behind the owner pas
   const owner = load("../data/live/ownerActions.ts", {
     "./actions": Object.fromEntries(["approveFix", "declineFixes", "addPreference", "removePreference", "confirmPreference", "dismissPreference", "stopEnactment", "setApprovals", "mergePullRequest"].map((name) => [name, record(name)])),
     "./ownerPasscode": { withOwnerPasscode: (work) => { calls.push(["passcode"]); return work("owner-pass"); } },
+    "./structural": { approvePreventionCheck: record("approvePreventionCheck") },
   });
   await owner.approveFix("case-1", "repair", "Cheaper");
   await owner.declineFixes("case-1", "Keep booking up");

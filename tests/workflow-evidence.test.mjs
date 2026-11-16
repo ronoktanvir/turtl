@@ -19,7 +19,8 @@ function load(path, imports, processOverride = process) {
   return module.exports;
 }
 
-const constants = load("../convex/constants.ts", { "convex/values": { v } });
+const routingValidators = load("../convex/routing/validators.ts", { "convex/values": { v } });
+const constants = load("../convex/constants.ts", { "convex/values": { v }, "./routing/validators": routingValidators });
 const workflow = load("../convex/workflow.ts", {
   "convex/values": { v },
   "./_generated/server": { internalMutation: (config) => config },
