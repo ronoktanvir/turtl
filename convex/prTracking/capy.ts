@@ -5,21 +5,21 @@ const REQUEST_TIMEOUT_MS = 15_000;
 const STOPPED_STATUSES = ["idle", "failed", "archived"];
 
 export type CapyConfig =
-  | { ok: true; apiKey: string; projectId: string; model?: { modelId: string; reasoningMode?: string } }
+  | { ok: true; apiKey: string; projectId?: string; model?: { modelId: string; reasoningMode?: string } }
   | { ok: false; missing: string[] };
 
+// CAPY_PROJECT_ID, CAPY_MODEL_ID and CAPY_REASONING are optional: without a project id, the thread goes
+// to the project that holds the repository.
 export function capyConfig(): CapyConfig {
   const apiKey = process.env.CAPY_API_KEY;
+  if (!apiKey) return { ok: false, missing: ["CAPY_API_KEY"] };
   const projectId = process.env.CAPY_PROJECT_ID;
-  if (!apiKey || !projectId) {
-    return { ok: false, missing: [...(apiKey ? [] : ["CAPY_API_KEY"]), ...(projectId ? [] : ["CAPY_PROJECT_ID"])] };
-  }
   const modelId = process.env.CAPY_MODEL_ID;
   const reasoningMode = process.env.CAPY_REASONING;
   return {
     ok: true,
     apiKey,
-    projectId,
+    ...(projectId && { projectId }),
     ...(modelId && { model: { modelId, ...(reasoningMode && { reasoningMode }) } }),
   };
 }
@@ -48,11 +48,20 @@ async function capy<T>(apiKey: string, path: string, body?: unknown): Promise<Ca
 // the same thread, so a retried step never starts a second one.
 export async function startCapyThread(
   config: Extract<CapyConfig, { ok: true }>,
-  thread: { requestId: string; title: string; message: string },
+  thread: { repo: string; requestId: string; title: string; message: string },
 ): Promise<CapyResult<{ threadId: string }>> {
+  let projectId = config.projectId;
+  if (!projectId) {
+    const projects = await capy<{ items: { id: string; repos: { repoFullName: string }[] }[] }>(config.apiKey, "/projects");
+    if (!projects.ok) return projects;
+    projectId = projects.body.items.find((project) =>
+      project.repos.some((repo) => repo.repoFullName.toLowerCase() === thread.repo.toLowerCase()),
+    )?.id;
+    if (!projectId) return { ok: false, message: `No Capy project this key can reach holds ${thread.repo}; set CAPY_PROJECT_ID.` };
+  }
   const created = await capy<{ id: string }>(config.apiKey, "/threads", {
     requestId: thread.requestId,
-    projectId: config.projectId,
+    projectId,
     title: thread.title,
     message: thread.message,
     ...(config.model && { model: config.model }),

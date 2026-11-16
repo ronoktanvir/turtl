@@ -51,6 +51,7 @@ export async function runCodeChange(ctx: ActionCtx, input: HandlerInput, action:
   }
 
   const started = await startCapyThread(capy, {
+    repo,
     requestId: `turtl:${action.idempotencyKey}`,
     title: `turtl: ${title}`.slice(0, 120),
     message: [
