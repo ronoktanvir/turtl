@@ -20,7 +20,7 @@
 <p align="center">
   <img src="docs/screenshots/case.png" width="24%" alt="An opened issue headed by its own name, with the Overview, Logs and Code tabs">
   <img src="docs/screenshots/fixes.png" width="24%" alt="The Fixes page: the recommended fix with Approve, what it changes and why">
-  <img src="docs/screenshots/plan.png" width="24%" alt="An approved fix with Stop, Merge and its plan, step by step">
+  <img src="docs/screenshots/plan.png" width="24%" alt="An approved fix under way: Stop, No pull request yet, and its plan step by step">
 </p>
 <p align="center"><sub>Login → Projects → a project → its issues → an opened issue → its fixes → the plan of an approved fix.</sub></p>
 <p align="center">
@@ -28,7 +28,7 @@
   <img src="docs/screenshots/practice-project.png" width="24%" alt="The practice booking app's project: a Practice chip, its check passing, Fix, Features and Break it">
   <img src="docs/screenshots/confirm-email.png" width="24%" alt="Check your email: a box for the code, Send the email again, Start again and Sign out">
 </p>
-<p align="center"><sub>Try a practice app → the practice project → Check your email, which a new password account sees until it confirms its address. All captured from an Expo web build of <code>build/wave-3</code> (9c2d407) on its built-in example data, at 390 × 844. The first-run screen, which also offers Try a practice app, shows only for an account with no projects, which the example data does not have.</sub></p>
+<p align="center"><sub>Try a practice app → the practice project → Check your email, which a new password account sees until it confirms its address. All captured from an Expo web build of <code>build/wave-3</code> on its built-in example data, at 390 × 844 (the plan at 56105ee, the others at 9c2d407). The first-run screen, which also offers Try a practice app, shows only for an account with no projects, which the example data does not have.</sub></p>
 
 turtl tracks each case (an outage, a bug report or a feature request) as a series of steps, from detecting a problem to learning from it. It watches the journeys you register, takes in what your customers report, works out what went wrong, explains it in plain words, and offers you one to four fixes. Nothing changes in your live app until you approve, or until a narrow permission you granted covers it. `turtl` is the working name; the build log is in [hackathon.md](hackathon.md).
 
@@ -48,7 +48,7 @@ The same code runs in two modes, chosen by one deployment variable, `AUTH_REQUIR
 | Deleting | Nothing to delete | The owner deletes their account in the app: its projects and data, its copies at Supermemory, its GitHub link and its Apple token go ([`convex/account/`](convex/account/README.md)) |
 | Dev tools | Available with `DEV_TOOLS_ENABLED=true` | Closed, whatever the variable says |
 
-Any value of `AUTH_REQUIRED` but unset, empty or `false` turns accounts on. The demo makes no accounts, and a deployment that holds any account refuses to run as the demo: every call answers "turtl is unavailable right now" and the backend log says `AUTH_REQUIRED` is missing on a deployment with accounts. A store build (`EXPO_PUBLIC_APP_ENV` set to `preview` or `production`) refuses a backend without accounts. See [`release/README.md`](release/README.md).
+Any value of `AUTH_REQUIRED` but unset, empty or `false` turns accounts on. The demo makes no accounts, and a deployment that holds any sign-in, user, or project of another owner refuses to run as the demo: every call answers "turtl is unavailable right now", and nothing is checked, sent or run (the monitor, customer reports, AI services, GitHub, owners' apps, case steps and notifications all stop) until `AUTH_REQUIRED=true` is set again. The backend log says why, at most once a day. A store build (`EXPO_PUBLIC_APP_ENV` set to `preview` or `production`) refuses a backend without accounts. See [`release/README.md`](release/README.md).
 
 ## How a case moves
 
@@ -90,15 +90,15 @@ A case's status follows its steps: `open`, `investigating`, `waiting_for_owner`,
 
 **In the app**
 
-- **Login** offers Log in, Apple, GitHub and Sign up, with the privacy policy, terms and support links. With accounts on (or in a store build) they sign in for real; in the demo they open Projects. After a password sign-up the app shows **Check your email** until the code turtl emailed is entered: tap the `turtl://` link in the email, or paste the code. Gmail is known to drop `turtl://` links, so its users paste the code; and another app on the phone that claims `turtl://` could receive a link's code, which only universal links on a domain the operator controls would prevent.
+- **Login** offers Log in, Apple, GitHub and Sign up, with the privacy policy, terms and support links. With accounts on (or in a store build) they sign in for real; in the demo they open Projects. After a password sign-up the app shows **Check your email** until the code turtl emailed is entered: tap the `turtl://` link in the email, or paste the code. **Forgot your password?** emails a reset code the same way; the link carries only the code, and the reset screen uses the address this phone last asked to reset (kept on the device for 24 hours) or the one typed, and says whose account is about to change. Gmail is known to drop `turtl://` links, so its users paste the code; and another app on the phone that claims `turtl://` could receive a link's code, which only universal links on a domain the operator controls would prevent.
 - **Projects** puts the projects that need you first and shows each one's health as a turtle, its open bugs and feature requests, and how many fixes wait for approval. An account with no projects sees a first-run screen with **Add your first project** and **Try a practice app**; **Add project** takes a GitHub repository (with Connect GitHub when the backend has the GitHub App) and, optionally, the live app's address, then reads the repository and reports what turtl can watch.
-- **A project** opens to Fix, Features (customer requests, with how many people asked) and Investigate (a map of the project's code you can ask questions about). A project with nothing open shows what turtl is watching and when each check last passed.
+- **A project** opens to Fix, Features (customer requests, with how many people asked) and Investigate (a map of the project's code you can ask questions about). A project with nothing open shows what turtl is watching and when each check last passed; while a check is failing its panel shows a warning, and an empty Fix list says why no issue is open yet.
 - **A practice project** carries a Practice chip, and in place of Investigate offers a way to break its app on purpose: a sheet says what will happen, turtl's ordinary watching opens a case, and the ordinary flow fixes it. It has no repository and never calls GitHub or a coding agent.
 - **The issues list** shows compact rows (state turtle, title, date); swiping up begins the review of the first one.
 - **An opened issue** is headed by its own name and has Overview, Logs and Code tabs. Claims link inline to the evidence they rest on, and the Overview shows screenshots from the app. **Fixes** is its own page, reached by swiping past the end of the issue or with "Look at potential fixes", recommended first.
-- **Approving** always goes through one confirmation that shows the full instructions a coding agent will receive. The fix then gets its own screen with the pull request, its checks, Stop, Merge and the plan step by step with timings.
+- **Approving** always goes through one confirmation that shows the full instructions a coding agent will receive. The fix then gets its own screen with the pull request, its checks and the plan step by step with timings. Stop shows only while the fix is under way, and Merge only for a pull-request fix once its pull request exists.
 - **Investigate further** is a chat about the case that answers from what turtl recorded and can add another fix. **Talk** asks the same chat out loud; a spoken "approve" or "merge" is answered with where the button is and never acts.
-- **Settings** (the gear on a project): who approves that project's fixes (You, or Auto under a scoped permission), Dark or Light, and the owner's preferences. On a live backend it also shows the rows that apply there: the project's customer report keys and GitHub; with accounts on, the project's control token, notifications, the AI permission, the coding agent, and Sign out and Delete account (also in the account sheet behind Home's profile picture); in the demo, the owner passcode.
+- **Settings** (the gear on a project): who approves that project's fixes (You, or Auto under a scoped permission), Dark or Light (kept on the device across launches), and the owner's preferences. On a live backend it also shows the rows that apply there: the project's customer report keys and GitHub; with accounts on, the project's control token, notifications, the AI permission, the coding agent, and Sign out and Delete account (also in the account sheet behind Home's profile picture); in the demo, the owner passcode.
 - **Example data** with four projects runs every project screen without a backend, and opens no backend connection. Add project offers the practice app there too; it lives in memory and nothing leaves the device.
 - **Type:** short labels, titles, names and counts are set in Righteous and full sentences in Capriola; the text component decides from the words it draws ([`components/ui/typeface.ts`](components/ui/typeface.ts)).
 
@@ -112,7 +112,7 @@ A case's status follows its steps: `open`, `investigating`, `waiting_for_owner`,
 - **Recovery memory** in Convex, indexed in Supermemory: recall only proposes, and the remembered fix still needs approval and fresh verification.
 - **Scoped permission**: after two verified recoveries, the owner can let turtl run one pinned action on its own, bound to the app's revision, at most three times. A run that does not restore service revokes it.
 - **Onboarding**: reads a connected repository, judges what turtl can watch, and, once the owner approves, asks the coding agent for a pull request that adds a `turtl.json` manifest and tests.
-- **Code network**: maps a GitHub repository into parts and groups, keeps the code in Supermemory with secrets masked first, and answers questions about the whole map, a group or one part.
+- **Code network**: maps a GitHub repository into parts and groups, keeps the code in Supermemory with secret files left out and secrets masked first, and answers questions about the whole map, a group or one part.
 - **Voice turns**: OpenAI speech to text and text to speech; audio is never stored.
 - **Accounts mode** as in the table above: confirmed sign-up, the access rule (every public function is made with the builders in [`convex/functions.ts`](convex/functions.ts), which check it), the AI permission and spend limits, the GitHub App, push, sealed secrets, the practice project, and account deletion.
 - **A demo app to protect**: a booking backend on the same deployment ([`convex/bookingDemo/`](convex/bookingDemo/README.md)) and its customer app ([`protected-app/`](protected-app/README.md)), with staged failures turtl can detect and recover from.
@@ -142,7 +142,7 @@ A new deployment is the single-owner demo. To protect the booking demo end to en
 
 ## The web demo
 
-The screens also run in a browser, from Expo's web export. [`vercel.json`](vercel.json) tells Vercel how to build it: `npm ci`, then `npx expo export --platform web` into `dist/`, with every path answered by the single page. With no backend address in the build's environment, it shows the built-in example data and opens no backend connection, so a deployment made from the repository alone is a safe demo that calls no backend.
+The screens also run in a browser, from Expo's web export. [`vercel.json`](vercel.json) tells Vercel how to build it: `npm ci`, then `npx expo export --platform web` into `dist/`, with every path answered by the single page, and basic security headers: no content sniffing, no framing by other sites, a referrer limited to the origin across sites, and no camera or location (the microphone stays allowed for Talk). With no backend address in the build's environment, it shows the built-in example data and opens no backend connection, so a deployment made from the repository alone is a safe demo that calls no backend.
 
 ## Configuration
 
