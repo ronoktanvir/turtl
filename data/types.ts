@@ -24,6 +24,7 @@ export type Project = {
   featureCount: number; // open features
   needsApprovalCount: number;
   approvals: ApprovalMode;
+  practice?: boolean; // a practice project: turtl runs its app for the owner to break on purpose, and it has no repository
 };
 
 export type CaseSummary = {

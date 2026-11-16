@@ -16,6 +16,20 @@ export default function ControlTokenSettings({ projectId, testID = "control-toke
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ text: string; problem: boolean } | null>(null);
   if (!status?.accounts) return null;
+  if (status.managed) {
+    return (
+      <View style={{ gap: 12 }} testID={testID}>
+        <T variant="heading">Control token</T>
+        <T testID={testID + "-managed"}>turtl made this practice app's control token and keeps it itself. It goes only to your practice app, and nobody ever sees it, you included.</T>
+        {status.notWatched && (
+          <View style={{ flexDirection: "row", gap: 10, padding: 14, borderRadius: 16, backgroundColor: colors.surfaceRaised }}>
+            <Icon name="TriangleAlert" size={18} color="statusNeedsYou" />
+            <T font="text" style={{ flex: 1 }} testID={testID + "-not-watched"}>{status.notWatched}</T>
+          </View>
+        )}
+      </View>
+    );
+  }
 
   const where = status.sendsTo ?? "this project's live address";
   const showInput = !status.set || editing;

@@ -19,7 +19,9 @@ export function useProjects(): Project[] | undefined {
       id: app._id,
       name: app.name,
       repoUrl: app.repoUrl,
-      productionUrl: app.productionUrl,
+      // A practice app's address is turtl's own route, not a page anyone can open.
+      productionUrl: app.practice ? undefined : app.productionUrl,
+      ...(app.practice && { practice: true }),
       approvals,
       health: healthOrder.find((health) => summaries.some((row) => row.health === health)) ?? "clear",
       bugCount: open.filter((row) => row.kind !== "feature_request").length,

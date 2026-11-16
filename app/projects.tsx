@@ -4,7 +4,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import ProfileButton from "../components/account/ProfileButton";
 import ProjectIcon from "../components/project/ProjectIcon";
 import FirstRun from "../components/project/FirstRun";
-import { Card, HealthWord, Icon, Reveal, Screen, T, Turtle, devToolsOn } from "../components/ui";
+import { Card, Chip, HealthWord, Icon, Reveal, Screen, T, Turtle, devToolsOn } from "../components/ui";
 import { useDataStatus, useProjects } from "../data";
 import { approvalLabel, healthOrder, healthToken, useTheme } from "../theme";
 
@@ -39,7 +39,10 @@ export default function Projects() {
                     <ProjectIcon project={p} size={narrow ? 36 : 44} />
                     <View style={{ flex: 1, gap: 3 }}>
                       <T variant="heading" numberOfLines={2}>{p.name}</T>
-                      <HealthWord health={p.health} />
+                      <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: 10, rowGap: 4 }}>
+                        <HealthWord health={p.health} />
+                        {p.practice && <Chip label="Practice" tone="brandDeep" testID={`project-practice-${p.id}`} />}
+                      </View>
                     </View>
                     <Turtle health={p.health} size={narrow ? 30 : 38} outlined={urgent} />
                   </View>

@@ -4,10 +4,11 @@ import { Linking, Pressable, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Svg, { Circle, Path } from "react-native-svg";
 import AiNotice from "../../../components/consent/AiNotice";
+import PracticeTile from "../../../components/practice/PracticeTile";
 import ProjectIcon from "../../../components/project/ProjectIcon";
 import SettingsSheet from "../../../components/project/SettingsSheet";
 import Watching from "../../../components/project/Watching";
-import { BrandIcon, Button, HealthWord, Header, Icon, Reveal, Screen, T, Turtle, ZoomPressable } from "../../../components/ui";
+import { BrandIcon, Button, Chip, HealthWord, Header, Icon, Reveal, Screen, T, Turtle, ZoomPressable } from "../../../components/ui";
 import { Glyph } from "../../../components/onboarding/Glyph";
 import { ownerStages, preparationStatus } from "../../../components/onboarding/stage";
 import { useCases, useDataStatus, useOnboarding, useProject, useStructuralFindings } from "../../../data";
@@ -52,7 +53,7 @@ export default function ProjectHome() {
         <View style={{ gap: compact ? 0 : 4 }}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
             <Turtle health={project.health} size={compact ? 36 : 48} />
-            <View style={{ flex: 1, gap: 4 }}><HealthWord health={project.health} />{project.summary && <T color="textMuted" numberOfLines={short ? 1 : 2}>{project.summary}</T>}</View>
+            <View style={{ flex: 1, gap: 4 }}><View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: 10, rowGap: 4 }}><HealthWord health={project.health} />{project.practice && <Chip label="Practice" tone="brandDeep" testID="project-practice-chip" />}</View>{project.summary && <T color="textMuted" numberOfLines={short ? 1 : 2}>{project.summary}</T>}</View>
           </View>
           {(project.repoUrl || project.productionUrl) && <View style={{ flexDirection: "row", gap: 20, paddingLeft: compact ? 48 : 60 }}>
             {([{ label: "GitHub", id: "project-github", url: project.repoUrl }, { label: "Live app", id: "project-live-app", url: project.productionUrl }] as const).map((link) => link.url && <Pressable key={link.id} testID={link.id} accessibilityRole="link" onPress={() => Linking.openURL(link.url!)} style={{ minHeight: 44, flexDirection: "row", alignItems: "center", gap: 6 }}>{link.id === "project-github" ? <BrandIcon name="github" size={20} /> : <Icon name="ExternalLink" size={15} color="textMuted" />}<T variant="small" color="textMuted">{link.label}</T></Pressable>)}
@@ -94,11 +95,11 @@ export default function ProjectHome() {
             </ZoomPressable>
           </Reveal>
           <Reveal delay={120} style={{ flex: 1, minHeight: 0 }}>
-            <ZoomPressable containerStyle={{ flex: 1 }} testID="project-investigate" accessibilityRole="button" onPress={() => router.push(`/project/${project.id}/investigate` as Href)} style={({ pressed }) => ({ flex: 1, minHeight: 0, justifyContent: "center", borderRadius: 20, borderWidth: 1, borderColor: colors.border, backgroundColor: pressed ? colors.surfaceRaised : colors.bg, padding: tilePadding, overflow: "hidden" })}>
+            {project.practice ? <PracticeTile projectId={project.id} short={short} padding={tilePadding} /> : <ZoomPressable containerStyle={{ flex: 1 }} testID="project-investigate" accessibilityRole="button" onPress={() => router.push(`/project/${project.id}/investigate` as Href)} style={({ pressed }) => ({ flex: 1, minHeight: 0, justifyContent: "center", borderRadius: 20, borderWidth: 1, borderColor: colors.border, backgroundColor: pressed ? colors.surfaceRaised : colors.bg, padding: tilePadding, overflow: "hidden" })}>
               <View pointerEvents="none" style={{ position: "absolute", right: -8, top: 0, opacity: 0.3 }}><Svg width={130} height={140} viewBox="0 0 130 140"><Path d="M24 14 78 40 41 84 111 113M78 40l39-24M41 84l-24 43M78 40l33 73" stroke={colors.brandDeep} fill="none" />{[[24, 14], [78, 40], [41, 84], [111, 113], [117, 16], [17, 127]].map(([cx, cy], i) => <Circle key={i} cx={cx} cy={cy} r={i === 1 ? 7 : 4} fill={colors.bg} stroke={colors.brandDeep} strokeWidth="1.5" />)}</Svg></View>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}><Icon name="Network" size={20} color="brandDeep" /><T variant="title">Investigate</T>{short && <View style={{ flex: 1, alignItems: "flex-end" }}><Icon name="ArrowRight" size={18} color="textMuted" /></View>}</View>
               {!short && <View style={{ flexDirection: "row", alignItems: "center", gap: 16, marginTop: 12 }}><T color="textMuted" style={{ flex: 1 }} testID="project-investigate-note">{quiet && overview?.map ? overview.map.parts + " parts mapped. See how they connect." : "See how the code connects."}</T><Icon name="ArrowRight" size={18} color="textMuted" /></View>}
-            </ZoomPressable>
+            </ZoomPressable>}
           </Reveal>
         </View>
       </View>
