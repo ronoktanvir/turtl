@@ -1,7 +1,6 @@
 import type { ActionCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { catalog } from "./catalog";
-import { recommend } from "./provider";
 import type { Id } from "../_generated/dataModel";
 
 type BookingInput = { serviceId: string; date: string; time: string; fixtureRunId?: string };
@@ -16,16 +15,6 @@ export async function completeBooking(ctx: ActionCtx, input: BookingInput, confi
   let error: BookingFailure | undefined;
   if (!currentCatalog.services.some((s) => s.id === input.serviceId) || !currentCatalog.slots.includes(input.time) || input.date !== currentCatalog.date) {
     error = { code: "INVALID_SELECTION", message: "Choose an available service and time.", step: "submit_booking", retryable: false };
-  } else {
-    if (state.recommendationsEnabled && !state.bookingStoreFailure) {
-      // STAGED DEFECT: an optional recommendation gates the core booking write.
-      // The demo's later permanent repair removes this coupling, not the flag.
-      try {
-        await recommend(state.providerTimeout);
-      } catch {
-        error = { code: "RECOMMENDATIONS_TIMEOUT", message: "The recommendation provider timed out. Your booking was not saved.", step: "recommendations", provider: "simulated-recommendations", retryable: true };
-      }
-    }
   }
   if (!error) {
     try {

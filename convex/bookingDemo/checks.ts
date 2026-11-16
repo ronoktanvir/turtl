@@ -30,20 +30,14 @@ export const journey = internalAction({
     try {
       const fixture = catalog();
       steps.push({ step: "load_catalog", verdict: "passed", detail: "Selected the first service and time from the customer catalog." });
+      steps.push({ step: "recommendations", verdict: "skipped", detail: "Optional suggestions load separately and never gate booking; this check does not call the provider." });
       const result = await completeBooking(ctx, { serviceId: fixture.services[0].id, date: fixture.date, time: fixture.slots[0], fixtureRunId: runId }, config);
       if (!result.ok) {
         failedStep = result.error.step;
         error = result.error;
-        if (failedStep === "recommendations") {
-          steps.push({ step: "recommendations", verdict: "failed", detail: result.error.message });
-          steps.push({ step: "submit_booking", verdict: "skipped", detail: "The staged provider dependency blocked the booking write." });
-        } else {
-          steps.push({ step: "recommendations", verdict: "skipped", detail: "The staged booking-store failure takes precedence; provider not called." });
-          steps.push({ step: "submit_booking", verdict: "failed", detail: result.error.message });
-        }
+        steps.push({ step: "submit_booking", verdict: "failed", detail: result.error.message });
         steps.push({ step: "verify_persisted", verdict: "skipped", detail: "No confirmation to verify." });
       } else {
-        steps.push({ step: "recommendations", verdict: config.recommendationsEnabled ? "passed" : "skipped", detail: config.recommendationsEnabled ? "Simulated provider responded." : "Flag off: provider bypassed." });
         steps.push({ step: "submit_booking", verdict: "passed", detail: "Customer booking handler returned a confirmation." });
         const saved = await ctx.runQuery(internal.bookingDemo.records.readBooking, { bookingId: result.bookingId });
         const matches = saved?.fixtureRunId === runId && saved.serviceId === result.serviceId && saved.date === result.date && saved.time === result.time;
