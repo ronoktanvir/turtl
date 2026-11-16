@@ -29,9 +29,11 @@ import { MAX_JOURNEYS } from "./watching";
 // its count at the next round's end.
 //
 // With accounts on, before a case opens and before turtl asks its own site, turtl looks across the fleet (fleetQuiet):
-// when at least FLEET_EVIDENCE other projects that answered in the last day were checked since this one went quiet, and
-// not one of them got a usable reply in its latest round, the trouble is more likely turtl's own, and the case is held
-// back exactly as when turtl's own site does not answer.
+// when at least FLEET_EVIDENCE other projects that answered within FLEET_ANSWERED_WITHIN_MS were checked since this one
+// went quiet, and not one of them got a usable reply in its latest round, the trouble is more likely turtl's own, and
+// the case is held back exactly as when turtl's own site does not answer. Such a hold lasts about half an hour: from the
+// inside, a host that every sampled project shares going down looks the same as turtl's own trouble, so once the
+// others' last answers are older than that they are no longer evidence, and the case opens if turtl's own site answers.
 //
 // A practice project (convex/practice) is out of all this: its app is turtl's own code on turtl's own site, so a check
 // of it that gets no usable reply is turtl's trouble, not its owner's. Its checks keep no count, it gets no case and no
@@ -73,6 +75,12 @@ const PRACTICE = "This is your practice app, which runs on turtl's own site, so 
 const FLEET_SAMPLE = 40;
 const FLEET_EVIDENCE = 5;
 const FLEET_RECENT_MS = 5 * 60_000;
+/**
+ * How recently another project must have answered to count as evidence: so a fleet-wide quiet spell holds a case for
+ * about half an hour, never longer. A shared host's outage and turtl's own trouble look the same from inside, and an
+ * owner whose app is down behind a shared host must still be told.
+ */
+export const FLEET_ANSWERED_WITHIN_MS = 30 * 60_000;
 
 /** What one of the monitor's tries of one check got. */
 const vGot = v.union(
@@ -289,8 +297,9 @@ export const settle = internalMutation({
 /**
  * Across the fleet, with accounts on: whether every other project turtl checked since this one went quiet got no
  * usable reply either. Reads at most FLEET_SAMPLE monitor rows, due from FLEET_RECENT_MS ago on, through by_next_check.
- * Evidence is another project that answered in the last day and was checked since `since`; it says "quiet" when its
- * latest round got no usable reply. Quiet when there are at least FLEET_EVIDENCE such projects and every one is quiet.
+ * Evidence is another project that answered within FLEET_ANSWERED_WITHIN_MS and was checked since `since`; it says
+ * "quiet" when its latest round got no usable reply. Quiet when there are at least FLEET_EVIDENCE such projects and every
+ * one is quiet. So a hold lasts about half an hour, until the others' last answers are older than that.
  */
 export const fleetQuiet = internalQuery({
   args: { appId: v.id("apps"), since: v.number() },
@@ -298,7 +307,7 @@ export const fleetQuiet = internalQuery({
   handler: async (ctx, { appId, since }) => {
     const now = Date.now();
     const rows = await ctx.db.query("watchedProjects").withIndex("by_next_check", (q) => q.gte("nextCheckAt", now - FLEET_RECENT_MS)).take(FLEET_SAMPLE);
-    const others = rows.filter((row) => row.appId !== appId && (row.lastCheckedAt ?? 0) >= since && (row.lastAnsweredAt ?? 0) >= now - DAY_MS);
+    const others = rows.filter((row) => row.appId !== appId && (row.lastCheckedAt ?? 0) >= since && (row.lastAnsweredAt ?? 0) >= now - FLEET_ANSWERED_WITHIN_MS);
     return { quiet: others.length >= FLEET_EVIDENCE && others.every((row) => row.lastAnsweredAt! < row.lastCheckedAt!), others: others.length };
   },
 });
