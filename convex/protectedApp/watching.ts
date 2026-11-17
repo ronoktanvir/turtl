@@ -51,21 +51,40 @@ export const WATCH_WORDS = {
   noAddress: "It has no live address, so turtl has nothing to check.",
   noToken: "No control token is set, so turtl cannot run this project's checks. Add it in this project's Settings, under Control token.",
   someNeedToken: "Some of this project's checks need the control token, so turtl runs only the others until you add it in this project's Settings, under Control token.",
+  noChecks: "It has no checks turtl can run, so turtl has nothing to check.",
+  // The single-owner demo with its checks switched off (PROTECTED_APP_URL unset, convex/monitor.ts).
+  checksOff: "turtl's checks are turned off for now, so turtl has nothing to check.",
 };
 
 type Read = Pick<QueryCtx, "db">;
 type Http = Extract<Doc<"journeys">["check"], { kind: "http" }>;
-export type Runnable = { journeyId: Id<"journeys">; url: string; credentialRef?: string };
-type Plan = { kind: "none" } | { kind: "skip"; reason: string } | { kind: "run"; base: string; journeys: Runnable[]; partial: string | null };
+/** countable: the check can stop answering (canStopAnswering), so its tries with no answer count. */
+export type Runnable = { journeyId: Id<"journeys">; url: string; credentialRef?: string; countable: boolean };
+
+/**
+ * Whether a check can stop answering (convex/protectedApp/notAnswering.ts): only one that has answered before. That is
+ * a journey-contract check, the only kind the monitor runs (it POSTs every check as a journey check), that has passed at
+ * least once. A project's health and readiness endpoints are registered as journeys beside its real checks, as GET
+ * checks, passed at registration from their 200 (convex/onboarding/prepare.ts, checkLive); they never return a check
+ * result to the monitor, so they never count. Nor does a check that has never passed, such as one at a wrong address.
+ */
+export const canStopAnswering = (journey: Pick<Doc<"journeys">, "check" | "lastPassedAt">) =>
+  journey.check?.kind === "http" && journey.check.config.method === "POST" && journey.lastPassedAt !== undefined;
+/**
+ * unanswered: some check of the project has quiet tries on record; caseOpen: the project records an open not-answering
+ * case (apps.notAnsweringCase). Either one means the end of a round has something to settle (notAnswering.ts).
+ */
+type Plan = { unanswered: boolean; caseOpen: boolean } & ({ kind: "none" } | { kind: "skip"; reason: string } | { kind: "run"; base: string; journeys: Runnable[]; partial: string | null });
 
 /** What the monitor can check for one project now, read from its own rows. */
 export async function planFor(ctx: Read, app: Doc<"apps">): Promise<Plan> {
-  if (app.isSample) return { kind: "none" };
-  const journeys = (await ctx.db.query("journeys").withIndex("by_app", (q) => q.eq("appId", app._id)).take(MAX_JOURNEYS)).flatMap((journey) =>
-    journey.check.kind === "http" ? [{ journeyId: journey._id, ...pick(journey.check) }] : [],
-  );
-  if (journeys.length === 0) return { kind: "none" };
-  const skip = (reason: string): Plan => ({ kind: "skip", reason });
+  const caseOpen = app.notAnsweringCase !== undefined;
+  if (app.isSample) return { kind: "none", unanswered: false, caseOpen };
+  const rows = await ctx.db.query("journeys").withIndex("by_app", (q) => q.eq("appId", app._id)).take(MAX_JOURNEYS);
+  const unanswered = rows.some((journey) => journey.unanswered !== undefined);
+  const journeys = rows.flatMap((journey) => (journey.check.kind === "http" ? [{ journeyId: journey._id, ...pick(journey.check), countable: canStopAnswering(journey) }] : []));
+  if (journeys.length === 0) return { kind: "none", unanswered, caseOpen };
+  const skip = (reason: string): Plan => ({ kind: "skip", reason, unanswered, caseOpen });
   if (!app.ownerId) return skip(WATCH_WORDS.noOwner);
   const owner = ctx.db.normalizeId("users", app.ownerId);
   if (!owner || !(await ctx.db.get(owner))) return skip(WATCH_WORDS.ownerGone);
@@ -75,10 +94,10 @@ export async function planFor(ctx: Read, app: Doc<"apps">): Promise<Plan> {
   const hasToken = (await projectSecret(ctx, app._id, "control_token")) !== null;
   const runnable = journeys.filter((journey) => hasToken || !journey.credentialRef);
   if (runnable.length === 0) return skip(WATCH_WORDS.noToken);
-  return { kind: "run", base: app.productionUrl.replace(/\/+$/, ""), journeys: runnable, partial: runnable.length < journeys.length ? WATCH_WORDS.someNeedToken : null };
+  return { kind: "run", base: app.productionUrl.replace(/\/+$/, ""), journeys: runnable, partial: runnable.length < journeys.length ? WATCH_WORDS.someNeedToken : null, unanswered, caseOpen };
 }
 
-const pick = (check: Http): Omit<Runnable, "journeyId"> => ({ url: check.config.url, ...(check.config.credentialRef && { credentialRef: check.config.credentialRef }) });
+const pick = (check: Http): Omit<Runnable, "journeyId" | "countable"> => ({ url: check.config.url, ...(check.config.credentialRef && { credentialRef: check.config.credentialRef }) });
 
 const stateOf = (ctx: Read, appId: Id<"apps">) => ctx.db.query("watchedProjects").withIndex("by_app", (q) => q.eq("appId", appId)).first();
 
@@ -163,9 +182,13 @@ export async function takeTurn(
 ): Promise<{ kind: "none" } | { kind: "skipped"; reason: string } | { kind: "running" } | { kind: "started" }> {
   const plan = await planFor(ctx, app);
   const row = known ?? (await stateOf(ctx, app._id));
+  // turtl stops checking a project whose checks have quiet tries on record, or that records an open not-answering case:
+  // the counts go, and the case closes with why (convex/protectedApp/notAnswering.ts). Only then is anything more read.
+  const stop = (reason: string) => ctx.scheduler.runAfter(0, internal.protectedApp.notAnswering.stopped, { appId: app._id, reason });
   if (plan.kind === "none") {
     // Nothing to check: no row is made, and one left from earlier checks is read again only now and then.
     if (row) await ctx.db.patch(row._id, { nextCheckAt: now + NO_CHECKS_EVERY_MS });
+    if (plan.unanswered || plan.caseOpen) await stop(WATCH_WORDS.noChecks);
     return { kind: "none" };
   }
   if (plan.kind === "skip") {
@@ -173,6 +196,7 @@ export async function takeTurn(
       nextCheckAt: now + SKIPPED_EVERY_MS,
       ...(!sameNotice(row, plan.reason) && { notice: { reason: plan.reason, at: now, partial: false } }),
     });
+    if (plan.unanswered || plan.caseOpen) await stop(plan.reason);
     return { kind: "skipped", reason: plan.reason };
   }
   if (row?.runningSince !== undefined && now - row.runningSince < LEASE_MS) {
@@ -213,27 +237,36 @@ export const watchSoon = internalMutation({
   },
 });
 
-// What one project's check runs now: its live address and the checks it can run. Null when it cannot be checked.
+// What one project's check runs now: its live address and the checks it can run, whether any of its checks has quiet
+// tries on record, whether it records an open not-answering case, and whether it is a practice project, for the end of
+// the round (monitor.ts). Null when it cannot be checked.
 export const plan = internalQuery({
   args: { appId: v.id("apps") },
   returns: v.union(
     v.null(),
-    v.object({ base: v.string(), journeys: v.array(v.object({ journeyId: v.id("journeys"), url: v.string(), credentialRef: v.optional(v.string()) })) }),
+    v.object({
+      base: v.string(),
+      journeys: v.array(v.object({ journeyId: v.id("journeys"), url: v.string(), credentialRef: v.optional(v.string()), countable: v.boolean() })),
+      unanswered: v.boolean(),
+      caseOpen: v.boolean(),
+      practice: v.boolean(),
+    }),
   ),
   handler: async (ctx, { appId }) => {
     const app = await ctx.db.get(appId);
     const found = app ? await planFor(ctx, app) : null;
-    return found?.kind === "run" ? { base: found.base, journeys: found.journeys } : null;
+    return found?.kind === "run" ? { base: found.base, journeys: found.journeys, unanswered: found.unanswered, caseOpen: found.caseOpen, practice: app?.practice === true } : null;
   },
 });
 
 // A check hands its turn back and says how it went. failure: what every check of the project failed with, when none
 // passed (monitor.ts, failureOf); null when one passed; left out when nothing ran. The same failure as last time
-// spaces the next check out (intervalAfter); a pass, or anything new, puts it back to every minute.
+// spaces the next check out (intervalAfter); a pass, or anything new, puts it back to every minute. answered: a check
+// of the round got a usable reply (a pass or a failure), recorded as lastAnsweredAt in the same write.
 export const finish = internalMutation({
-  args: { appId: v.id("apps"), checkedAt: v.number(), failure: v.optional(v.union(v.string(), v.null())) },
+  args: { appId: v.id("apps"), checkedAt: v.number(), failure: v.optional(v.union(v.string(), v.null())), answered: v.optional(v.boolean()) },
   returns: v.null(),
-  handler: async (ctx, { appId, checkedAt, failure }) => {
+  handler: async (ctx, { appId, checkedAt, failure, answered }) => {
     const row = await stateOf(ctx, appId);
     if (!row) return null;
     const same = failure && row.failure?.signature === failure;
@@ -242,6 +275,7 @@ export const finish = internalMutation({
     await ctx.db.patch(row._id, {
       runningSince: undefined,
       lastCheckedAt: checkedAt,
+      ...(answered && { lastAnsweredAt: checkedAt }),
       failure: next,
       nextCheckAt: Math.max(checkedAt, began + intervalAfter(next?.streak ?? 0) - TICK_SLACK_MS),
     });

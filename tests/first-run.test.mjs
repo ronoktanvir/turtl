@@ -4,6 +4,7 @@ import { test } from "node:test";
 import { runInThisContext } from "node:vm";
 import ts from "typescript";
 import * as values from "convex/values";
+import { createLoader } from "./fixtures/convex-memory.mjs";
 
 function load(path, imports) {
   const { outputText } = ts.transpileModule(readFileSync(new URL(path, import.meta.url), "utf8"), {
@@ -83,6 +84,8 @@ function overviewQuery({ visible = true } = {}) {
       preparationFor: (ctx, appId) => ctx.db.query("onboardingPreparations").withIndex("by_app", (q) => q.eq("appId", appId)).first(),
     },
     "../onboarding/stage": load("../convex/onboarding/stage.ts", {}),
+    // Whether a check is not answering, from the real module (tests/not-answering.test.mjs covers what it decides).
+    "../protectedApp/notAnswering": { isNotAnswering: createLoader()("convex/protectedApp/notAnswering.ts").isNotAnswering },
   }).forProject;
 }
 

@@ -23,14 +23,31 @@ export function mapPullRequest(value: PullRequest | null | undefined): PullReque
   };
 }
 
+// A case the monitor opened because the app stopped answering turtl's checks: convex/constants.ts isNotAnsweringCase,
+// kept here so this file has no runtime import (see plainWords below). Open, its status is waiting_for_app.
+const isNotAnswering = (row: Pick<Doc<"cases">, "signature" | "status">) => row.signature?.startsWith("not_answering:") === true || row.status === "waiting_for_app";
+
+/**
+ * Whether every bug a project lists (its open cases, and one left unresolved) is about the app not answering turtl's
+ * checks: then there is nothing to review or decide, and the projects list says so. False with no bugs.
+ */
+export function onlyNotAnswering(rows: Pick<Doc<"cases">, "kind" | "signature" | "status">[]): boolean {
+  const bugs = rows.filter((row) => row.kind !== "feature_request");
+  return bugs.length > 0 && bugs.every(isNotAnswering);
+}
+
 export function mapCaseSummary(row: Doc<"cases">, number: number, pullRequest?: PullRequest | null): CaseSummary {
-  const status: CaseSummary["status"] = row.status === "waiting_for_owner" ? "needs_approval"
+  const quiet = isNotAnswering(row);
+  const status: CaseSummary["status"] = row.status === "waiting_for_app" ? "not_answering" : row.status === "waiting_for_owner" ? "needs_approval"
     : row.status === "executing" || row.status === "waiting_for_deploy" || row.status === "verifying"
       ? pullRequest?.state === "open" && pullRequest.checks === "passing" && pullRequest.mergeable ? "ready_to_merge" : "enacting"
       : row.status === "restored" || row.status === "resolved" ? "resolved"
         : row.status === "declined" || row.status === "unresolved" ? row.status : "investigating";
+  // A not-answering case closed because turtl stopped checking: turtl does not know whether users are affected, and the
+  // owner has the next step (its reason says what), so it needs them.
   const health: CaseSummary["health"] = status === "resolved" || status === "declined" ? "clear"
-    : (status === "unresolved" && row.kind !== "feature_request") || row.kind === "outage" ? "affected"
+    : quiet && status === "unresolved" ? "needs_you"
+    : (status === "unresolved" && row.kind !== "feature_request") || row.kind === "outage" || status === "not_answering" ? "affected"
       : status === "needs_approval" || status === "ready_to_merge" || status === "unresolved" ? "needs_you" : "working";
   return {
     id: row._id,
@@ -43,6 +60,7 @@ export function mapCaseSummary(row: Doc<"cases">, number: number, pullRequest?: 
     health,
     happenedAt: row._creationTime,
     ...(row.starred && { starred: true }),
+    ...(quiet && { notAnswering: true as const }),
     ...(row.kind === "feature_request"
       ? row.distinctRequesterCount !== undefined && { reportCount: row.distinctRequesterCount }
       : row.reportCount !== undefined && { reportCount: row.reportCount }),
@@ -277,6 +295,68 @@ function enactmentOf(cards: CaseCards, fixes: CaseFixes | undefined, pullRequest
   return { fixKey, state, steps, ...(pullRequest && { pullRequest }), ...(question && { question: { text: question, fixes: [] } }) };
 }
 
+// What a not-answering case says (convex/protectedApp/notAnswering.ts). turtl cannot look into an app it cannot reach,
+// so the case says what turtl saw, where the owner can look, and how it ends; nothing on it is a fix, an approval or an
+// investigation. Once closed, what its one step recorded when it closed leads, and what turtl saw follows.
+const QUIET_OPEN = [
+  "turtl cannot propose a fix for an app it cannot reach, so this case has nothing for you to approve. Three places to look:",
+  "Your host's status page. An outage there takes your app down with it.",
+  "Your last deploy. If the app stopped answering soon after it, start with what that deploy changed.",
+  "Your app's address. Open it yourself: if it loads for you, the part of the app turtl checks may be what is down.",
+  // The monitor spaces out the checks of a project that keeps failing the same way (convex/protectedApp/watching.ts,
+  // FAILING_STEPS_MS), down to every 15 minutes.
+  "turtl keeps checking, less often the longer the app stays quiet, until it checks every 15 minutes. When the app answers, turtl closes this case itself and tells you.",
+];
+const QUIET_ANSWERED = "turtl closed this case itself when the app answered. It changed nothing on your app.";
+// A case closed without an answer: turtl stopped checking the project, or it still checks but can no longer read the
+// replies (convex/protectedApp/notAnswering.ts). The step's own summary says which; this line is true of both.
+const QUIET_STOPPED = "If the app gives turtl no answer again, turtl opens a new case and tells you.";
+const WAIT_STEP_KEY = "wait_for_answer";
+// "At least three tries…" continues a sentence after "When this case opened, ".
+const continuing = (text: string) => (/^[A-Z][a-z]/.test(text) ? text.charAt(0).toLowerCase() + text.slice(1) : text);
+
+function notAnsweringDetail(cards: CaseCards, number: number | undefined): CaseDetail {
+  const row = cards.case;
+  const step = cards.steps.find((candidate) => candidate.key === WAIT_STEP_KEY);
+  const attempt = step?.currentAttempt;
+  const output = record(attempt?.output);
+  const since = typeof output.quietSince === "number" ? output.quietSince : row._creationTime;
+  const closed = row.status !== "waiting_for_app" && row.status !== "open";
+  const answered = typeof output.answered === "boolean" ? output.answered : row.status === "resolved";
+  const closedAt = typeof output.closedAt === "number" ? output.closedAt : attempt?.finishedAt;
+  const ending = closed && step?.status === "done" ? attempt?.summary : undefined;
+  const summary = !closed ? row.impact || row.title
+    : ending || (answered ? "The app answered turtl's checks again." : "turtl closed this case without knowing whether the app answers again.");
+  const texts = !closed ? QUIET_OPEN : [...(row.impact ? [`When this case opened, ${continuing(row.impact)}`] : []), answered ? QUIET_ANSWERED : QUIET_STOPPED];
+  const base = mapCaseSummary(row, number ?? 0);
+  // Answered again is all clear only when the case recorded that every check that ran then passed; a check that fails
+  // (or still gets no answer) as the app comes back reads as a failing check does anywhere else, and so does an older
+  // record that does not say.
+  const health: CaseDetail["health"] = base.status === "resolved" && output.allPassed !== true ? "affected" : base.health;
+
+  // What turtl recorded stays in the Logs, under each step's name.
+  const names = cards.steps.map((one) => ({ key: one.key, purpose: one.purpose, title: one.title }));
+  const logs: LogLine[] = [];
+  for (const one of cards.steps) {
+    const tried = one.currentAttempt;
+    const note = tried && ownerWords(nameSteps([tried.summary, tried.error, tried.handoff].filter(Boolean).join("\n"), names));
+    if (!tried || !note) continue;
+    logs.push({ id: `attempt:${tried._id}`, at: tried.finishedAt ?? tried.startedAt ?? tried._creationTime, level: tried.error || tried.status === "failed" ? "error" : "info", source: `Workflow · ${one.title} · attempt ${tried.attempt}`, text: note });
+  }
+  return {
+    ...base,
+    health,
+    summary,
+    overview: texts.map((text) => ({ kind: "paragraph", spans: [{ text }] })),
+    citations: logs.map((log) => ({ id: log.id, kind: "log", logId: log.id })),
+    logs: logs.sort((a, b) => a.at - b.at || a.id.localeCompare(b.id)),
+    code: [],
+    screenshots: [],
+    fixes: [],
+    quiet: closed ? { since, ...(closedAt !== undefined && { closedAt }), answered } : { since },
+  };
+}
+
 export function mapCaseDetail(
   cards: CaseCards,
   fixesResult: CaseFixes | undefined,
@@ -286,6 +366,7 @@ export function mapCaseDetail(
   customerReports?: CustomerReports,
   finding?: CaseStructural,
 ): CaseDetail {
+  if (isNotAnswering(cards.case)) return notAnsweringDetail(cards, number);
   const pullRequest = mapPullRequest(request);
   const logs: LogLine[] = [];
   const citations: Citation[] = [];

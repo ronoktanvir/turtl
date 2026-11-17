@@ -34,6 +34,17 @@ const words: Record<CaseType, { title: string; empty: string; note: string }> = 
  * fix. It uses the checks panel's own words ("Not passing") and says what the person can do. Null when nothing is.
  */
 export function stillBroken(checks: WatchedCheck[] | undefined, practice: boolean): { empty: string; note: string } | null {
+  // A check the app gives no answer to, with no issue open for it: another check of the project still answers, so the
+  // app is not down (convex/protectedApp/notAnswering.ts opens an issue only when no check answers), or the day's limit
+  // of such issues is reached, or the round has just ended. The panel's "Not answering", said before how any older
+  // issue on it ended. The note speaks of this check only: the app may be answering its others.
+  const quiet = checks?.find((candidate) => candidate.state === "failing" && candidate.notAnswering);
+  if (quiet) {
+    return {
+      empty: `${quiet.name}: not answering.`,
+      note: "This check gets no answer from your app, and no issue is open for it right now. turtl opens one when none of your app's checks gets an answer, and it keeps checking.",
+    };
+  }
   const check = checks?.find((candidate) => candidate.state === "failing" && candidate.closedAs);
   if (!check) return null;
   const why = check.closedAs === "declined" ? "its fixes were declined" : "turtl could not fix it";

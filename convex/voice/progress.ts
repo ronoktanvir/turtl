@@ -32,7 +32,9 @@ export function describeWork(
           ? "the owner's decision: Approve on a fix, behind the passcode"
           : caseStatus === "waiting_for_deploy"
             ? "the change to be deployed"
-            : "a result from outside turtl";
+            : caseStatus === "waiting_for_app"
+              ? "the app to answer turtl's checks again; turtl keeps checking"
+              : "a result from outside turtl";
       return {
         step: step.title,
         status: step.status,

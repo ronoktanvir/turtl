@@ -39,6 +39,24 @@ test("a case waiting on the owner needs review, and one turtl is on is currently
 test("an opened feature request shows the same request words, never a bug's", async () => {
   const { readFileSync } = await import("node:fs");
   const page = readFileSync(new URL("../components/fix/CasePage.tsx", import.meta.url), "utf8");
-  assert.match(page, /feature \? <RequestState state=\{issueState\(c\)\}/);
+  assert.match(page, /feature \|\| notAnswering \? <RequestState state=\{issueState\(c\)\}/);
   assert.match(page, /accessibilityLabel=\{feature \? "New request" : "New issue"\}/);
+});
+
+test("an app that is not answering turtl's checks is said so, in an urgent issue's colour and turtle", () => {
+  for (const health of ["affected", "working", "clear"]) {
+    assert.deepEqual(issueState(item("fix", "not_answering", health)), { label: "Not answering", color: "statusAffected", turtle: "affected" });
+  }
+});
+
+test("the swipe to begin review opens the first issue there is something to review on, never a not-answering one", async () => {
+  const { firstToReview } = await import("../components/project/issueState.ts");
+  const quiet = { id: "q", status: "not_answering", notAnswering: true };
+  const broken = { id: "b", status: "investigating" };
+  assert.equal(firstToReview([quiet, broken]), "b");
+  assert.equal(firstToReview([broken, quiet]), "b");
+  assert.equal(firstToReview([quiet]), undefined, "nothing to review: no swipe");
+  assert.equal(firstToReview([{ id: "r", status: "unresolved", notAnswering: true }]), undefined, "closed because turtl stopped checking: still nothing to review");
+  assert.equal(firstToReview([{ id: "u", status: "unresolved" }]), "u");
+  assert.equal(firstToReview([]), undefined);
 });

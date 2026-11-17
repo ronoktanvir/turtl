@@ -59,7 +59,7 @@ export default function Projects() {
                       <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}><View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: p.featureCount > 0 ? colors.statusWorking : colors.border }} /><T color="textMuted"><T variant="strong">{p.featureCount}</T> {p.featureCount === 1 ? "feature" : "features"}</T></View>
                     </View>
                     <View style={{ flexDirection: "row", gap: 8, alignItems: "center", flexShrink: 1 }}>
-                      <T variant="small" testID={`project-approvals-${p.id}`} color={p.needsApprovalCount > 0 ? "statusNeedsYou" : "textMuted"} style={{ flexShrink: 1, textAlign: "right" }}>{p.needsApprovalCount > 0 ? approvalLabel(p.needsApprovalCount) : p.bugCount > 0 ? "Review fixes" : p.featureCount > 0 ? "Explore features" : "Explore project"}</T>
+                      <T variant="small" testID={`project-approvals-${p.id}`} color={p.needsApprovalCount > 0 ? "statusNeedsYou" : "textMuted"} style={{ flexShrink: 1, textAlign: "right" }}>{p.needsApprovalCount > 0 ? approvalLabel(p.needsApprovalCount) : p.bugCount > 0 && p.onlyNotAnswering ? (p.bugCount === 1 ? "See the issue" : "See the issues") : p.bugCount > 0 ? "Review fixes" : p.featureCount > 0 ? "Explore features" : "Explore project"}</T>
                       <Icon name="ArrowRight" size={18} color="textMuted" />
                     </View>
                   </View>

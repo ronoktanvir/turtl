@@ -58,6 +58,9 @@ export default defineSchema({
     isSample: v.optional(v.boolean()),
     // A practice project: its live app is a practice app turtl runs for its owner (convex/practice), and it has no repository.
     practice: v.optional(v.boolean()),
+    // Its open not-answering case (convex/protectedApp/notAnswering.ts), set when the case opens and cleared when it
+    // closes, so the monitor, which reads this row on every turn, settles each round while the case is open.
+    notAnsweringCase: v.optional(v.id("cases")),
   })
     .index("by_owner", ["ownerId"])
     .index("by_name", ["name"])

@@ -3,6 +3,7 @@ import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { internalMutation, internalQuery, type ActionCtx, type QueryCtx } from "../_generated/server";
 import { accessEnforced, demoHoldsAccounts, SOLO_ACCOUNT, UNAVAILABLE } from "../access";
+import { isNotAnsweringCase } from "../constants";
 import { deploymentSpendToday } from "../spend/ceilings";
 import {
   accountDay,
@@ -105,7 +106,11 @@ async function ownerOf(ctx: Pick<QueryCtx, "db">, scope: Scope): Promise<Owner> 
     const caseId = ctx.db.normalizeId("cases", scope.caseId);
     const row = caseId ? await ctx.db.get(caseId) : null;
     appId = row?.appId ?? null;
-    raisedByMonitor = row?.raisedBy === "monitor";
+    // A case opened because the app stopped answering is not an outage turtl's checks found, for the floor and the
+    // reserve: anyone can take an app offline at will, and there is nothing to diagnose in an app turtl cannot reach
+    // (convex/protectedApp/notAnswering.ts). This only ever takes eligibility away: its calls count on the account's
+    // own share, as an ordinary call does.
+    raisedByMonitor = row?.raisedBy === "monitor" && !isNotAnsweringCase(row);
     passingForMs = row?.passingForMs ?? 0;
   }
   const app = appId ? await ctx.db.get(appId) : null;

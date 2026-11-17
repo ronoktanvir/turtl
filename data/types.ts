@@ -2,6 +2,7 @@ export type Health = "affected" | "needs_you" | "working" | "clear";
 export type CaseType = "fix" | "feature";
 export type CaseStatus =
   | "new" // nobody has looked at it yet (added in 1.8); shows "New issue"
+  | "not_answering" // the app gives turtl's checks no answer; turtl waits for it and proposes no fix (an open notAnswering case)
   | "investigating"
   | "needs_approval"
   | "enacting"
@@ -23,6 +24,9 @@ export type Project = {
   bugCount: number; // open fixes
   featureCount: number; // open features
   needsApprovalCount: number;
+  // Every open bug is about the app not answering turtl's checks: nothing to review or decide, so the projects list
+  // leads to the issue instead of offering to review fixes.
+  onlyNotAnswering?: true;
   approvals: ApprovalMode;
   practice?: boolean; // a practice project: turtl runs its app for the owner to break on purpose, and it has no repository
 };
@@ -46,6 +50,9 @@ export type CaseSummary = {
   happenedAt: number;
   reportCount?: number; // how many people asked or reported
   starred?: boolean;
+  // turtl opened it because the app stopped answering its checks. It only watches: no fixes, nothing to approve, and
+  // it closes by itself when the app answers again (or when turtl stops checking the project).
+  notAnswering?: true;
 };
 
 // A span with `cite` is drawn highlighted; tapping it opens that citation in place.
@@ -156,6 +163,8 @@ export type CaseDetail = CaseSummary & {
   learned?: string; // "What turtl learned"
   structural?: StructuralFinding; // a deeper cause across several cases, when turtl recorded one
   raisedByCustomers?: boolean; // customers' own words started this case; the Approve sheet opens the full instructions
+  // A notAnswering case: since when the app gave no answer, and once closed, when and whether it answered again.
+  quiet?: { since: number; closedAt?: number; answered?: boolean };
 };
 
 export type ChatScope =

@@ -179,6 +179,9 @@ test("Fixes is its own page, reached by the same pinned button, with a way back 
   assert.match(page, /if \(reduced\) return arrive\(target, refocus\);/, "with reduced motion the pages simply switch");
   assert.match(page, /<ApproveSheet caseId=\{c\.id\} fix=\{approving\}/);
   assert.match(page, /<DeclineSheet caseId=\{c\.id\} visible=\{declining\}/);
-  assert.match(page, /display: part === "case" \? "flex" : "none"/, "the page not shown is out of the way of keyboards and screen readers");
+  // A case about an app that is not answering has no Fixes page, so only the issue's page is ever shown for it.
+  assert.match(page, /const fixesShown = part === "fixes" && !watchOnly;/);
+  assert.match(page, /display: fixesShown \? "none" : "flex"/, "the page not shown is out of the way of keyboards and screen readers");
+  assert.match(page, /display: fixesShown \? "flex" : "none"/);
   assert.match(page, /mouse: false/, "on the web a mouse drag on a page still selects text");
 });

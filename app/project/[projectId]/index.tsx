@@ -25,6 +25,10 @@ export default function ProjectHome() {
   const onboarding = useOnboarding(projectId);
   const overview = useOverview(projectId);
   const fixApprovals = fixes?.filter((item) => item.status === "needs_approval" || item.status === "ready_to_merge").length ?? 0;
+  // Every bug on the list is about the app not answering turtl's checks (still open, or closed without an answer because
+  // turtl stopped checking or can no longer read the replies): nothing to review, so the tile says what is wrong instead.
+  const onlyQuiet = !!fixes?.length && fixes.every((item) => item.notAnswering);
+  const quietLine = fixes?.some((item) => item.status === "not_answering") ? "Your app is not answering turtl's checks." : "turtl does not know whether your app is answering.";
   const featureApprovals = features?.filter((item) => item.status === "needs_approval" || item.status === "ready_to_merge").length ?? 0;
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -87,8 +91,8 @@ export default function ProjectHome() {
               </> : <>
                 {!compact && <View style={{ flexDirection: "row", gap: 8, alignItems: "center", marginBottom: 12 }}><Icon name="Wrench" size={18} color="brandDeep" /><T variant="small" color="textMuted">OPEN BUGS</T></View>}
                 <View style={{ flexDirection: "row", alignItems: "baseline", gap: 12 }}><T variant="display">Fix</T><T variant="title" color="statusClear">{project.bugCount}</T></View>
-                <T testID="project-fix-approval-count" color="textMuted" numberOfLines={short ? 1 : 2} style={{ marginTop: 4, maxWidth: "90%" }}>{project.bugCount === 0 ? "No open bugs." : fixApprovals > 0 ? approvalLabel(fixApprovals) : "Review open bugs and proposed fixes."}</T>
-                <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: compact ? 8 : 16 }}><T variant="strong" color="statusClear">{project.bugCount === 0 ? "View fixes" : "Review fixes"}</T><Icon name="ArrowRight" color="statusClear" /></View>
+                <T testID="project-fix-approval-count" color="textMuted" numberOfLines={short ? 1 : 2} style={{ marginTop: 4, maxWidth: "90%" }}>{project.bugCount === 0 ? "No open bugs." : fixApprovals > 0 ? approvalLabel(fixApprovals) : onlyQuiet ? quietLine : "Review open bugs and proposed fixes."}</T>
+                <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: compact ? 8 : 16 }}><T variant="strong" color="statusClear">{project.bugCount === 0 ? "View fixes" : onlyQuiet ? (project.bugCount === 1 ? "See the issue" : "See the issues") : "Review fixes"}</T><Icon name="ArrowRight" color="statusClear" /></View>
               </>}
             </ZoomPressable>
           </Reveal>

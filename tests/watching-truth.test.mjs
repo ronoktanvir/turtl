@@ -108,3 +108,34 @@ test("the still-broken line is centred like the note under it, and coloured like
   const empty = readFileSync(new URL("../components/project/NothingOpen.tsx", import.meta.url), "utf8");
   assert.match(empty, /color=\{broken \? "statusAffected" : "textMuted"\} style=\{\{ textAlign: "center", maxWidth: 320 \}\}/);
 });
+
+test("a check that is not answering reads as failing, with \"Not answering\" where a failing check reads \"Not passing\"", async () => {
+  const { checkLine } = createLoader({
+    "react-native": {}, "expo-router": {}, "react/jsx-runtime": { jsx: () => null, jsxs: () => null, Fragment: "Fragment" },
+    "components/onboarding/Glyph": {}, "data/overview": {}, data: {}, "data/index": {}, theme: {}, "components/ui": { ago: () => "5 min ago" },
+  })("components/project/Watching.tsx");
+  const quiet = { id: "j1", kind: "journey", name: "Book an appointment", state: "failing", lastPassedAt: 1_000, notAnswering: { since: 2_000, tries: 3 } };
+  assert.equal(checkLine(quiet, 10_000), "Not answering");
+  assert.equal(checkLine({ ...quiet, notAnswering: undefined }, 10_000), "Not passing");
+  assert.equal(checkLine({ ...quiet, state: "passing", notAnswering: undefined }, 10_000), "Passed 5 min ago");
+  assert.equal(watchingSummary([quiet, check("passing")]), "1 of 2 checks passing", "it counts as not passing");
+  // Its accessible label says the same as the line under its name.
+  const { readFileSync } = await import("node:fs");
+  const panel = readFileSync(new URL("../components/project/Watching.tsx", import.meta.url), "utf8");
+  assert.match(panel, /accessibilityLabel=\{check\.name \+ "\. " \+ checkLine\(check, now\)\}/);
+  assert.match(panel, /color=\{check\.state === "failing" \? "statusAffected" : "textMuted"\}>\{checkLine\(check, now\)\}/);
+});
+
+test("an empty Fix list with a check not answering says so, not that its last issue closed", () => {
+  const { stillBroken } = createLoader({
+    "react-native": {}, "expo-router": {}, "react-native-safe-area-context": {}, "react/jsx-runtime": { jsx: () => null, jsxs: () => null, Fragment: "Fragment" },
+    data: {}, "data/index": {}, "data/overview": {}, "data/overview/index": {}, theme: { labels: { features: "Features" } }, "components/ui": {}, "components/project/Watching": {},
+  })("components/project/NothingOpen.tsx");
+  const quiet = { id: "j1", kind: "journey", name: "Book an appointment", state: "failing", notAnswering: { since: 2_000, tries: 4 } };
+  const expected = {
+    empty: "Book an appointment: not answering.",
+    note: "This check gets no answer from your app, and no issue is open for it right now. turtl opens one when none of your app's checks gets an answer, and it keeps checking.",
+  };
+  assert.deepEqual(stillBroken([quiet], false), expected);
+  assert.deepEqual(stillBroken([{ ...quiet, closedAs: "declined" }], true), expected, "not answering is said before how an older issue ended");
+});

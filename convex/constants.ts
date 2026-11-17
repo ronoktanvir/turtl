@@ -28,6 +28,9 @@ export const STEP_PURPOSE_IDS = [
 
 export const CASE_STATUSES = [
   { id: "open", label: "Open" },
+  // A case the monitor opened because the app stopped answering its checks (convex/protectedApp/notAnswering.ts). Open:
+  // it closes by itself when the app answers again.
+  { id: "waiting_for_app", label: "Not answering" },
   { id: "investigating", label: "Investigating" },
   { id: "waiting_for_owner", label: "Waiting for you" },
   { id: "executing", label: "Executing" },
@@ -73,6 +76,7 @@ export const vStage = v.union(
 
 export const vCaseStatus = v.union(
   v.literal("open"),
+  v.literal("waiting_for_app"),
   v.literal("investigating"),
   v.literal("waiting_for_owner"),
   v.literal("executing"),
@@ -141,6 +145,9 @@ export const vNoticeEvent = v.union(
   v.literal("opened"),
   v.literal("needs_decision"),
   v.literal("handled_under_permission"),
+  // A not-answering case opened, and closed because the app answered again (convex/protectedApp/notAnswering.ts).
+  v.literal("not_answering"),
+  v.literal("answering_again"),
 );
 
 export const vNoticeOutcome = v.union(
@@ -275,6 +282,26 @@ export const vCondition = v.object({
   value: vParameterValue,
 });
 
+// What the latest of a check's tries in a row with no usable answer got: no response at all (it timed out, or the
+// connection failed), or a reply with no check result (its HTTP status).
+export const vUnansweredTry = v.union(
+  v.object({ kind: v.literal("no_response"), timedOut: v.boolean() }),
+  v.object({ kind: v.literal("no_result"), status: v.number() }),
+);
+// A check's run of monitor tries in a row that got no usable answer (convex/protectedApp/notAnswering.ts): how many,
+// when the first and the latest were made, and what the latest got. Absent when the last monitor try got a usable reply.
+export const vUnanswered = v.object({
+  count: v.number(),
+  since: v.number(),
+  at: v.number(),
+  latest: vUnansweredTry,
+});
+
+/** The signature of a project's not-answering case: one per project, whichever of its checks stopped answering. */
+export const notAnsweringSignature = (appId: string) => `not_answering:${appId}`;
+/** Whether a case is one the monitor opened because the app stopped answering its checks. */
+export const isNotAnsweringCase = (row: { signature?: string } | null | undefined) => row?.signature?.startsWith("not_answering:") === true;
+
 export const vJourney = v.object({
   appId: v.id("apps"),
   name: v.string(),
@@ -285,6 +312,9 @@ export const vJourney = v.object({
   // Since when it has passed every time it was checked: set by a pass when unset, cleared by anything else (a failure, or
   // no answer). A case records how long it had been passing (cases.passingForMs) for the outage reserve.
   passingSince: v.optional(v.number()),
+  // The monitor's tries in a row that got no usable answer (no response, or a reply with no check result). Cleared by
+  // any usable reply, a pass or a failure. At UNANSWERED_AFTER in a row the check is not answering.
+  unanswered: v.optional(vUnanswered),
   // Set on a prevention check registered from a structural finding (convex/structural).
   preventionFindingId: v.optional(v.id("structuralFindings")),
 });
@@ -604,6 +634,8 @@ export type Criterion = Infer<typeof vCriterion>;
 export type CheckReference = Infer<typeof vCheckReference>;
 export type Condition = Infer<typeof vCondition>;
 export type Journey = Infer<typeof vJourney>;
+export type Unanswered = Infer<typeof vUnanswered>;
+export type UnansweredTry = Infer<typeof vUnansweredTry>;
 export type ActionCatalogEntry = Infer<typeof vActionCatalogEntry>;
 export type Report = Infer<typeof vReport>;
 export type Evidence = Infer<typeof vEvidence>;

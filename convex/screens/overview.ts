@@ -5,6 +5,7 @@ import { query } from "../functions";
 import { accessEnforced, visibleApp, visibleApps } from "../access";
 import { CLOSED_CASE_STATUSES } from "../constants";
 import { latestInspection, preparationFor } from "../onboarding/records";
+import { isNotAnswering } from "../protectedApp/notAnswering";
 import { stageOf } from "../onboarding/stage";
 
 // What turtl is watching on one project before anything has gone wrong: its registered checks and when each
@@ -26,6 +27,9 @@ const vWatchedCheck = v.object({
   lastPassedAt: v.optional(v.number()),
   // A failing check with no issue open: how its last issue ended, so the empty Fix list can say why none is open.
   closedAs: v.optional(v.union(v.literal("declined"), v.literal("unresolved"))),
+  // A check that is not answering: its last `tries` tries in a row, the first at `since`, got no usable reply
+  // (convex/protectedApp/notAnswering.ts). Its state is then "failing". Absent below UNANSWERED_AFTER in a row.
+  notAnswering: v.optional(v.object({ since: v.number(), tries: v.number() })),
 });
 export const vOverview = v.object({
   checks: v.array(vWatchedCheck),
@@ -84,13 +88,16 @@ export const forProject = query({
     const journeys = await ctx.db.query("journeys").withIndex("by_app", (q) => q.eq("appId", app._id)).take(MAX_CHECKS);
     const checks: Infer<typeof vWatchedCheck>[] = await Promise.all(journeys.map(async (journey) => {
       const failing = await journeyFailing(ctx, app._id, journey);
+      // A practice project's app is turtl's own: it is never shown as not answering (protectedApp/notAnswering.ts).
+      const quiet = !app.practice && isNotAnswering(journey) && journey.unanswered ? { since: journey.unanswered.since, tries: journey.unanswered.count } : null;
       return {
         id: journey._id as string,
         kind: "journey" as const,
         name: journey.name,
-        state: failing.failing ? "failing" as const : journey.lastPassedAt === undefined ? "waiting" as const : "passing" as const,
+        state: failing.failing || quiet ? "failing" as const : journey.lastPassedAt === undefined ? "waiting" as const : "passing" as const,
         ...(journey.lastPassedAt !== undefined && { lastPassedAt: journey.lastPassedAt }),
         ...("closedAs" in failing && { closedAs: failing.closedAs }),
+        ...(quiet && { notAnswering: quiet }),
       };
     }));
 

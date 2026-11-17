@@ -7,9 +7,9 @@ turtl tells the owner about a case in two ways:
 
 ## Case events
 
-The workflow sends its alerts through [`convex/notices.ts`](../convex/notices.ts): `internal.notices.notifyOwner` takes `{ caseId, event, text }`, where `event` is `opened`, `needs_decision` or `handled_under_permission`. It claims one `ownerNotices` row per case and event, so each event is sent at most once per case. Then:
+The workflow sends its alerts through [`convex/notices.ts`](../convex/notices.ts): `internal.notices.notifyOwner` takes `{ caseId, event, text }`, where `event` is `opened`, `needs_decision`, `handled_under_permission`, `not_answering` (a case opened because the app stopped answering turtl's checks) or `answering_again` (that case closed because the app answered again; [`convex/protectedApp/notAnswering.ts`](../convex/protectedApp/notAnswering.ts)). It claims one `ownerNotices` row per case and event, so each event is sent at most once per case. Then:
 
-- for `needs_decision` and `handled_under_permission` it schedules `internal.push.deliver.forNotice`, which pushes a fixed sentence to every live phone of the project's owner and records the outcome in `pushSends`. `opened` sends no push. The push never carries `text`: its words come only from `convex/push/message.ts`;
+- for `needs_decision`, `handled_under_permission`, `not_answering` and `answering_again` it schedules `internal.push.deliver.forNotice`, which pushes a fixed sentence to every live phone of the project's owner and records the outcome in `pushSends`. `opened` sends no push. The push never carries `text`: its words come only from `convex/push/message.ts`;
 - for every event it sends `text` through Keiki and records the outcome on the `ownerNotices` row.
 
 `api.notices.forCase` reads those rows, and only for a case the caller may see.

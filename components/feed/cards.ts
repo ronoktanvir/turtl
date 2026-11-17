@@ -117,6 +117,8 @@ const RESTORED_COLOR = "#12A594";
 
 export const CASE_STATUS_COLORS: Record<CaseStatus, string> = {
   open: CARD_STATUS_COLORS.in_progress,
+  // The app is not answering turtl's checks: as urgent as a failure, and not something turtl is working on.
+  waiting_for_app: CARD_STATUS_COLORS.failed,
   investigating: CARD_STATUS_COLORS.in_progress,
   waiting_for_owner: CARD_STATUS_COLORS.waiting,
   executing: CARD_STATUS_COLORS.in_progress,

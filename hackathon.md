@@ -11,7 +11,7 @@
 - **Auth:** Convex Auth (`@convex-dev/auth` 0.0.98): email and password (with the address confirmed by an emailed code), Sign in with Apple, and GitHub, whenever `AUTH_REQUIRED` is set to anything but empty or `false`. Unset, empty or `false`, the deployment is the single-owner demo: nobody signs in, and it refuses to run if it holds any account
 - **AI models:** gpt-5.4-mini (Quick look diagnosis, and by default fix proposals, case chat, report triage and preference reading; `DIAGNOSIS_MODEL` and `FIXES_MODEL` override it), gpt-6.1-sol (Careful review diagnosis and council consolidation), gpt-5.5 and gpt-6.1-terra (council members), gpt-5.4 (broader-cause examination, `STRUCTURAL_MODEL` overrides it), gpt-6-luna (assistant chat, code network and onboarding inspection, `OPENAI_MODEL` overrides it), gpt-4o-mini-transcribe and gpt-4o-mini-tts (voice); claude-sonnet-4-5 and gemini-2.5-pro join the council only when `ANTHROPIC_API_KEY` or `GEMINI_API_KEY` is set. All are called through each provider's API, not the Convex AI Gateway
 - **Started:** 2026-11-15T20:37:34Z
-- **Last updated:** 2026-11-16T16:00:00Z
+- **Last updated:** 2026-11-17T00:26:20Z
 
 ## Log
 
@@ -353,3 +353,33 @@ Documented the outage floor, the hard stop, the first reset of the day and the s
 
 ### 2026-11-16 - fb2a04b
 Made a failed model call give its hold back: a call the AI service refuses with an error status releases its hold at once, and one that times out keeps it for ten minutes and is then counted at its hold, settled by a sweep each minute (`modelCallHolds`). No hold lasts until midnight any more.
+
+### 2026-11-16 - 1361273
+Opened a case when an owner's app stops answering: three of the monitor's tries in a row of a check with no usable reply (no reply within 30 seconds, a failed connection, or no check result) open one "Not answering" case for the project, at most 10 a day, with a push, and it closes with a second push when the app answers again, or unresolved when turtl stops checking. turtl makes no model call on it and it never reaches the outage floor or reserve. Before it opens, turtl holds it while its own site gives no reply, a 5xx or a 429, or while at least five other projects that answered in the last half hour have all gone quiet; practice projects never get one. Each check keeps a count of unanswered tries and each watched project when it last got a usable reply (`convex/protectedApp/notAnswering.ts`, `convex/monitor.ts`, `convex/push/message.ts`).
+
+### 2026-11-16 - 9d8e87b
+Gave a not-answering case its own screens: it is titled "Your app stopped answering", shows in the issue list as urgent with the word "Not answering" and nothing to swipe into, and its page has nothing to approve. Open, the page says what turtl saw, names three places to look (the host's status page, the last deploy, the app's address opened by hand) and says turtl keeps checking, up to every 15 minutes; closed, it reads all clear only when every check passed on return, and needing the owner when turtl stopped checking. A check the app gives no answer to reads "Not answering" on the project, and a project whose only issue is one of these offers "See the issue" (`data/live/caseMapping.ts`, `components/project/issueState.ts`, `components/project/Watching.tsx`).
+
+### 2026-11-16 - 47ff350
+Stopped health and readiness checks from raising false alarms: only a journey check that has passed at least once can stop answering (`canStopAnswering` in `convex/protectedApp/watching.ts`). Health and readiness endpoints never give the monitor a check result, and a check that has never passed has not answered yet, so neither keeps a count, opens a case or shows as not answering. Nothing retires a check yet, so a route an owner removes keeps its case open until it is back.
+
+### 2026-11-16 - 1fccf26
+Brought every document to not-answering cases and pinned the App Store pack's audit to `c38bf0e`: the README, the support page, the privacy policy and terms, the data practices and review checklist, the review notes, the runbook's new log section, and the data model, with what is not examined and the gap that no check is retired stated plainly.
+
+### 2026-11-16 - fb424d5
+Made a not-answering case mean what its title says: the app gives turtl nothing at all. A try is quiet only with no response or a reply of 500 or above with no check result; any reply below 500 (a 404, a 401, a 429, a redirect) is an answer, so a removed route or a rotated token no longer reads as an outage. A case opens only when every countable check sent is quiet three times in a row and no check in the round answered, and closes as soon as any check answers. The project records its open case (`apps.notAnsweringCase`), practice projects are no evidence in the fleet check, and a fleet hold ends once the project has been quiet for 30 minutes (`convex/protectedApp/notAnswering.ts`, `convex/monitor.ts`, `convex/schema.ts`).
+
+### 2026-11-16 - 8b4f4da
+Brought the documents to that revision: what counts as quiet, when a case opens and closes, the new field, and what the rule gives up (a check whose route is gone, an app that answers everything below 500, one check failing while another answers, projects with no journey that has passed).
+
+### 2026-11-16 - 0e66f7a
+Counted only a check result as the app answering: a reply below 500 with no result (a 404, a 401, a redirect, a page a proxy or CDN sends by itself) is unreadable and counts for nothing either way, so a front layer that answers for a stopped app no longer hides the outage. A case opens when the countable checks that gave a result or went quiet are all at three and no check gave a result; it closes on any result, and closes quietly when turtl can no longer tell because its checks get only replies it cannot read. A verify step's pass closes the case only if seen after it opened (`convex/protectedApp/notAnswering.ts`, `convex/monitor.ts`, `data/live/caseMapping.ts`).
+
+### 2026-11-16 - 59a4dac
+Brought the documents to that revision, with the third revision's list of what turtl gives up: unreadable checks, hosts that serve a page for a stopped app, one check failing beside one with a result, projects with no countable check, a lone readable check's 5xx, alerts up to half an hour late while turtl suspects itself, and more than one push when an outage turns unreadable for a round.
+
+### 2026-11-17 - c03efd4
+Let a round that finishes after a newer one decide nothing: when any of its tries is older than what its check already has on record, it changes no count for that check and neither opens nor closes a not-answering case, so a late round can no longer close the case on its health check's reply alone; the next round decides (`convex/protectedApp/notAnswering.ts`).
+
+### 2026-11-17 - acba95b
+Said so in the documents, added the fourth review's two limits (a case closes as "can no longer tell" when a rotated control token stops its checks mid-outage; the fleet check reads any reply below 500 as turtl's requests getting out), and pinned the App Store pack's audit to `c03efd4`.
