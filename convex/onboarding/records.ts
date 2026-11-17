@@ -5,7 +5,7 @@ import { internalMutation, internalQuery, type MutationCtx, type QueryCtx } from
 import { vActionConfig, vCheck, vParameterConstraint, vProbe } from "../constants";
 import { FOLLOW_BATCH, FOLLOW_LEASE_MS, nextFollowAt } from "../prTracking/follow";
 import { vGithubSnapshot } from "../prTracking/validators";
-import { checkSoon, liveChecks } from "../protectedApp/watching";
+import { checkSoon, liveChecks, probeOf } from "../protectedApp/watching";
 import { MANIFEST_CHECK_VERSION, MANIFEST_FILE } from "./detect";
 import { vLiveCheck, vReadinessItem, vStack } from "./schema";
 
@@ -235,9 +235,9 @@ export const applySnapshot = internalMutation({
       mergedAt: now,
       mergedBy: row.mergeRequestedAt !== undefined ? "owner" : "github",
       ...(ref && { mergeCommitSha: ref }),
-      registration: { status: "checking", checks: [], ...(ref && { ref }) },
+      registration: { status: "checking", checks: [], startedAt: now, ...(ref && { ref }) },
     });
-    await ctx.scheduler.runAfter(0, internal.onboarding.prepare.register, { preparationId: id });
+    await ctx.scheduler.runAfter(0, internal.onboarding.prepare.register, { preparationId: id, startedAt: now });
   },
 });
 
@@ -256,11 +256,29 @@ export const clearMergeRequest = internalMutation({
   handler: async (ctx, { id }) => ctx.db.patch(id, { mergeRequestedAt: undefined }),
 });
 
+/**
+ * Whether a registration that was started at `startedAt` is still the one the project is waiting for. A registration
+ * calls every endpoint of turtl.json on the live app and can take minutes; the owner can tap Check again meanwhile. The
+ * one that ends after a newer one was started holds the older list of checks, so it writes nothing: applied, it would
+ * bring back a check the newer list retired, and retire one it added. A run with no start named (an operator's, from
+ * the command line) is always current.
+ */
+const current = (registration: Doc<"onboardingPreparations">["registration"], startedAt: number | undefined) =>
+  startedAt === undefined || registration?.startedAt === undefined || registration.startedAt === startedAt;
+
+/** What a registration's record keeps from the one before: when the owner last asked, and which request is current. */
+const kept = (registration: Doc<"onboardingPreparations">["registration"]) => ({
+  ...(registration?.requestedAt !== undefined && { requestedAt: registration.requestedAt }),
+  ...(registration?.startedAt !== undefined && { startedAt: registration.startedAt }),
+});
+
 export const failRegistration = internalMutation({
-  args: { id: v.id("onboardingPreparations"), ref: v.optional(v.string()), error: v.string() },
-  handler: async (ctx, { id, ref, error }) => {
-    const requestedAt = (await ctx.db.get(id))?.registration?.requestedAt;
-    await ctx.db.patch(id, { registration: { status: "failed", error, checks: [], checkedAt: Date.now(), ...(ref && { ref }), ...(requestedAt !== undefined && { requestedAt }) } });
+  args: { id: v.id("onboardingPreparations"), ref: v.optional(v.string()), error: v.string(), startedAt: v.optional(v.number()) },
+  handler: async (ctx, { id, ref, error, startedAt }) => {
+    const registration = (await ctx.db.get(id))?.registration;
+    // A newer registration was started since this one: its outcome stands, and this failure is not the project's.
+    if (!current(registration, startedAt)) return;
+    await ctx.db.patch(id, { registration: { status: "failed", error, checks: [], checkedAt: Date.now(), ...(ref && { ref }), ...kept(registration) } });
   },
 });
 
@@ -300,19 +318,32 @@ function sameCheck(a: Pick<Doc<"journeys">, "check" | "probe">, b: Pick<Entry, "
 const retiredChecks = (ctx: MutationCtx, appId: Id<"apps">, limit: number) =>
   ctx.db.query("journeys").withIndex("by_app_and_retired", (q) => q.eq("appId", appId).gt("retiredAt", 0)).take(limit);
 
+/** The row of that name that registration owns, among those given. A row it does not own is never matched. */
+const owned = (rows: Doc<"journeys">[], name: string) => rows.find((journey) => journey.name === name && fromManifest(journey));
+
 /**
- * Writes one check that answered: onto the row of that name that turtl still runs, else onto a retired row of that name
- * that registration owns, which revives it with its history, else as a new row. A check keeps its version while it is
- * sent the same way to the same place, so reading turtl.json at a newer commit changes no version by itself.
+ * Writes one check that answered: onto the row of that name that registration owns and turtl still runs, else onto a
+ * retired row of that name that registration owns, which revives it with its history, else as a new row. A row
+ * registration does not own is never written over, whatever its name: an entry named like a prevention check gets a
+ * row of its own. A check keeps its version while it is sent the same way to the same place, so reading turtl.json at a
+ * newer commit changes no version by itself.
+ *
+ * What a row carries over is its own history only. A check that turns from a probe into a journey check, or back,
+ * under the same name starts again: a health check's 200s are not a journey check's passes, and would otherwise make it
+ * a check that "has passed before" and that had been "passing" for days. And a revived check's run of passes starts
+ * when the monitor next sees it pass, not from a pass a case recorded while it was retired.
  */
 async function upsertJourney(ctx: MutationCtx, appId: Id<"apps">, entry: Entry, live: Doc<"journeys">[], retired: Doc<"journeys">[]) {
-  const existing = live.find((journey) => journey.name === entry.name) ?? retired.find((journey) => journey.name === entry.name && fromManifest(journey));
+  const existing = owned(live, entry.name) ?? owned(retired, entry.name);
   if (existing) {
+    const otherKind = (probeOf(existing) === null) !== (entry.probe === undefined);
     await ctx.db.patch(existing._id, {
       ...entry,
       // Named, so a check that was a probe and is now a journey check loses the word.
       probe: entry.probe,
-      ...(fromManifest(existing) && sameCheck(existing, entry) && { checkVersion: existing.checkVersion }),
+      ...(sameCheck(existing, entry) && { checkVersion: existing.checkVersion }),
+      ...(otherKind && { lastPassedAt: entry.lastPassedAt, passingSince: undefined, unanswered: undefined }),
+      ...(existing.retiredAt !== undefined && { passingSince: undefined, unanswered: undefined }),
       retiredAt: undefined,
     });
   }
@@ -340,12 +371,14 @@ function quoted(names: string[]): string {
 // on the monitor does not send it, the project does not show it, and it counts for nothing (watching.ts, liveChecks).
 // A check listed again is revived on its own row. The note says what was retired, and the project is made due at the
 // monitor's next tick, whose round settles an open not-answering case from the checks that are left. A registration
-// that failed never reaches here, so it retires nothing.
+// that failed never reaches here, so it retires nothing; nor does one that ends after a newer one was started.
 export const register = internalMutation({
   args: {
     id: v.id("onboardingPreparations"),
     ref: v.string(),
     note: v.optional(v.string()),
+    // Which request this registration answers (the merge, or a Check again); none for an operator's run.
+    startedAt: v.optional(v.number()),
     checks: v.array(
       v.object({
         result: vLiveCheck,
@@ -355,10 +388,11 @@ export const register = internalMutation({
       }),
     ),
   },
-  handler: async (ctx, { id, ref, note, checks }) => {
+  handler: async (ctx, { id, ref, note, startedAt, checks }) => {
     const row = await ctx.db.get(id);
     if (!row) throw new Error("Preparation not found.");
-    const requestedAt = row.registration?.requestedAt;
+    // A newer registration was started since this one read turtl.json: this list is the older one, and writes nothing.
+    if (!current(row.registration, startedAt)) return;
     const live = await liveChecks(ctx, row.appId, JOURNEY_SCAN);
     const retired = await retiredChecks(ctx, row.appId, MAX_RETIRED + JOURNEY_SCAN);
     const results = [];
@@ -387,7 +421,7 @@ export const register = internalMutation({
         results.push(earlier ? { ...result, actionCatalogId: earlier._id, detail: `${result.detail} It stays registered from an earlier check.` } : result);
       } else {
         // A check turtl still runs under that name stays, though it did not answer just now. A retired one stays retired.
-        const earlier = live.find((journey) => journey.name === result.name);
+        const earlier = owned(live, result.name);
         results.push(earlier ? { ...result, journeyId: earlier._id, detail: `${result.detail} It stays registered from an earlier check.` } : result);
       }
     }
@@ -397,12 +431,12 @@ export const register = internalMutation({
     const gone = live.filter((journey) => fromManifest(journey) && journey.retiredAt === undefined && !listed.has(journey.name));
     for (const journey of gone) await ctx.db.patch(journey._id, { retiredAt: now, unanswered: undefined, passingSince: undefined });
     // Keep the project's retired rows bounded: the ones retired longest ago go.
-    const kept = await retiredChecks(ctx, row.appId, MAX_RETIRED + JOURNEY_SCAN);
-    for (const journey of kept.slice(0, Math.max(0, kept.length - MAX_RETIRED))) await ctx.db.delete(journey._id);
+    const all = await retiredChecks(ctx, row.appId, MAX_RETIRED + JOURNEY_SCAN);
+    for (const journey of all.slice(0, Math.max(0, all.length - MAX_RETIRED))) await ctx.db.delete(journey._id);
     const retiredNote = gone.length ? `turtl stopped checking ${quoted(gone.map((journey) => journey.name))}: ${MANIFEST_FILE} no longer lists ${gone.length === 1 ? "it" : "them"}.` : undefined;
     const notes = [note, retiredNote].filter((one): one is string => Boolean(one)).join(" ");
     await ctx.db.patch(id, {
-      registration: { status: "done", ref, checks: results, checkedAt: now, ...(notes && { note: notes }), ...(requestedAt !== undefined && { requestedAt }) },
+      registration: { status: "done", ref, checks: results, checkedAt: now, ...(notes && { note: notes }), ...kept(row.registration) },
     });
     // What answered is watched from the monitor's next tick (convex/protectedApp/watching.ts).
     await checkSoon(ctx, row.appId);

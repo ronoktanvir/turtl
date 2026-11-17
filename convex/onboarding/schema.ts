@@ -103,6 +103,10 @@ export const onboardingTables = {
         checkedAt: v.optional(v.number()),
         // When the owner last asked turtl to check again; with accounts on it limits how often they can.
         requestedAt: v.optional(v.number()),
+        // When the registration now running, or the last one, was started (the merge, or a Check again). A
+        // registration that ends after a newer one was started writes nothing (records.ts, current): its list of
+        // checks is the older one.
+        startedAt: v.optional(v.number()),
       }),
     ),
   })

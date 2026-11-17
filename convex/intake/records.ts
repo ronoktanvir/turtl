@@ -337,8 +337,9 @@ export const land = internalMutation({
       return { outcome: "ignored", caseId: null };
     }
     // The check the case's steps run before and after a fix: the project's first journey check that turtl still runs.
-    // Never a health or readiness check, which a case cannot run as a journey check and which registration writes first.
-    const journey = (await liveChecks(ctx, app._id)).find((check) => check.check.kind === "http" && probeOf(check) === null);
+    // Never a health or readiness check, which a case cannot run as a journey check and which registration writes first,
+    // and never a prevention check, which runs the journey with a fault put in on purpose.
+    const journey = (await liveChecks(ctx, app._id)).find((check) => check.check.kind === "http" && probeOf(check) === null && check.preventionFindingId === undefined);
     const caseId = await startCaseRun(ctx, {
       appId: app._id,
       kind: wanted,

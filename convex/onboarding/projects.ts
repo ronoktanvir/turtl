@@ -252,8 +252,9 @@ export const checkAgain = mutation({
     if (accessEnforced() && last !== undefined && now - last < CHECK_AGAIN_EVERY_MS) {
       throw new ConvexError(`turtl checked your live app less than ${CHECK_AGAIN_EVERY_MS / 60_000} minutes ago. Try again in a minute or two.`);
     }
-    await ctx.db.patch(preparation._id, { registration: { ...(preparation.registration ?? { checks: [] }), status: "checking", ...(accessEnforced() && { requestedAt: now }) } });
-    await ctx.scheduler.runAfter(0, internal.onboarding.prepare.register, { preparationId: preparation._id, latest: true });
+    // startedAt names this request: a registration still running for an earlier one will write nothing when it ends.
+    await ctx.db.patch(preparation._id, { registration: { ...(preparation.registration ?? { checks: [] }), status: "checking", startedAt: now, ...(accessEnforced() && { requestedAt: now }) } });
+    await ctx.scheduler.runAfter(0, internal.onboarding.prepare.register, { preparationId: preparation._id, latest: true, startedAt: now });
     // The owner asked: the monitor checks the project at its next tick and every minute after, even if it had spaced
     // its checks out while the app kept failing the same way.
     await checkSoon(ctx, preparation.appId);

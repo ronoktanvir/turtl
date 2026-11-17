@@ -126,6 +126,22 @@ async function untilCase(t, w, from, { within = 8 } = {}) {
   assert.fail(`no not-answering case within ${within} minutes`);
 }
 
+const flush = async (times = 20) => {
+  for (let n = 0; n < times; n++) await new Promise((resolve) => setImmediate(resolve));
+};
+
+/** Takes the round a tick scheduled and starts it without waiting for it: a round in flight. */
+async function startRound(w) {
+  await w.run("internal.monitor.tick", {});
+  const index = w.scheduled.findIndex((job) => job.path === "internal.monitor.checkProject");
+  assert.ok(index >= 0, "the tick started a round");
+  const [job] = w.scheduled.splice(index, 1);
+  const running = w.run(job.path, job.args);
+  await flush();
+  // Wrapped: an async function returning the promise itself would wait for the round.
+  return { running };
+}
+
 const row = (w, id) => w.rows("journeys").find((one) => one._id === id);
 const notAnswering = (w) => w.rows("cases").filter((one) => one.signature?.startsWith("not_answering:"));
 const ordinary = (w) => w.rows("cases").filter((one) => one.signature?.startsWith("journey_failed:"));
@@ -502,8 +518,10 @@ test("P7: a customer's report attaches a journey check to its case, never a heal
   const first = await land("one");
   assert.equal(w.rows("cases").find((one) => one._id === first.caseId).journeyId, book);
   await w.db.patch(book, { retiredAt: at(0) });
+  // What is left: the health check, and a prevention check, which runs the journey with a fault put in on purpose.
+  await w.db.insert("journeys", { appId, name: "Booking survives a slow store", description: ".", checkVersion: "journey-check-v1+slow_store", check: journeyCheck("/journey-check?scenario=slow_store"), preventionFindingId: "structuralFindings:1" });
   const second = await land("two");
-  assert.equal(w.rows("cases").find((one) => one._id === second.caseId).journeyId, undefined, "with no journey check left, the case has none");
+  assert.equal(w.rows("cases").find((one) => one._id === second.caseId).journeyId, undefined, "with no journey check left, the case has none: not the health check, and not a prevention check");
 });
 
 // =====================================================================================================================
@@ -520,10 +538,19 @@ const manifestOf = (journeys, extra = {}) => JSON.stringify({ version: 1, journe
  * commit, `repo.files` turtl.json at each commit), and its app on a stand-in that answers every route unless told not to.
  */
 async function prepared(t, w, files) {
-  const repo = { head: MERGE, files: { ...files }, githubDown: false };
+  // `head`: the latest commit on main, the branch the preparation merged into. `mainGone`: that branch no longer
+  // exists (renamed or deleted). `defaultBranch` and `others`: the repository's default branch, and other branches' heads.
+  const repo = { head: MERGE, files: { ...files }, githubDown: false, mainGone: false, defaultBranch: "main", others: {} };
   const app = { answer: (target) => (target.pathname.endsWith("/journey-check") ? json(passed) : healthy()) };
   const sent = network(t, (host) => {
-    if (host === "api.github.com") return (target) => (repo.githubDown ? json({ message: "Server Error" }, 500) : target.pathname === "/repos/o/shop/commits/main" ? json({ sha: repo.head }) : json({ message: "Not Found" }, 404));
+    if (host === "api.github.com") return (target) => {
+      if (repo.githubDown) return json({ message: "Server Error" }, 500);
+      if (target.pathname === "/repos/o/shop") return json({ default_branch: repo.defaultBranch });
+      const branch = target.pathname.match(/^\/repos\/o\/shop\/commits\/(.+)$/)?.[1];
+      const name = branch === undefined ? undefined : decodeURIComponent(branch);
+      const sha = name === "main" ? (repo.mainGone ? undefined : repo.head) : repo.others[name];
+      return sha ? json({ sha }) : json({ message: "Not Found" }, 404);
+    };
     if (host === "raw.githubusercontent.com") return (target) => {
       const [, , , sha, ...path] = target.pathname.split("/");
       const text = path.join("/") === "turtl.json" ? repo.files[sha] : undefined;
@@ -580,7 +607,7 @@ test("T8: Check again reads turtl.json as it is now on the preparation's branch;
 
   p.repo.head = HEAD_2;
   const [job] = await p.checkAgain();
-  assert.deepEqual(job.args, { preparationId: p.preparationId, latest: true });
+  assert.deepEqual([job.args.preparationId, job.args.latest, typeof job.args.startedAt], [p.preparationId, true, "number"], "the latest file, and which request this is");
   assert.ok(p.sent.some((request) => request.host === "raw.githubusercontent.com" && request.path === `/o/shop/${HEAD_2}/turtl.json`));
   assert.deepEqual([p.live(), (await p.registration()).ref, (await p.registration()).status], [["Book", "Refund"], HEAD_2, "done"]);
 });
@@ -750,11 +777,21 @@ test("T4: an open case about a retired check carries on, the monitor opens no ne
   await p.checkAgain();
   assert.deepEqual(ordinary(w).map((one) => one.status), ["investigating"], "nothing was closed for it");
   assert.equal((await w.db.get(open.journeyId)).name, "Cancel", "and the case still finds its check");
-  // A round that was in flight when the check was retired reports its failure afterwards: no case opens.
+  // A round that was in flight when the check was retired reports its failure afterwards: no case opens. Everything
+  // else that could refuse is out of the way: the earlier case is closed, and the check has passed since it (the
+  // fixture stamps rows in 2027, so "since" is later still).
   await w.db.patch(open._id, { status: "resolved" });
-  await w.db.patch(open.journeyId, { lastPassedAt: Date.now() + 1 });
-  const late = await w.run("internal.monitor.openCase", { journeyId: open.journeyId, failedStep: "save_booking", observedAt: Date.now() + 2, counts: null, countsReason: "." });
-  assert.deepEqual([late.opened, ordinary(w).length], [false, 1]);
+  const since = w.rows("cases").find((one) => one._id === open._id)._creationTime + HOUR;
+  await w.db.patch(open.journeyId, { lastPassedAt: since });
+  const failure = { journeyId: open.journeyId, failedStep: "save_booking", observedAt: since + MINUTE, counts: null, countsReason: "." };
+  const late = await w.run("internal.monitor.openCase", failure);
+  assert.deepEqual([late.opened, late.reason, ordinary(w).length], [false, "this check was retired: the project's turtl.json no longer lists it", 1]);
+  // The same failure of the same check, were it not retired, would open a case: the refusal is the retirement's.
+  const retiredAt = row(w, open.journeyId).retiredAt;
+  await w.db.patch(open.journeyId, { retiredAt: undefined });
+  assert.equal((await w.run("internal.monitor.openCase", failure)).opened, true);
+  await w.db.patch(open.journeyId, { retiredAt });
+  await w.db.patch(ordinary(w).at(-1)._id, { status: "resolved" });
   // A not-answering case is open on the project; the retired check's verify step passes.
   const book = p.named("Book")._id;
   p.app.answer = down;
@@ -875,4 +912,283 @@ test("deleting a project still removes its retired checks", async (t) => {
   assert.equal(entry.index, "by_app", "the index that holds every row of the project, retired or not");
   await eraseRows({ db: w.db }, entry, appId, 100);
   assert.deepEqual(w.rows("journeys"), []);
+});
+
+// =====================================================================================================================
+// After the independent review (.claude/security/watched-checks-review.md, N1 to N9).
+// =====================================================================================================================
+
+/**
+ * Rounds that outlive their five-minute lease while the app is down behind a proxy: each round is still running when
+ * the next starts, and settles only after the next one has sent its checks. The journey check's connection hangs until
+ * the round's time runs out; the proxy answers /health by itself.
+ */
+async function overlapping(t, { withHealth }) {
+  const w = world(t);
+  const hanging = [];
+  network(t, (host) => (host === HOST
+    ? (target) => (target.pathname === "/health" ? healthy() : new Promise((_, reject) => hanging.push(() => reject(new TypeError("fetch failed")))))
+    : null));
+  const { appId } = await shop(w);
+  const book = await journey(w, appId, "Book an appointment", "/journey-check");
+  if (withHealth) await probe(w, appId, "health");
+  t.mock.timers.setTime(at(0));
+  let { running: previous } = await startRound(w);
+  // Sixteen minutes apart: past the longest wait between checks of a project that keeps failing the same way.
+  for (let round = 1; round <= 10; round++) {
+    t.mock.timers.setTime(at(round * 16));
+    const { running: next } = await startRound(w);
+    hanging.shift()();
+    await previous;
+    await w.drain(RUNS);
+    previous = next;
+  }
+  return { w, book };
+}
+
+test("N1: in a journey project, a health check's pass in a newer round does not make an older round decide nothing: overlapping rounds still open the case, as they do without a health check", async (t) => {
+  const opened = {};
+  for (const withHealth of [false, true]) {
+    await t.test(withHealth ? "with a health check that passes" : "without a health check", async (t) => {
+      const { w, book } = await overlapping(t, { withHealth });
+      assert.ok(count(w, book) >= 3, `the journey check's quiet tries are counted (${count(w, book)})`);
+      assert.equal(notAnswering(w)[0]?.status, "waiting_for_app");
+      assert.deepEqual(pushes(w), ["not_answering"]);
+      opened[withHealth] = notAnswering(w)[0]._creationTime;
+    });
+  }
+});
+
+test("N1, K1: where the probes decide, a probe's pass in a newer round still makes an older round decide nothing", async (t) => {
+  const w = world(t);
+  let mode = "down";
+  let release;
+  network(t, (host) => (host === HOST ? () => (mode === "down" ? down() : mode === "up" ? healthy() : new Promise((resolve) => { release = () => resolve(healthy()); })) : null));
+  const { appId } = await shop(w);
+  const health = await probe(w, appId, "health");
+  await minutes(t, w, 0, 8);
+  assert.equal(notAnswering(w)[0]?.status, "waiting_for_app");
+  // Minute 20: round A starts while the app briefly answers, and its health check hangs before A settles.
+  mode = "slow";
+  t.mock.timers.setTime(at(20));
+  const { running: roundA } = await startRound(w);
+  // Down again. Minute 26: A's lease has run out, round B runs and finds the app down.
+  mode = "down";
+  t.mock.timers.setTime(at(26));
+  await w.run("internal.monitor.tick", {});
+  await w.drain(RUNS);
+  const afterB = row(w, health).unanswered;
+  release();
+  await roundA;
+  await w.drain(RUNS);
+  assert.deepEqual([notAnswering(w).map((one) => one.status), pushes(w)], [["waiting_for_app"], ["not_answering"]], "round A is older than round B: its pass closes nothing");
+  assert.deepEqual(row(w, health).unanswered, afterB, "and changes no count");
+});
+
+test("N2: a slow Check again that finishes after a newer one writes nothing: the newer list stands, and so does the commit it read", async (t) => {
+  for (const ending of ["registers", "fails"]) {
+    await t.test(`the older one ${ending}`, async (t) => {
+      const w = world(t);
+      const p = await prepared(t, w, { [MERGE]: manifestOf(["Book", "Cancel"]), [HEAD_2]: manifestOf(["Book", "Cancel"]), [HEAD_3]: manifestOf(["Book"]) });
+      await p.afterMerge();
+      assert.deepEqual(p.live(), ["Book", "Cancel"]);
+      // Check again #1 reads the head at HEAD_2, which still lists Cancel. The app is slow: one call hangs.
+      let release;
+      p.app.answer = (target) => (target.pathname.includes("/cancel/") ? new Promise((resolve) => { release = () => resolve(json(passed)); }) : json(passed));
+      p.repo.head = HEAD_2;
+      if (ending === "fails") p.repo.files[HEAD_2] = "{ not json";
+      t.mock.timers.setTime(at(0));
+      await w.run("api.onboarding.projects.checkAgain", { projectId: p.appId }, p.owner);
+      const [first] = w.scheduled.splice(w.scheduled.findIndex((job) => job.path === "internal.onboarding.prepare.register"), 1);
+      // The older one's read of turtl.json is held too when it is to fail, so that it ends after the newer one.
+      let releaseRead;
+      const realFetch = globalThis.fetch;
+      if (ending === "fails") {
+        globalThis.fetch = async (url, init) => (String(url).includes(`/${HEAD_2}/turtl.json`) ? new Promise((resolve) => { releaseRead = () => resolve(realFetch(url, init)); }) : realFetch(url, init));
+      }
+      const slow = w.run(first.path, first.args);
+      await flush();
+      // The owner takes Cancel out (HEAD_3) and, three minutes later, taps Check again (#2), which finishes at once.
+      p.app.answer = (target) => (target.pathname.includes("/cancel/") ? down() : json(passed));
+      p.repo.head = HEAD_3;
+      t.mock.timers.setTime(at(3));
+      await w.run("api.onboarding.projects.checkAgain", { projectId: p.appId }, p.owner);
+      await w.drain(["internal.onboarding.prepare.register"]);
+      assert.deepEqual([p.live(), (await p.registration()).ref, (await p.registration()).status], [["Book"], HEAD_3, "done"]);
+      // #1 finishes now.
+      (releaseRead ?? release)();
+      await slow;
+      globalThis.fetch = realFetch;
+      const registration = await p.registration();
+      assert.deepEqual([p.live(), registration.ref, registration.status, registration.error], [["Book"], HEAD_3, "done", undefined], "the older registration changed nothing");
+      assert.equal(registration.note, 'turtl stopped checking "Cancel": turtl.json no longer lists it.');
+      const mark = p.sent.length;
+      await minutes(t, w, 4, 8);
+      assert.deepEqual(p.sent.slice(mark).filter((request) => request.path === "/checks/cancel/journey-check"), [], "and the monitor does not send Cancel");
+    });
+  }
+});
+
+test("N2: the registration after the merge and a Check again are told apart the same way; an operator's run from the command line always writes", async (t) => {
+  const w = world(t);
+  const p = await prepared(t, w, { [MERGE]: manifestOf(["Book", "Cancel"]), [HEAD_2]: manifestOf(["Book"]) });
+  // The merge starts the first registration (as applySnapshot does), and the owner taps Check again before it ends.
+  await w.db.patch(p.preparationId, { registration: { status: "checking", checks: [], ref: MERGE, startedAt: at(0) } });
+  p.repo.head = HEAD_2;
+  t.mock.timers.setTime(at(1));
+  await p.checkAgain();
+  assert.deepEqual([p.live(), (await p.registration()).ref], [["Book"], HEAD_2]);
+  // The merge's registration ends late: it writes nothing.
+  await w.run("internal.onboarding.prepare.register", { preparationId: p.preparationId, startedAt: at(0) });
+  assert.deepEqual([p.live(), (await p.registration()).ref], [["Book"], HEAD_2]);
+  // An operator checking a commit by hand names no start: it always writes.
+  await w.run("internal.onboarding.prepare.register", { preparationId: p.preparationId, ref: MERGE });
+  assert.deepEqual([p.live(), (await p.registration()).ref], [["Book", "Cancel"], MERGE]);
+});
+
+test("N4: a check that turns from a probe into a journey check under the same name starts with no history", async (t) => {
+  const w = world(t);
+  const p = await prepared(t, w, { [MERGE]: JSON.stringify({ version: 1, health: { name: "Bookings", path: "/health" }, journeys: [] }), [HEAD_2]: JSON.stringify({ version: 1, journeys: [{ name: "Bookings", path: "/checks/bookings/journey-check" }] }) });
+  await p.afterMerge();
+  await minutes(t, w, 0, 3);
+  const before = p.named("Bookings");
+  assert.deepEqual([before.probe, typeof before.lastPassedAt, typeof before.passingSince], ["health", "number", "number"]);
+  // The journey check answers at registration, with a failing result: it is registered, and has never passed.
+  p.app.answer = (target) => (target.pathname.endsWith("/journey-check") ? json(failed, 503) : healthy());
+  p.repo.head = HEAD_2;
+  await p.checkAgain();
+  const after = p.named("Bookings");
+  assert.deepEqual([after._id, after.check.config.method, after.probe], [before._id, "POST", undefined], "the same row, now a journey check");
+  assert.deepEqual([after.lastPassedAt, after.passingSince, after.unanswered], [undefined, undefined, undefined], "the health check's passes are not a journey check's");
+  // So its first failure is not recorded as the end of days of passing.
+  await minutes(t, w, 3, 5);
+  assert.deepEqual(ordinary(w).map((one) => one.passingForMs), [0]);
+});
+
+test("N4: a pass recorded for a retired check starts no run of passes, and reviving it starts afresh", async (t) => {
+  const w = world(t);
+  const p = await prepared(t, w, { [MERGE]: manifestOf(["Book", "Cancel"]), [HEAD_2]: manifestOf(["Book"]), [HEAD_3]: manifestOf(["Book", "Cancel"]) });
+  await p.afterMerge();
+  await minutes(t, w, 0, 2);
+  p.repo.head = HEAD_2;
+  await p.checkAgain();
+  const cancel = p.named("Cancel")._id;
+  assert.equal(row(w, cancel).passingSince, undefined);
+  // A case that still runs it records a pass, two days before it is listed again.
+  await w.run("internal.monitor.recordPass", { journeyId: cancel, observedAt: at(5) });
+  assert.deepEqual([row(w, cancel).lastPassedAt, row(w, cancel).passingSince], [at(5), undefined]);
+  await w.db.patch(cancel, { passingSince: at(5) });
+  p.repo.head = HEAD_3;
+  t.mock.timers.setTime(at(2 * 24 * 60));
+  await p.checkAgain();
+  assert.deepEqual([row(w, cancel).retiredAt, row(w, cancel).passingSince], [undefined, undefined], "its run of passes starts when the monitor next sees it pass");
+});
+
+test("N5, T1: a turtl.json entry named like a check registration does not own leaves that check as it is, and gets a row of its own", async (t) => {
+  const w = world(t);
+  const p = await prepared(t, w, { [MERGE]: JSON.stringify({ version: 1, health: { name: "Guard", path: "/health" }, journeys: [{ name: "Book an appointment", path: "/checks/book/journey-check" }] }), [HEAD_2]: manifestOf(["Other"]) });
+  const prevention = await w.db.insert("journeys", { appId: p.appId, name: "Guard", description: "A prevention check.", checkVersion: "journey-check-v1+slow_store", check: journeyCheck("/guard/journey-check?scenario=slow_store"), preventionFindingId: "structuralFindings:1", lastPassedAt: START - HOUR });
+  const demo = await w.db.insert("journeys", { appId: p.appId, name: "Book an appointment", description: "The demo's own.", checkVersion: "journey-check-v1", check: journeyCheck("/journey-check") });
+  const untouched = [row(w, prevention), row(w, demo)];
+  await p.afterMerge();
+  assert.deepEqual([row(w, prevention), row(w, demo)], untouched, "neither was written over");
+  const mine = p.checks().filter((one) => one.checkVersion.startsWith("onboarding-manifest-v1:"));
+  assert.deepEqual(mine.map((one) => [one.name, one.check.config.method, one.probe]), [["Guard", "GET", "health"], ["Book an appointment", "POST", undefined]]);
+  // Taken out of the file again: the manifest's own two rows are retired, the other two still run.
+  p.repo.head = HEAD_2;
+  await p.checkAgain();
+  assert.deepEqual([row(w, prevention), row(w, demo)], untouched);
+  assert.deepEqual(p.live(), ["Guard", "Book an appointment", "Other"]);
+  assert.deepEqual(mine.map((one) => typeof row(w, one._id).retiredAt), ["number", "number"]);
+});
+
+test("N5: the demo's registry does not hand back a retired check as its booking journey", async (t) => {
+  const w = world(t, { PROTECTED_APP_URL: `https://${HOST}`, PROTECTED_APP_CONTROL_SECRET: "demo-secret" });
+  network(t, () => null);
+  const first = await w.run("internal.protectedApp.registry.register", {});
+  await w.db.patch(first.journeyId, { retiredAt: at(-1) });
+  const again = await w.run("internal.protectedApp.registry.register", {});
+  assert.notEqual(again.journeyId, first.journeyId);
+  assert.deepEqual([again.created.journey, row(w, again.journeyId).retiredAt], [true, undefined]);
+});
+
+test("N7, T8: when the preparation's branch is gone, Check again reads the repository's default branch; when that cannot be read either, it changes nothing", async (t) => {
+  const w = world(t);
+  const p = await prepared(t, w, { [MERGE]: manifestOf(["Book", "Cancel"]), [HEAD_2]: manifestOf(["Book"]) });
+  await p.afterMerge();
+  // main was renamed to trunk, which is now the default branch.
+  p.repo.mainGone = true;
+  p.repo.defaultBranch = "trunk";
+  p.repo.others.trunk = HEAD_2;
+  await p.checkAgain();
+  assert.deepEqual([(await p.registration()).status, (await p.registration()).ref, p.live()], ["done", HEAD_2, ["Book"]]);
+  // No branch can be read at all: nothing is checked and nothing changes.
+  p.repo.others = {};
+  const mark = p.sent.length;
+  await p.checkAgain();
+  const registration = await p.registration();
+  assert.deepEqual([registration.status, p.live()], ["failed", ["Book"]]);
+  assert.equal(registration.error, "turtl could not find the branch main in o/shop, or the repository's default branch, so it checked nothing and changed nothing. Check that the repository is still connected to turtl.");
+  assert.deepEqual(p.sent.slice(mark).filter((request) => request.host === HOST), []);
+});
+
+test("T8: a check's version changes when the way it is sent changes, its credential included, and stands when nothing does", async (t) => {
+  const w = world(t);
+  network(t, () => null);
+  const { appId } = await shop(w);
+  const preparationId = await w.db.insert("onboardingPreparations", { appId, neverBreak: [], repo: "o/shop", mergedAt: 2, settledAt: 2 });
+  const register = (version, config) => w.run("internal.onboarding.records.register", {
+    id: preparationId, ref: version,
+    checks: [{ result: { kind: "journey", name: "Book", url: config.url, state: "works", detail: ".", checkedAt: Date.now() }, journey: { name: "Book", description: ".", check: { kind: "http", config }, checkVersion: `onboarding-manifest-v1:${version}` }, passedAt: Date.now() }],
+  });
+  const config = { url: `https://${HOST}/journey-check`, method: "POST", expectedStatus: 200 };
+  const version = () => w.rows("journeys")[0].checkVersion;
+  await register("aaa", config);
+  await register("bbb", config);
+  assert.equal(version(), "onboarding-manifest-v1:aaa", "the same check keeps its version");
+  await register("ccc", { ...config, credentialRef: "PROTECTED_APP_CONTROL_SECRET" });
+  assert.equal(version(), "onboarding-manifest-v1:ccc", "now sent with the control token: a new version");
+  await register("ddd", { ...config, credentialRef: "PROTECTED_APP_CONTROL_SECRET" });
+  assert.equal(version(), "onboarding-manifest-v1:ccc");
+  await register("eee", config);
+  assert.equal(version(), "onboarding-manifest-v1:eee");
+  assert.equal(w.rows("journeys").length, 1);
+});
+
+test("P6, N9: a journey project whose journey checks wait for a control token is paced by the checks it can send", async (t) => {
+  const { CREDENTIAL_REF } = createLoader()("convex/protectedApp/client.ts");
+  const gated = (path) => ({ kind: "http", config: { url: `https://${HOST}${path}`, method: "POST", expectedStatus: 200, credentialRef: CREDENTIAL_REF } });
+  await t.test("only probes can be sent, and they keep failing the same way: spaced out", async (t) => {
+    const w = world(t);
+    const sent = network(t, (host) => (host === HOST ? down : null));
+    const { appId } = await shop(w);
+    await w.db.insert("journeys", { appId, name: "Book", description: ".", checkVersion: MANIFEST_VERSION, check: gated("/journey-check"), lastPassedAt: START - HOUR });
+    await probe(w, appId, "health");
+    await minutes(t, w, 0, 60);
+    const rounds = sent.filter((request) => request.path === "/health").length;
+    assert.ok(rounds <= 12, `checked ${rounds} times in an hour`);
+    assert.ok(w.rows("watchedProjects")[0].failure.streak >= 5);
+    assert.deepEqual(notAnswering(w), [], "and no case opens on the health check: the journey check decides, token or no token");
+  });
+  await t.test("only probes can be sent, and they pass: every minute", async (t) => {
+    const w = world(t);
+    const sent = network(t, (host) => (host === HOST ? healthy : null));
+    const { appId } = await shop(w);
+    await w.db.insert("journeys", { appId, name: "Book", description: ".", checkVersion: MANIFEST_VERSION, check: gated("/journey-check"), lastPassedAt: START - HOUR });
+    await probe(w, appId, "health");
+    await minutes(t, w, 0, 30);
+    assert.equal(sent.filter((request) => request.path === "/health").length, 30);
+  });
+  await t.test("the line is drawn from the project's checks, not from what a round could send", async (t) => {
+    const w = world(t);
+    // Book has passed and waits for its token. Pay has never passed and needs none: it gets no answer. Health passes.
+    const sent = network(t, (host) => (host === HOST ? (target) => (target.pathname === "/health" ? healthy() : down()) : null));
+    const { appId } = await shop(w);
+    await w.db.insert("journeys", { appId, name: "Book", description: ".", checkVersion: MANIFEST_VERSION, check: gated("/book/journey-check"), lastPassedAt: START - HOUR });
+    await journey(w, appId, "Pay", "/pay/journey-check", { passed: false });
+    await probe(w, appId, "health");
+    await minutes(t, w, 0, 60);
+    const rounds = sent.filter((request) => request.path === "/pay/journey-check").length;
+    assert.ok(rounds <= 12, `the passing health check did not put it back to every minute (${rounds} rounds in an hour)`);
+  });
 });

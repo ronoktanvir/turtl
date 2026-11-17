@@ -63,7 +63,8 @@ import { canStopAnswering, liveChecks, probeOf, probesDecide } from "./watching"
 //
 // A round settles only what is newer than what a check has on record: a try older than the check's latest quiet try or
 // its latest pass (a round that finished after a newer one) changes nothing, as openCase ignores an old failure. And a
-// round with any such try is superseded: it neither opens nor closes a case, and the next round decides.
+// round with any such try of a check that decides is superseded: it neither opens nor closes a case, and the next round
+// decides.
 //
 // Every read here is bounded: a project's checks (MAX_JOURNEYS), its newest NOT_ANSWERING_CASES_PER_DAY such cases, and
 // for the fleet FLEET_SAMPLE monitor rows. None of it runs on a round with no case open, no count on record and no
@@ -332,11 +333,14 @@ export const settle = internalMutation({
     const decides = new Set<string>(journeys.filter((journey) => byProbes || probeOf(journey) === null).map((journey) => journey._id));
     const fresh: Try[] = [];
     // A try older than what its check already has on record means a newer round, or a newer pass, has spoken since.
+    // Only a check that decides makes the round superseded: a probe's pass is recorded as each round sends it, so in a
+    // project decided by its journey checks the next round's health pass would otherwise mark every round that outlives
+    // its lease as superseded, and none would ever decide. Such a probe's older try is dropped, and nothing more.
     let superseded = false;
     for (const journey of journeys) {
       const one = tried.get(journey._id);
       if (one && older(journey, one)) {
-        superseded = true;
+        if (decides.has(journey._id)) superseded = true;
         continue;
       }
       if (one) fresh.push(one);

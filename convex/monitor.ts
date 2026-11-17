@@ -85,7 +85,8 @@ export const recordPass = internalMutation({
   handler: async (ctx, { journeyId, observedAt, round }) => {
     const journey = await ctx.db.get(journeyId);
     if (journey && observedAt > (journey.lastPassedAt ?? 0)) {
-      await ctx.db.patch(journeyId, { lastPassedAt: observedAt, ...(journey.passingSince === undefined && { passingSince: observedAt }) });
+      // A retired check is not watched, so a pass of it (from a case that still runs it) starts no run of passes.
+      await ctx.db.patch(journeyId, { lastPassedAt: observedAt, ...(journey.passingSince === undefined && journey.retiredAt === undefined && { passingSince: observedAt }) });
     }
     // A retired check counts for nothing: its pass, from a case that still runs it, closes no not-answering case.
     if (journey && !round && journey.retiredAt === undefined) await passedOutsideRound(ctx, journey, observedAt);

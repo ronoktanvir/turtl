@@ -294,17 +294,19 @@ export async function checkLive(base: string, manifest: ReturnType<typeof parseM
 // (records.ts, register). Right after the merge it reads the file at the merge commit. `latest`, the owner's Check
 // again, reads it as it is now, at the head of the branch the preparation merged into: that is how a check the owner
 // took out of the file, or added to it, reaches turtl. If that commit cannot be read, nothing is checked and nothing
-// changes: it never falls back to an older commit, whose list would bring retired checks back. `ref` lets an operator
-// check a commit from the CLI.
+// changes: it never falls back to an older commit, whose list would bring retired checks back. If the branch itself is
+// gone (renamed or deleted since), it reads the repository's default branch. `startedAt` says which request this run
+// answers: one that ends after a newer request was started writes nothing, so a slow run cannot put an older list back
+// (records.ts, current). `ref` lets an operator check a commit from the CLI, and such a run always writes.
 export const register = internalAction({
-  args: { preparationId: v.id("onboardingPreparations"), ref: v.optional(v.string()), latest: v.optional(v.boolean()) },
-  handler: async (ctx, { preparationId, ref: requested, latest }): Promise<{ outcome: "missing" } | { outcome: "failed"; error: string } | { outcome: "registered"; checks: string[] }> => {
+  args: { preparationId: v.id("onboardingPreparations"), ref: v.optional(v.string()), latest: v.optional(v.boolean()), startedAt: v.optional(v.number()) },
+  handler: async (ctx, { preparationId, ref: requested, latest, startedAt }): Promise<{ outcome: "missing" } | { outcome: "failed"; error: string } | { outcome: "registered"; checks: string[] }> => {
     const context: PreparationContext | null = await ctx.runQuery(internal.onboarding.records.forPreparation, { preparationId });
     if (!context) return { outcome: "missing" as const };
     const { preparation, app, inspection } = context;
     let ref = requested ?? preparation.mergeCommitSha ?? preparation.registration?.ref;
     const fail = async (error: string) => {
-      await ctx.runMutation(internal.onboarding.records.failRegistration, { id: preparationId, error, ...(ref && { ref }) });
+      await ctx.runMutation(internal.onboarding.records.failRegistration, { id: preparationId, error, ...(ref && { ref }), ...(startedAt !== undefined && { startedAt }) });
       return { outcome: "failed" as const, error };
     };
     const unknownCommit = "turtl does not know the merged commit yet, so it could not read what the pull request added.";
@@ -317,8 +319,12 @@ export const register = internalAction({
     if (latest && !requested) {
       const branch = preparation.baseBranch ?? inspection?.defaultBranch ?? "main";
       const head = await headCommit(preparation.repo, branch, access.token);
-      if (!head) return fail(`turtl could not read the latest commit on ${branch} in ${preparation.repo}, so it checked nothing and changed nothing. Try again in a few minutes.`);
-      ref = head;
+      if (!head.ok) {
+        return fail(head.gone
+          ? `turtl could not find the branch ${branch} in ${preparation.repo}, or the repository's default branch, so it checked nothing and changed nothing. Check that the repository is still connected to turtl.`
+          : `turtl could not read the latest commit on ${branch} in ${preparation.repo}, so it checked nothing and changed nothing. Try again in a few minutes.`);
+      }
+      ref = head.sha;
     }
     if (!ref) return fail(unknownCommit);
     const text = await readRaw(preparation.repo, ref, path, access.token);
@@ -327,7 +333,7 @@ export const register = internalAction({
     if (!manifest.ok) return fail(`${manifest.reason} Nothing was registered.`);
     const checks = await checkLive(app.productionUrl.replace(/\/+$/, ""), manifest, ref, await watchedApp(ctx, { appId: app._id }));
     if (checks.length === 0) return fail(`${path} lists no endpoint, so nothing was checked or registered.`);
-    await ctx.runMutation(internal.onboarding.records.register, { id: preparationId, ref, checks, ...(manifest.note && { note: manifest.note }) });
+    await ctx.runMutation(internal.onboarding.records.register, { id: preparationId, ref, checks, ...(manifest.note && { note: manifest.note }), ...(startedAt !== undefined && { startedAt }) });
     return { outcome: "registered" as const, checks: checks.map((check) => `${check.result.kind} ${check.result.name}: ${check.result.state}`) };
   },
 });
