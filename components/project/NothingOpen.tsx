@@ -39,6 +39,13 @@ export function stillBroken(checks: WatchedCheck[] | undefined, practice: boolea
   // of such issues is reached, or the round has just ended. The panel's "Not answering", said before how any older
   // issue on it ended. The note speaks of this check only: the app may be answering its others.
   const quiet = checks?.find((candidate) => candidate.state === "failing" && candidate.notAnswering);
+  if (quiet?.notAnswering?.notReady) {
+    // A readiness check: the app answers, and says it cannot serve customers. The panel's "Not ready".
+    return {
+      empty: `${quiet.name}: not ready.`,
+      note: "Your app says it is not ready to serve customers, and no issue is open for it right now. turtl opens one when none of your app's checks gets an answer, and it keeps checking.",
+    };
+  }
   if (quiet) {
     return {
       empty: `${quiet.name}: not answering.`,

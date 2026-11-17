@@ -6,7 +6,7 @@ import { accessEnforced } from "../access";
 import { CLOSED_CASE_STATUSES, notAnsweringSignature, type Unanswered, type UnansweredTry } from "../constants";
 import { createCaseFromTemplate, finishAttempt, setCaseStatus, startAttempt, waitOnAttempt } from "../workflow";
 import { turtlReachable } from "./client";
-import { canStopAnswering, MAX_JOURNEYS } from "./watching";
+import { canStopAnswering, liveChecks, probeOf, probesDecide } from "./watching";
 
 // Cases for an app that stops answering turtl's checks. The case means what its title says: the app gives turtl
 // nothing at all (the design's revisions: V2 and V6 from the second, W1 to W3 from the third).
@@ -18,9 +18,20 @@ import { canStopAnswering, MAX_JOURNEYS } from "./watching";
 // is not evidence, and neither opens nor keeps open a case. Only the monitor's own rounds count (monitor.ts calls
 // settleRound at the end of a round); a case's steps check the app too, and those tries count for nothing here.
 //
-// Counting, per check (V2): only a check that can stop answering (watching.ts, canStopAnswering: a journey-contract
-// check that has passed before) keeps a count, of quiet tries in a row, cleared by anything else; a pass a case's verify
-// step records clears it too. At UNANSWERED_AFTER it shows as not answering on the project, case or no case.
+// Counting, per check (V2): only a check that can stop answering (watching.ts, canStopAnswering: one that has passed
+// before, journey check or probe) keeps a count, of quiet tries in a row, cleared by anything else; a pass a case's
+// verify step records clears it too. At UNANSWERED_AFTER it shows as not answering on the project, case or no case.
+//
+// Which checks decide (watching.ts, probesDecide). A project's health and readiness checks are probes: GETs with no
+// verdict, where a 200 is a pass and a readiness check's 503 with a body is the app saying it is not ready (quiet, in
+// its own words). A probe's reply is weaker than a verdict: a proxy can answer /health by itself. So a project with a
+// journey check that has ever passed is decided by its journey checks alone, exactly as before probes were read, and
+// its probes are only recorded and shown. A project with no such check is decided by its probes, under the same rules:
+// a probe's pass is its result. Everything below that speaks of evidence means the tries of the checks that decide.
+//
+// A check registration retired (convex/onboarding/records.ts) is in no round and in no read here (liveChecks), so it
+// can neither keep a case open nor give the result that stops one from opening; a try of it from a round that was in
+// flight when it was retired is dropped.
 //
 // Opening (W2): one case for the whole project (signature not_answering:<appId>) after a round in which, among the
 // countable checks that gave a result or went quiet, there is at least one, every one is at UNANSWERED_AFTER or more,
@@ -52,7 +63,8 @@ import { canStopAnswering, MAX_JOURNEYS } from "./watching";
 //
 // A round settles only what is newer than what a check has on record: a try older than the check's latest quiet try or
 // its latest pass (a round that finished after a newer one) changes nothing, as openCase ignores an old failure. And a
-// round with any such try is superseded: it neither opens nor closes a case, and the next round decides.
+// round with any such try of a check that decides is superseded: it neither opens nor closes a case, and the next round
+// decides.
 //
 // Every read here is bounded: a project's checks (MAX_JOURNEYS), its newest NOT_ANSWERING_CASES_PER_DAY such cases, and
 // for the fleet FLEET_SAMPLE monitor rows. None of it runs on a round with no case open, no count on record and no
@@ -107,14 +119,23 @@ const vGot = v.union(
   v.object({ kind: v.literal("not_sent") }),
   v.object({ kind: v.literal("no_response"), timedOut: v.boolean() }),
   v.object({ kind: v.literal("no_result"), status: v.number() }),
+  // A readiness check only: the app said it is not ready to serve customers (a 503 with a body).
+  v.object({ kind: v.literal("not_ready") }),
 );
 export const vTry = v.object({ journeyId: v.id("journeys"), at: v.number(), got: vGot });
 export type Try = Infer<typeof vTry>;
 
-/** Whether a try gave a check result, passed or failed (W1): the app's own code answered, the only proof it serves. */
+/**
+ * Whether a try gave a check result, passed or failed (W1): the app's own code answered, the only proof it serves. A
+ * probe's pass is its result; it counts as one only where probes decide (settle).
+ */
 export const hasResult = (got: Try["got"]) => got.kind === "passed" || got.kind === "failed";
-/** Whether a try was quiet (W1): no response at all, or a reply of QUIET_FROM_STATUS or more with no check result. */
-export const isQuiet = (got: Try["got"]): got is UnansweredTry => got.kind === "no_response" || (got.kind === "no_result" && got.status >= QUIET_FROM_STATUS);
+/**
+ * Whether a try was quiet (W1): no response at all, a reply of QUIET_FROM_STATUS or more with no check result, or a
+ * readiness check's "not ready" (a 503: the app is not serving, by its own word).
+ */
+export const isQuiet = (got: Try["got"]): got is UnansweredTry =>
+  got.kind === "no_response" || got.kind === "not_ready" || (got.kind === "no_result" && got.status >= QUIET_FROM_STATUS);
 /**
  * Whether a try reached something that replied, as the fleet check counts it (V6): a result, or any reply below
  * QUIET_FROM_STATUS. Such a reply says turtl's requests get out, though if it has no result (W1: unreadable, perhaps a
@@ -122,11 +143,11 @@ export const isQuiet = (got: Try["got"]): got is UnansweredTry => got.kind === "
  */
 export const gotThrough = (got: Try["got"]) => hasResult(got) || (got.kind === "no_result" && got.status < QUIET_FROM_STATUS);
 /** Whether a check is not answering now. Only a check that can stop answering ever is (watching.ts, canStopAnswering). */
-export const isNotAnswering = (journey: Pick<Doc<"journeys">, "check" | "lastPassedAt"> & { unanswered?: Unanswered }) =>
+export const isNotAnswering = (journey: Pick<Doc<"journeys">, "check" | "lastPassedAt"> & Partial<Pick<Doc<"journeys">, "retiredAt">> & { unanswered?: Unanswered }) =>
   canStopAnswering(journey) && (journey.unanswered?.count ?? 0) >= UNANSWERED_AFTER;
 
-const journeysOf = (ctx: Pick<MutationCtx, "db">, appId: Id<"apps">) =>
-  ctx.db.query("journeys").withIndex("by_app", (q) => q.eq("appId", appId)).take(MAX_JOURNEYS);
+/** The project's checks turtl still runs: never one registration retired. */
+const journeysOf = (ctx: Pick<MutationCtx, "db">, appId: Id<"apps">) => liveChecks(ctx, appId);
 
 /** The project's newest not-answering cases, newest first: enough for the daily limit, and the open one if any. */
 const recentCases = (ctx: Pick<MutationCtx, "db">, appId: Id<"apps">) =>
@@ -142,7 +163,8 @@ const limitReached = (recent: Doc<"cases">[], now: number) => recent.filter((row
 /** A check's count after one try: one more for a quiet try, cleared by anything else. */
 function after(previous: Unanswered | undefined, tried: Try): Unanswered | undefined {
   if (!isQuiet(tried.got)) return undefined;
-  const latest: UnansweredTry = tried.got.kind === "no_response" ? { kind: "no_response", timedOut: tried.got.timedOut } : { kind: "no_result", status: tried.got.status };
+  const latest: UnansweredTry =
+    tried.got.kind === "no_response" ? { kind: "no_response", timedOut: tried.got.timedOut } : tried.got.kind === "not_ready" ? { kind: "not_ready" } : { kind: "no_result", status: tried.got.status };
   return { count: (previous?.count ?? 0) + 1, since: previous?.since ?? tried.at, at: tried.at, latest };
 }
 
@@ -155,6 +177,7 @@ function quoted(names: string[]): string {
 }
 
 function sawWords(latest: UnansweredTry): string {
+  if (latest.kind === "not_ready") return "the app said it is not ready to serve customers";
   if (latest.kind === "no_result") return `the app replied with HTTP ${latest.status} but no check result`;
   return latest.timedOut ? "the app did not reply in time" : "turtl could not connect to the app";
 }
@@ -189,9 +212,11 @@ function nowWords(journeys: Doc<"journeys">[], sent: Try[]): { tail: string; all
   const names = (kind: (got: Try["got"]) => boolean) =>
     sent.filter((tried) => kind(tried.got)).flatMap((tried) => journeys.filter((journey) => journey._id === tried.journeyId).map((journey) => journey.name));
   const failing = names((got) => got.kind === "failed");
-  const quiet = names(isQuiet);
+  const unready = names((got) => got.kind === "not_ready");
+  const quiet = names((got) => isQuiet(got) && got.kind !== "not_ready");
   const parts = [];
   if (failing.length) parts.push(`${quoted(failing)} ${failing.length === 1 ? "fails" : "fail"} now, which turtl handles as a separate issue.`);
+  if (unready.length) parts.push(`${quoted(unready)} ${unready.length === 1 ? "says" : "say"} the app is not ready to serve customers.`);
   if (quiet.length) parts.push(`${quoted(quiet)} got no answer this time.`);
   const allPassed = !sent.some((tried) => tried.got.kind === "failed" || isQuiet(tried.got));
   return { tail: parts.length ? parts.join(" ") : "Its checks pass now.", allPassed };
@@ -283,11 +308,12 @@ const older = (journey: Doc<"journeys">, one: Try) => one.at < (journey.unanswer
 
 /**
  * The end of one round of a project's checks. Counts each countable check's quiet tries (V2), clearing the count of any
- * check that got anything else or that the round did not run; takes a result from any check as the app serving and an
- * unreadable reply as nothing (W1); closes an open case as answered, or as turtl no longer able to tell (W3); and says
- * `would_open` when a case would open (W2), which `open` decides once turtl has looked across the fleet and asked its own
- * site (settleRound). A try older than what its check has on record changes nothing. A practice project keeps no count
- * and gets no case. Keeps the project's record of its open case true.
+ * check that got anything else or that the round did not run; takes a result from any check that decides as the app
+ * serving and an unreadable reply as nothing (W1); closes an open case as answered, or as turtl no longer able to tell
+ * (W3); and says `would_open` when a case would open (W2), which `open` decides once turtl has looked across the fleet
+ * and asked its own site (settleRound). A try older than what its check has on record changes nothing. A practice
+ * project keeps no count and gets no case. Keeps the project's record of its open case true. Reads only the checks
+ * turtl still runs, so a try of a retired check is dropped.
  */
 export const settle = internalMutation({
   args: { appId: v.id("apps"), tries: v.array(vTry) },
@@ -301,18 +327,26 @@ export const settle = internalMutation({
     }
     const tried = new Map(tries.map((one) => [one.journeyId as string, one]));
     const journeys = await journeysOf(ctx, appId);
+    // Which checks decide: the project's journey checks, or its probes when no journey check of it has ever passed.
+    // Worked out before this round's counts are written, from the rows as the round found them.
+    const byProbes = probesDecide(journeys);
+    const decides = new Set<string>(journeys.filter((journey) => byProbes || probeOf(journey) === null).map((journey) => journey._id));
     const fresh: Try[] = [];
     // A try older than what its check already has on record means a newer round, or a newer pass, has spoken since.
+    // Only a check that decides makes the round superseded: a probe's pass is recorded as each round sends it, so in a
+    // project decided by its journey checks the next round's health pass would otherwise mark every round that outlives
+    // its lease as superseded, and none would ever decide. Such a probe's older try is dropped, and nothing more.
     let superseded = false;
     for (const journey of journeys) {
       const one = tried.get(journey._id);
       if (one && older(journey, one)) {
-        superseded = true;
+        if (decides.has(journey._id)) superseded = true;
         continue;
       }
       if (one) fresh.push(one);
-      // Only a check that can stop answering keeps a count (a health or readiness journey, or one that has never passed,
-      // does not); a check the round did not try loses its count.
+      // Only a check that can stop answering keeps a count (one that has never passed does not); a check the round did
+      // not try loses its count. A probe keeps its count wherever it is, for the project to show; whether it decides
+      // anything is another matter (above).
       const next = one && canStopAnswering(journey) ? after(journey.unanswered, one) : undefined;
       if (next || journey.unanswered) {
         await ctx.db.patch(journey._id, { unanswered: next });
@@ -320,9 +354,11 @@ export const settle = internalMutation({
       }
     }
     const sent = fresh.filter((one) => one.got.kind !== "not_sent");
-    // A result from any check shows the app serving; an unreadable reply shows nothing, as if the check were not sent.
-    const answered = sent.some((one) => hasResult(one.got));
-    const readable = new Set(sent.filter((one) => hasResult(one.got) || isQuiet(one.got)).map((one) => one.journeyId as string));
+    // The tries that are evidence: those of the checks that decide.
+    const evidence = sent.filter((one) => decides.has(one.journeyId));
+    // A result from any of them shows the app serving; an unreadable reply shows nothing, as if the check were not sent.
+    const answered = evidence.some((one) => hasResult(one.got));
+    const readable = new Set(evidence.filter((one) => hasResult(one.got) || isQuiet(one.got)).map((one) => one.journeyId as string));
     // The countable checks this round gave a result or went quiet: only they can open a case (W2) or keep one open (W3).
     const counted = journeys.filter((journey) => readable.has(journey._id) && canStopAnswering(journey));
     const recent = await recentCases(ctx, appId);
@@ -374,8 +410,9 @@ export const fleetQuiet = internalQuery({
 
 /**
  * Opens the project's not-answering case, deciding again in this one transaction: only if every countable check the
- * round sent (`ran`) is still not answering (a newer round in which one answered has cleared it), none is open and the
- * day's limit is not reached, so two rounds never open two. With turtl's own requests possibly not getting out, opens
+ * round sent (`ran`) is still a check turtl runs and still not answering (a newer round in which one answered has
+ * cleared it, and a retired one is gone), those checks still decide, none is open and the day's limit is not reached,
+ * so two rounds never open two. With turtl's own requests possibly not getting out, opens
  * nothing and holds those checks one short of the threshold, so the next round asks again.
  */
 export const open = internalMutation({
@@ -384,8 +421,12 @@ export const open = internalMutation({
   handler: async (ctx, { appId, ran, turtl }) => {
     const app = await ctx.db.get(appId);
     if (!app || app.practice) return null;
-    const quiet = (await journeysOf(ctx, appId)).filter((journey) => ran.includes(journey._id));
+    const journeys = await journeysOf(ctx, appId);
+    const quiet = journeys.filter((journey) => ran.includes(journey._id));
     if (!quiet.length || !quiet.every(isNotAnswering)) return null;
+    // Probes decide only while no journey check of the project has ever passed (watching.ts, probesDecide). One that
+    // passed for the first time since the round settled takes the decision away from them.
+    if (!probesDecide(journeys) && quiet.some((journey) => probeOf(journey) !== null)) return null;
     const recent = await recentCases(ctx, appId);
     if (openOf(recent) || limitReached(recent, Date.now())) return null;
     if (turtl === "unreachable") {

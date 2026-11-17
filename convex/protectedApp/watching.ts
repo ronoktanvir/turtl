@@ -3,8 +3,10 @@ import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import { internalMutation, internalQuery, type MutationCtx, type QueryCtx } from "../_generated/server";
 import { accessEnforced } from "../access";
+import { vProbe } from "../constants";
 import { projectSecret } from "../secrets/store";
 import { liveAddressProblem } from "./address";
+import type { Probe } from "./client";
 
 // Which projects the monitor checks with accounts on (AUTH_REQUIRED=true), and when. The single-owner demo does not use
 // this file: its monitor checks the one demo app named by PROTECTED_APP_URL, as before.
@@ -58,31 +60,62 @@ export const WATCH_WORDS = {
 
 type Read = Pick<QueryCtx, "db">;
 type Http = Extract<Doc<"journeys">["check"], { kind: "http" }>;
-/** countable: the check can stop answering (canStopAnswering), so its tries with no answer count. */
-export type Runnable = { journeyId: Id<"journeys">; url: string; credentialRef?: string; countable: boolean };
+/**
+ * countable: the check can stop answering (canStopAnswering), so its quiet tries count. probe: it is a health or
+ * readiness check, sent as a GET (convex/protectedApp/client.ts, runProbe); without it, a journey check, sent as a POST.
+ */
+export type Runnable = { journeyId: Id<"journeys">; url: string; credentialRef?: string; countable: boolean; probe?: Probe };
 
 /**
- * Whether a check can stop answering (convex/protectedApp/notAnswering.ts): only one that has answered before. That is
- * a journey-contract check, the only kind the monitor runs (it POSTs every check as a journey check), that has passed at
- * least once. A project's health and readiness endpoints are registered as journeys beside its real checks, as GET
- * checks, passed at registration from their 200 (convex/onboarding/prepare.ts, checkLive); they never return a check
- * result to the monitor, so they never count. Nor does a check that has never passed, such as one at a wrong address.
+ * A project's checks that turtl still runs: every row but the ones registration retired because the project's
+ * turtl.json no longer lists them (convex/onboarding/records.ts). The monitor, the not-answering rule, the project
+ * screen and a customer's report all read a project's checks through here, so a retired check is not sent, not shown,
+ * not counted and never evidence.
  */
-export const canStopAnswering = (journey: Pick<Doc<"journeys">, "check" | "lastPassedAt">) =>
-  journey.check?.kind === "http" && journey.check.config.method === "POST" && journey.lastPassedAt !== undefined;
+export const liveChecks = (ctx: Read, appId: Id<"apps">, limit: number = MAX_JOURNEYS) =>
+  ctx.db.query("journeys").withIndex("by_app_and_retired", (q) => q.eq("appId", appId).eq("retiredAt", undefined)).take(limit);
+
+type Row = Pick<Doc<"journeys">, "check" | "lastPassedAt"> & Partial<Pick<Doc<"journeys">, "probe" | "retiredAt">>;
+
+/**
+ * Which probe a check is, or null for a journey check. A check stored as a GET is a probe: registration writes a
+ * project's health and readiness endpoints that way (convex/onboarding/prepare.ts, checkLive) and says which each is.
+ * A GET check from before that was kept is read as a health check.
+ */
+export const probeOf = (journey: Partial<Row>): Probe | null =>
+  journey.check?.kind === "http" && journey.check.config.method === "GET" ? (journey.probe ?? "health") : null;
+
+/**
+ * Whether a check can stop answering (convex/protectedApp/notAnswering.ts): only one that has answered before, so a
+ * check that has passed at least once, journey check or probe. Never one that has never passed, such as a check at a
+ * wrong address or a readiness check that has never said "ready", and never a retired one.
+ */
+export const canStopAnswering = (journey: Partial<Row>) =>
+  journey.check?.kind === "http" && journey.lastPassedAt !== undefined && journey.retiredAt === undefined;
+
+/**
+ * Whether a project's health and readiness checks decide its not-answering case: only when none of its journey checks
+ * has ever passed. A journey check's verdict comes from the app's own code. A probe's 200 can come from a proxy in
+ * front of the app answering /health by itself, and a 503 with a body from a gateway standing in for an app that is
+ * gone, so beside a journey check that has passed a probe is recorded and shown and counts for nothing in the case. It
+ * is drawn from the project's rows, not from what one round managed to send: a project whose journey checks cannot be
+ * sent (its control token removed) is still decided by them, so a proxy's 200 never closes its case as answered.
+ */
+export const probesDecide = (journeys: Partial<Row>[]) => !journeys.some((journey) => probeOf(journey) === null && canStopAnswering(journey));
+
 /**
  * unanswered: some check of the project has quiet tries on record; caseOpen: the project records an open not-answering
  * case (apps.notAnsweringCase). Either one means the end of a round has something to settle (notAnswering.ts).
  */
-type Plan = { unanswered: boolean; caseOpen: boolean } & ({ kind: "none" } | { kind: "skip"; reason: string } | { kind: "run"; base: string; journeys: Runnable[]; partial: string | null });
+type Plan = { unanswered: boolean; caseOpen: boolean } & ({ kind: "none" } | { kind: "skip"; reason: string } | { kind: "run"; base: string; journeys: Runnable[]; partial: string | null; probesDecide: boolean });
 
 /** What the monitor can check for one project now, read from its own rows. */
 export async function planFor(ctx: Read, app: Doc<"apps">): Promise<Plan> {
   const caseOpen = app.notAnsweringCase !== undefined;
   if (app.isSample) return { kind: "none", unanswered: false, caseOpen };
-  const rows = await ctx.db.query("journeys").withIndex("by_app", (q) => q.eq("appId", app._id)).take(MAX_JOURNEYS);
+  const rows = await liveChecks(ctx, app._id);
   const unanswered = rows.some((journey) => journey.unanswered !== undefined);
-  const journeys = rows.flatMap((journey) => (journey.check.kind === "http" ? [{ journeyId: journey._id, ...pick(journey.check), countable: canStopAnswering(journey) }] : []));
+  const journeys = rows.flatMap((journey) => (journey.check.kind === "http" ? [runnable(journey, journey.check)] : []));
   if (journeys.length === 0) return { kind: "none", unanswered, caseOpen };
   const skip = (reason: string): Plan => ({ kind: "skip", reason, unanswered, caseOpen });
   if (!app.ownerId) return skip(WATCH_WORDS.noOwner);
@@ -92,12 +125,16 @@ export async function planFor(ctx: Read, app: Doc<"apps">): Promise<Plan> {
   const problem = liveAddressProblem(app.productionUrl, undefined, app.practice ? app._id : undefined);
   if (problem) return skip(problem);
   const hasToken = (await projectSecret(ctx, app._id, "control_token")) !== null;
-  const runnable = journeys.filter((journey) => hasToken || !journey.credentialRef);
-  if (runnable.length === 0) return skip(WATCH_WORDS.noToken);
-  return { kind: "run", base: app.productionUrl.replace(/\/+$/, ""), journeys: runnable, partial: runnable.length < journeys.length ? WATCH_WORDS.someNeedToken : null, unanswered, caseOpen };
+  const sendable = journeys.filter((journey) => hasToken || !journey.credentialRef);
+  if (sendable.length === 0) return skip(WATCH_WORDS.noToken);
+  return { kind: "run", base: app.productionUrl.replace(/\/+$/, ""), journeys: sendable, partial: sendable.length < journeys.length ? WATCH_WORDS.someNeedToken : null, probesDecide: probesDecide(rows), unanswered, caseOpen };
 }
 
-const pick = (check: Http): Omit<Runnable, "journeyId" | "countable"> => ({ url: check.config.url, ...(check.config.credentialRef && { credentialRef: check.config.credentialRef }) });
+/** One check as the monitor sends it: where, with which token, as which kind, and whether its quiet tries count. */
+export function runnable(journey: Doc<"journeys">, check: Http): Runnable {
+  const probe = probeOf(journey);
+  return { journeyId: journey._id, url: check.config.url, ...(check.config.credentialRef && { credentialRef: check.config.credentialRef }), countable: canStopAnswering(journey), ...(probe && { probe }) };
+}
 
 const stateOf = (ctx: Read, appId: Id<"apps">) => ctx.db.query("watchedProjects").withIndex("by_app", (q) => q.eq("appId", appId)).first();
 
@@ -225,7 +262,7 @@ export async function checkSoon(ctx: Pick<MutationCtx, "db">, appId: Id<"apps">)
     await ctx.db.patch(row._id, { nextCheckAt: Math.min(row.nextCheckAt ?? 0, Date.now()), failure: undefined });
     return;
   }
-  if (await ctx.db.query("journeys").withIndex("by_app", (q) => q.eq("appId", appId)).first()) await ctx.db.insert("watchedProjects", { appId });
+  if ((await liveChecks(ctx, appId, 1)).length) await ctx.db.insert("watchedProjects", { appId });
 }
 
 export const watchSoon = internalMutation({
@@ -237,16 +274,17 @@ export const watchSoon = internalMutation({
   },
 });
 
-// What one project's check runs now: its live address and the checks it can run, whether any of its checks has quiet
-// tries on record, whether it records an open not-answering case, and whether it is a practice project, for the end of
-// the round (monitor.ts). Null when it cannot be checked.
+// What one project's check runs now: its live address and the checks it can run, whether its probes decide (above),
+// whether any of its checks has quiet tries on record, whether it records an open not-answering case, and whether it is
+// a practice project, for the end of the round (monitor.ts). Null when it cannot be checked.
 export const plan = internalQuery({
   args: { appId: v.id("apps") },
   returns: v.union(
     v.null(),
     v.object({
       base: v.string(),
-      journeys: v.array(v.object({ journeyId: v.id("journeys"), url: v.string(), credentialRef: v.optional(v.string()), countable: v.boolean() })),
+      journeys: v.array(v.object({ journeyId: v.id("journeys"), url: v.string(), credentialRef: v.optional(v.string()), countable: v.boolean(), probe: v.optional(vProbe) })),
+      probesDecide: v.boolean(),
       unanswered: v.boolean(),
       caseOpen: v.boolean(),
       practice: v.boolean(),
@@ -255,7 +293,7 @@ export const plan = internalQuery({
   handler: async (ctx, { appId }) => {
     const app = await ctx.db.get(appId);
     const found = app ? await planFor(ctx, app) : null;
-    return found?.kind === "run" ? { base: found.base, journeys: found.journeys, unanswered: found.unanswered, caseOpen: found.caseOpen, practice: app?.practice === true } : null;
+    return found?.kind === "run" ? { base: found.base, journeys: found.journeys, probesDecide: found.probesDecide, unanswered: found.unanswered, caseOpen: found.caseOpen, practice: app?.practice === true } : null;
   },
 });
 

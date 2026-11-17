@@ -46,6 +46,29 @@ async function readWithFallback<T>(path: string, token: string | undefined): Pro
   return { read, token, rejected: false };
 }
 
+export type Head = { ok: true; sha: string; branch: string } | { ok: false; gone: boolean };
+
+// The latest commit on a branch (one API read). gone: GitHub says there is no such branch, which is not the same as
+// GitHub not answering. A token GitHub rejects is retried without it, so a public repository stays readable.
+async function branchHead(repo: string, branch: string, token: string | undefined): Promise<Head> {
+  const { read } = await readWithFallback<{ sha?: unknown }>(`/repos/${repo}/commits/${encodeURIComponent(branch)}`, token);
+  if (!read.ok) return { ok: false, gone: read.status === 404 || read.status === 422 };
+  const sha = read.body?.sha;
+  return typeof sha === "string" && /^[0-9a-f]{40}$/i.test(sha) ? { ok: true, sha, branch } : { ok: false, gone: false };
+}
+
+// The latest commit turtl.json is read at when the owner taps Check again: the head of the branch the preparation
+// merged into. When that branch is gone (renamed or deleted since), the head of the repository's default branch, so
+// Check again does not fail for good. gone: neither could be found; otherwise GitHub did not answer.
+export async function headCommit(repo: string, branch: string, token: string | undefined): Promise<Head> {
+  const head = await branchHead(repo, branch, token);
+  if (head.ok || !head.gone) return head;
+  const { read } = await readWithFallback<{ default_branch?: unknown }>(`/repos/${repo}`, token);
+  const fallback = read.ok ? read.body?.default_branch : undefined;
+  if (typeof fallback !== "string" || !fallback || fallback === branch) return { ok: false, gone: read.ok || read.status === 404 };
+  return await branchHead(repo, fallback, token);
+}
+
 // A file at a commit. A token GitHub rejects makes raw.githubusercontent.com answer 404, so a failed read with
 // a token is retried without it, which still reads a public repository.
 export async function readRaw(repo: string, sha: string, path: string, token: string | undefined): Promise<string | null> {

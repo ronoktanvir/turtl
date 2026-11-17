@@ -6,8 +6,8 @@ import { useOverview, type WatchedCheck } from "../../data/overview";
 import { useTheme, type TokenName } from "../../theme";
 import { Icon, T, ago } from "../ui";
 
-// What turtl is watching on a project with nothing open: each registered check and when it last passed,
-// and the way to the map of the code. Shown in an empty Fix or Features list, and briefly on the project home:
+// What turtl is watching on a project with nothing open: each check turtl runs and when it last passed (journey,
+// health and readiness checks alike, each checked about once a minute), and the way to the map of the code. Shown in an empty Fix or Features list, and briefly on the project home:
 // there the Investigate tile below it leads to the map, and the Preparation row already says when checks are not ready.
 
 const state: Record<WatchedCheck["state"], { glyph: "CircleCheck" | "CircleX" | "CircleDashed"; color: TokenName }> = {
@@ -18,7 +18,7 @@ const state: Record<WatchedCheck["state"], { glyph: "CircleCheck" | "CircleX" | 
 
 /** The line under a check's name, and the end of its accessible label. */
 export function checkLine(check: WatchedCheck, now: number): string {
-  if (check.state === "failing") return check.notAnswering ? "Not answering" : "Not passing";
+  if (check.state === "failing") return check.notAnswering ? (check.notAnswering.notReady ? "Not ready" : "Not answering") : "Not passing";
   if (check.lastPassedAt === undefined) return "Not checked yet";
   return "Passed " + ago(check.lastPassedAt, now);
 }

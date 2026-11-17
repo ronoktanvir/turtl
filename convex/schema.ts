@@ -139,7 +139,8 @@ export default defineSchema({
     .index("by_step", ["stepId"])
     .index("by_case", ["caseId"]),
   // Mutations must enforce app ownership, immutable check versions, and credential references (never secrets).
-  journeys: defineTable(vJourney).index("by_app", ["appId"]),
+  // by_app holds every check of a project; by_app_and_retired with retiredAt unset holds the ones turtl still runs.
+  journeys: defineTable(vJourney).index("by_app", ["appId"]).index("by_app_and_retired", ["appId", "retiredAt"]),
   // Mutations must enforce app ownership and validate parameters against this catalog before approval or execution.
   actionCatalog: defineTable(vActionCatalogEntry).index("by_app_and_type", [
     "appId",

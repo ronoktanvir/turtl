@@ -34,7 +34,8 @@ export async function registerBookingApp(ctx: MutationCtx, ownerId: string = SOL
       .query("journeys")
       .withIndex("by_app", (q) => q.eq("appId", appId))
       .collect()
-  ).find((j) => j.name === BOOKING_JOURNEY_NAME);
+  // Never a check registration retired (convex/onboarding/records.ts): the demo's booking journey is one turtl runs.
+  ).find((j) => j.name === BOOKING_JOURNEY_NAME && j.retiredAt === undefined);
   const journeyId =
     existingJourney?._id ??
     (await ctx.db.insert("journeys", {
