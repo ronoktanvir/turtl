@@ -11,7 +11,7 @@
 - **Auth:** Convex Auth (`@convex-dev/auth` 0.0.98): email and password (with the address confirmed by an emailed code), Sign in with Apple, and GitHub, whenever `AUTH_REQUIRED` is set to anything but empty or `false`. Unset, empty or `false`, the deployment is the single-owner demo: nobody signs in, and it refuses to run if it holds any account
 - **AI models:** gpt-5.4-mini (Quick look diagnosis, and by default fix proposals, case chat, report triage and preference reading; `DIAGNOSIS_MODEL` and `FIXES_MODEL` override it), gpt-6.1-sol (Careful review diagnosis and council consolidation), gpt-5.5 and gpt-6.1-terra (council members), gpt-5.4 (broader-cause examination, `STRUCTURAL_MODEL` overrides it), gpt-6-luna (assistant chat, code network and onboarding inspection, `OPENAI_MODEL` overrides it), gpt-4o-mini-transcribe and gpt-4o-mini-tts (voice); claude-sonnet-4-5 and gemini-2.5-pro join the council only when `ANTHROPIC_API_KEY` or `GEMINI_API_KEY` is set. All are called through each provider's API, not the Convex AI Gateway
 - **Started:** 2026-11-15T20:37:34Z
-- **Last updated:** 2026-11-16T23:58:35Z
+- **Last updated:** 2026-11-17T00:26:20Z
 
 ## Log
 
@@ -377,3 +377,9 @@ Counted only a check result as the app answering: a reply below 500 with no resu
 
 ### 2026-11-16 - 59a4dac
 Brought the documents to that revision, with the third revision's list of what turtl gives up: unreadable checks, hosts that serve a page for a stopped app, one check failing beside one with a result, projects with no countable check, a lone readable check's 5xx, alerts up to half an hour late while turtl suspects itself, and more than one push when an outage turns unreadable for a round.
+
+### 2026-11-17 - c03efd4
+Let a round that finishes after a newer one decide nothing: when any of its tries is older than what its check already has on record, it changes no count for that check and neither opens nor closes a not-answering case, so a late round can no longer close the case on its health check's reply alone; the next round decides (`convex/protectedApp/notAnswering.ts`).
+
+### 2026-11-17 - acba95b
+Said so in the documents, added the fourth review's two limits (a case closes as "can no longer tell" when a rotated control token stops its checks mid-outage; the fleet check reads any reply below 500 as turtl's requests getting out), and pinned the App Store pack's audit to `c03efd4`.
