@@ -6,6 +6,7 @@ import { useCases, useDataStatus, useProject } from "../../data";
 import type { CaseType } from "../../data/types";
 import { labels, useTheme } from "../../theme";
 import { Button, EdgeFade, Icon, Screen, T, Turtle, ZoomPressable, useReducedMotion } from "../ui";
+import { SkeletonList } from "../ui/Skeleton";
 import { DROP_FULL, Droplet, dropBack, fillDrop, handOffPulse, usePull, useWheelPull } from "../ui/pulse";
 import { swipeTravel } from "../ui/swipe";
 import { firstToReview, issueState, type IssueTurtle } from "./issueState";
@@ -95,7 +96,7 @@ export default function BeginScreen({ type }: { type: CaseType }) {
         {project === null ? (
           <View style={{ padding: 20, gap: 16 }}><T>Project not found</T><Button label="Back to Projects" onPress={() => router.replace("/projects" as Href)} testID="begin-not-found-back" /></View>
         ) : cases === undefined || project === undefined ? (
-          <View>{errors.length === 0 && <T color="textMuted" style={{ textAlign: "center", padding: 20 }}>Loading…</T>}</View>
+          <View>{errors.length === 0 && <SkeletonList style={{ paddingHorizontal: 20 }} />}</View>
         ) : cases.length === 0 ? (
           <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 12, padding: 24 }}><Turtle health="clear" size={96} alive /><T color="textMuted">{type === "fix" ? "Nothing to fix." : "No feature requests."}</T></View>
         ) : (
