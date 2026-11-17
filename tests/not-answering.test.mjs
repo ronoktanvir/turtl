@@ -1667,3 +1667,153 @@ test("W3: a verify step's pass observed after the case opened, but older than it
   assert.equal(closing.output.allPassed, false, "the check has been quiet since");
   assert.ok(counts(w, appId)[0] >= 4, "and keeps the count of its newer quiet tries");
 });
+
+// =====================================================================================================================
+// After the fourth review pass: a superseded round decides nothing (K1), and the fleet's reading of a reply (K3).
+// =====================================================================================================================
+
+/**
+ * Takes the next round the cron starts for the project and runs it by hand, so a test can finish it late. Returns the
+ * running round wrapped (`{ round }`): an async function returning the promise itself would wait for it.
+ */
+async function startRoundByHand(t, w, minute) {
+  t.mock.timers.setTime(at(minute));
+  await w.run("internal.monitor.tick", {});
+  const index = w.scheduled.findIndex((job) => job.path === "internal.monitor.checkProject");
+  assert.notEqual(index, -1, `no round started at minute ${minute}`);
+  const [job] = w.scheduled.splice(index, 1);
+  const round = w.run(job.path, job.args);
+  await new Promise((resolve) => setImmediate(resolve));
+  return { round };
+}
+
+test("K1: a round that finishes after a newer one decides nothing; its health replies do not close the case, and later rounds close it as they would have", async (t) => {
+  const w = world(t);
+  let mode = "down";
+  let release;
+  network(t, (host) => (host === "shop.example"
+    ? (target) => {
+      if (target.pathname === "/health" || target.pathname === "/ready") return mode === "down" ? down() : healthReply();
+      return mode === "down" ? down() : mode === "up" ? json(passed) : new Promise((resolve) => { release = () => resolve(json(passed)); });
+    }
+    : null));
+  const ada = await w.db.insert("users", { email: "ada@example.com" });
+  const appId = await project(w, ada, "shop.example", 1);
+  await healthAndReadiness(w, appId, "shop.example");
+  await minutes(t, w, 0, 8);
+  assert.equal(notAnswering(w)[0]?.status, "waiting_for_app");
+  // Minute 20: round A starts while the app briefly answers; its journey check then hangs before A settles.
+  mode = "slow";
+  const { round: roundA } = await startRoundByHand(t, w, 20);
+  // Down again. Minute 26: A's lease has run out, round B runs and finds the app down.
+  mode = "down";
+  t.mock.timers.setTime(at(26));
+  await w.run("internal.monitor.tick", {});
+  await w.drain(RUNS);
+  const afterB = w.rows("journeys").find((row) => row.appId === appId && row.name === "Check 0").unanswered;
+  release();
+  await roundA;
+  await w.drain(RUNS);
+  assert.deepEqual(notAnswering(w).map((row) => row.status), ["waiting_for_app"], "round A is older than round B: it decides nothing");
+  assert.deepEqual(w.rows("journeys").find((row) => row.appId === appId && row.name === "Check 0").unanswered, afterB, "and changes no count");
+  // Still down: the case stays open, with no second push. Then the app is back: the next round closes it.
+  await minutes(t, w, 27, 60);
+  assert.deepEqual([notAnswering(w).map((row) => row.status), pushes(w)], [["waiting_for_app"], ["not_answering"]]);
+  mode = "up";
+  await minutes(t, w, 60, 80);
+  assert.deepEqual([notAnswering(w).map((row) => row.status), pushes(w)], [["resolved"], ["not_answering", "answering_again"]]);
+});
+
+test("K1: a late round carrying a stale result from a check that cannot stop answering does not close the case", async (t) => {
+  const w = world(t);
+  let mode = "down";
+  let release;
+  network(t, (host) => (host === "shop.example"
+    ? (target) => {
+      // A prevention check that has never passed: it answers with a failing result whenever the app is not down.
+      if (target.pathname.startsWith("/prevent/")) return mode === "down" ? down() : json(failed, 503);
+      return mode === "down" ? down() : new Promise((resolve) => { release = () => resolve(json(passed)); });
+    }
+    : null));
+  const ada = await w.db.insert("users", { email: "ada@example.com" });
+  const appId = await project(w, ada, "shop.example", 1);
+  await w.db.insert("journeys", { appId, name: "Booking survives a slow store", description: ".", checkVersion: "journey-check-v1+slow_store", check: { kind: "http", config: { url: "https://shop.example/prevent/journey-check?scenario=slow_store", method: "POST", expectedStatus: 200 } } });
+  await minutes(t, w, 0, 8);
+  assert.equal(notAnswering(w)[0]?.status, "waiting_for_app");
+  mode = "slow";
+  const { round: roundA } = await startRoundByHand(t, w, 20);
+  mode = "down";
+  t.mock.timers.setTime(at(26));
+  await w.run("internal.monitor.tick", {});
+  await w.drain(RUNS);
+  release();
+  await roundA;
+  await w.drain(RUNS);
+  assert.deepEqual([notAnswering(w).map((row) => row.status), pushes(w)], [["waiting_for_app"], ["not_answering"]], "the prevention check's minute-20 result came from a round older than round B");
+});
+
+test("K1: a round superseded only by a verify step's pass recorded during it decides nothing; the next rounds decide as they would have", async (t) => {
+  const w = world(t);
+  let releaseFirst;
+  network(t, (host) => (host === "shop.example"
+    ? (target) => (target.pathname.startsWith("/check-0/") && releaseFirst === undefined
+      ? new Promise((_, reject) => { releaseFirst = () => reject(new TypeError("fetch failed")); })
+      : down())
+    : null));
+  const ada = await w.db.insert("users", { email: "ada@example.com" });
+  const appId = await project(w, ada, "shop.example", 2);
+  const [first, second] = w.rows("journeys");
+  for (const journey of [first, second]) await w.db.patch(journey._id, { unanswered: { count: 2, since: at(-5), at: at(-1), latest: { kind: "no_response", timedOut: false } } });
+  // Round A: check 1 is quiet a third time at once; check 0 hangs. A case's verify step passes check 0 meanwhile.
+  const { round: roundA } = await startRoundByHand(t, w, 0);
+  await w.run("internal.monitor.recordPass", { journeyId: first._id, observedAt: at(0) + 10_000 });
+  releaseFirst();
+  await roundA;
+  await w.drain(RUNS);
+  assert.deepEqual([notAnswering(w), counts(w, appId)], [[], [0, 3]], "check 0 passed after round A tried it: A decides nothing");
+  // From then on the app is down: check 0 counts from the pass, and the case opens when both are at three.
+  let minute = 1;
+  while (!notAnswering(w).length) {
+    assert.ok(counts(w, appId)[0] < 3, `no case while check 0 is below three: ${counts(w, appId)}`);
+    assert.ok(minute < 60);
+    await minutes(t, w, minute, ++minute);
+  }
+  assert.ok(counts(w, appId).every((count) => count >= 3), String(counts(w, appId)));
+  assert.deepEqual(pushes(w), ["not_answering"]);
+});
+
+test("K1, V5: a superseded round still mends the project's record of its open case, and reports the case as it stands", async (t) => {
+  const w = world(t);
+  network(t, (host) => (host === "shop.example" ? down : null));
+  const ada = await w.db.insert("users", { email: "ada@example.com" });
+  const appId = await project(w, ada, "shop.example");
+  await minutes(t, w, 0, 4);
+  const [opened] = notAnswering(w);
+  const [journey] = w.rows("journeys").filter((row) => row.appId === appId);
+  const stale = () => [{ journeyId: journey._id, at: w.rows("journeys").find((row) => row._id === journey._id).unanswered.at - 1, got: { kind: "passed" } }];
+  // The record lost while the case is open: a superseded round restores it, and closes nothing.
+  await w.db.patch(appId, { notAnsweringCase: undefined });
+  const kept = await w.run("internal.protectedApp.notAnswering.settle", { appId, tries: stale() });
+  assert.deepEqual([kept, appRow(w, appId).notAnsweringCase, notAnswering(w).map((row) => row.status)], [{ kind: "open", caseId: opened._id }, opened._id, ["waiting_for_app"]]);
+  // The case closed some other way: a superseded round clears the record, and opens nothing.
+  await w.db.patch(opened._id, { status: "declined" });
+  const none = await w.run("internal.protectedApp.notAnswering.settle", { appId, tries: stale() });
+  assert.deepEqual([none, appRow(w, appId).notAnsweringCase, notAnswering(w).length, pushes(w)], [{ kind: "none" }, undefined, 1, ["not_answering"]]);
+});
+
+test("K3, V6: the fleet takes any reply below 500 as turtl's requests getting through, though it says nothing about the app", async (t) => {
+  const w = world(t);
+  let answer = () => json(passed);
+  network(t, (host) => (host === "shop.example" ? () => answer() : null));
+  const ada = await w.db.insert("users", { email: "ada@example.com" });
+  const appId = await project(w, ada, "shop.example");
+  await minutes(t, w, 0, 1);
+  const row = () => w.rows("watchedProjects").find((one) => one.appId === appId);
+  assert.equal(row().lastAnsweredAt, at(0));
+  answer = () => new Response("Not Found", { status: 404 });
+  await minutes(t, w, 1, 2);
+  assert.deepEqual([row().lastAnsweredAt, row().lastCheckedAt], [at(1), at(1)], "a 404 got through");
+  answer = () => new Response("Bad gateway", { status: 502 });
+  await minutes(t, w, 2, 3);
+  assert.deepEqual([row().lastAnsweredAt, row().lastCheckedAt], [at(1), at(2)], "a 502 did not");
+});
