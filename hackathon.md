@@ -383,3 +383,17 @@ Let a round that finishes after a newer one decide nothing: when any of its trie
 
 ### 2026-11-17 - acba95b
 Said so in the documents, added the fourth review's two limits (a case closes as "can no longer tell" when a rotated control token stops its checks mid-outage; the fleet check reads any reply below 500 as turtl's requests getting out), and pinned the App Store pack's audit to `c03efd4`.
+
+### 2026-11-17 - 72dc762
+Sent health and readiness checks as what they are: the monitor sends each as a GET and reads it as registration does, where a 200 passes and a readiness check's 503 with a body is the app saying it is not ready (`readProbe` in `convex/protectedApp/client.ts`). Before, every check got a POST under the journey contract, so these two never gave a result and read "Passed" from the day they were registered. A pass now moves when the check last passed, and a quiet one shows on the project at three in a row as "Not answering" or "Not ready". A project with a journey check that has ever passed is still decided by its journey checks alone, so a proxy answering `/health` by itself neither stops its not-answering case nor closes it; a project with none is decided by its probes (`probesDecide` in `convex/protectedApp/watching.ts`). A probe never opens an ordinary case, and a customer's report attaches a journey check, never a probe.
+
+Retired the checks a project's `turtl.json` no longer lists: Check again reads the file as it is now on the preparation's branch (before, the merge commit every time, so the list could never change), and a registration that succeeds stamps `retiredAt` on each of its own rows the file dropped, keeps the row for the cases and verifications that point at it, and leaves it out of the monitor, the not-answering rule, the project and a customer's report (`liveChecks`). Listing it again revives the row, and at most 25 retired rows are kept (`convex/onboarding/records.ts`).
+
+### 2026-11-17 - 9757de7
+Fixed what an independent review of that change found (nothing High or Medium): rounds that outlive their lease decide again beside a passing health check, since only a check that decides can make a round superseded; a slow Check again that ends after a newer one writes nothing, each registration being named by when it was started; a check that turns from a probe into a journey check under the same name, and a revived check's run of passes, start again; registration matches a name only among the rows it owns, so it no longer writes over a prevention check; a customer's report attaches no prevention check; and Check again reads the repository's default branch when the preparation's branch is gone.
+
+### 2026-11-17 - 75b654f
+After a second review pass found the fixes sound, said which branch Check again read when it was not the preparation's, and added a test for each of the four lines that pass found untested.
+
+### 2026-11-17 - 3f67039
+Said all of it in the documents, with what it gives up (a probe-only project is not told while something in front of the app answers its health route, and is told when the health route itself errors; beside journey checks a quiet probe only shows on the project), and pinned the App Store pack's audit to `75b654f`.
