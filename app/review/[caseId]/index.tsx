@@ -4,6 +4,7 @@ import { Pressable, ScrollView, View } from "react-native";
 import AiNotice from "../../../components/consent/AiNotice";
 import { CasePage } from "../../../components/fix/CasePage";
 import { caseTitle, Header, Icon, Screen, T } from "../../../components/ui";
+import { SkeletonCase } from "../../../components/ui/Skeleton";
 import { setStarred, useCase, useCases, useDataStatus, useProject } from "../../../data";
 import { useTheme } from "../../../theme";
 
@@ -47,7 +48,7 @@ export default function Review() {
   if (first === undefined || (first && list === undefined) || current === undefined) {
     return (
       <Screen>
-        {errors.length === 0 && <T style={{ padding: 16 }}>Loading…</T>}
+        {errors.length === 0 && <SkeletonCase />}
       </Screen>
     );
   }

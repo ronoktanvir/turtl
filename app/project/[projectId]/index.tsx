@@ -9,6 +9,8 @@ import ProjectIcon from "../../../components/project/ProjectIcon";
 import SettingsSheet from "../../../components/project/SettingsSheet";
 import Watching from "../../../components/project/Watching";
 import { BrandIcon, Button, Chip, HealthWord, Header, Icon, Reveal, Screen, T, Turtle, ZoomPressable } from "../../../components/ui";
+import { Count } from "../../../components/ui/Count";
+import { SkeletonProject } from "../../../components/ui/Skeleton";
 import { Glyph } from "../../../components/onboarding/Glyph";
 import { ownerStages, preparationStatus } from "../../../components/onboarding/stage";
 import { useCases, useDataStatus, useOnboarding, useProject, useStructuralFindings } from "../../../data";
@@ -47,7 +49,7 @@ export default function ProjectHome() {
   // A check still failing with no case open (its fixes were declined) is not "All clear" either.
   const failing = !!overview?.checks.some((check) => check.state === "failing");
   const shown = (unreadable || failing) && project?.health === "clear" ? "needs_you" : project?.health ?? "clear";
-  if (project === undefined) return <Screen testID="project-home">{errors.length === 0 && <T style={{ padding: 20 }}>Loading…</T>}</Screen>;
+  if (project === undefined) return <Screen testID="project-home">{errors.length === 0 && <SkeletonProject />}</Screen>;
   if (project === null) return <Screen testID="project-home"><Header title="Project not found" fallback="/projects" /><View style={{ padding: 20, gap: 16 }}><T>This project is no longer available.</T><Button label="Back to Projects" onPress={() => router.replace("/projects")} testID="project-not-found-back" /></View></Screen>;
 
   return (
@@ -86,11 +88,11 @@ export default function ProjectHome() {
             <ZoomPressable containerStyle={{ flex: 1 }} testID="project-fix" accessibilityRole="button" onPress={() => router.push(`/project/${project.id}/fix` as Href)} style={({ pressed }) => ({ flex: 1, minHeight: 0, justifyContent: "center", borderRadius: 20, borderWidth: 1, borderColor: colors.brandDeep, backgroundColor: pressed ? colors.surfaceRaised : colors.surface, padding: tilePadding, overflow: "hidden" })}>
               <View pointerEvents="none" style={{ position: "absolute", right: -22, top: 6, opacity: 0.3 }}><Svg width={210} height={190} viewBox="0 0 210 190"><Circle cx="130" cy="80" r="73" stroke={colors.brandDeep} strokeWidth="1" fill="none" /><Circle cx="130" cy="80" r="52" stroke={colors.brandDeep} strokeWidth="1" fill="none" /><Path d="M32 145h42l24-48 22 22 24-60h49" stroke={colors.brandDeep} strokeWidth="2" fill="none" /><Circle cx="144" cy="59" r="5" fill={colors.brandDeep} /></Svg></View>
               {quiet ? <>
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}><Icon name="Wrench" size={20} color="brandDeep" /><T variant="title">Fix</T><T variant="heading" color="statusClear">{project.bugCount}</T>{short && <View style={{ flex: 1, alignItems: "flex-end" }}><Icon name="ArrowRight" size={18} color="brandDeep" /></View>}</View>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}><Icon name="Wrench" size={20} color="brandDeep" /><T variant="title">Fix</T><Count variant="heading" color="statusClear" value={project.bugCount} testID="project-fix-count" />{short && <View style={{ flex: 1, alignItems: "flex-end" }}><Icon name="ArrowRight" size={18} color="brandDeep" /></View>}</View>
                 {!short && <View style={{ flexDirection: "row", alignItems: "center", gap: 16, marginTop: 12 }}><T testID="project-fix-approval-count" color="textMuted" style={{ flex: 1 }}>No open bugs.</T><Icon name="ArrowRight" size={18} color="brandDeep" /></View>}
               </> : <>
                 {!compact && <View style={{ flexDirection: "row", gap: 8, alignItems: "center", marginBottom: 12 }}><Icon name="Wrench" size={18} color="brandDeep" /><T variant="small" color="textMuted">OPEN BUGS</T></View>}
-                <View style={{ flexDirection: "row", alignItems: "baseline", gap: 12 }}><T variant="display">Fix</T><T variant="title" color="statusClear">{project.bugCount}</T></View>
+                <View style={{ flexDirection: "row", alignItems: "baseline", gap: 12 }}><T variant="display">Fix</T><Count variant="title" color="statusClear" value={project.bugCount} testID="project-fix-count" /></View>
                 <T testID="project-fix-approval-count" color="textMuted" numberOfLines={short ? 1 : 2} style={{ marginTop: 4, maxWidth: "90%" }}>{project.bugCount === 0 ? "No open bugs." : fixApprovals > 0 ? approvalLabel(fixApprovals) : onlyQuiet ? quietLine : "Review open bugs and proposed fixes."}</T>
                 <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: compact ? 8 : 16 }}><T variant="strong" color="statusClear">{project.bugCount === 0 ? "View fixes" : onlyQuiet ? (project.bugCount === 1 ? "See the issue" : "See the issues") : "Review fixes"}</T><Icon name="ArrowRight" color="statusClear" /></View>
               </>}
@@ -99,7 +101,7 @@ export default function ProjectHome() {
           <Reveal delay={60} style={{ flex: 1, minHeight: 0 }}>
             <ZoomPressable containerStyle={{ flex: 1 }} testID="project-features" accessibilityRole="button" onPress={() => router.push(`/project/${project.id}/features` as Href)} style={({ pressed }) => ({ flex: 1, minHeight: 0, justifyContent: "center", borderRadius: 20, borderWidth: 1, borderColor: colors.border, backgroundColor: pressed ? colors.surfaceRaised : colors.surface, padding: tilePadding, overflow: "hidden" })}>
               <View pointerEvents="none" style={{ position: "absolute", right: 22, top: 12, opacity: 0.14, transform: [{ rotate: "-16deg" }] }}><Icon name="Layers" size={105} color="brandDeep" strokeWidth={1} /></View>
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}><Icon name="Sparkles" size={20} color="brandDeep" /><T variant="title">{labels.features}</T><T variant="heading" color="textMuted">{project.featureCount}</T>{short && <View style={{ flex: 1, alignItems: "flex-end" }}><Icon name="ArrowRight" size={18} color="textMuted" /></View>}</View>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}><Icon name="Sparkles" size={20} color="brandDeep" /><T variant="title">{labels.features}</T><Count variant="heading" color="textMuted" value={project.featureCount} testID="project-feature-count" />{short && <View style={{ flex: 1, alignItems: "flex-end" }}><Icon name="ArrowRight" size={18} color="textMuted" /></View>}</View>
               {!short && <View style={{ flexDirection: "row", alignItems: "center", gap: 16, marginTop: 12 }}><T testID="project-feature-approval-count" color="textMuted" style={{ flex: 1 }}>{project.featureCount === 0 ? "No open requests." : featureApprovals > 0 ? approvalLabel(featureApprovals) : "Review feature requests."}</T><Icon name="ArrowRight" size={18} color="textMuted" /></View>}
             </ZoomPressable>
           </Reveal>

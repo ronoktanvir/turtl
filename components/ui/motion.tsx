@@ -24,7 +24,7 @@ export const ease = {
 };
 
 /** How long things take, in milliseconds. */
-export const time = { press: 120, quick: 160, enter: 300, tab: 250, screen: 300, sheetIn: 460, sheetOut: 240 };
+export const time = { press: 120, quick: 160, enter: 300, tab: 250, roll: 280, screen: 300, sheetIn: 460, sheetOut: 240 };
 
 /** Springs with no bounce to speak of: `press` for a control letting go, `settle` for something dragged coming to rest, `toggle` for a switch's thumb. */
 export const springs = {

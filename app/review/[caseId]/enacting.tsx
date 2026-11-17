@@ -9,6 +9,7 @@ import { formatDuration, remainingDuration } from "../../../components/execution
 import { ApproveSheet, FixCard, kindLabel } from "../../../components/fix/FixCard";
 import { Button, Card, caseTitle, Header, Icon, Reveal, Screen, T, Turtle } from "../../../components/ui";
 import { Empty } from "../../../components/ui/Empty";
+import { SkeletonLines } from "../../../components/ui/Skeleton";
 import { useTalkSession } from "../../../components/voice/useTalkSession";
 import { mergePullRequest, stopEnactment, useCase, useChat, useDataStatus, useEnactmentNow } from "../../../data";
 import type { Enactment, FixOption, Health } from "../../../data/types";
@@ -60,7 +61,7 @@ export default function Enacting() {
       <Screen testID="enacting">
         <Header title="Nothing is running" fallback={back} />
         {c === undefined
-          ? errors.length === 0 && <T style={{ padding: 20 }}>Loading…</T>
+          ? errors.length === 0 && <SkeletonLines lines={5} style={{ padding: 20 }} testID="enacting-loading" />
           : c.notAnswering
             ? <Empty testID="enacting-empty" message="This case has no fix to carry out." hint="turtl cannot propose a fix for an app it cannot reach. It closes this case when the app answers." action={{ label: "Back to the case", onPress: () => (router.canGoBack() ? router.back() : router.replace(back)), testID: "enacting-empty-back" }} />
             : <Empty testID="enacting-empty" message="No fix has been approved for this case yet." hint="Approve a fix and each step turtl takes shows here." action={{ label: "Back to the fixes", onPress: () => (router.canGoBack() ? router.back() : router.replace(back)), testID: "enacting-empty-back" }} />}

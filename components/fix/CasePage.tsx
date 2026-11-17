@@ -6,6 +6,7 @@ import { isLiveData, useCase, useDataStatus, useProject, useWorkflow } from "../
 import type { FixOption, Screenshot } from "../../data/types";
 import { useTheme } from "../../theme";
 import { ago, Button, Card, Chip, HealthWord, Icon, Reveal, T, Turtle, useReducedMotion } from "../ui";
+import { SkeletonCase } from "../ui/Skeleton";
 import { useDevToolsOn } from "../ui/devTools";
 import { Droplet, dropBack, fillDrop, nativeDriver, usePull, useWheelPull } from "../ui/pulse";
 import { swipeTravel } from "../ui/swipe";
@@ -154,7 +155,7 @@ export function CasePage({ caseId, current, startOn = "case" }: { caseId: string
     onRelease: release,
   });
 
-  if (c === undefined) return errors.length === 0 ? <T style={{ padding: 16 }}>Loading…</T> : null;
+  if (c === undefined) return errors.length === 0 ? <SkeletonCase /> : null;
   if (c === null) return <T style={{ padding: 16 }}>This case could not be found.</T>;
 
   const sources = { citations: c.citations, logs: c.logs, code: c.code };

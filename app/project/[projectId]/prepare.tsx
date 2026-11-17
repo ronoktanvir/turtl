@@ -11,6 +11,7 @@ import { CodingAgentNotice, useCodingAgentMissing } from "../../../components/se
 import ControlTokenSettings from "../../../components/secrets/ControlTokenSettings";
 import { Button, Header, Icon, Reveal, Screen, Sheet, T, Turtle } from "../../../components/ui";
 import { Empty } from "../../../components/ui/Empty";
+import { SkeletonLines } from "../../../components/ui/Skeleton";
 import { approvePreparation, checkLiveAgain, inspectAgain, mergePreparation, refreshPreparation, saveNeverBreak, useDataStatus, useOnboarding, useProject } from "../../../data";
 import type { NeverBreakAnswer } from "../../../data/onboarding/types";
 import { healthToken, useTheme } from "../../../theme";
@@ -54,7 +55,7 @@ export default function Prepare() {
       <Screen testID="prepare">
         <Header title={title} fallback={back} />
         {onboarding === undefined
-          ? errors.length === 0 && <T color="textMuted" style={{ padding: 20 }}>Loading…</T>
+          ? errors.length === 0 && <SkeletonLines lines={5} style={{ padding: 20 }} testID="prepare-loading" />
           : project?.practice
             ? <Empty testID="prepare-practice" message="The practice app has nothing to prepare." hint="Preparation reads a project's repository, and the practice app has none. turtl runs it and already watches it." action={{ label: "Back to project", onPress: () => (router.canGoBack() ? router.back() : router.replace(back)), testID: "prepare-practice-back" }} />
           : <Empty testID="prepare-empty" message="turtl has not read this project yet." hint="When it has, what it found and what it will watch for you show here." action={{ label: "Back to project", onPress: () => (router.canGoBack() ? router.back() : router.replace(back)), testID: "prepare-empty-back" }} />}

@@ -4,6 +4,7 @@ import { addPreference, confirmPreference, dismissPreference, removePreference, 
 import type { PreferenceSuggestion } from "../../data/types";
 import { useTheme } from "../../theme";
 import { Button, Icon, T } from "../ui";
+import { SkeletonLines } from "../ui/Skeleton";
 
 const heardFrom: Record<PreferenceSuggestion["source"], string> = {
   decision_note: "From your note on a decision",
@@ -40,7 +41,7 @@ export default function PreferencesSettings({ projectId }: { projectId: string }
     <View style={{ gap: 12 }} testID="preferences-section">
       <T variant="heading">What matters to you</T>
       <T color="textMuted">turtl weighs these when it recommends a fix. They are never treated as evidence and never approve anything.</T>
-      {data === undefined && <T color="textMuted">Loading…</T>}
+      {data === undefined && <SkeletonLines lines={2} testID="preferences-loading" />}
       {data === null && <T color="textMuted">Preferences are not available for this project.</T>}
       {data?.preferences.length === 0 && <T color="textMuted" testID="preferences-empty">Nothing saved yet.</T>}
       {data?.preferences.map((preference) => (
