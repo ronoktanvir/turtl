@@ -51,7 +51,8 @@ import { canStopAnswering, MAX_JOURNEYS } from "./watching";
 // checks keep no count, it gets no case and no notice, and the backend log hears of it once a round (monitor.ts).
 //
 // A round settles only what is newer than what a check has on record: a try older than the check's latest quiet try or
-// its latest pass (a round that finished after a newer one) changes nothing, as openCase ignores an old failure.
+// its latest pass (a round that finished after a newer one) changes nothing, as openCase ignores an old failure. And a
+// round with any such try is superseded: it neither opens nor closes a case, and the next round decides.
 //
 // Every read here is bounded: a project's checks (MAX_JOURNEYS), its newest NOT_ANSWERING_CASES_PER_DAY such cases, and
 // for the fleet FLEET_SAMPLE monitor rows. None of it runs on a round with no case open, no count on record and no
@@ -301,9 +302,14 @@ export const settle = internalMutation({
     const tried = new Map(tries.map((one) => [one.journeyId as string, one]));
     const journeys = await journeysOf(ctx, appId);
     const fresh: Try[] = [];
+    // A try older than what its check already has on record means a newer round, or a newer pass, has spoken since.
+    let superseded = false;
     for (const journey of journeys) {
       const one = tried.get(journey._id);
-      if (one && older(journey, one)) continue;
+      if (one && older(journey, one)) {
+        superseded = true;
+        continue;
+      }
       if (one) fresh.push(one);
       // Only a check that can stop answering keeps a count (a health or readiness journey, or one that has never passed,
       // does not); a check the round did not try loses its count.
@@ -322,6 +328,9 @@ export const settle = internalMutation({
     const recent = await recentCases(ctx, appId);
     const open = openOf(recent);
     if ((app.notAnsweringCase ?? null) !== (open?._id ?? null)) await ctx.db.patch(appId, { notAnsweringCase: open?._id });
+    // A superseded round decides nothing: it neither opens nor closes a case, so a round that finishes after a newer one
+    // cannot close the case on its other checks' replies (the fourth review's K1); the next round decides.
+    if (superseded) return open ? { kind: "open", caseId: open._id } : { kind: "none" };
     if (open) {
       if (answered) {
         await close(ctx, open, { answered: true, ...nowWords(journeys, sent) });
