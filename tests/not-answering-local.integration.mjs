@@ -185,21 +185,21 @@ test("cases for an app that stops answering, on a local Convex backend", { timeo
     // of its own in between; every count and case below is read back, never assumed.
     const round = () => admin.action(ref("monitor:checkProject"), { appId: seeded.appId });
     const first = await round();
-    assert.deepEqual(first.checked.map((check) => check.outcome), ["passed", "passed", "check_error"], "the health route gives the monitor no check result");
+    assert.deepEqual(first.checked.map((check) => check.outcome), ["passed", "passed", "passed"], "the health route is sent as a GET, and its 200 is a pass");
 
-    // While the app is up, its health route's reply with no check result never counts, however many rounds.
+    // While the app is up, its health route passes each round and nothing counts, however many rounds.
     for (let n = 0; n < 5; n++) await round();
     const up = await read();
     assert.deepEqual([counts(up), notAnsweringCases(up)], [[0, 0, 0], []]);
     assert.ok((await overview()).every((check) => check.state === "passing" && !check.notAnswering));
-    say(`accounts: 6 rounds with the app up and its health route answering 200 with no check result: tries in a row ${JSON.stringify(counts(up))}, not-answering cases ${notAnsweringCases(up).length}`);
+    say(`accounts: 6 rounds with the app up and its health route answering 200: tries in a row ${JSON.stringify(counts(up))}, not-answering cases ${notAnsweringCases(up).length}`);
 
     // The app is up, but both journey routes answer 404 (renamed in turtl.json): a reply turtl cannot read, which counts
     // for nothing either way. Nothing opens.
     app.state.routesGone = true;
     const gone = [];
     for (let n = 0; n < 5; n++) gone.push((await round()).checked.map((check) => check.outcome));
-    assert.ok(gone.every((outcomes) => outcomes.every((outcome) => outcome === "check_error")), "turtl cannot run any check there");
+    assert.ok(gone.every((outcomes) => outcomes.slice(0, 2).every((outcome) => outcome === "check_error") && outcomes[2] === "passed"), "turtl cannot run either journey check there; the health check still passes");
     const after404 = await read();
     assert.deepEqual([counts(after404), notAnsweringCases(after404)], [[0, 0, 0], []]);
     assert.ok((await overview()).every((check) => !check.notAnswering));
@@ -232,7 +232,7 @@ test("cases for an app that stops answering, on a local Convex backend", { timeo
     const shown = await overview();
     const [health, ...real] = [shown.find((check) => check.name === "Health"), ...shown.filter((check) => check.name !== "Health")];
     assert.ok(real.every((check) => check.state === "failing" && check.notAnswering?.tries >= 3), JSON.stringify(shown));
-    assert.deepEqual([health.state, health.notAnswering], ["passing", undefined], "the health journey is shown as before");
+    assert.deepEqual([health.state, health.notAnswering, health.kind], ["passing", undefined, "health"], "the health check passes all the while, and did not stop the case: a journey check has passed, so the journey checks decide");
     say(`accounts: the project shows ${JSON.stringify(shown.map((check) => ({ name: check.name, state: check.state, notAnswering: check.notAnswering })))}`);
     const told = await until(read, (s) => notAnsweringCases(s)[0].pushes[0]?.outcome === "sent", "Ada was told");
     assert.deepEqual(notAnsweringCases(told)[0].notices.map((notice) => notice.event), ["not_answering"]);
