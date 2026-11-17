@@ -23,7 +23,7 @@ test("recorded workflow is keyboard accessible with truthful edges and narrow in
       plugins: [{ name: "unused-router", setup(build) {
         build.onResolve({ filter: /^expo-router$/ }, () => ({ path: "router", namespace: "fixture" }));
         build.onResolve({ filter: /NativeSvgSoundModule$/ }, () => ({ path: "android-sound", namespace: "fixture" }));
-        build.onLoad({ filter: /.*/, namespace: "fixture" }, ({ path }) => ({ contents: path === "router" ? "export function useRouter() { throw new Error('Routing is outside this isolated graph fixture'); }" : "export default { playTouchSound() { throw new Error('Android sound is outside this web fixture'); } };" }));
+        build.onLoad({ filter: /.*/, namespace: "fixture" }, ({ path }) => ({ contents: path === "router" ? "export function useRouter() { throw new Error('Routing is outside this isolated graph fixture'); } export function usePathname() { return '/'; }" : "export default { playTouchSound() { throw new Error('Android sound is outside this web fixture'); } };" }));
       } }],
     });
     const bundle = await readFile(join(dir, "fixture.js"));

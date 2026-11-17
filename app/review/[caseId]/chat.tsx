@@ -1,6 +1,6 @@
 import { useLocalSearchParams } from "expo-router";
-import { useRef, useState, type ComponentRef } from "react";
-import { KeyboardAvoidingView, Platform, ScrollView, View, useWindowDimensions } from "react-native";
+import { useRef, useState, type ComponentRef, type ReactNode } from "react";
+import { KeyboardAvoidingView, Platform, ScrollView, View, useWindowDimensions, type StyleProp, type ViewStyle } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import AiNotice from "../../../components/consent/AiNotice";
 import { AskBar } from "../../../components/execution/AskBar";
@@ -8,9 +8,16 @@ import { ApproveSheet, FixCard } from "../../../components/fix/FixCard";
 import { useTalkSession } from "../../../components/voice/useTalkSession";
 import { Button, Header, Reveal, Screen, T, Turtle, useReducedMotion } from "../../../components/ui";
 import { useDevToolsOn } from "../../../components/ui/devTools";
+import { TypingDots } from "../../../components/ui/motion";
 import { confirmPreference, dismissPreference, useCase, useChat } from "../../../data";
 import type { ChatMessage, FixOption } from "../../../data/types";
 import { useTheme } from "../../../theme";
+
+/** A message in the conversation. One that arrives while the chat is open rises into place; the rest are simply there. */
+function Arriving({ still, children, style, testID }: { still: boolean; children: ReactNode; style?: StyleProp<ViewStyle>; testID: string }) {
+  if (still) return <View testID={testID} style={style}>{children}</View>;
+  return <View testID={testID}><Reveal style={style}>{children}</Reveal></View>;
+}
 
 export default function InvestigateFurther() {
   const devToolsOn = useDevToolsOn();
@@ -24,6 +31,8 @@ export default function InvestigateFurther() {
   const narrow = useWindowDimensions().width < 360;
   const reducedMotion = useReducedMotion();
   const list = useRef<ComponentRef<typeof ScrollView>>(null);
+  // The messages already here when the chat opened are simply shown; only one that arrives afterwards rises in.
+  const opened = useRef(new Set(chat.messages.map((m) => m.id))).current;
   const [text, setText] = useState("");
   const [approving, setApproving] = useState<FixOption | null>(null);
   const pending = useRef(false);
@@ -94,7 +103,7 @@ export default function InvestigateFurther() {
             </View>
           </Reveal>
           {chat.messages.map((m) => (
-            <View key={m.id} testID={"chat-message-" + m.id} style={{ gap: 12 }}>
+            <Arriving key={m.id} still={opened.has(m.id)} testID={"chat-message-" + m.id} style={{ gap: 12 }}>
               {m.role === "owner" ? (
                 <View style={{ alignSelf: "flex-end", maxWidth: "90%", backgroundColor: colors.surfaceRaised, borderRadius: 20, borderBottomRightRadius: 6, padding: 16, gap: 4 }}>
                   <T variant="small" color="textMuted">You</T>
@@ -111,12 +120,13 @@ export default function InvestigateFurther() {
                 </View>
               )}
               {m.proposedFix && c && <FixCard fix={m.proposedFix} number={c.fixes.findIndex((f) => f.key === m.proposedFix?.key) + 1 || undefined} sources={{ citations: c.citations, logs: c.logs, code: c.code }} defaultOpen approveDisabled={active} onApprove={setApproving} prefix="proposal" />}
-            </View>
+            </Arriving>
           ))}
-          {busy && <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+          {busy && <Reveal style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
             <Turtle health="working" size={30} />
-            <T color="textMuted" testID="chat-busy">turtl is thinking…</T>
-          </View>}
+            <T color="textMuted" testID="chat-busy">turtl is thinking</T>
+            <TypingDots color={colors.textMuted} />
+          </Reveal>}
         </ScrollView>
         <View style={{ paddingHorizontal: 20, paddingTop: 12, paddingBottom: insets.bottom + (devToolsOn ? 76 : 16), borderTopWidth: 1, borderTopColor: colors.border, backgroundColor: colors.bg }}>
           {error && <T font="text" color="statusAffected" accessibilityRole="alert" testID="chat-error" style={{ marginBottom: 8 }}>{error}</T>}
