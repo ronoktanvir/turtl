@@ -6,6 +6,8 @@ import { nameSize } from "../components/project/nameSize";
 import ProjectIcon from "../components/project/ProjectIcon";
 import FirstRun from "../components/project/FirstRun";
 import { Card, Chip, HealthWord, Icon, Logo, Reveal, Screen, T, Turtle } from "../components/ui";
+import { Count } from "../components/ui/Count";
+import { SkeletonProjects } from "../components/ui/Skeleton";
 import { useDevToolsOn } from "../components/ui/devTools";
 import { stagger } from "../components/ui/motion";
 import { useDataStatus, useProjects } from "../data";
@@ -56,8 +58,8 @@ export default function Projects() {
                   {p.summary && <T color="textMuted" numberOfLines={2} style={{ marginTop: 16 }}>{p.summary}</T>}
                   <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, marginTop: 20 }}>
                     <View style={{ gap: 2 }}>
-                      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}><View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: p.bugCount > 0 ? colors.statusAffected : colors.border }} /><T color="textMuted"><T variant="strong">{p.bugCount}</T> {p.bugCount === 1 ? "bug" : "bugs"}</T></View>
-                      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}><View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: p.featureCount > 0 ? colors.statusWorking : colors.border }} /><T color="textMuted"><T variant="strong">{p.featureCount}</T> {p.featureCount === 1 ? "feature" : "features"}</T></View>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}><View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: p.bugCount > 0 ? colors.statusAffected : colors.border }} /><View style={{ flexDirection: "row", alignItems: "baseline", gap: 5 }}><Count variant="strong" value={p.bugCount} testID={`project-bugs-${p.id}`} /><T color="textMuted">{p.bugCount === 1 ? "bug" : "bugs"}</T></View></View>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}><View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: p.featureCount > 0 ? colors.statusWorking : colors.border }} /><View style={{ flexDirection: "row", alignItems: "baseline", gap: 5 }}><Count variant="strong" value={p.featureCount} testID={`project-features-${p.id}`} /><T color="textMuted">{p.featureCount === 1 ? "feature" : "features"}</T></View></View>
                     </View>
                     <View style={{ flexDirection: "row", gap: 8, alignItems: "center", flexShrink: 1 }}>
                       <T variant="small" testID={`project-approvals-${p.id}`} color={p.needsApprovalCount > 0 ? "statusNeedsYou" : "textMuted"} style={{ flexShrink: 1, textAlign: "right" }}>{p.needsApprovalCount > 0 ? approvalLabel(p.needsApprovalCount) : p.bugCount > 0 && p.onlyNotAnswering ? (p.bugCount === 1 ? "See the issue" : "See the issues") : p.bugCount > 0 ? "Review fixes" : p.featureCount > 0 ? "Explore features" : "Explore project"}</T>
@@ -68,7 +70,7 @@ export default function Projects() {
               </Reveal>
             );
           })}
-          {projects === undefined && errors.length === 0 && <T color="textMuted">Loading…</T>}
+          {projects === undefined && errors.length === 0 && <SkeletonProjects narrow={narrow} />}
           {projects?.length === 0 && <FirstRun onAdd={() => router.push("/add-project" as Href)} />}
           {projects?.length !== 0 && <Pressable onPress={() => router.push("/add-project" as Href)} accessibilityRole="button" testID="home-add-project" style={({ pressed }) => ({ minHeight: 48, alignSelf: "center", flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 16, borderRadius: 999, borderWidth: 1, borderColor: colors.border, backgroundColor: pressed ? colors.surfaceRaised : "transparent" })}><Icon name="Plus" size={18} color="brandDeep" /><T>Add project</T></Pressable>}
         </View>

@@ -6,6 +6,7 @@ import ServiceCard from "../components/consent/ServiceCard";
 import { day, listNames, showsDeclined, whatItDoes } from "../components/consent/words";
 import LegalLinks from "../components/legal/LegalLinks";
 import { Button, Header, Screen, T } from "../components/ui";
+import { SkeletonLines } from "../components/ui/Skeleton";
 import { allowAi, declineAi, useAiPermission, withdrawAi } from "../data/consent";
 import { useTheme } from "../theme";
 
@@ -42,7 +43,7 @@ export default function AiPermission() {
   };
 
   const body = (() => {
-    if (status === undefined) return <T color="textMuted">Loading…</T>;
+    if (status === undefined) return <SkeletonLines lines={4} testID="ai-permission-loading" />;
     if (status === null) {
       return (
         <View style={{ gap: 16 }}>
