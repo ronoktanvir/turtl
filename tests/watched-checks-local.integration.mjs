@@ -102,7 +102,10 @@ function standInApps() {
   };
 }
 
-/** GitHub: the latest commit on main of each repository, and turtl.json at each commit. */
+/**
+ * GitHub: the latest commit on each branch of each repository, its default branch, and turtl.json at each commit.
+ * rename(): main is renamed, as when a repository moves from one default branch name to another.
+ */
 function standInGithub() {
   const repos = new Map();
   const requests = [];
@@ -113,8 +116,10 @@ function standInGithub() {
       response.writeHead(status, { "Content-Type": type });
       response.end(typeof body === "string" ? body : JSON.stringify(body));
     };
-    const commit = path.match(/^\/repos\/([^/]+\/[^/]+)\/commits\/main$/);
-    if (commit && repos.has(commit[1])) return send(200, { sha: repos.get(commit[1]).head });
+    const meta = path.match(/^\/repos\/([^/]+\/[^/]+)$/);
+    if (meta && repos.has(meta[1])) return send(200, { default_branch: repos.get(meta[1]).branch });
+    const commit = path.match(/^\/repos\/([^/]+\/[^/]+)\/commits\/([^/]+)$/);
+    if (commit && repos.get(commit[1])?.branch === decodeURIComponent(commit[2])) return send(200, { sha: repos.get(commit[1]).head });
     const raw = path.match(/^\/raw\/([^/]+\/[^/]+)\/([0-9a-f]{40})\/turtl\.json$/);
     const file = raw && repos.get(raw[1])?.files[raw[2]];
     if (file) return send(200, file, "text/plain");
@@ -122,7 +127,8 @@ function standInGithub() {
   });
   return {
     requests,
-    repo: (name, head, files) => repos.set(name, { head, files }),
+    repo: (name, head, files) => repos.set(name, { head, files, branch: "main" }),
+    rename: (name, branch) => { repos.get(name).branch = branch; },
     push: (name, head, file) => {
       const repo = repos.get(name);
       repo.head = head;
@@ -318,5 +324,24 @@ test("health and readiness checks, and the retiring of a check, on a local Conve
     assert.deepEqual([named(revived, "Cancel").id, named(revived, "Cancel").retiredAt, revived.journeys.filter((journey) => journey.name === "Cancel").length, revived.registration.note ?? null], [cancel.id, null, 1, null]);
     assert.deepEqual(await cy.round(), ["passed", "passed", "passed", "passed"]);
     say(`listed again at ${sha(3).slice(0, 7)}: the same row is back (${named(revived, "Cancel").id === cancel.id}), and a round sends all four checks`);
+
+    // A registration that ends after a newer one was started writes nothing. The owner's Check again above named its
+    // start; a run that names an earlier start is the older one, whatever turtl.json now says.
+    github.push(cy.repo, sha(4), manifest({ journeys: ["Book"] }));
+    const startedAt = revived.registration.startedAt;
+    assert.equal(typeof startedAt, "number", "the owner's Check again named its start");
+    await admin.action(ref("onboarding/prepare:register"), { preparationId: cy.preparationId, latest: true, startedAt: startedAt - 60_000 });
+    const afterStale = await cy.read();
+    assert.deepEqual([live(afterStale).map((journey) => journey.name), afterStale.registration.ref], [["Server answers", "Ready to take bookings", "Book", "Cancel"], sha(3)], "the older run changed nothing");
+    say(`a registration naming an earlier start, run after turtl.json dropped Cancel again at ${sha(4).slice(0, 7)}: nothing changed (still ${JSON.stringify(live(afterStale).map((journey) => journey.name))}, read at ${afterStale.registration.ref.slice(0, 7)})`);
+
+    // The preparation's branch is renamed: Check again reads the repository's default branch instead of failing.
+    github.rename(cy.repo, "trunk");
+    const renamed = await admin.action(ref("onboarding/prepare:register"), { preparationId: cy.preparationId, latest: true });
+    assert.equal(renamed.outcome, "registered");
+    const afterRename = await cy.read();
+    assert.deepEqual([live(afterRename).map((journey) => journey.name), afterRename.registration.ref, typeof named(afterRename, "Cancel").retiredAt], [["Server answers", "Ready to take bookings", "Book"], sha(4), "number"]);
+    assert.ok(github.requests.includes(`/repos/${cy.repo}`) && github.requests.includes(`/repos/${cy.repo}/commits/trunk`));
+    say(`main renamed to trunk: registration read the default branch's head ${sha(4).slice(0, 7)} and retired Cancel again`);
   });
 });
