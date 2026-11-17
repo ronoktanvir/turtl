@@ -5,6 +5,7 @@ import { internalMutation, internalQuery, type MutationCtx, type QueryCtx } from
 import { query } from "../functions";
 import { canSeeApp, canSeeCase } from "../access";
 import { CLOSED_CASE_STATUSES, NO_SUPERMEMORY } from "../constants";
+import { liveChecks, probeOf } from "../protectedApp/watching";
 import { startCaseRun } from "../runner/run";
 import { HARNESS_VERSION, RATE_LIMITS, TRIAGE_PROMPT_VERSION, fingerprint, windowStart, type Candidate } from "./rules";
 import { vReportHint, vTriageVerdict } from "./schema";
@@ -335,7 +336,9 @@ export const land = internalMutation({
       if (args.modelId) await insertTriageRun(ctx, (await ctx.db.get(triage._id))!, { appId: report.appId });
       return { outcome: "ignored", caseId: null };
     }
-    const journey = await ctx.db.query("journeys").withIndex("by_app", (q) => q.eq("appId", app._id)).first();
+    // The check the case's steps run before and after a fix: the project's first journey check that turtl still runs.
+    // Never a health or readiness check, which a case cannot run as a journey check and which registration writes first.
+    const journey = (await liveChecks(ctx, app._id)).find((check) => check.check.kind === "http" && probeOf(check) === null);
     const caseId = await startCaseRun(ctx, {
       appId: app._id,
       kind: wanted,

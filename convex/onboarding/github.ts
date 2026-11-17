@@ -46,6 +46,14 @@ async function readWithFallback<T>(path: string, token: string | undefined): Pro
   return { read, token, rejected: false };
 }
 
+// The latest commit on a branch, or null when GitHub does not say (one API read). A token GitHub rejects is retried
+// without it, so a public repository stays readable.
+export async function headCommit(repo: string, branch: string, token: string | undefined): Promise<string | null> {
+  const { read } = await readWithFallback<{ sha?: unknown }>(`/repos/${repo}/commits/${encodeURIComponent(branch)}`, token);
+  const sha = read.ok ? read.body?.sha : undefined;
+  return typeof sha === "string" && /^[0-9a-f]{40}$/i.test(sha) ? sha : null;
+}
+
 // A file at a commit. A token GitHub rejects makes raw.githubusercontent.com answer 404, so a failed read with
 // a token is retried without it, which still reads a public repository.
 export async function readRaw(repo: string, sha: string, path: string, token: string | undefined): Promise<string | null> {

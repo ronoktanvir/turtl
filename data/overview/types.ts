@@ -9,7 +9,8 @@ export type WatchedCheck = {
   lastPassedAt?: number;
   closedAs?: "declined" | "unresolved"; // failing with no issue open: how its last issue ended
   // Its last `tries` tries in a row, the first at `since`, got no usable answer from the app; its state is then failing.
-  notAnswering?: { since: number; tries: number };
+  // notReady: the latest was a readiness check's own word that the app cannot serve customers now.
+  notAnswering?: { since: number; tries: number; notReady?: boolean };
 };
 
 export type Overview = {

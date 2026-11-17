@@ -26,6 +26,11 @@ export type Stack = { id: string; label: string; supported: boolean; evidence: s
 
 export const SUPPORTED_STACK = "expo-convex";
 export const MANIFEST_FILE = "turtl.json";
+/**
+ * The version of every check registered from a project's turtl.json, followed by a colon and the commit the file was
+ * read at. It also marks the rows registration owns, and so may retire (convex/onboarding/records.ts, fromManifest).
+ */
+export const MANIFEST_CHECK_VERSION = "onboarding-manifest-v1";
 
 const MAX_HITS_PER_ITEM = 14;
 const MAX_HITS_PER_FILE = 3;

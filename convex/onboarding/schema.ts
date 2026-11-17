@@ -96,7 +96,8 @@ export const onboardingTables = {
         status: v.union(v.literal("checking"), v.literal("done"), v.literal("failed")),
         ref: v.optional(v.string()),
         error: v.optional(v.string()),
-        // What turtl left out of turtl.json, such as entries past MAX_MANIFEST_ENTRIES.
+        // What turtl left out of turtl.json, such as entries past MAX_MANIFEST_ENTRIES, and which checks this
+        // registration retired because the file no longer lists them.
         note: v.optional(v.string()),
         checks: v.array(vLiveCheck),
         checkedAt: v.optional(v.number()),

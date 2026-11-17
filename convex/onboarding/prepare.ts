@@ -9,17 +9,17 @@ import { findPullRequestNumber, startCapyThread } from "../prTracking/capy";
 import { capyConfigFor, codingAgentFor } from "../prTracking/codingAgent";
 import { FOLLOW_CLAIMS } from "../prTracking/follow";
 import { readPullRequest } from "../prTracking/github";
-import { call, describeFailure, runJourneyCheck, type WatchedApp } from "../protectedApp/client";
+import { call, describeFailure, readProbe, runJourneyCheck, type Probe, type WatchedApp } from "../protectedApp/client";
 import { watchedApp } from "../protectedApp/watched";
-import { manifestPath, parseManifest, type Item, type ManifestCheck, type ManifestSwitch } from "./detect";
+import { MANIFEST_CHECK_VERSION, manifestPath, parseManifest, type Item, type ManifestCheck, type ManifestSwitch } from "./detect";
 import { preparationBrief } from "./brief";
-import { readRaw } from "./github";
+import { headCommit, readRaw } from "./github";
 
 type PreparationContext = { preparation: Doc<"onboardingPreparations">; app: Doc<"apps">; inspection: Doc<"onboardingInspections"> | null };
 
 const OPENING_GRACE_MS = 2 * 60_000;
 const UNAUTHENTICATED_SYNC_MS = 5 * 60_000;
-export const CHECK_VERSION = "onboarding-manifest-v1";
+export const CHECK_VERSION = MANIFEST_CHECK_VERSION;
 /** The single-owner demo with no coding agent of its own set up on the backend. */
 const DEMO_NO_CODING_AGENT = "This turtl backend has no coding agent set up, so turtl could not write the preparation. Nothing was sent.";
 
@@ -161,7 +161,7 @@ type Check = {
     detail: string;
     checkedAt: number;
   };
-  journey?: { name: string; description: string; check: { kind: "http"; config: { url: string; method: "GET" | "POST"; expectedStatus: number; credentialRef?: string } }; checkVersion: string };
+  journey?: { name: string; description: string; check: { kind: "http"; config: { url: string; method: "GET" | "POST"; expectedStatus: number; credentialRef?: string } }; checkVersion: string; probe?: Probe };
   action?: {
     type: string;
     name: string;
@@ -177,18 +177,21 @@ const CONCURRENT_PROBES = 6;
 
 // Calls each endpoint the manifest names on the live app now, for this project (app): with accounts on only on its own
 // live address and with its own control token. Only what answers is registered: health and readiness and journey
-// checks as journeys, flags and recovery hooks as catalog actions. Results keep the manifest's order.
+// checks as journeys, flags and recovery hooks as catalog actions. Results keep the manifest's order. A health or
+// readiness endpoint is registered as a GET check that says which probe it is, read here exactly as the monitor reads
+// it each round after (convex/protectedApp/client.ts, readProbe).
 export async function checkLive(base: string, manifest: ReturnType<typeof parseManifest> & { ok: true }, ref: string, app: WatchedApp): Promise<Check[]> {
   const { credentialRef } = manifest.manifest;
   const checkVersion = `${CHECK_VERSION}:${ref.slice(0, 12)}`;
   const url = (entry: ManifestCheck) => `${base}${entry.path}`;
   const credential = (entry: ManifestCheck) => (entry.authenticated ? credentialRef : undefined);
-  const probe = async (kind: "health" | "readiness", entry: ManifestCheck): Promise<Check> => {
+  const probe = async (kind: Probe, entry: ManifestCheck): Promise<Check> => {
     const checkedAt = Date.now();
     const response = await call(url(entry), { app, credentialRef: credential(entry) });
     const answered = response.kind === "response";
-    const ok = answered && response.status === 200;
-    const notReady = kind === "readiness" && answered && response.status === 503 && typeof response.body === "object" && response.body !== null;
+    const got = readProbe(kind, response);
+    const ok = got.kind === "passed";
+    const notReady = got.kind === "not_ready";
     return {
       result: {
         kind,
@@ -196,7 +199,7 @@ export async function checkLive(base: string, manifest: ReturnType<typeof parseM
         url: url(entry),
         state: ok ? "works" : notReady ? "failing" : "no_response",
         detail: ok
-          ? `Answered 200 in ${response.durationMs} ms.`
+          ? `Answered 200 in ${got.durationMs} ms.`
           : notReady
             ? "Answered that the app is not ready to serve customers now."
             : `Not registered: ${answered ? `answered ${describeFailure(response)} instead of 200` : describeFailure(response)}.`,
@@ -208,6 +211,7 @@ export async function checkLive(base: string, manifest: ReturnType<typeof parseM
           description: entry.description ?? (kind === "health" ? "The server answers its health check." : "The app says it can serve customers now."),
           check: { kind: "http", config: { url: url(entry), method: "GET", expectedStatus: 200, ...(credential(entry) && { credentialRef: credential(entry) }) } },
           checkVersion,
+          probe: kind,
         },
       }),
       ...(ok && { passedAt: checkedAt }),
@@ -286,24 +290,37 @@ export async function checkLive(base: string, manifest: ReturnType<typeof parseM
   return checks;
 }
 
-// After the merge: reads turtl.json at the merge commit and registers what answers on the live app. `ref`
-// lets an operator check a commit from the CLI; the product passes the merge commit.
+// Reads turtl.json and registers what answers on the live app; a check the file no longer lists is retired
+// (records.ts, register). Right after the merge it reads the file at the merge commit. `latest`, the owner's Check
+// again, reads it as it is now, at the head of the branch the preparation merged into: that is how a check the owner
+// took out of the file, or added to it, reaches turtl. If that commit cannot be read, nothing is checked and nothing
+// changes: it never falls back to an older commit, whose list would bring retired checks back. `ref` lets an operator
+// check a commit from the CLI.
 export const register = internalAction({
-  args: { preparationId: v.id("onboardingPreparations"), ref: v.optional(v.string()) },
-  handler: async (ctx, { preparationId, ref: requested }): Promise<{ outcome: "missing" } | { outcome: "failed"; error: string } | { outcome: "registered"; checks: string[] }> => {
+  args: { preparationId: v.id("onboardingPreparations"), ref: v.optional(v.string()), latest: v.optional(v.boolean()) },
+  handler: async (ctx, { preparationId, ref: requested, latest }): Promise<{ outcome: "missing" } | { outcome: "failed"; error: string } | { outcome: "registered"; checks: string[] }> => {
     const context: PreparationContext | null = await ctx.runQuery(internal.onboarding.records.forPreparation, { preparationId });
     if (!context) return { outcome: "missing" as const };
     const { preparation, app, inspection } = context;
-    const ref = requested ?? preparation.mergeCommitSha ?? preparation.registration?.ref;
+    let ref = requested ?? preparation.mergeCommitSha ?? preparation.registration?.ref;
     const fail = async (error: string) => {
       await ctx.runMutation(internal.onboarding.records.failRegistration, { id: preparationId, error, ...(ref && { ref }) });
       return { outcome: "failed" as const, error };
     };
-    if (!ref || !preparation.repo) return fail("turtl does not know the merged commit yet, so it could not read what the pull request added.");
+    const unknownCommit = "turtl does not know the merged commit yet, so it could not read what the pull request added.";
+    // Check again needs no merge commit: it reads the branch's head below.
+    if (!preparation.repo || (!ref && !latest)) return fail(unknownCommit);
     if (!app.productionUrl) return fail("No live app URL was given when the project was added, so turtl could not check anything on the live app.");
     const path = manifestPath(inspection?.folders ?? []);
     const access = await repositoryAccess(ctx, preparation.repo, { appId: preparation.appId });
     if (!access.ok) return fail(`${access.message} Nothing was registered.`);
+    if (latest && !requested) {
+      const branch = preparation.baseBranch ?? inspection?.defaultBranch ?? "main";
+      const head = await headCommit(preparation.repo, branch, access.token);
+      if (!head) return fail(`turtl could not read the latest commit on ${branch} in ${preparation.repo}, so it checked nothing and changed nothing. Try again in a few minutes.`);
+      ref = head;
+    }
+    if (!ref) return fail(unknownCommit);
     const text = await readRaw(preparation.repo, ref, path, access.token);
     if (text === null) return fail(`turtl could not read ${path} at ${ref.slice(0, 12)}, so nothing was registered.`);
     const manifest = parseManifest(text);

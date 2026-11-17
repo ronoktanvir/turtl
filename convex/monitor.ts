@@ -6,10 +6,10 @@ import { accessEnforced, MAX_PROJECTS } from "./access";
 
 const CLOSED_DEMO_SKIPPED = "This deployment holds accounts but runs as the single-owner demo, so the monitor checked nothing (the backend log says why).";
 import { CLOSED_CASE_STATUSES } from "./constants";
-import { controlBase, readErrors, runJourneyCheck, type JourneyOutcome, type WatchedApp } from "./protectedApp/client";
+import { controlBase, readErrors, runJourneyCheck, runProbe, type JourneyOutcome, type Probe, type WatchedApp } from "./protectedApp/client";
 import { gotThrough, isQuiet, passedOutsideRound, PRACTICE_QUIET, settleRound, type Try } from "./protectedApp/notAnswering";
 import { watchedApp } from "./protectedApp/watched";
-import { canStopAnswering, MAX_JOURNEYS, WATCH_WORDS, type Runnable } from "./protectedApp/watching";
+import { liveChecks, runnable, WATCH_WORDS, type Runnable } from "./protectedApp/watching";
 import { startCaseRun } from "./runner/run";
 
 // The monitor. In the single-owner demo it checks every registered journey of the one demo app named by
@@ -17,9 +17,11 @@ import { startCaseRun } from "./runner/run";
 // PROTECTED_APP_URL: each tick takes the next projects in turn (convex/protectedApp/watching.ts) and checks each one's
 // journeys from its own rows, with its own control token, only on its own live address.
 //
-// A check that runs and fails opens a case (openCase). A check that gets no usable reply is counted, and a project
-// whose checks stop answering gets one case of its own (convex/protectedApp/notAnswering.ts), settled at the end of
-// each round that has anything to settle.
+// Each check is sent as what it is. A journey check is a POST under the journey contract: one that runs and fails
+// opens a case (openCase). A health or readiness check is a GET (checkProbe): a pass moves when it last passed, and
+// nothing it returns opens an ordinary case. A check that gets no usable reply is counted, and a project whose checks
+// stop answering gets one case of its own (convex/protectedApp/notAnswering.ts), settled at the end of each round that
+// has anything to settle. A check registration retired is never read here (watching.ts, liveChecks).
 
 // A case stops counting as open once it is closed or its service is restored.
 const NOT_OPEN: readonly string[] = [...CLOSED_CASE_STATUSES, "restored"];
@@ -27,7 +29,7 @@ const NOT_OPEN: readonly string[] = [...CLOSED_CASE_STATUSES, "restored"];
 export const signatureFor = (journeyId: Id<"journeys">) => `journey_failed:${journeyId}`;
 
 // The single-owner demo's journeys, project by project. Bounded like everything else: at most MAX_PROJECTS projects
-// and MAX_JOURNEYS journeys each, read through the by_app index, never the whole table in one go. With accounts on the
+// and MAX_JOURNEYS journeys each, the ones turtl still runs, never the whole table in one go. With accounts on the
 // monitor never calls it (protectedApp/watching.ts takes projects in turns instead).
 export const journeys = internalQuery({
   args: {},
@@ -35,7 +37,7 @@ export const journeys = internalQuery({
     const apps = await ctx.db.query("apps").take(MAX_PROJECTS);
     const rows = [];
     for (const app of apps) {
-      for (const journey of await ctx.db.query("journeys").withIndex("by_app", (q) => q.eq("appId", app._id)).take(MAX_JOURNEYS)) rows.push({ journey, app });
+      for (const journey of await liveChecks(ctx, app._id)) rows.push({ journey, app });
     }
     return rows;
   },
@@ -85,7 +87,8 @@ export const recordPass = internalMutation({
     if (journey && observedAt > (journey.lastPassedAt ?? 0)) {
       await ctx.db.patch(journeyId, { lastPassedAt: observedAt, ...(journey.passingSince === undefined && { passingSince: observedAt }) });
     }
-    if (journey && !round) await passedOutsideRound(ctx, journey, observedAt);
+    // A retired check counts for nothing: its pass, from a case that still runs it, closes no not-answering case.
+    if (journey && !round && journey.retiredAt === undefined) await passedOutsideRound(ctx, journey, observedAt);
   },
 });
 
@@ -113,6 +116,8 @@ export const openCase = internalMutation({
   handler: async (ctx, { journeyId, failedStep, observedAt, counts, countsReason }) => {
     const journey = await ctx.db.get(journeyId);
     if (!journey) throw new Error("Journey not found.");
+    // Retired while this round was in flight (convex/onboarding/records.ts): the monitor opens no case for it.
+    if (journey.retiredAt !== undefined) return { opened: false as const, reason: "this check was retired: the project's turtl.json no longer lists it" };
     if (journey.lastPassedAt !== undefined && observedAt < journey.lastPassedAt) return { opened: false as const, reason: "this observation is older than the journey's latest passing check" };
     // How long it had been passing before this failure, which the failure ends (convex/consent/gate.ts, the reserve).
     const passingForMs = journey.passingSince !== undefined ? Math.max(0, observedAt - journey.passingSince) : 0;
@@ -184,10 +189,33 @@ function missed(outcome: Extract<JourneyOutcome, { ok: false }>): Try["got"] {
 }
 
 /**
- * Checks one journey for one project (app) now: a failure opens a case, a pass re-arms its signature. Also says what the
- * try got, for the end of the round.
+ * Sends one health or readiness check for one project now, as a GET. A pass moves when it last passed. Anything else
+ * ends its run of passes and is counted at the end of the round; a probe carries no verdict, so nothing here opens an
+ * ordinary case. A readiness check's "not ready" is reported as a failure of that check, in the app's own words.
+ */
+async function checkProbe(ctx: ActionCtx, journey: Runnable, probe: Probe, app: WatchedApp): Promise<{ checked: Checked; tried: Try }> {
+  const observedAt = Date.now();
+  const tried = (got: Try["got"]): Try => ({ journeyId: journey.journeyId, at: observedAt, got });
+  const outcome = await runProbe({ url: journey.url, credentialRef: journey.credentialRef, probe }, app);
+  if (outcome.kind === "passed") {
+    await ctx.runMutation(internal.monitor.recordPass, { journeyId: journey.journeyId, observedAt, round: true });
+    return { checked: { journeyId: journey.journeyId, outcome: "passed", detail: probe === "health" ? "The health check answered." : "The app said it is ready to serve customers." }, tried: tried({ kind: "passed" }) };
+  }
+  await ctx.runMutation(internal.monitor.recordMiss, { journeyId: journey.journeyId });
+  if (outcome.kind === "not_ready") {
+    return { checked: { journeyId: journey.journeyId, outcome: "failed", detail: "The app said it is not ready to serve customers." }, tried: tried({ kind: "not_ready" }) };
+  }
+  const got: Try["got"] = outcome.kind === "no_response" ? { kind: "no_response", timedOut: outcome.timedOut } : outcome.kind === "no_result" ? { kind: "no_result", status: outcome.status } : { kind: "not_sent" };
+  return { checked: { journeyId: journey.journeyId, outcome: "check_error", detail: outcome.reason }, tried: tried(got) };
+}
+
+/**
+ * Checks one check for one project (app) now, as what it is: a probe as a GET (checkProbe), a journey check as a POST
+ * under the journey contract, where a failure opens a case and a pass re-arms its signature. Also says what the try
+ * got, for the end of the round.
  */
 async function checkJourney(ctx: ActionCtx, journey: Runnable, base: string, app: WatchedApp): Promise<{ checked: Checked; tried: Try }> {
+  if (journey.probe) return await checkProbe(ctx, journey, journey.probe, app);
   const observedAt = Date.now();
   const tried = (got: Try["got"]): Try => ({ journeyId: journey.journeyId, at: observedAt, got });
   const outcome = await runJourneyCheck(journey, app);
@@ -228,9 +256,9 @@ async function checkJourney(ctx: ActionCtx, journey: Runnable, base: string, app
 /**
  * Whether the end of a round has anything to settle (notAnswering.ts): the project records an open not-answering case,
  * a check of it has quiet tries on record, or a check that can stop answering (watching.ts, canStopAnswering) was quiet
- * this round. Otherwise nothing is read or written: a health check's reply, or a check that has never passed getting
- * none, settles nothing on its own. When it settles, every try the round sent goes with it: a result from any check
- * shows the app serving (W1).
+ * this round. Otherwise nothing is read or written: a passing check, or a check that has never passed getting no
+ * answer, settles nothing on its own. When it settles, every try the round sent goes with it, and the end of the round
+ * works out which of them decide (notAnswering.ts, settle).
  */
 const toSettle = (caseOpen: boolean, unanswered: boolean, journeys: Runnable[], tries: Try[]) => {
   const can = new Set<string>(journeys.filter((journey) => journey.countable).map((journey) => journey.journeyId));
@@ -257,20 +285,20 @@ export async function checkJourneys(ctx: ActionCtx): Promise<MonitorResult> {
     const app = group[0].app;
     const unanswered = group.some(({ journey }) => journey.unanswered !== undefined);
     const caseOpen = app.notAnsweringCase !== undefined;
-    const runnable: Runnable[] = group.flatMap(({ journey }) => (journey.check.kind === "http" ? [{ journeyId: journey._id, url: journey.check.config.url, ...(journey.check.config.credentialRef && { credentialRef: journey.check.config.credentialRef }), countable: canStopAnswering(journey) }] : []));
-    if (!app.productionUrl || runnable.length === 0) {
+    const sendable: Runnable[] = group.flatMap(({ journey }) => (journey.check.kind === "http" ? [runnable(journey, journey.check)] : []));
+    if (!app.productionUrl || sendable.length === 0) {
       // Not checked: its checks' counts go, and an open case closes with why.
       if (unanswered || caseOpen) await ctx.runMutation(internal.protectedApp.notAnswering.stopped, { appId, reason: app.productionUrl ? WATCH_WORDS.noChecks : WATCH_WORDS.noAddress });
       continue;
     }
     const watched = await watchedApp(ctx, { appId });
     const tries: Try[] = [];
-    for (const journey of runnable) {
+    for (const journey of sendable) {
       const one = await checkJourney(ctx, journey, app.productionUrl, watched);
       checked.push(one.checked);
       tries.push(one.tried);
     }
-    if (toSettle(caseOpen, unanswered, runnable, tries)) await settleRound(ctx, appId, tries);
+    if (toSettle(caseOpen, unanswered, sendable, tries)) await settleRound(ctx, appId, tries);
   }
   return { checked };
 }
@@ -290,7 +318,8 @@ const vChecked = v.object({
 
 /**
  * What every check of a project failed with, when none passed: one short signature, the same each time the project
- * fails the same way (watching.ts spaces its checks out then). Null when a check passed or none ran.
+ * fails the same way (watching.ts spaces its checks out then). Null when a check passed or none ran. Given the checks
+ * that decide for the project (deciding, below).
  */
 export function failureOf(checked: Checked[]): string | null {
   if (!checked.length || checked.some((check) => check.outcome === "passed")) return null;
@@ -300,6 +329,19 @@ export function failureOf(checked: Checked[]): string | null {
   return `${checked.length}:${hash.toString(16)}`;
 }
 
+/**
+ * The checks of a round whose results say how the project is doing, for how often it is checked: its journey checks,
+ * and its probes too when they decide (watching.ts, probesDecide). So a health check that passes beside a journey
+ * check that keeps failing the same way does not put the project back to every minute. When a round ran only probes
+ * (its journey checks wait for a control token), they are all there is to go by.
+ */
+export function deciding(checked: Checked[], journeys: Runnable[], probesDecide: boolean): Checked[] {
+  if (probesDecide) return checked;
+  const probes = new Set<string>(journeys.filter((journey) => journey.probe).map((journey) => journey.journeyId));
+  const rest = checked.filter((one) => !probes.has(one.journeyId));
+  return rest.length ? rest : checked;
+}
+
 export const checkProject = internalAction({
   args: { appId: v.id("apps") },
   returns: v.object({ checked: v.array(vChecked) }),
@@ -307,7 +349,7 @@ export const checkProject = internalAction({
     let failure: string | null | undefined;
     let answered = false;
     try {
-      const plan: { base: string; journeys: Runnable[]; unanswered: boolean; caseOpen: boolean; practice: boolean } | null = await ctx.runQuery(internal.protectedApp.watching.plan, { appId });
+      const plan: { base: string; journeys: Runnable[]; probesDecide: boolean; unanswered: boolean; caseOpen: boolean; practice: boolean } | null = await ctx.runQuery(internal.protectedApp.watching.plan, { appId });
       if (!plan) return { checked: [] };
       const app = await watchedApp(ctx, { appId });
       const checked: Checked[] = [];
@@ -319,7 +361,7 @@ export const checkProject = internalAction({
           tries.push(one.tried);
         }
       }
-      failure = failureOf(checked);
+      failure = failureOf(deciding(checked, plan.journeys, plan.probesDecide));
       // Recorded for the fleet check (notAnswering.ts, fleetQuiet): a check of this round reached something that replied,
       // so turtl's requests get out. Never for a practice project, which runs on turtl's own site and so is no evidence
       // about turtl reaching the internet.

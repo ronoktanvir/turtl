@@ -126,6 +126,26 @@ test("a check that is not answering reads as failing, with \"Not answering\" whe
   assert.match(panel, /color=\{check\.state === "failing" \? "statusAffected" : "textMuted"\}>\{checkLine\(check, now\)\}/);
 });
 
+test("a readiness check whose app says it is not ready reads \"Not ready\", on the panel and in the empty Fix list", () => {
+  const { checkLine } = createLoader({
+    "react-native": {}, "expo-router": {}, "react/jsx-runtime": { jsx: () => null, jsxs: () => null, Fragment: "Fragment" },
+    "components/onboarding/Glyph": {}, "data/overview": {}, data: {}, "data/index": {}, theme: {}, "components/ui": { ago: () => "5 min ago" },
+  })("components/project/Watching.tsx");
+  const unready = { id: "j2", kind: "readiness", name: "Ready to take bookings", state: "failing", lastPassedAt: 1_000, notAnswering: { since: 2_000, tries: 3, notReady: true } };
+  assert.equal(checkLine(unready, 10_000), "Not ready");
+  assert.equal(checkLine({ ...unready, kind: "health", notAnswering: { since: 2_000, tries: 3 } }, 10_000), "Not answering", "a health check has no such word");
+  assert.equal(checkLine({ ...unready, state: "passing", notAnswering: undefined }, 10_000), "Passed 5 min ago");
+  assert.equal(watchingSummary([unready, check("passing")]), "1 of 2 checks passing", "it counts as not passing");
+  const { stillBroken } = createLoader({
+    "react-native": {}, "expo-router": {}, "react-native-safe-area-context": {}, "react/jsx-runtime": { jsx: () => null, jsxs: () => null, Fragment: "Fragment" },
+    data: {}, "data/index": {}, "data/overview": {}, "data/overview/index": {}, theme: { labels: { features: "Features" } }, "components/ui": {}, "components/project/Watching": {},
+  })("components/project/NothingOpen.tsx");
+  assert.deepEqual(stillBroken([unready], false), {
+    empty: "Ready to take bookings: not ready.",
+    note: "Your app says it is not ready to serve customers, and no issue is open for it right now. turtl opens one when none of your app's checks gets an answer, and it keeps checking.",
+  });
+});
+
 test("an empty Fix list with a check not answering says so, not that its last issue closed", () => {
   const { stillBroken } = createLoader({
     "react-native": {}, "expo-router": {}, "react-native-safe-area-context": {}, "react/jsx-runtime": { jsx: () => null, jsxs: () => null, Fragment: "Fragment" },

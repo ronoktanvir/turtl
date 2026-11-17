@@ -6,10 +6,12 @@ import { accessEnforced, visibleApp, visibleApps } from "../access";
 import { CLOSED_CASE_STATUSES } from "../constants";
 import { latestInspection, preparationFor } from "../onboarding/records";
 import { isNotAnswering } from "../protectedApp/notAnswering";
+import { liveChecks, probeOf } from "../protectedApp/watching";
 import { stageOf } from "../onboarding/stage";
 
-// What turtl is watching on one project before anything has gone wrong: its registered checks and when each
-// last passed, whether the preparation is still under way, and how much of its code is mapped. Read-only.
+// What turtl is watching on one project before anything has gone wrong: the checks turtl runs on it and when each
+// last passed, whether the preparation is still under way, and how much of its code is mapped. Read-only. A check
+// registration retired, because the project's turtl.json no longer lists it, is not here.
 
 /** More checks than one project registers; it bounds the read. */
 const MAX_CHECKS = 50;
@@ -29,7 +31,8 @@ const vWatchedCheck = v.object({
   closedAs: v.optional(v.union(v.literal("declined"), v.literal("unresolved"))),
   // A check that is not answering: its last `tries` tries in a row, the first at `since`, got no usable reply
   // (convex/protectedApp/notAnswering.ts). Its state is then "failing". Absent below UNANSWERED_AFTER in a row.
-  notAnswering: v.optional(v.object({ since: v.number(), tries: v.number() })),
+  // notReady: the latest of them was a readiness check's "not ready", the app's own word that it cannot serve customers.
+  notAnswering: v.optional(v.object({ since: v.number(), tries: v.number(), notReady: v.optional(v.boolean()) })),
 });
 export const vOverview = v.object({
   checks: v.array(vWatchedCheck),
@@ -85,14 +88,17 @@ export const forProject = query({
     const app = appId ? await visibleApp(ctx, appId) : null;
     if (!app || app.isSample) return null;
 
-    const journeys = await ctx.db.query("journeys").withIndex("by_app", (q) => q.eq("appId", app._id)).take(MAX_CHECKS);
+    const journeys = await liveChecks(ctx, app._id, MAX_CHECKS);
     const checks: Infer<typeof vWatchedCheck>[] = await Promise.all(journeys.map(async (journey) => {
       const failing = await journeyFailing(ctx, app._id, journey);
       // A practice project's app is turtl's own: it is never shown as not answering (protectedApp/notAnswering.ts).
-      const quiet = !app.practice && isNotAnswering(journey) && journey.unanswered ? { since: journey.unanswered.since, tries: journey.unanswered.count } : null;
+      const quiet = !app.practice && isNotAnswering(journey) && journey.unanswered
+        ? { since: journey.unanswered.since, tries: journey.unanswered.count, ...(journey.unanswered.latest.kind === "not_ready" && { notReady: true }) }
+        : null;
       return {
         id: journey._id as string,
-        kind: "journey" as const,
+        // A health or readiness check turtl sends as a GET each round says which it is; the rest are journey checks.
+        kind: probeOf(journey) ?? ("journey" as const),
         name: journey.name,
         state: failing.failing || quiet ? "failing" as const : journey.lastPassedAt === undefined ? "waiting" as const : "passing" as const,
         ...(journey.lastPassedAt !== undefined && { lastPassedAt: journey.lastPassedAt }),
@@ -104,7 +110,8 @@ export const forProject = query({
     const preparation = await preparationFor(ctx, app._id);
     let stage: "none" | "in_progress" | "done" | "unreadable" = "none";
     if (preparation) {
-      // The endpoints the preparation registered that are not journeys (those are listed above): health, readiness, flags.
+      // What the preparation's last check of the live app found that is not a check turtl runs (those are listed above):
+      // flags, and a health or readiness endpoint that did not answer then, each as it stood at that check.
       for (const check of preparation.registration?.checks ?? []) {
         if (check.journeyId || check.kind === "journey" || check.kind === "recovery_hook" || checks.length >= MAX_CHECKS) continue;
         checks.push({

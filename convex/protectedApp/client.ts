@@ -236,6 +236,41 @@ export async function runJourneyCheck(config: { url: string; credentialRef?: str
   };
 }
 
+/** The two probes a project's turtl.json can list beside its journey checks (convex/constants.ts, vProbe). */
+export type Probe = "health" | "readiness";
+
+/**
+ * What a probe got. A probe is a GET with no body, and it is read the same way when a project's checks are registered
+ * (convex/onboarding/prepare.ts) and each time the monitor sends it (convex/monitor.ts):
+ * - passed: a 200. For a health check the server answers; for a readiness check the app says it can serve customers.
+ * - not_ready: a readiness check only, a 503 with a JSON body: the app saying it is not ready to serve customers.
+ * - no_result: any other reply (its HTTP status). 500 or above is quiet, like no response; below 500 it is one turtl
+ *   cannot read (convex/protectedApp/notAnswering.ts, W1).
+ * - no_response and not_sent: as for a journey check.
+ * A probe never carries a verdict, so nothing here opens an ordinary case.
+ */
+export type ProbeOutcome =
+  | { kind: "passed"; durationMs: number }
+  | { kind: "not_ready"; reason: string }
+  | { kind: "not_sent"; reason: string }
+  | { kind: "no_response"; timedOut: boolean; reason: string }
+  | { kind: "no_result"; status: number; reason: string };
+
+export function readProbe(probe: Probe, response: CallResult): ProbeOutcome {
+  if (response.kind === "not_sent") return { kind: "not_sent", reason: response.reason };
+  if (response.kind === "no_response") return { kind: "no_response", timedOut: response.timedOut === true, reason: response.reason };
+  if (response.status === 200) return { kind: "passed", durationMs: response.durationMs };
+  if (probe === "readiness" && response.status === 503 && typeof response.body === "object" && response.body !== null) {
+    return { kind: "not_ready", reason: "the app said it is not ready to serve customers (HTTP 503)" };
+  }
+  return { kind: "no_result", status: response.status, reason: `the ${probe} check returned ${describeFailure(response)}` };
+}
+
+// GET the health or readiness endpoint, with the project's token only when the check names it.
+export async function runProbe(config: { url: string; credentialRef?: string; probe: Probe }, app: WatchedApp): Promise<ProbeOutcome> {
+  return readProbe(config.probe, await call(config.url, { app, credentialRef: config.credentialRef }));
+}
+
 // The owner reads these two on the case. The error code is kept as a fact (journey.errorCode, gather_context), the
 // revision on the evidence row, and the run id is the app's own record of its test booking, so none is written here.
 export function describeJourney(result: JourneyResult) {

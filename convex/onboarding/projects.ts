@@ -237,7 +237,8 @@ export const merge = action({
   },
 });
 
-// Checks the live app again and registers what answers, from the merged commit.
+// Checks the live app again from turtl.json as it is now on the preparation's branch: registers what answers, and
+// retires a check the file no longer lists (prepare.ts, register).
 export const checkAgain = mutation({
   args: { projectId: v.string(), passcode: v.optional(v.string()) },
   handler: async (ctx, { projectId, passcode }) => {
@@ -252,7 +253,7 @@ export const checkAgain = mutation({
       throw new ConvexError(`turtl checked your live app less than ${CHECK_AGAIN_EVERY_MS / 60_000} minutes ago. Try again in a minute or two.`);
     }
     await ctx.db.patch(preparation._id, { registration: { ...(preparation.registration ?? { checks: [] }), status: "checking", ...(accessEnforced() && { requestedAt: now }) } });
-    await ctx.scheduler.runAfter(0, internal.onboarding.prepare.register, { preparationId: preparation._id });
+    await ctx.scheduler.runAfter(0, internal.onboarding.prepare.register, { preparationId: preparation._id, latest: true });
     // The owner asked: the monitor checks the project at its next tick and every minute after, even if it had spaced
     // its checks out while the app kept failing the same way.
     await checkSoon(ctx, preparation.appId);

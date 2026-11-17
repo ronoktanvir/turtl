@@ -86,6 +86,9 @@ function overviewQuery({ visible = true } = {}) {
     "../onboarding/stage": load("../convex/onboarding/stage.ts", {}),
     // Whether a check is not answering, from the real module (tests/not-answering.test.mjs covers what it decides).
     "../protectedApp/notAnswering": { isNotAnswering: createLoader()("convex/protectedApp/notAnswering.ts").isNotAnswering },
+    // Which of a project's checks turtl still runs, and which of them are probes, from the real module too
+    // (tests/watched-checks.test.mjs covers both).
+    "../protectedApp/watching": (({ liveChecks, probeOf }) => ({ liveChecks, probeOf }))(createLoader()("convex/protectedApp/watching.ts")),
   }).forProject;
 }
 

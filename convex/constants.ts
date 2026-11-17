@@ -282,11 +282,15 @@ export const vCondition = v.object({
   value: vParameterValue,
 });
 
+/** The two probes a project's turtl.json can list beside its journey checks. */
+export const vProbe = v.union(v.literal("health"), v.literal("readiness"));
 // What the latest of a check's tries in a row with no usable answer got: no response at all (it timed out, or the
-// connection failed), or a reply with no check result (its HTTP status).
+// connection failed), a reply with no check result (its HTTP status), or, from a readiness check only, the app saying
+// it is not ready to serve customers (a 503 with a body).
 export const vUnansweredTry = v.union(
   v.object({ kind: v.literal("no_response"), timedOut: v.boolean() }),
   v.object({ kind: v.literal("no_result"), status: v.number() }),
+  v.object({ kind: v.literal("not_ready") }),
 );
 // A check's run of monitor tries in a row that got no usable answer (convex/protectedApp/notAnswering.ts): how many,
 // when the first and the latest were made, and what the latest got. Absent when the last monitor try got a usable reply.
@@ -317,6 +321,15 @@ export const vJourney = v.object({
   unanswered: v.optional(vUnanswered),
   // Set on a prevention check registered from a structural finding (convex/structural).
   preventionFindingId: v.optional(v.id("structuralFindings")),
+  // Which probe this is, on a check turtl sends as a GET rather than as a journey check (convex/protectedApp/client.ts,
+  // runProbe): a health check passes on a 200, a readiness check says "not ready" with a 503 that has a body. Written
+  // by registration (convex/onboarding/prepare.ts). A GET check from before it was kept has none and is read as health.
+  probe: v.optional(vProbe),
+  // When registration retired it, because the project's turtl.json no longer lists it (convex/onboarding/records.ts).
+  // A retired check is not sent, not shown and not counted; the row is kept because cases and verifications point at
+  // it, and listing the check again revives it. Read a project's checks through by_app_and_retired (liveChecks in
+  // convex/protectedApp/watching.ts), which leaves these out.
+  retiredAt: v.optional(v.number()),
 });
 
 export const vActionCatalogEntry = v.object({

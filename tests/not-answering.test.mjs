@@ -102,15 +102,17 @@ async function project(w, owner, host, checks = 1, { passed = true } = {}) {
 
 /**
  * A health and a readiness endpoint registered as journeys beside a project's real checks, exactly as onboarding's
- * register writes them (convex/onboarding/prepare.ts, checkLive): a GET check, passed at registration from its 200.
- * The monitor runs every journey with the booking journey contract, so these two never return a check result.
+ * register writes them (convex/onboarding/prepare.ts, checkLive): a GET check that says which probe it is, passed at
+ * registration from its 200. The monitor sends each as a GET and reads a 200 as a pass (tests/watched-checks.test.mjs).
+ * Beside a journey check that has passed they are recorded and shown, and count for nothing in the not-answering case,
+ * which is what the tests below hold.
  */
 async function healthAndReadiness(w, appId, host) {
-  for (const [name, path] of [["Health", "/health"], ["Ready to serve", "/ready"]]) {
-    await w.db.insert("journeys", { appId, name, description: ".", checkVersion: "journey-check-v1:abc123", check: { kind: "http", config: { url: `https://${host}${path}`, method: "GET", expectedStatus: 200 } }, lastPassedAt: START - HOUR });
+  for (const [name, path, probe] of [["Health", "/health", "health"], ["Ready to serve", "/ready", "readiness"]]) {
+    await w.db.insert("journeys", { appId, name, description: ".", checkVersion: "onboarding-manifest-v1:abc123", check: { kind: "http", config: { url: `https://${host}${path}`, method: "GET", expectedStatus: 200 } }, probe, lastPassedAt: START - HOUR });
   }
 }
-/** What a health or readiness endpoint answers turtl's journey check: 200, and no check result. */
+/** What a health or readiness endpoint answers: 200, and nothing that looks like a check result. */
 const healthReply = () => json({ ok: true, service: "shop" });
 
 const RUNS = ["internal.monitor.checkProject", "internal.notices.notifyOwner", "internal.protectedApp.notAnswering.stopped"];
@@ -1030,7 +1032,7 @@ function settleCalls(w) {
   return calls;
 }
 
-test("never passed: health and readiness journeys that reply 200 with no result keep no count and open nothing, however many rounds; the turn settles nothing", async (t) => {
+test("health and readiness checks that answer 200 pass each round, keep no count and open nothing, however many rounds; the turn settles nothing", async (t) => {
   const w = world(t);
   network(t, (host) => (host === "shop.example" ? (target) => (target.pathname === "/health" || target.pathname === "/ready" ? healthReply() : json(passed)) : null));
   const ada = await w.db.insert("users", { email: "ada@example.com" });
@@ -1043,13 +1045,13 @@ test("never passed: health and readiness journeys that reply 200 with no result 
   assert.deepEqual([notAnswering(w), events(w), pushes(w)], [[], [], []]);
   assert.deepEqual(calls, [], "no round reached the not-answering decision");
   assert.deepEqual(w.reads.filter(([table]) => table === "cases"), [], "and no case was read");
-  // The overview shows them as before: passing since their registration, never "not answering".
+  // The overview shows them passing, as of the latest round and not as of their registration, never "not answering".
   const shown = await overview(w, appId, ada);
   assert.deepEqual(shown.map((check) => [check.name, check.state, check.notAnswering]), [["Check 0", "passing", undefined], ["Health", "passing", undefined], ["Ready to serve", "passing", undefined]]);
-  assert.equal(shown[1].lastPassedAt, START - HOUR);
+  assert.deepEqual([shown[1].lastPassedAt, shown[2].lastPassedAt], [at(179), at(179)]);
 });
 
-test("never passed: when the app goes down only the real check counts, and the case names it alone; when the app is back it closes with its checks passing", async (t) => {
+test("when the app goes down only the journey check decides, and the case names it alone; when the app is back it closes with its checks passing", async (t) => {
   const w = world(t);
   let up = true;
   network(t, (host) => (host === "shop.example" ? (target) => (!up ? down() : target.pathname === "/health" || target.pathname === "/ready" ? healthReply() : json(passed)) : null));
@@ -1064,7 +1066,8 @@ test("never passed: when the app goes down only the real check counts, and the c
   assert.equal(opened.status, "waiting_for_app");
   assert.equal(opened.impact, 'At least three tries in a row of the "Check 0" check got no usable answer: turtl could not connect to the app.');
   assert.ok(!/Health|Ready/.test(opened.impact), opened.impact);
-  assert.deepEqual(counts(w, appId), [3, 0, 0]);
+  // The health and readiness checks went quiet with it, and their counts are kept for the project to show.
+  assert.deepEqual(counts(w, appId), [3, 3, 3]);
   up = true;
   await minutes(t, w, 8, 60);
   assert.deepEqual(notAnswering(w).map((row) => row.status), ["resolved"], "closed, and never opened again");
@@ -1095,11 +1098,13 @@ test("never passed: the end of a round ignores a try of a check that cannot stop
   const tries = w.rows("journeys").map((journey) => ({ journeyId: journey._id, at: at(0), got: { kind: "no_result", status: 200 } }));
   for (let n = 0; n < 4; n++) await w.run("internal.protectedApp.notAnswering.settle", { appId, tries: tries.map((one) => ({ ...one, at: at(n) })) });
   assert.deepEqual([counts(w, appId), notAnswering(w)], [[0, 0, 0], []]);
-  // Counts such a check has on record (from before this rule) are not "not answering", and go at the next round.
-  const [, health] = w.rows("journeys");
-  await w.db.patch(health._id, { unanswered: { count: 9, since: at(-20), at: at(-1), latest: { kind: "no_result", status: 200 } } });
-  assert.equal((await overview(w, appId, ada))[1].notAnswering, undefined);
-  assert.equal(await w.run("internal.protectedApp.notAnswering.open", { appId, ran: [health._id], turtl: "reachable" }), null);
+  // Counts a check that has never passed has on record (from before this rule) are not "not answering", and go at the
+  // next round.
+  const [never] = w.rows("journeys");
+  assert.equal(never.lastPassedAt, undefined);
+  await w.db.patch(never._id, { unanswered: { count: 9, since: at(-20), at: at(-1), latest: { kind: "no_result", status: 502 } } });
+  assert.equal((await overview(w, appId, ada))[0].notAnswering, undefined);
+  assert.equal(await w.run("internal.protectedApp.notAnswering.open", { appId, ran: [never._id], turtl: "reachable" }), null);
   await w.run("internal.protectedApp.notAnswering.settle", { appId, tries: [] });
   assert.deepEqual(counts(w, appId), [0, 0, 0]);
 });
@@ -1252,17 +1257,24 @@ test("W3, G2: with a case open and no countable check readable in the round (the
   await w.run("api.secrets.project.removeControlToken", { projectId: appId }, ada);
   const calls = settleCalls(w);
   await minutes(t, w, 6, 30);
-  // Only the health and readiness checks run now, and they cannot stop answering: turtl can no longer tell.
+  // Only the health and readiness checks run now, and this project is decided by its journey checks: turtl can no
+  // longer tell.
   const [closed] = notAnswering(w);
   assert.equal(closed.status, "unresolved");
   assert.equal(closingOf(w, closed._id).summary, CANNOT_TELL);
   assert.deepEqual({ answered: closingOf(w, closed._id).output.answered, allPassed: closingOf(w, closed._id).output.allPassed }, { answered: false, allPassed: false });
   assert.equal(appRow(w, appId).notAnsweringCase, undefined, "and the project no longer records it");
-  assert.deepEqual(calls.map((args) => args.tries.length), [2], "settled once, with the health and readiness tries as evidence");
+  // The app is still down, so the health and readiness checks are quiet: each round settles their counts, which the
+  // project shows, and opens nothing on them.
+  assert.ok(calls.length >= 1 && calls.every((args) => args.tries.length === 2), "settled with the health and readiness tries");
+  assert.deepEqual([notAnswering(w).length, counts(w, appId).slice(2).every((count) => count >= 3)], [1, true]);
   appDown = false;
-  await minutes(t, w, 30, 90);
-  assert.equal(calls.length, 1, "with nothing open, counted or quiet, a round settles nothing again");
-  assert.deepEqual(events(w), ["not_answering"], "no 'answering again'");
+  await minutes(t, w, 30, 60);
+  const settledBy = calls.length;
+  assert.deepEqual(counts(w, appId), [0, 0, 0, 0]);
+  await minutes(t, w, 60, 120);
+  assert.equal(calls.length, settledBy, "with nothing open, counted or quiet, a round settles nothing again");
+  assert.deepEqual([notAnswering(w).length, events(w)], [1, ["not_answering"]], "no new case and no 'answering again'");
 });
 
 test("V5, G2: with no check left to run at all (the control token removed, no health check), the case closes as turtl having stopped checking", async (t) => {
