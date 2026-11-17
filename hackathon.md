@@ -397,3 +397,6 @@ After a second review pass found the fixes sound, said which branch Check again 
 
 ### 2026-11-17 - 3f67039
 Said all of it in the documents, with what it gives up (a probe-only project is not told while something in front of the app answers its health route, and is told when the health route itself errors; beside journey checks a quiet probe only shows on the project), and pinned the App Store pack's audit to `75b654f`.
+
+### 2026-11-17 - 4e03dc1
+Merged main's counts and loading shapes (ronoktanvir/turtl#67) into the branch and pinned the App Store pack's audit to `125de30`, the merge, so every code reference matches the branch as it stands.
