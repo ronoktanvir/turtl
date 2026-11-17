@@ -295,7 +295,7 @@ export async function checkLive(base: string, manifest: ReturnType<typeof parseM
 // again, reads it as it is now, at the head of the branch the preparation merged into: that is how a check the owner
 // took out of the file, or added to it, reaches turtl. If that commit cannot be read, nothing is checked and nothing
 // changes: it never falls back to an older commit, whose list would bring retired checks back. If the branch itself is
-// gone (renamed or deleted since), it reads the repository's default branch. `startedAt` says which request this run
+// gone (renamed or deleted since), it reads the repository's default branch, and the registration's note says so. `startedAt` says which request this run
 // answers: one that ends after a newer request was started writes nothing, so a slow run cannot put an older list back
 // (records.ts, current). `ref` lets an operator check a commit from the CLI, and such a run always writes.
 export const register = internalAction({
@@ -316,6 +316,8 @@ export const register = internalAction({
     const path = manifestPath(inspection?.folders ?? []);
     const access = await repositoryAccess(ctx, preparation.repo, { appId: preparation.appId });
     if (!access.ok) return fail(`${access.message} Nothing was registered.`);
+    // Said to the owner under Works now when the file was read on another branch than the preparation's.
+    let branchNote: string | undefined;
     if (latest && !requested) {
       const branch = preparation.baseBranch ?? inspection?.defaultBranch ?? "main";
       const head = await headCommit(preparation.repo, branch, access.token);
@@ -325,6 +327,7 @@ export const register = internalAction({
           : `turtl could not read the latest commit on ${branch} in ${preparation.repo}, so it checked nothing and changed nothing. Try again in a few minutes.`);
       }
       ref = head.sha;
+      if (head.branch !== branch) branchNote = `turtl read ${path} on ${head.branch}, the default branch of ${preparation.repo}, because the branch ${branch} is no longer there.`;
     }
     if (!ref) return fail(unknownCommit);
     const text = await readRaw(preparation.repo, ref, path, access.token);
@@ -333,7 +336,8 @@ export const register = internalAction({
     if (!manifest.ok) return fail(`${manifest.reason} Nothing was registered.`);
     const checks = await checkLive(app.productionUrl.replace(/\/+$/, ""), manifest, ref, await watchedApp(ctx, { appId: app._id }));
     if (checks.length === 0) return fail(`${path} lists no endpoint, so nothing was checked or registered.`);
-    await ctx.runMutation(internal.onboarding.records.register, { id: preparationId, ref, checks, ...(manifest.note && { note: manifest.note }), ...(startedAt !== undefined && { startedAt }) });
+    const note = [branchNote, manifest.note].filter((one): one is string => Boolean(one)).join(" ");
+    await ctx.runMutation(internal.onboarding.records.register, { id: preparationId, ref, checks, ...(note && { note }), ...(startedAt !== undefined && { startedAt }) });
     return { outcome: "registered" as const, checks: checks.map((check) => `${check.result.kind} ${check.result.name}: ${check.result.state}`) };
   },
 });

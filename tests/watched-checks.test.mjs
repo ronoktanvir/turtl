@@ -540,7 +540,9 @@ const manifestOf = (journeys, extra = {}) => JSON.stringify({ version: 1, journe
 async function prepared(t, w, files) {
   // `head`: the latest commit on main, the branch the preparation merged into. `mainGone`: that branch no longer
   // exists (renamed or deleted). `defaultBranch` and `others`: the repository's default branch, and other branches' heads.
-  const repo = { head: MERGE, files: { ...files }, githubDown: false, mainGone: false, defaultBranch: "main", others: {} };
+  // `branchError`: GitHub answers the read of main with a server error, though the rest of it works. `goneStatus`: what
+  // GitHub answers for a branch that is not there (404, or 422 "No commit found").
+  const repo = { head: MERGE, files: { ...files }, githubDown: false, mainGone: false, defaultBranch: "main", others: {}, branchError: false, goneStatus: 404 };
   const app = { answer: (target) => (target.pathname.endsWith("/journey-check") ? json(passed) : healthy()) };
   const sent = network(t, (host) => {
     if (host === "api.github.com") return (target) => {
@@ -548,8 +550,9 @@ async function prepared(t, w, files) {
       if (target.pathname === "/repos/o/shop") return json({ default_branch: repo.defaultBranch });
       const branch = target.pathname.match(/^\/repos\/o\/shop\/commits\/(.+)$/)?.[1];
       const name = branch === undefined ? undefined : decodeURIComponent(branch);
+      if (name === "main" && repo.branchError) return json({ message: "Server Error" }, 502);
       const sha = name === "main" ? (repo.mainGone ? undefined : repo.head) : repo.others[name];
-      return sha ? json({ sha }) : json({ message: "Not Found" }, 404);
+      return sha ? json({ sha }) : json({ message: repo.goneStatus === 422 ? "No commit found for SHA: " + name : "Not Found" }, repo.goneStatus);
     };
     if (host === "raw.githubusercontent.com") return (target) => {
       const [, , , sha, ...path] = target.pathname.split("/");
@@ -1122,6 +1125,8 @@ test("N7, T8: when the preparation's branch is gone, Check again reads the repos
   p.repo.others.trunk = HEAD_2;
   await p.checkAgain();
   assert.deepEqual([(await p.registration()).status, (await p.registration()).ref, p.live()], ["done", HEAD_2, ["Book"]]);
+  // S2: the owner is told which branch was read, beside what was retired.
+  assert.equal((await p.registration()).note, 'turtl read turtl.json on trunk, the default branch of o/shop, because the branch main is no longer there. turtl stopped checking "Cancel": turtl.json no longer lists it.');
   // No branch can be read at all: nothing is checked and nothing changes.
   p.repo.others = {};
   const mark = p.sent.length;
@@ -1191,4 +1196,66 @@ test("P6, N9: a journey project whose journey checks wait for a control token is
     const rounds = sent.filter((request) => request.path === "/pay/journey-check").length;
     assert.ok(rounds <= 12, `the passing health check did not put it back to every minute (${rounds} rounds in an hour)`);
   });
+});
+
+// ---- After the second review pass (S1 to S6, and the four mutations it left standing).
+
+test("N7: only a branch that is gone sends Check again to the default branch: a 422 counts as gone, and GitHub not answering does not", async (t) => {
+  await t.test("GitHub answers 422 for the missing branch", async (t) => {
+    const w = world(t);
+    const p = await prepared(t, w, { [MERGE]: manifestOf(["Book", "Cancel"]), [HEAD_2]: manifestOf(["Book"]) });
+    await p.afterMerge();
+    Object.assign(p.repo, { mainGone: true, goneStatus: 422, defaultBranch: "trunk", others: { trunk: HEAD_2 } });
+    await p.checkAgain();
+    assert.deepEqual([(await p.registration()).status, (await p.registration()).ref, p.live()], ["done", HEAD_2, ["Book"]]);
+  });
+  await t.test("GitHub does not answer for the branch, though another branch could be read", async (t) => {
+    const w = world(t);
+    const p = await prepared(t, w, { [MERGE]: manifestOf(["Book", "Cancel"]), [HEAD_2]: manifestOf(["Book"]) });
+    await p.afterMerge();
+    // main is still there; GitHub just fails to read it. trunk, the default branch, lists fewer checks.
+    Object.assign(p.repo, { branchError: true, defaultBranch: "trunk", others: { trunk: HEAD_2 } });
+    await p.checkAgain();
+    const registration = await p.registration();
+    assert.deepEqual([registration.status, p.live()], ["failed", ["Book", "Cancel"]], "nothing was read from the other branch, and nothing retired");
+    assert.equal(registration.error, "turtl could not read the latest commit on main in o/shop, so it checked nothing and changed nothing. Try again in a few minutes.");
+    assert.ok(!p.sent.some((request) => request.path === "/repos/o/shop/commits/trunk"));
+  });
+});
+
+test("N2: the registration the merge starts names its start too, so a Check again made before it ends is the one that stands", async (t) => {
+  const w = world(t);
+  const p = await prepared(t, w, { [MERGE]: manifestOf(["Book", "Cancel"]), [HEAD_2]: manifestOf(["Book"]) });
+  // The preparation's pull request is seen merged: this starts the registration.
+  await w.db.patch(p.preparationId, { mergedAt: undefined, settledAt: undefined, number: 7 });
+  t.mock.timers.setTime(at(0));
+  const snapshot = { title: "Prepare", url: "https://github.com/o/shop/pull/7", headSha: MERGE, state: "merged", checks: "passing", checkRuns: [], mergeable: false, mergeableState: "merged" };
+  await w.run("internal.onboarding.records.applySnapshot", { id: p.preparationId, snapshot, mergeCommitSha: MERGE });
+  const [afterMerge] = w.scheduled.splice(w.scheduled.findIndex((job) => job.path === "internal.onboarding.prepare.register"), 1);
+  assert.deepEqual([afterMerge.args.startedAt, (await p.registration()).startedAt, (await p.registration()).status], [at(0), at(0), "checking"]);
+  // The owner takes Cancel out and taps Check again before the merge's registration has ended.
+  p.repo.head = HEAD_2;
+  t.mock.timers.setTime(at(1));
+  await p.checkAgain();
+  assert.deepEqual([p.live(), (await p.registration()).ref, (await p.registration()).startedAt], [["Book"], HEAD_2, at(1)]);
+  // The merge's registration ends now, with the merge commit's list: it writes nothing.
+  await w.run(afterMerge.path, afterMerge.args);
+  assert.deepEqual([p.live(), (await p.registration()).ref], [["Book"], HEAD_2]);
+});
+
+test("N2: only the request the project is waiting for writes: a run that names any other start, earlier or later, writes nothing", async (t) => {
+  const w = world(t);
+  network(t, () => null);
+  const { appId } = await shop(w);
+  const preparationId = await w.db.insert("onboardingPreparations", { appId, neverBreak: [], repo: "o/shop", mergedAt: 2, settledAt: 2, registration: { status: "checking", checks: [], startedAt: at(5) } });
+  const config = { url: `https://${HOST}/journey-check`, method: "POST", expectedStatus: 200 };
+  const checks = [{ result: { kind: "journey", name: "Book", url: config.url, state: "works", detail: ".", checkedAt: at(5) }, journey: { name: "Book", description: ".", check: { kind: "http", config }, checkVersion: "onboarding-manifest-v1:aaa" }, passedAt: at(5) }];
+  const status = async () => [(await w.db.get(preparationId)).registration.status, w.rows("journeys").length];
+  for (const startedAt of [at(4), at(9)]) {
+    await w.run("internal.onboarding.records.register", { id: preparationId, ref: "aaa", checks, startedAt });
+    await w.run("internal.onboarding.records.failRegistration", { id: preparationId, error: "It failed.", startedAt });
+    assert.deepEqual(await status(), ["checking", 0], `a run started at minute ${(startedAt - START) / MINUTE}`);
+  }
+  await w.run("internal.onboarding.records.register", { id: preparationId, ref: "aaa", checks, startedAt: at(5) });
+  assert.deepEqual([...(await status()), (await w.db.get(preparationId)).registration.startedAt], ["done", 1, at(5)]);
 });
